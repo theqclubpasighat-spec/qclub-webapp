@@ -1617,124 +1617,152 @@ function HallOfFame({ data, admin, commit }) {
 function AudioDock({ src = "/music.mp3", title = "Q Club Anthem" }) {
   const KEY_ENABLED = "qclub_music_enabled";
   const KEY_VOL = "qclub_music_volume";
+  const KEY_OPEN = "qclub_music_open";
   const audioRef = React.useRef(null);
+
+  const [open, setOpen] = React.useState(() => {
+    try {
+      const v = localStorage.getItem(KEY_OPEN);
+      return v === null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
 
   const [enabled, setEnabled] = React.useState(() => {
     try { return localStorage.getItem(KEY_ENABLED) === "1"; } catch { return false; }
   });
+
   const [playing, setPlaying] = React.useState(false);
+
   const [volume, setVolume] = React.useState(() => {
     try {
       const v = Number(localStorage.getItem(KEY_VOL));
       return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.6;
-    } catch { return 0.6; }
+    } catch {
+      return 0.6;
+    }
   });
+
   const [hint, setHint] = React.useState("");
 
+  // Persist prefs
+  React.useEffect(() => {
+    try { localStorage.setItem(KEY_ENABLED, enabled ? "1" : "0"); } catch {}
+  }, [enabled]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem(KEY_VOL, String(volume)); } catch {}
+  }, [volume]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem(KEY_OPEN, open ? "1" : "0"); } catch {}
+  }, [open]);
+
+  // Keep element state in sync
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
     a.volume = volume;
-    try { localStorage.setItem(KEY_VOL, String(volume)); } catch {}
   }, [volume]);
 
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
-
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onEnded = () => setPlaying(false);
-
-    a.addEventListener("play", onPlay);
-    a.addEventListener("pause", onPause);
-    a.addEventListener("ended", onEnded);
-
-    return () => {
-      a.removeEventListener("play", onPlay);
-      a.removeEventListener("pause", onPause);
-      a.removeEventListener("ended", onEnded);
-    };
-  }, []);
-
-  // Configure audio, but do NOT call play() from an effect.
-  // Browsers allow audio.play() reliably only when it's directly triggered by a user gesture.
-  React.useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-
-    a.loop = true;
     if (!enabled) {
       a.pause();
-      try { a.currentTime = 0; } catch {}
-      setHint("");
+      setPlaying(false);
     }
-
-    try { localStorage.setItem(KEY_ENABLED, enabled ? "1" : "0"); } catch {}
   }, [enabled]);
 
-  async function togglePlay() {
+  async function tryPlay() {
     const a = audioRef.current;
     if (!a) return;
-
-    setHint("");
-
-    // First tap enables + starts playback immediately (same click gesture)
-    if (!enabled) {
-      setEnabled(true);
-      try {
-        a.load();
-        await a.play();
-      } catch {
-        setHint("Tap ▶ once more (browser blocked audio)");
-      }
-      return;
-    }
-
-    if (playing) {
-      a.pause();
-      return;
-    }
-
     try {
       await a.play();
-    } catch {
-      setHint("Tap ▶ once more (browser blocked audio)");
+      setPlaying(true);
+      setHint("");
+    } catch (e) {
+      // Mobile browsers may block audio sometimes — show a helpful hint.
+      setPlaying(false);
+      setHint("If audio doesn’t start, tap anywhere once and press Play again.");
+      console.log("Audio play blocked:", e);
     }
   }
 
-  return (
-    <div className="musicDock" role="region" aria-label="Music player">
-      <audio ref={audioRef} src={src} preload="auto" />
-      <button className={"btn " + (playing ? "danger" : "primary")} onClick={togglePlay}>
-        {playing ? "⏸" : "▶"}
-      </button>
+  function closeDock() {
+    const a = audioRef.current;
+    if (a) a.pause();
+    setEnabled(false);
+    setPlaying(false);
+    setOpen(false);
+    setHint("");
+  }
 
-      <div className="musicMeta">
-        <div className="musicTitle">{title}</div>
-        <div className="musicSub muted">
-          {hint || (enabled ? (playing ? "Playing" : "Paused") : "Tap ▶ to play")}
+  // When closed, show a tiny reopen button (does NOT cover the whole screen)
+  if (!open) {
+    return (
+      <button
+        className="musicReopen"
+        onClick={() => { setOpen(true); }}
+        title="Open music player"
+        aria-label="Open music player"
+      >
+        ♫
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <div className="musicDock" role="region" aria-label="Music player">
+        <audio ref={audioRef} src={src} preload="metadata" />
+
+        <button
+          className="musicBtn"
+          onClick={async () => {
+            if (playing) {
+              audioRef.current?.pause();
+              setPlaying(false);
+              setEnabled(false);
+              setHint("");
+              return;
+            }
+            setEnabled(true);
+            setHint("Tap ▶ to play. (Mobile may block if no user gesture.)");
+            await tryPlay();
+          }}
+          aria-label={playing ? "Pause music" : "Play music"}
+          title={playing ? "Pause" : "Play"}
+        >
+          {playing ? "❚❚" : "▶"}
+        </button>
+
+        <div className="musicMeta">
+          <div className="musicTitle">{title}</div>
+          <div className="musicSub">{playing ? "Playing" : (enabled ? "Ready" : "Tap ▶ to play")}</div>
         </div>
+
+        <input
+          className="musicVol"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={volume}
+          onChange={(e) => setVolume(Number(e.target.value))}
+          aria-label="Volume"
+        />
+
+        <button className="musicClose" onClick={closeDock} aria-label="Close music player" title="Close">
+          ×
+        </button>
       </div>
 
-      <input
-        className="musicVol"
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        value={volume}
-        onChange={(e) => setVolume(Number(e.target.value))}
-        aria-label="Volume"
-      />
-
-      <button className="btn" onClick={() => setEnabled(false)} title="Stop music">
-        ✕
-      </button>
-    </div>
+      {hint ? <div className="musicHint">{hint}</div> : null}
+    </>
   );
 }
-
 function NotFound() {
   return (
     <div className="container">
