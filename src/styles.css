@@ -286,7 +286,8 @@ select{ padding-right: 30px; }
   .container { padding: 14px; padding-bottom: 90px; }
   .nav-inner { flex-wrap: nowrap; }
   .nav-links { display: none; }
-  .btn.icon { display: inline-flex; }
+  /* On mobile we use BottomNav + Home quick buttons, so hide the drawer hamburger */
+  .btn.icon { display: none; }
   .payGrid { grid-template-columns: 1fr; }
   .bottomNav { display:flex; }
   table { display:block; overflow-x:auto; white-space:nowrap; }
@@ -330,7 +331,8 @@ select{ padding-right: 30px; }
 }
 
 @media (max-width: 520px){
-  .musicDock{ left: 12px; right: 12px; bottom: 12px; }
+  /* Keep music dock small and at the top-right (don't cover content) */
+  .musicDock{ left: auto; right: 12px; top: 64px; bottom: auto; border-radius: 999px; max-width: min(320px, calc(100vw - 24px)); }
   .musicMeta{ max-width: 160px; }
   .musicVol{ width: 90px; }
 }
@@ -382,11 +384,11 @@ select{ padding-right: 30px; }
   .musicDock{
     top: 64px;
     right: 10px;
-    left: 10px;
+    left: auto;
     width: auto;
-    max-width: none;
+    max-width: min(320px, calc(100vw - 20px));
     padding: 8px 10px;
-    border-radius: 16px;
+    border-radius: 999px;
     gap: 8px;
   }
   .musicVol{ display:none; }
@@ -396,4 +398,22 @@ select{ padding-right: 30px; }
   .musicBtn{ width: 38px; height: 38px; border-radius: 14px; }
   .musicReopen{ top: 64px; }
   .musicHint{ top: 110px; }
+}
+
+/* ---------------------------
+   Home: Quick buttons (mobile-first)
+---------------------------- */
+.quickGrid{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.quickBtn{
+  display:flex; align-items:center; justify-content:center;
+  padding: 12px; border-radius: 14px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  color: rgba(255,255,255,.92);
+  text-decoration:none;
+  font-weight: 800;
+}
+.quickBtn:active{ transform: translateY(1px); }
+@media (min-width: 921px){
+  .quickGrid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

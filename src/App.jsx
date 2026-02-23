@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
 
@@ -361,7 +361,8 @@ export default function App() {
         <Route path="/fixtures" element={<Fixtures data={data} isAdminUI={isAdminUI} commit={commit} />} />
         <Route path="/leaderboard" element={<Leaderboard data={data} activeTournament={activeTournament} playersForActive={playersForActive} />} />
         <Route path="/booking" element={<Booking data={data} admin={isAdminUI} commit={commit} />} />
-        <Route path="/pay" element={<Pay data={data} admin={isAdminUI} commit={commit} />} />
+        {/* Back-compat: old /pay links redirect into the single Booking experience */}
+        <Route path="/pay" element={<PayRedirect />} />
         <Route path="/halloffame" element={<HallOfFame data={data} activeTournament={activeTournament} playersForActive={playersForActive} isAdminUI={isAdminUI} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} playersForActive={playersForActive} />} />
         <Route path="*" element={<NotFound />} />
@@ -377,6 +378,8 @@ export default function App() {
 function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
   const [open, setOpen] = useState(false);
 
+  // Customer flow: Book Tables → (internally redirects to Pay screen).
+  // We keep the /pay route for the flow, but don't show a separate Pay tab.
   const links = [
     { to: "/", label: "Home" },
     { to: "/membership", label: "Membership" },
@@ -386,8 +389,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
     { to: "/tournaments", label: "Tournaments" },
     { to: "/fixtures", label: "Fixtures" },
     { to: "/leaderboard", label: "Leaderboard" },
-    { to: "/booking", label: "Booking" },
-    { to: "/pay", label: "Pay" },
+    { to: "/booking", label: "Book Tables" },
     { to: "/halloffame", label: "Hall of Fame" },
     { to: "/tv", label: "TV" },
   ];
@@ -525,6 +527,24 @@ function Home({ data, activeTournament, isAdminUI, commit }) {
             <span className="badge"><span className="dot" /> TV mode</span>
             <span className="badge"><span className="dot warn" /> Public mode toggle</span>
           </div>
+
+          <div className="hr" />
+          <h2>Quick Buttons</h2>
+          <div className="muted" style={{ marginBottom: 10 }}>
+            Made for phone users — no confusing menu.
+          </div>
+          <div className="quickGrid">
+            <Link className="quickBtn" to="/booking">Book Tables</Link>
+            <Link className="quickBtn" to="/leaderboard">Leaderboard</Link>
+            <Link className="quickBtn" to="/players">Players</Link>
+            <Link className="quickBtn" to="/tournaments">Tournaments</Link>
+            <Link className="quickBtn" to="/fixtures">Fixtures</Link>
+            <Link className="quickBtn" to="/membership">Membership</Link>
+            <Link className="quickBtn" to="/offers">Offers</Link>
+            <Link className="quickBtn" to="/photos">Photos</Link>
+            <Link className="quickBtn" to="/halloffame">Hall of Fame</Link>
+            <Link className="quickBtn" to="/tv">TV Mode</Link>
+          </div>
         </div>
 
         <div className="card cols-4">
@@ -554,13 +574,15 @@ function Home({ data, activeTournament, isAdminUI, commit }) {
           </div>
         </div>
 
-        <div className="card cols-12">
-          <h2>How to run a monthly tournament</h2>
-          <div className="muted">
-            1) Add players → 2) Create tournament → 3) Generate fixtures → 4) Enter scores → 5) Leaderboard updates.
-            Then use Hall of Fame to save the top players for the month.
+        {isAdminUI && (
+          <div className="card cols-12">
+            <h2>How to run a monthly tournament</h2>
+            <div className="muted">
+              1) Add players → 2) Create tournament → 3) Generate fixtures → 4) Enter scores → 5) Leaderboard updates.
+              Then use Hall of Fame to save the top players for the month.
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -1129,9 +1151,18 @@ function Leaderboard({ data, activeTournament, playersForActive }) {
 ---------------------------- */
 function Booking({ data, admin, commit }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [payBid, setPayBid] = useState(null);
   const cfg = data.booking || {};
   const tables = cfg.tables || [];
   const bookings = cfg.bookings || [];
+
+  // If URL has ?bid=..., open payment panel inside Booking
+  useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    const bid = p.get("bid");
+    setPayBid(bid || null);
+  }, [location.search]);
 
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -1205,7 +1236,8 @@ function Booking({ data, admin, commit }) {
 
     localStorage.setItem("qclub_phone", myPhone);
     commit({ ...data, booking: { ...cfg, bookings: [booking, ...bookings] } });
-    navigate(`/pay?bid=${encodeURIComponent(id)}`);
+    // Single-tab flow: stay on Booking and open payment panel here
+    navigate(`/booking?bid=${encodeURIComponent(id)}`, { replace: true });
   }
 
   function setStatus(id, status) {
@@ -1216,12 +1248,17 @@ function Booking({ data, admin, commit }) {
     });
   }
 
+  function closePay() {
+    setPayBid(null);
+    navigate("/booking", { replace: true });
+  }
+
   return (
     <div className="container">
       <div className="grid">
         <div className="card cols-4">
           <h2>Book a Table</h2>
-          <div className="muted">Choose slot → Pay on next screen.</div>
+          <div className="muted">Choose slot → Pay below.</div>
 
           <div className="form" style={{ marginTop: 12 }}>
             <label className="lbl">Date</label>
@@ -1323,6 +1360,107 @@ function Booking({ data, admin, commit }) {
 
           <div className="muted" style={{ marginTop: 10 }}>
             Status: <b>hold</b> = reserved • <b>payment_submitted</b> = customer paid • <b>paid</b> = confirmed.
+          </div>
+        </div>
+      </div>
+
+      {payBid && (
+        <InlinePay data={data} admin={admin} commit={commit} bid={payBid} onClose={closePay} />
+      )}
+    </div>
+  );
+}
+
+function PayRedirect() {
+  const loc = useLocation();
+  const nav = useNavigate();
+  useEffect(() => {
+    const p = new URLSearchParams(loc.search);
+    const bid = p.get("bid");
+    nav(bid ? `/booking?bid=${encodeURIComponent(bid)}` : "/booking", { replace: true });
+  }, [loc.search, nav]);
+  return null;
+}
+
+function InlinePay({ data, admin, commit, bid, onClose }) {
+  const cfg = data.booking || defaultBookingConfig();
+  const bookings = cfg.bookings || [];
+  const b = bookings.find((x) => x.id === bid);
+  const tables = cfg.tables || [];
+  const club = data.club || {};
+
+  if (!b) {
+    return (
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="muted">Payment link not found.</div>
+      </div>
+    );
+  }
+
+  const t = tables.find((x) => x.id === b.tableId);
+  const amount = Number(b.amount || 0);
+
+  // Placeholder UPI details (we'll wire real verification after bank account is ready)
+  const vpa = (cfg.upi && cfg.upi.vpa) || "yomsoji-1@okicici";
+  const payeeName = (cfg.upi && cfg.upi.name) || (club.name || "The Q CLUB");
+  const note = `Q CLUB booking ${b.date} ${b.start}-${b.end} (${t?.label || b.tableId})`;
+  const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(String(amount))}&cu=INR&tn=${encodeURIComponent(note)}`;
+
+  function markSubmitted() {
+    // Customer says they paid (admin can confirm later)
+    if (b.status === "paid") return;
+    const nextStatus = "payment_submitted";
+    commit({
+      ...data,
+      booking: {
+        ...cfg,
+        bookings: bookings.map((x) => (x.id === b.id ? { ...x, status: nextStatus } : x)),
+      },
+    });
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h2 style={{ marginBottom: 4 }}>Pay for Booking</h2>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {b.date} • {b.start}-{b.end} • {t?.label || b.tableId}
+          </div>
+        </div>
+        {onClose && (
+          <button className="btn" onClick={onClose}>Close</button>
+        )}
+      </div>
+
+      <div className="grid" style={{ marginTop: 12 }}>
+        <div className="card cols-6">
+          <div className="muted">Amount</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>₹{amount}</div>
+          <div className="muted" style={{ marginTop: 10 }}>
+            Pay via UPI:
+            <div><b>{vpa}</b></div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <a className="btn primary" href={upiUrl} style={{ textDecoration: "none" }}>Open UPI App</a>
+          </div>
+
+          <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
+            After paying, tap “I have paid”. Admin will confirm during pilot.
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" onClick={markSubmitted}>I have paid</button>
+          </div>
+        </div>
+
+        <div className="card cols-6" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ textAlign: "center" }}>
+            <div className="muted" style={{ marginBottom: 10 }}>Scan QR in any UPI app</div>
+            <div style={{ background: "white", padding: 12, borderRadius: 14, display: "inline-block" }}>
+              <QRCodeCanvas value={upiUrl} size={200} />
+            </div>
           </div>
         </div>
       </div>
@@ -1512,7 +1650,6 @@ function BottomNav({ admin }) {
     <div className="bottomNav">
       <Link to="/" className="bn">Home</Link>
       <Link to="/booking" className="bn">Book</Link>
-      <Link to="/pay" className="bn">Pay</Link>
       <Link to="/leaderboard" className="bn">Board</Link>
       <Link to="/tv" className="bn">TV</Link>
       <span className={"bn tag " + (admin ? "on" : "off")}>{admin ? "Admin" : "Public"}</span>
