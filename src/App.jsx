@@ -764,7 +764,35 @@ function Offers({ data, isAdminUI, commit }) {
   }
 
   function remove(id) {
-    if (!confirm("Delete this offer?")) return;
+    function edit(id) {
+  const item = list.find(o => o.id === id);
+  if (!item) return;
+
+  const title = prompt("Edit title:", item.title);
+  if (title == null) return;
+
+  const price = prompt("Edit price:", item.price);
+  if (price == null) return;
+
+  const details = prompt("Edit details:", item.details || "");
+  if (details == null) return;
+
+  commit({
+    ...data,
+    offers: list.map(o =>
+      o.id === id ? { ...o, title, price, details } : o
+    )
+  });
+}
+    if (!confirm("Delete this offer?")) return;{isAdminUI && (
+  <button
+    className="btn"
+    onClick={() => edit(o.id)}
+    style={{ marginLeft: 8 }}
+  >
+    Edit
+  </button>
+)}
     commit({ ...data, offers: list.filter((x) => x.id !== id) });
   }
 
@@ -1809,6 +1837,8 @@ const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
   }
 
   return (
+    <>
+    <PageHeader title="Hall of Fame" />
     <div className="container">
       <div className="card">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -1851,6 +1881,7 @@ const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
         </div>
       </div>
     </div>
+    </> 
   );
 }
 
