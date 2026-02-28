@@ -1768,8 +1768,11 @@ function BottomNav({ admin }) {
 ---------------------------- */
 function HallOfFame({ data, admin, commit }) {
   const [query, setQuery] = useState("");
-  const players = data.players || [];
-  const hof = data.hallOfFame || [];
+  const playersRaw = data?.players ?? [];
+const hofRaw = data?.hallOfFame ?? [];
+
+const players = Array.isArray(playersRaw) ? playersRaw : Object.values(playersRaw || {});
+const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
 
   const byId = new Map(players.map((p) => [p.id, p]));
   const list = hof
