@@ -1,11 +1,22 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
+import {
+  cloudAvailable,
+  cloudLoadState,
+  cloudSaveState,
+  cloudSubscribeState,
+} from "./cloud";
 
 /* ---------------------------
    LocalStorage mini database
 ---------------------------- */
 const LS_KEY = "qclub_v3_data";
+
+function ensureMeta(d) {
+  const meta = d?.meta || {};
+  return { ...d, meta: { ...meta, updatedAt: meta.updatedAt || 0 } };
+}
 
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
@@ -22,6 +33,7 @@ function monthISO() {
 function defaultData() {
   const now = Date.now();
   return {
+    meta: { updatedAt: now },
     club: {
       name: "The Q CLUB",
       location: "Pasighat",
@@ -115,7 +127,7 @@ function defaultData() {
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return defaultData();
+    if (!raw) return ensureMeta(defaultData());
     const parsed = JSON.parse(raw);
     // soft migrations
     if (!parsed.ui) parsed.ui = { publicMode: false };
@@ -123,9 +135,9 @@ function loadData() {
     if (!parsed.payments) parsed.payments = { receipts: [] };
     if (!parsed.hallOfFame) parsed.hallOfFame = { months: [] };
     if (!parsed.club?.upiId) parsed.club.upiId = "yourupi@bank";
-    return parsed;
+    return ensureMeta(parsed);
   } catch {
-    return defaultData();
+    return ensureMeta(defaultData());
   }
 }
 
@@ -291,12 +303,90 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 ---------------------------- */
 export default function App() {
   const [data, setData] = useState(loadData());
+  const [cloudOn, setCloudOn] = useState(cloudAvailable);
+  const [cloudStatus, setCloudStatus] = useState(cloudAvailable ? 'Cloud: ON' : 'Cloud: OFF');
+  const [pushTimer, setPushTimer] = useState(null);
   const [admin, setAdmin] = useState(false);
   const navigate = useNavigate();
 
-  function commit(next) {
+  // 1) Load latest data from cloud on startup.
+  useEffect(() => {
+    if (!cloudOn) return;
+    let cancelled = false;
+    setCloudStatus('Cloud: syncing…');
+
+    (async () => {
+      try {
+        const remote = await cloudLoadState();
+        if (cancelled || !remote) {
+          setCloudStatus('Cloud: ON');
+          return;
+        }
+        const r = ensureMeta(remote);
+        setData((curr) => {
+          const c = ensureMeta(curr);
+          if ((r.meta.updatedAt || 0) > (c.meta.updatedAt || 0)) {
+            saveData(r);
+            return r;
+          }
+          return c;
+        });
+        setCloudStatus('Cloud: ON');
+      } catch (e) {
+        console.warn('Cloud load failed:', e);
+        setCloudStatus('Cloud: error');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudOn]);
+
+  // 2) Subscribe for live updates (so friends see your admin edits).
+  useEffect(() => {
+    if (!cloudOn) return;
+    let unsub = null;
+    try {
+      unsub = cloudSubscribeState((remote) => {
+        const r = ensureMeta(remote);
+        setData((curr) => {
+          const c = ensureMeta(curr);
+          if ((r.meta.updatedAt || 0) <= (c.meta.updatedAt || 0)) return c;
+          saveData(r);
+          return r;
+        });
+      });
+    } catch (e) {
+      console.warn('Cloud subscribe failed:', e);
+    }
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [cloudOn]);
+
+  function commit(nextRaw) {
+    const next = ensureMeta({
+      ...nextRaw,
+      meta: { ...(nextRaw.meta || {}), updatedAt: Date.now() },
+    });
+
     setData(next);
     saveData(next);
+
+    if (!cloudOn) return;
+    if (pushTimer) clearTimeout(pushTimer);
+
+    setCloudStatus('Cloud: syncing…');
+    const t = setTimeout(() => {
+      cloudSaveState(next)
+        .then(() => setCloudStatus('Cloud: ON'))
+        .catch((e) => {
+          console.warn('Cloud save failed:', e);
+          setCloudStatus('Cloud: error');
+        });
+    }, 700);
+    setPushTimer(t);
   }
 
   const isAdminUI = admin && !data.ui?.publicMode;
@@ -348,8 +438,9 @@ export default function App() {
 
   return (
     <>
-      <TopNav club={data.club} admin={admin} onToggleAdmin={toggleAdmin} onChangePin={changePin} onReset={resetAll} />
+      <TopNav club={data.club} admin={admin} onToggleAdmin={toggleAdmin} onChangePin={changePin} onReset={resetAll} cloudStatus={cloudStatus} cloudOn={cloudOn} setCloudOn={setCloudOn} />
       <AudioDock />
+      <NavHelper />
 
       <Routes>
         <Route path="/" element={<Home data={data} activeTournament={activeTournament} isAdminUI={isAdminUI} commit={commit} />} />
@@ -375,7 +466,20 @@ export default function App() {
 /* ---------------------------
    Nav
 ---------------------------- */
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
+
+function NavHelper() {
+  const navigate = useNavigate();
+  const loc = useLocation();
+  if (loc.pathname === "/") return null;
+  return (
+    <div className="navHelper" role="navigation" aria-label="Quick navigation">
+      <button className="navHelperBtn" onClick={() => navigate(-1)} title="Back">←</button>
+      <button className="navHelperBtn" onClick={() => navigate("/")} title="Home">⌂</button>
+    </div>
+  );
+}
+
+function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus, cloudOn, setCloudOn }) {
   const [open, setOpen] = useState(false);
 
   // Customer flow: Book Tables → (internally redirects to Pay screen).
@@ -1800,6 +1904,7 @@ function AudioDock({ src = "/music.mp3", title = "Q Club Anthem" }) {
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
+    a.loop = true;
     a.volume = volume;
   }, [volume]);
 

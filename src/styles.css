@@ -417,3 +417,42 @@ select{ padding-right: 30px; }
 @media (min-width: 921px){
   .quickGrid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* Floating Back/Home helper (all pages except Home) */
+.navHelper{
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 80;
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.12);
+  backdrop-filter: blur(10px);
+}
+.navHelperBtn{
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+/* Small badge used in top nav */
+.badge{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.75);
+  font-size: 12px;
+  white-space: nowrap;
+}
