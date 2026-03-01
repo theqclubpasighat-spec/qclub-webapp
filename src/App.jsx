@@ -18,6 +18,27 @@ function ensureMeta(d) {
   return { ...d, meta: { ...meta, updatedAt: meta.updatedAt || 0 } };
 }
 
+function ensureHallOfFameArray(hof) {
+  if (Array.isArray(hof)) return hof;
+  if (!hof) return [];
+  // Legacy shapes: { months: [...] } or plain object keyed by id.
+  if (Array.isArray(hof.months)) {
+    // If months is already a flat list of entries, use it.
+    if (hof.months.length === 0) return [];
+    const sample = hof.months[0];
+    const looksLikeEntry = sample && typeof sample === 'object' && ('winner' in sample || 'category' in sample || 'month' in sample);
+    return looksLikeEntry ? hof.months : [];
+  }
+  if (typeof hof === 'object') {
+    try {
+      return Object.values(hof).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
@@ -752,78 +773,112 @@ function Membership({ data, isAdminUI, commit }) {
 /* ---------------------------
    Offers CRUD
 ---------------------------- */
+
 function Offers({ data, isAdminUI, commit }) {
   const list = data.offers || [];
 
   function add() {
     const title = prompt("Offer title:");
     if (!title) return;
+
     const price = prompt("Price:", "₹");
-    const details = prompt("Details:", "Pay at counter for now");
-    commit({ ...data, offers: [...list, { id: uid(), title, price: price || "", details: details || "" }] });
+    const details = prompt("Details:", "Pay at counter");
+
+    commit({
+      ...data,
+      offers: [
+        ...list,
+        {
+          id: uid(),
+          title: title.trim(),
+          price: (price || "").trim(),
+          details: (details || "").trim(),
+          createdAt: Date.now(),
+        },
+      ],
+    });
+  }
+
+  function edit(id) {
+    const cur = list.find((o) => o.id === id);
+    if (!cur) return;
+
+    const title = prompt("Offer title:", cur.title || "");
+    if (!title) return;
+
+    const price = prompt("Price:", cur.price || "₹");
+    const details = prompt("Details:", cur.details || "");
+
+    commit({
+      ...data,
+      offers: list.map((o) =>
+        o.id !== id
+          ? o
+          : {
+              ...o,
+              title: title.trim(),
+              price: (price || "").trim(),
+              details: (details || "").trim(),
+              updatedAt: Date.now(),
+            }
+      ),
+    });
   }
 
   function remove(id) {
-    function edit(id) {
-  const item = list.find(o => o.id === id);
-  if (!item) return;
-
-  const title = prompt("Edit title:", item.title);
-  if (title == null) return;
-
-  const price = prompt("Edit price:", item.price);
-  if (price == null) return;
-
-  const details = prompt("Edit details:", item.details || "");
-  if (details == null) return;
-
-  commit({
-    ...data,
-    offers: list.map(o =>
-      o.id === id ? { ...o, title, price, details } : o
-    )
-  });
-}
-    if (!confirm("Delete this offer?")) return;{isAdminUI && (
-  <button
-    className="btn"
-    onClick={() => edit(o.id)}
-    style={{ marginLeft: 8 }}
-  >
-    Edit
-  </button>
-)}
-    commit({ ...data, offers: list.filter((x) => x.id !== id) });
+    if (!confirm("Delete this offer?")) return;
+    commit({ ...data, offers: list.filter((o) => o.id !== id) });
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Other Offers</h2>
-          {isAdminUI && <button className="btn primary" onClick={add}>+ Add Offer</button>}
+    <div className="card">
+      <div className="row space">
+        <div>
+          <div className="h2">Offers</div>
+          <div className="muted">Special deals & packages.</div>
         </div>
 
-        <div className="grid">
-          {list.map((o) => (
-            <div className="card small cols-4" key={o.id}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <h3>{o.title}</h3>
-                {isAdminUI && <button className="btn danger" onClick={() => remove(o.id)}>Delete</button>}
+        {isAdminUI ? (
+          <button className="btn" onClick={add}>
+            + Add Offer
+          </button>
+        ) : null}
+      </div>
+
+      <div className="grid2" style={{ marginTop: 12 }}>
+        {list.length ? (
+          list.map((o) => (
+            <div key={o.id} className="card" style={{ padding: 12 }}>
+              <div className="row space">
+                <div style={{ fontWeight: 700 }}>{o.title}</div>
+                <div style={{ fontWeight: 800 }}>{o.price}</div>
               </div>
-              <div className="badge"><span className="dot" /> {o.price}</div>
-              <div className="muted" style={{ marginTop: 10 }}>{o.details}</div>
+              {o.details ? (
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {o.details}
+                </div>
+              ) : null}
+
+              {isAdminUI ? (
+                <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                  <button className="btn" onClick={() => edit(o.id)}>
+                    Edit
+                  </button>
+                  <button className="btn danger" onClick={() => remove(o.id)}>
+                    Delete
+                  </button>
+                </div>
+              ) : null}
             </div>
-          ))}
-        </div>
+          ))
+        ) : (
+          <div className="muted">No offers yet.</div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ---------------------------
-   Photos CRUD (URLs)
----------------------------- */
 function Photos({ data, isAdminUI, commit }) {
   const list = data.photos || [];
 
@@ -1797,10 +1852,15 @@ function BottomNav({ admin }) {
 function HallOfFame({ data, admin, commit }) {
   const [query, setQuery] = useState("");
   const playersRaw = data?.players ?? [];
-const hofRaw = data?.hallOfFame ?? [];
+const hofRaw = (() => {
+  const hof = data?.hallOfFame;
+  if (Array.isArray(hof)) return hof;
+  if (hof && Array.isArray(hof.entries)) return hof.entries;
+  return [];
+})();
 
 const players = Array.isArray(playersRaw) ? playersRaw : Object.values(playersRaw || {});
-const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
+const hof = hofRaw;
 
   const byId = new Map(players.map((p) => [p.id, p]));
   const list = hof
@@ -1829,6 +1889,18 @@ const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
     };
     commit(next);
   }
+
+function edit(id) {
+  const entry = hofRaw.find((e) => e.id === id);
+  if (!entry) return;
+  const title = prompt("Edit winner name / title", entry.title || "");
+  if (title === null) return;
+  const note = prompt("Edit notes (optional)", entry.note || "");
+  if (note === null) return;
+  const next = hofRaw.map((e) => (e.id === id ? { ...e, title: title.trim(), note: note.trim() } : e));
+  commit({ hallOfFame: { entries: next } });
+}
+
 
   function remove(id) {
     if (!admin) return;
@@ -1869,7 +1941,7 @@ const hof = Array.isArray(hofRaw) ? hofRaw : Object.values(hofRaw || {});
               <div className="card cols-6" key={x.id}>
                 <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                   <h3 style={{ margin: 0 }}>{x.player.name}</h3>
-                  {admin && <button className="btn danger" onClick={() => remove(x.id)}>Remove</button>}
+                  {admin && (<div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => edit(x.id)}>Edit</button><button className="btn danger" onClick={() => remove(x.id)}>Remove</button></div>)}
                 </div>
                 <div className="muted" style={{ marginTop: 6 }}>{x.player.city || ""}</div>
                 {x.title ? <div className="badge" style={{ marginTop: 10 }}><span className="dot" /> {x.title}</div> : null}
