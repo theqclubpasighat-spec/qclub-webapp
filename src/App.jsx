@@ -1910,7 +1910,12 @@ function edit(id) {
 
   return (
     <>
-    <PageHeader title="Hall of Fame" />
+    <div style={{ marginBottom: 20 }}>
+  <h1 style={{ margin: 0 }}>Hall of Fame</h1>
+  <p style={{ marginTop: 8, opacity: 0.7 }}>
+    Champions & Top Performers
+  </p>
+</div>  
     <div className="container">
       <div className="card">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
