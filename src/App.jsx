@@ -61,13 +61,14 @@ function readFileAsDataURL(file) {
 function defaultData() {
   return {
     club: {
-      name: "The Q CLUB",
-      location: "Pasighat",
-      tagline: "Play. Chill. Compete.",
-      contact: { phone1: "7005212774", phone2: "7085221922" },
-      upiId: "yomsoji-1@okicici",
-      upiName: "The Q CLUB",
-    },
+  name: "The Q CLUB",
+  location: "Pasighat",
+  tagline: "Play. Chill. Compete.",
+  contact: { phone1: "7005212774", phone2: "7085221922" },
+  upiId: "yomsoji-1@okicici",
+  upiName: "The Q CLUB",
+  isOpenNow: true, // NEW
+},  
     admin: { pin: "1234" },
 
     announcements: [
@@ -506,9 +507,30 @@ function Home({ data, admin, commit, activeTournament }) {
       <div className="grid">
         <div className="card cols-8">
           <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <span className="badge"><span className="dot" /> Open Today</span>
-            <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
-          </div>
+  {admin ? (
+    <button
+      className="badge"
+      style={{ cursor: "pointer", border: "none" }}
+      onClick={() => {
+        commit({
+          ...data,
+          club: { ...(data.club || {}), isOpenNow: !(data.club?.isOpenNow ?? true) },
+        });
+      }}
+      title="Admin: Toggle Open/Closed"
+    >
+      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
+      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+    </button>
+  ) : (
+    <span className="badge">
+      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
+      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+    </span>
+  )}
+
+  <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
+</div>
 
           <h1 style={{ marginTop: 12 }}>
             Welcome to {data.club?.name || "The Q CLUB"}
