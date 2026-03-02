@@ -11,9 +11,25 @@ import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom"
    - Hall of Fame CRUD + description + photo
    - Players: clickable profile modal + stats/rank
    - Tournaments: fixtures + per-tournament leaderboards + overall leaderboard
+   - ✅ Firestore Cloud Sync (qclub/state)
 ========================================================= */
 
+// ✅ Firestore (uses your existing firebase.js)
+import { db } from "./firebase";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  serverTimestamp,
+} from "firebase/firestore";
+
 const LS_KEY = "qclub_v5_data";
+
+// Firestore document path exactly like your screenshot:
+// collection: qclub
+// document: state
+const CLOUD_DOC = doc(db, "qclub", "state");
 
 /* ---------------------------
    Helpers
@@ -42,7 +58,6 @@ function upiDeepLink({ pa, pn, am, tn }) {
   return `upi://pay?${params.toString()}`;
 }
 function qrUrl(data, size = 240) {
-  // Uses external QR image generator. Works on Vercel/phones.
   const enc = encodeURIComponent(data);
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${enc}`;
 }
@@ -60,19 +75,28 @@ function readFileAsDataURL(file) {
 ---------------------------- */
 function defaultData() {
   return {
+    // ✅ used for cloud conflict resolution
+    meta: {
+      updatedAt: Date.now(),
+      updatedBy: "local",
+    },
+
     club: {
-  name: "The Q CLUB",
-  location: "Pasighat",
-  tagline: "Play. Chill. Compete.",
-  contact: { phone1: "7005212774", phone2: "7085221922" },
-  upiId: "yomsoji-1@okicici",
-  upiName: "The Q CLUB",
-  isOpenNow: true, // NEW
-},  
+      name: "The Q CLUB",
+      location: "Pasighat",
+      tagline: "Play. Chill. Compete.",
+      contact: { phone1: "7005212774", phone2: "7085221922" },
+      upiId: "yomsoji-1@okicici",
+      upiName: "The Q CLUB",
+    },
     admin: { pin: "1234" },
 
     announcements: [
-      { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
+      {
+        id: uid(),
+        text: "Monthly tournaments every month 🔥 Register at counter.",
+        createdAt: Date.now(),
+      },
     ],
 
     memberships: [
@@ -113,9 +137,7 @@ function defaultData() {
       { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
     ],
 
-    photos: [
-      // stored as data URLs when uploaded
-    ],
+    photos: [],
 
     players: [
       { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "" },
@@ -134,7 +156,7 @@ function defaultData() {
         pointsWin: 3,
         pointsDraw: 1,
         pointsLoss: 0,
-        participantIds: [], // empty=all players
+        participantIds: [],
         matches: [],
       },
     ],
@@ -145,36 +167,43 @@ function defaultData() {
         { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
         { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
       ],
-      // Booking requests (local) for notification/pending verification
       requests: [],
-      // for admin ping notifications
       lastSeenRequestAt: 0,
     },
 
     hallOfFame: {
-      entries: [
-        // {id, title, playerName, month, stats, description, photo}
-      ],
+      entries: [],
     },
   };
+}
+
+function normalizeData(parsed) {
+  // Light migration: ensure required keys exist
+  const base = defaultData();
+  const d = { ...base, ...(parsed || {}) };
+
+  d.meta = { ...base.meta, ...(parsed?.meta || {}) };
+  d.club = { ...base.club, ...(parsed?.club || {}) };
+  d.admin = { ...base.admin, ...(parsed?.admin || {}) };
+  d.booking = { ...base.booking, ...(parsed?.booking || {}) };
+  d.hallOfFame = { ...base.hallOfFame, ...(parsed?.hallOfFame || {}) };
+
+  d.booking.tables = parsed?.booking?.tables?.length ? parsed.booking.tables : base.booking.tables;
+  d.booking.requests = parsed?.booking?.requests || [];
+  d.booking.lastSeenRequestAt = parsed?.booking?.lastSeenRequestAt || 0;
+  d.hallOfFame.entries = parsed?.hallOfFame?.entries || [];
+
+  // ensure meta.updatedAt exists
+  if (!d.meta?.updatedAt) d.meta = { ...(d.meta || {}), updatedAt: Date.now(), updatedBy: "local" };
+
+  return d;
 }
 
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultData();
-    const parsed = JSON.parse(raw);
-    // Light migration: ensure required keys exist
-    const d = { ...defaultData(), ...parsed };
-    d.club = { ...defaultData().club, ...(parsed.club || {}) };
-    d.admin = { ...defaultData().admin, ...(parsed.admin || {}) };
-    d.booking = { ...defaultData().booking, ...(parsed.booking || {}) };
-    d.hallOfFame = { ...defaultData().hallOfFame, ...(parsed.hallOfFame || {}) };
-    d.booking.tables = parsed?.booking?.tables?.length ? parsed.booking.tables : defaultData().booking.tables;
-    d.booking.requests = parsed?.booking?.requests || [];
-    d.booking.lastSeenRequestAt = parsed?.booking?.lastSeenRequestAt || 0;
-    d.hallOfFame.entries = parsed?.hallOfFame?.entries || [];
-    return d;
+    return normalizeData(JSON.parse(raw));
   } catch {
     return defaultData();
   }
@@ -210,7 +239,7 @@ function generateRoundRobin(playerIds) {
           p2,
           score1: "",
           score2: "",
-          status: "scheduled", // scheduled | done
+          status: "scheduled",
           updatedAt: Date.now(),
         });
       }
@@ -285,7 +314,6 @@ function calcLeaderboard(players, tournament) {
 
 /* ---------------------------
    Simple "ping" sound
-   (WebAudio oscillator – no files needed)
 ---------------------------- */
 function playPing() {
   try {
@@ -309,18 +337,170 @@ function playPing() {
 }
 
 /* =========================================================
+   ✅ Cloud Sync helpers
+========================================================= */
+function isObject(x) {
+  return x && typeof x === "object" && !Array.isArray(x);
+}
+
+// very simple deep compare to prevent loops
+function stableStringify(obj) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return String(obj);
+  }
+}
+
+async function cloudReadOnce() {
+  const snap = await getDoc(CLOUD_DOC);
+  if (!snap.exists()) return null;
+  const v = snap.data();
+  // We store as { data: <appData>, updatedAt: serverTimestamp }
+  const d = v?.data;
+  return d ? normalizeData(d) : null;
+}
+
+async function cloudWrite(data) {
+  // store only the "data" field, like your Firebase UI screenshot
+  await setDoc(
+    CLOUD_DOC,
+    {
+      data,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+/* =========================================================
    App
 ========================================================= */
 export default function App() {
   const [data, setData] = useState(loadData());
   const [admin, setAdmin] = useState(false);
+  const [cloud, setCloud] = useState({ status: "idle", msg: "" }); // idle | syncing | ok | error
   const navigate = useNavigate();
   const location = useLocation();
 
-  function commit(next) {
-    setData(next);
-    saveData(next);
+  // refs to control sync loops
+  const applyingRemoteRef = useRef(false);
+  const lastLocalSentRef = useRef("");
+  const writeTimerRef = useRef(null);
+
+  function commit(next, source = "local") {
+    // ALWAYS bump meta.updatedAt so cloud conflict resolution works
+    const nextWithMeta = normalizeData({
+      ...next,
+      meta: {
+        ...(next.meta || {}),
+        updatedAt: Date.now(),
+        updatedBy: source,
+      },
+    });
+
+    setData(nextWithMeta);
+    saveData(nextWithMeta);
+
+    // ✅ schedule cloud write (debounced)
+    scheduleCloudWrite(nextWithMeta);
   }
+
+  function scheduleCloudWrite(nextData) {
+    // If we are applying remote snapshot right now, do NOT push it back
+    if (applyingRemoteRef.current) return;
+
+    // If db is not ready, just ignore (local still works)
+    if (!db) return;
+
+    // prevent sending identical state repeatedly
+    const payload = stableStringify(nextData);
+    if (payload === lastLocalSentRef.current) return;
+
+    setCloud({ status: "syncing", msg: "Syncing..." });
+
+    if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+    writeTimerRef.current = setTimeout(async () => {
+      try {
+        await cloudWrite(nextData);
+        lastLocalSentRef.current = payload;
+        setCloud({ status: "ok", msg: "Cloud: OK" });
+      } catch (e) {
+        setCloud({ status: "error", msg: "Cloud error" });
+        console.error("Firestore write failed:", e);
+      }
+    }, 450);
+  }
+
+  // ✅ On mount: read cloud once (if exists) then subscribe live
+  useEffect(() => {
+    let unsub = null;
+    let alive = true;
+
+    (async () => {
+      try {
+        setCloud({ status: "syncing", msg: "Connecting..." });
+
+        // 1) Read once
+        const cloudData = await cloudReadOnce();
+        if (!alive) return;
+
+        if (cloudData) {
+          // choose newer between local and cloud by meta.updatedAt
+          const localTs = safeNum(data?.meta?.updatedAt, 0);
+          const cloudTs = safeNum(cloudData?.meta?.updatedAt, 0);
+
+          if (cloudTs > localTs) {
+            applyingRemoteRef.current = true;
+            setData(cloudData);
+            saveData(cloudData);
+            applyingRemoteRef.current = false;
+          }
+        }
+
+        // 2) Live subscription
+        unsub = onSnapshot(
+          CLOUD_DOC,
+          (snap) => {
+            if (!snap.exists()) return;
+            const v = snap.data();
+            const remoteRaw = v?.data;
+            if (!remoteRaw) return;
+
+            const remote = normalizeData(remoteRaw);
+
+            // compare timestamps
+            const localTs = safeNum((loadData()?.meta?.updatedAt), 0);
+            const remoteTs = safeNum(remote?.meta?.updatedAt, 0);
+
+            // if remote is newer than our latest local, apply it
+            if (remoteTs > localTs) {
+              applyingRemoteRef.current = true;
+              setData(remote);
+              saveData(remote);
+              applyingRemoteRef.current = false;
+            }
+
+            setCloud({ status: "ok", msg: "Cloud: OK" });
+          },
+          (err) => {
+            console.error("Firestore onSnapshot error:", err);
+            setCloud({ status: "error", msg: "Cloud error" });
+          }
+        );
+      } catch (e) {
+        console.error("Cloud init failed:", e);
+        setCloud({ status: "error", msg: "Cloud error" });
+      }
+    })();
+
+    return () => {
+      alive = false;
+      if (unsub) unsub();
+      if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Active tournament = latest month
   const activeTournament = useMemo(() => {
@@ -348,20 +528,19 @@ export default function App() {
     if (!admin) return alert("Admin only");
     const p = prompt("New Admin PIN:");
     if (!p) return;
-    commit({ ...data, admin: { ...data.admin, pin: p } });
+    commit({ ...data, admin: { ...data.admin, pin: p } }, "admin");
     alert("PIN updated.");
   }
   function resetAll() {
     if (!admin) return;
     if (!confirm("Reset ALL Q CLUB data to default?")) return;
     const d = defaultData();
-    commit(d);
+    commit(d, "admin");
     setAdmin(false);
     navigate("/");
   }
 
-  // PAYMENT REQUEST PING:
-  // If admin is ON and a new booking request arrives (createdAt newer than lastSeenRequestAt), ping once.
+  // PAYMENT REQUEST PING
   useEffect(() => {
     if (!admin) return;
     const lastSeen = data.booking?.lastSeenRequestAt || 0;
@@ -371,12 +550,12 @@ export default function App() {
       commit({
         ...data,
         booking: { ...data.booking, lastSeenRequestAt: newest },
-      });
+      }, "admin");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, data.booking?.requests?.length]);
 
-  // Always scroll to top on route change (better mobile UX)
+  // Always scroll to top on route change
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -389,6 +568,7 @@ export default function App() {
         onToggleAdmin={toggleAdmin}
         onChangePin={changePin}
         onReset={resetAll}
+        cloud={cloud}
       />
 
       <Routes>
@@ -418,7 +598,16 @@ function BottomPadding() {
   return <div style={{ height: 28 }} />;
 }
 
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
+function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloud }) {
+  const cloudBadge =
+    cloud?.status === "ok"
+      ? { text: "Cloud: OK", cls: "" }
+      : cloud?.status === "syncing"
+      ? { text: "Cloud: Syncing", cls: "" }
+      : cloud?.status === "error"
+      ? { text: "Cloud: Error", cls: "red" }
+      : { text: "Cloud: —", cls: "" };
+
   return (
     <div className="nav">
       <div className="nav-inner">
@@ -432,6 +621,10 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         </div>
 
         <div className="spacer" />
+
+        <span className="badge">
+          <span className={"dot " + (cloudBadge.cls || "")} /> {cloudBadge.text}
+        </span>
 
         <Link className="pill" to="/">Home</Link>
         <Link className="pill" to="/book">Book Table</Link>
@@ -490,11 +683,11 @@ function Home({ data, admin, commit, activeTournament }) {
     commit({
       ...data,
       announcements: [{ id: uid(), text, createdAt: Date.now() }, ...(data.announcements || [])],
-    });
+    }, "admin");
   }
   function deleteAnnouncement(id) {
     if (!confirm("Delete this announcement?")) return;
-    commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
+    commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) }, "admin");
   }
 
   const topReq = (data.booking?.requests || [])
@@ -507,30 +700,9 @@ function Home({ data, admin, commit, activeTournament }) {
       <div className="grid">
         <div className="card cols-8">
           <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-  {admin ? (
-    <button
-      className="badge"
-      style={{ cursor: "pointer", border: "none" }}
-      onClick={() => {
-        commit({
-          ...data,
-          club: { ...(data.club || {}), isOpenNow: !(data.club?.isOpenNow ?? true) },
-        });
-      }}
-      title="Admin: Toggle Open/Closed"
-    >
-      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
-      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
-    </button>
-  ) : (
-    <span className="badge">
-      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
-      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
-    </span>
-  )}
-
-  <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
-</div>
+            <span className="badge"><span className="dot" /> Open Today</span>
+            <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
+          </div>
 
           <h1 style={{ marginTop: 12 }}>
             Welcome to {data.club?.name || "The Q CLUB"}
@@ -636,7 +808,7 @@ function Home({ data, admin, commit, activeTournament }) {
 }
 
 /* =========================================================
-   Book Table (single tab experience)
+   Book Table
 ========================================================= */
 function BookTable({ data, admin, commit }) {
   const [name, setName] = useState("");
@@ -671,7 +843,7 @@ function BookTable({ data, admin, commit }) {
       amount,
       note: note.trim(),
       createdAt: Date.now(),
-      status: "pending", // pending | verified (later)
+      status: "pending",
     };
 
     commit({
@@ -680,7 +852,7 @@ function BookTable({ data, admin, commit }) {
         ...data.booking,
         requests: [req, ...(data.booking?.requests || [])],
       },
-    });
+    }, "local");
 
     setSubmitted(req);
     setNote("");
@@ -694,7 +866,7 @@ function BookTable({ data, admin, commit }) {
         ...data.booking,
         requests: (data.booking?.requests || []).map((r) => (r.id === id ? { ...r, status: "verified" } : r)),
       },
-    });
+    }, "admin");
   }
 
   return (
@@ -702,11 +874,7 @@ function BookTable({ data, admin, commit }) {
       <PageShell
         title="Book a Table"
         subtitle="Book & pay via UPI (verification later)"
-        right={
-          admin ? (
-            <span className="badge"><span className="dot" /> Admin view</span>
-          ) : null
-        }
+        right={admin ? <span className="badge"><span className="dot" /> Admin view</span> : null}
       />
 
       <div className="container">
@@ -736,7 +904,7 @@ function BookTable({ data, admin, commit }) {
             <div className="field">
               <label>Hours</label>
               <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
-                {[1,2,3,4,5].map((h) => <option key={h} value={h}>{h}</option>)}
+                {[1, 2, 3, 4, 5].map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
             </div>
 
@@ -839,10 +1007,10 @@ function BookTable({ data, admin, commit }) {
 }
 
 /* =========================================================
-   Membership (Edit + Apply Now)
+   Membership
 ========================================================= */
 function Membership({ data, admin, commit }) {
-  const [applyTier, setApplyTier] = useState(null); // membership object
+  const [applyTier, setApplyTier] = useState(null);
   const tiers = data.memberships || [];
   const upiId = data.club?.upiId || "yomsoji-1@okicici";
   const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
@@ -866,13 +1034,13 @@ function Membership({ data, admin, commit }) {
           note: note || "",
         },
       ],
-    });
+    }, "admin");
   }
 
   function removeTier(id) {
     if (!admin) return;
     if (!confirm("Delete this membership tier?")) return;
-    commit({ ...data, memberships: tiers.filter((x) => x.id !== id) });
+    commit({ ...data, memberships: tiers.filter((x) => x.id !== id) }, "admin");
   }
 
   function editTier(t) {
@@ -895,7 +1063,7 @@ function Membership({ data, admin, commit }) {
             }
           : x
       ),
-    });
+    }, "admin");
   }
 
   return (
@@ -1028,7 +1196,7 @@ function ApplyModal({ tier, upiId, upiName, onClose }) {
 }
 
 /* =========================================================
-   Offers (What We Offer) – Edit buttons for admin
+   Offers
 ========================================================= */
 function Offers({ data, admin, commit }) {
   const list = data.offers || [];
@@ -1039,13 +1207,13 @@ function Offers({ data, admin, commit }) {
     if (!title) return;
     const price = prompt("Price display:", "₹");
     const details = prompt("Details:", "Description");
-    commit({ ...data, offers: [...list, { id: uid(), title, price: price || "", details: details || "" }] });
+    commit({ ...data, offers: [...list, { id: uid(), title, price: price || "", details: details || "" }] }, "admin");
   }
 
   function remove(id) {
     if (!admin) return;
     if (!confirm("Delete this offer?")) return;
-    commit({ ...data, offers: list.filter((x) => x.id !== id) });
+    commit({ ...data, offers: list.filter((x) => x.id !== id) }, "admin");
   }
 
   function edit(o) {
@@ -1057,7 +1225,7 @@ function Offers({ data, admin, commit }) {
     commit({
       ...data,
       offers: list.map((x) => (x.id === o.id ? { ...x, title: title.trim(), price: price || "", details: details || "" } : x)),
-    });
+    }, "admin");
   }
 
   return (
@@ -1092,7 +1260,7 @@ function Offers({ data, admin, commit }) {
 }
 
 /* =========================================================
-   Photos (Upload file + caption)
+   Photos
 ========================================================= */
 function Photos({ data, admin, commit }) {
   const list = data.photos || [];
@@ -1110,14 +1278,14 @@ function Photos({ data, admin, commit }) {
         { id: uid(), dataUrl, caption: caption.trim(), createdAt: Date.now() },
         ...list,
       ],
-    });
+    }, "admin");
     if (fileRef.current) fileRef.current.value = "";
   }
 
   function remove(id) {
     if (!admin) return;
     if (!confirm("Delete this photo?")) return;
-    commit({ ...data, photos: list.filter((x) => x.id !== id) });
+    commit({ ...data, photos: list.filter((x) => x.id !== id) }, "admin");
   }
 
   return (
@@ -1166,21 +1334,21 @@ function Photos({ data, admin, commit }) {
 }
 
 /* =========================================================
-   Players (click name -> profile modal with stats/rank)
+   Players
 ========================================================= */
 function Players({ data, admin, commit, activeTournament }) {
   const players = data.players || [];
   const [selected, setSelected] = useState(null);
-
-  // For stats: use active tournament leaderboard as "rank"
-  const activePlayers = activeTournament ? playersForTournament(data, activeTournament) : players;
-  const lb = activeTournament ? calcLeaderboard(activePlayers, activeTournament) : [];
 
   function playersForTournament(d, t) {
     const ids = t.participantIds?.length ? t.participantIds : (d.players || []).map((p) => p.id);
     const setIds = new Set(ids);
     return (d.players || []).filter((p) => setIds.has(p.id));
   }
+
+  const activePlayers = activeTournament ? playersForTournament(data, activeTournament) : players;
+  const lb = activeTournament ? calcLeaderboard(activePlayers, activeTournament) : [];
+
   function rankOf(pid) {
     const idx = lb.findIndex((r) => r.id === pid);
     return idx >= 0 ? idx + 1 : null;
@@ -1197,12 +1365,12 @@ function Players({ data, admin, commit, activeTournament }) {
     commit({
       ...data,
       players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "" }],
-    });
+    }, "admin");
   }
   function removePlayer(id) {
     if (!admin) return;
     if (!confirm("Delete player? (May affect fixtures)")) return;
-    commit({ ...data, players: players.filter((p) => p.id !== id) });
+    commit({ ...data, players: players.filter((p) => p.id !== id) }, "admin");
   }
   async function editPlayer(p) {
     if (!admin) return;
@@ -1213,7 +1381,7 @@ function Players({ data, admin, commit, activeTournament }) {
     commit({
       ...data,
       players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "" } : x)),
-    });
+    }, "admin");
   }
   async function uploadPlayerPhoto(p, file) {
     if (!admin) return;
@@ -1221,7 +1389,7 @@ function Players({ data, admin, commit, activeTournament }) {
     commit({
       ...data,
       players: players.map((x) => (x.id === p.id ? { ...x, photo: dataUrl } : x)),
-    });
+    }, "admin");
   }
 
   return (
@@ -1368,7 +1536,7 @@ function Stat({ label, value }) {
 function Tournaments({ data, admin, commit }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
-  const [view, setView] = useState("list"); // list | leaderboards
+  const [view, setView] = useState("list");
 
   function addTournament() {
     if (!admin) return alert("Admin only.");
@@ -1393,12 +1561,12 @@ function Tournaments({ data, admin, commit }) {
           matches: [],
         },
       ],
-    });
+    }, "admin");
   }
   function removeTournament(id) {
     if (!admin) return;
     if (!confirm("Delete tournament and its matches?")) return;
-    commit({ ...data, tournaments: tournaments.filter((t) => t.id !== id) });
+    commit({ ...data, tournaments: tournaments.filter((t) => t.id !== id) }, "admin");
   }
 
   return (
@@ -1565,7 +1733,7 @@ function Fixtures({ data, admin, commit }) {
     commit({
       ...data,
       tournaments: tournaments.map((t) => (t.id === selected.id ? { ...t, matches } : t)),
-    });
+    }, "admin");
   }
 
   function updateMatch(mid, patch) {
@@ -1579,7 +1747,7 @@ function Fixtures({ data, admin, commit }) {
           matches: (t.matches || []).map((m) => (m.id === mid ? { ...m, ...patch, updatedAt: Date.now() } : m)),
         };
       }),
-    });
+    }, "admin");
   }
 
   function markDone(m) {
@@ -1689,13 +1857,15 @@ function Fixtures({ data, admin, commit }) {
 }
 
 /* =========================================================
-   Leaderboards (All tournaments + Active)
+   Leaderboards
 ========================================================= */
 function LeaderboardAll({ data }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
 
-  const [selectedId, setSelectedId] = useState(tournaments.slice().sort((a,b)=> (b.month||"").localeCompare(a.month||""))[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(
+    tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""))[0]?.id || ""
+  );
   const t = tournaments.find((x) => x.id === selectedId) || null;
 
   const tourPlayers = useMemo(() => {
@@ -1781,7 +1951,7 @@ function LeaderboardAll({ data }) {
 }
 
 /* =========================================================
-   Hall of Fame (Add/Edit + Description + Photo upload)
+   Hall of Fame
 ========================================================= */
 function HallOfFame({ data, admin, commit }) {
   const entries = data.hallOfFame?.entries || [];
@@ -1810,7 +1980,7 @@ function HallOfFame({ data, admin, commit }) {
     commit({
       ...data,
       hallOfFame: { ...data.hallOfFame, entries: [e, ...entries] },
-    });
+    }, "admin");
   }
 
   function editEntry(e) {
@@ -1832,7 +2002,7 @@ function HallOfFame({ data, admin, commit }) {
             : x
         ),
       },
-    });
+    }, "admin");
   }
 
   function removeEntry(id) {
@@ -1841,7 +2011,7 @@ function HallOfFame({ data, admin, commit }) {
     commit({
       ...data,
       hallOfFame: { ...data.hallOfFame, entries: entries.filter((x) => x.id !== id) },
-    });
+    }, "admin");
   }
 
   async function uploadPhotoFor(id) {
@@ -1855,7 +2025,7 @@ function HallOfFame({ data, admin, commit }) {
         ...data.hallOfFame,
         entries: entries.map((x) => (x.id === id ? { ...x, photo: dataUrl } : x)),
       },
-    });
+    }, "admin");
     fileRef.current.value = "";
     setFileTargetId(null);
   }
@@ -1936,7 +2106,7 @@ function HallOfFame({ data, admin, commit }) {
 }
 
 /* =========================================================
-   TV Mode (Big screen)
+   TV Mode
 ========================================================= */
 function TVMode({ data, activeTournament, players }) {
   const table = activeTournament ? calcLeaderboard(players || [], activeTournament) : [];
@@ -2010,4 +2180,4 @@ function NotFound() {
       </div>
     </>
   );
-} 
+}
