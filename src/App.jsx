@@ -364,44 +364,18 @@ export default function App() {
   );
 
   function commit(next) {
-    setData(next);
-    saveData(next);
+  setData(next);
+  saveLocal(next);
 
-    // ✅ Cloud sync write (debounced) unless we are applying remote data
-    if (applyingRemoteRef.current) return;
-    const db = cloudDbRef.current;
-    const dref = cloudDocRef.current;
-    if (!db || !dref) return;
-
-    // bump local revision
-    localRevRef.current += 1;
-    localStorage.setItem(LS_LOCAL_REV, String(localRevRef.current));
-
-    setCloudStatus("SYNCING");
-
-    if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
-    writeTimerRef.current = setTimeout(async () => {
-      try {
-        await setDoc(
-          dref,
-          {
-            data: next,
-            meta: {
-              rev: localRevRef.current,
-              updatedAt: Date.now(),
-              updatedAtServer: serverTimestamp(),
-              clientId: clientIdRef.current,
-            },
-          },
-          { merge: false }
-        );
-        setCloudStatus("ON");
-      } catch (e) {
-        console.error("Cloud write failed:", e);
-        setCloudStatus("ERROR");
-      }
-    }, 350);
-  }
+  // IMPORTANT: force cloud write
+  saveCloud(next)
+    .then(() => {
+      console.log("Cloud write success");
+    })
+    .catch((err) => {
+      console.error("Cloud write failed:", err);
+    });
+} 
 
   // Active tournament = latest month
   const activeTournament = useMemo(() => {
