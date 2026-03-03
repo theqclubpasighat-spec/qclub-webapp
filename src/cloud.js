@@ -1,63 +1,39 @@
-// Firestore-based cloud sync.
-// This keeps your admin changes (players, offers, fixtures, admin pin, etc.)
-// consistent across devices and survives uninstall/reinstall.
+// src/cloud.js
+import { doc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 
-import { initializeApp, getApps } from "firebase/app";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  onSnapshot,
-} from "firebase/firestore";
+const COLLECTION = "qclub";
+const DOCUMENT = "state";
 
-import { firebaseConfig } from "./firebase";
+export function listenToCloud(onData) {
+  const ref = doc(db, COLLECTION, DOCUMENT);
 
-function getDb() {
-  // Avoid re-initializing in HMR.
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  return getFirestore(app);
-}
-
-const DOC_PATH = ["qclub", "state"]; // collection, doc
-
-// Exported in the names used by the app.
-export const cloudAvailable = true;
-
-export async function cloudLoadState() {
-  const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  const v = snap.data();
-  return v?.data ?? null;
-}
-
-export async function cloudSaveState(data) {
-  const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  await setDoc(
+  return onSnapshot(
     ref,
-    {
-      data,
-      updatedAt: serverTimestamp(),
+    (snap) => {
+      if (!snap.exists()) return;
+      const cloudData = snap.data()?.data;
+      if (!cloudData) return;
+      onData(cloudData);
     },
-    { merge: true }
+    (err) => {
+      console.error("Cloud listen error:", err);
+    }
   );
 }
 
-export function cloudSubscribeState(onData) {
-  const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  return onSnapshot(ref, (snap) => {
-    if (!snap.exists()) return;
-    const v = snap.data();
-    if (v?.data) onData(v.data);
-  });
-}
-
-// Back-compat exports (older names)
-export const cloudPull = cloudLoadState;
-export const cloudPush = cloudSaveState;
-export const cloudSubscribe = cloudSubscribeState;
+export async function pushToCloud(data) {
+  try {
+    const ref = doc(db, COLLECTION, DOCUMENT);
+    await setDoc(
+      ref,
+      {
+        data,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error("Cloud write error:", err);
+  }
+} 
