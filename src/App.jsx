@@ -19,7 +19,19 @@ import * as firebaseMod from "./firebase";
    ✅ Cloud Sync (Firestore doc: qclub/state)
 ========================================================= */
 
-const LS_KEY = "qclub_v5_data";
+const LS_KEY = "qclub_data";
+  
+function loadLocal() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocal(data) {
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+}
 
 /* ✅ Cloud Sync constants */
 const CLOUD_COLLECTION = "qclub";
