@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 
+// Firebase Cloud Sync helpers (implemented in src/cloud.js)
+import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
+
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
