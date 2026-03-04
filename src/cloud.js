@@ -1,63 +1,41 @@
-// Firestore-based cloud sync.
-// This keeps your admin changes (players, offers, fixtures, admin pin, etc.)
-// consistent across devices and survives uninstall/reinstall.
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { getDb, firebaseReady, getFirebaseMissingVars } from "./firebase";
 
-import { initializeApp, getApps } from "firebase/app";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  onSnapshot,
-} from "firebase/firestore";
+// One single shared document for the whole club.
+// Change this if you ever want multiple "clubs" or "seasons".
+const COLLECTION = "qclub";
+const DOC_ID = "state";
 
-import { firebaseConfig } from "./firebase";
-
-function getDb() {
-  // Avoid re-initializing in HMR.
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  return getFirestore(app);
+export function isCloudEnabled() {
+  return firebaseReady;
 }
 
-const DOC_PATH = ["qclub", "state"]; // collection, doc
-
-// Exported in the names used by the app.
-export const cloudAvailable = true;
-
-export async function cloudLoadState() {
-  const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  const v = snap.data();
-  return v?.data ?? null;
+export function cloudMissingVars() {
+  return getFirebaseMissingVars();
 }
 
-export async function cloudSaveState(data) {
+export function subscribeState(onState, onError) {
+  if (!firebaseReady) {
+    onError?.(new Error("Firebase env vars missing: " + getFirebaseMissingVars().join(", ")));
+    return () => {};
+  }
+
   const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  await setDoc(
+  const ref = doc(db, COLLECTION, DOC_ID);
+
+  return onSnapshot(
     ref,
-    {
-      data,
-      updatedAt: serverTimestamp(),
+    (snap) => {
+      const data = snap.data();
+      if (data && data.state) onState(data.state);
     },
-    { merge: true }
+    (err) => onError?.(err)
   );
 }
 
-export function cloudSubscribeState(onData) {
+export async function writeState(state) {
+  if (!firebaseReady) throw new Error("Firebase env vars missing: " + getFirebaseMissingVars().join(", "));
   const db = getDb();
-  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-  return onSnapshot(ref, (snap) => {
-    if (!snap.exists()) return;
-    const v = snap.data();
-    if (v?.data) onData(v.data);
-  });
+  const ref = doc(db, COLLECTION, DOC_ID);
+  await setDoc(ref, { state, updated_at: serverTimestamp() }, { merge: true });
 }
-
-// Back-compat exports (older names)
-export const cloudPull = cloudLoadState;
-export const cloudPush = cloudSaveState;
-export const cloudSubscribe = cloudSubscribeState;

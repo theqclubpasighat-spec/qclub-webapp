@@ -1,270 +1,160 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
-import { QRCodeCanvas } from "qrcode.react";
-import {
-  cloudAvailable,
-  cloudLoadState,
-  cloudSaveState,
-  cloudSubscribeState,
-} from "./cloud";
+
+/* =========================================================
+   Q CLUB – Single-file WebApp (Mobile-first)
+   - LocalStorage database
+   - Admin mode
+   - Booking + "payment submitted" ping notification
+   - Membership apply + UPI QR (display only)
+   - Photos upload (file)
+   - Hall of Fame CRUD + description + photo
+   - Players: clickable profile modal + stats/rank
+   - Tournaments: fixtures + per-tournament leaderboards + overall leaderboard
+========================================================= */
+
+const LS_KEY = "qclub_v5_data";
 
 /* ---------------------------
-   LocalStorage mini database
+   Helpers
 ---------------------------- */
-const LS_KEY = "qclub_v3_data";
-
-function ensureMeta(d) {
-  const meta = d?.meta || {};
-  return { ...d, meta: { ...meta, updatedAt: meta.updatedAt || 0 } };
-}
-
-function ensureHallOfFameArray(hof) {
-  if (Array.isArray(hof)) return hof;
-  if (!hof) return [];
-  // Legacy shapes: { months: [...] } or plain object keyed by id.
-  if (Array.isArray(hof.months)) {
-    // If months is already a flat list of entries, use it.
-    if (hof.months.length === 0) return [];
-    const sample = hof.months[0];
-    const looksLikeEntry = sample && typeof sample === 'object' && ('winner' in sample || 'category' in sample || 'month' in sample);
-    return looksLikeEntry ? hof.months : [];
-  }
-  if (typeof hof === 'object') {
-    try {
-      return Object.values(hof).filter(Boolean);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+function clampStr(s, n = 120) {
+  const t = (s || "").toString();
+  return t.length > n ? t.slice(0, n) + "…" : t;
 }
-
-function monthISO() {
-  return new Date().toISOString().slice(0, 7);
+function safeNum(x, fallback = 0) {
+  const v = Number(x);
+  return Number.isFinite(v) ? v : fallback;
+}
+function monthKey(d = new Date()) {
+  return d.toISOString().slice(0, 7);
+}
+function upiDeepLink({ pa, pn, am, tn }) {
+  const params = new URLSearchParams();
+  if (pa) params.set("pa", pa);
+  if (pn) params.set("pn", pn);
+  if (am) params.set("am", String(am));
+  params.set("cu", "INR");
+  if (tn) params.set("tn", tn);
+  return `upi://pay?${params.toString()}`;
+}
+function qrUrl(data, size = 240) {
+  // Uses external QR image generator. Works on Vercel/phones.
+  const enc = encodeURIComponent(data);
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${enc}`;
+}
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
 }
 
 /* ---------------------------
-   Audio dock (safe)
-   ---------------------------
-   A previous build referenced <AudioDock /> but the component was missing,
-   which crashed the whole app (blank screen).
-   This lightweight dock is optional and won't crash if audio can't play.
+   Default data
 ---------------------------- */
-function AudioDock() {
-  const [open, setOpen] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const audioRef = useRef(null);
-
-  // File is in /public in this repo.
-  const src = "/Q_Club_Anthem.mp3";
-
-  useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    a.addEventListener("play", onPlay);
-    a.addEventListener("pause", onPause);
-    a.addEventListener("ended", onPause);
-    return () => {
-      a.removeEventListener("play", onPlay);
-      a.removeEventListener("pause", onPause);
-      a.removeEventListener("ended", onPause);
-    };
-  }, []);
-
-  function togglePlay() {
-    const a = audioRef.current;
-    if (!a) return;
-    if (a.paused) {
-      a.play().catch(() => {
-        // Autoplay can be blocked; user can try again.
-      });
-    } else {
-      a.pause();
-    }
-  }
-
-  return (
-    <>
-      <audio ref={audioRef} src={src} preload="none" />
-      <div
-        style={{
-          position: "fixed",
-          right: 18,
-          top: 86,
-          zIndex: 9999,
-          userSelect: "none",
-        }}
-      >
-        {open ? (
-          <div
-            style={{
-              background: "rgba(10, 12, 18, 0.72)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 14,
-              padding: "10px 12px",
-              backdropFilter: "blur(10px)",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
-              minWidth: 220,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button
-                onClick={togglePlay}
-                style={{
-                  borderRadius: 12,
-                  padding: "8px 10px",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.06)",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-                title={playing ? "Pause" : "Play"}
-              >
-                {playing ? "❚❚" : "▶"}
-              </button>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, opacity: 0.9, fontWeight: 700 }}>Q Club Anthem</div>
-                <div style={{ fontSize: 11, opacity: 0.7 }}>Tap ▶ to play</div>
-              </div>
-              <button
-                onClick={() => setOpen(false)}
-                style={{
-                  borderRadius: 10,
-                  padding: "6px 8px",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-                title="Close"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setOpen(true)}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.05)",
-              color: "#fff",
-              cursor: "pointer",
-              boxShadow: "0 10px 26px rgba(0,0,0,0.45)",
-            }}
-            title="Open audio"
-          >
-            ♫
-          </button>
-        )}
-      </div>
-    </>
-  );
-}
-
 function defaultData() {
-  const now = Date.now();
   return {
-    meta: { updatedAt: now },
     club: {
-      name: "The Q CLUB",
-      location: "Pasighat",
-      tagline: "Play. Chill. Compete.",
-      contact: { phone1: "7005212774", phone2: "7085221922" },
-      upiId: "yomsoji-1@okicici",
-      payeeName: "The Q CLUB",
-    },
-    ui: { publicMode: false }, // hides admin controls without logging out
-    admin: { pin: "1234" }, // change after first login
+  name: "The Q CLUB",
+  location: "Pasighat",
+  tagline: "Play. Chill. Compete.",
+  contact: { phone1: "7005212774", phone2: "7085221922" },
+  upiId: "yomsoji-1@okicici",
+  upiName: "The Q CLUB",
+  isOpenNow: true, // NEW
+},  
+    admin: { pin: "1234" },
+
     announcements: [
-      { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: now },
+      { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
+
     memberships: [
       {
         id: uid(),
-        name: "₹1000 / Month Plan",
-        perks: ["1 game free per day", "10 min massage chair/day", "1 tea/coffee/day", "unlimited water"],
+        tier: "Bronze",
+        price: 499,
+        perks: ["Entry access during open hours", "Member pricing on games (where applicable)"],
         note: "Non-transferable",
       },
       {
         id: uid(),
-        name: "Hourly Tables",
-        perks: ["2 × 12x6 tables: ₹300/hr", "Other tables: ₹200/hr"],
-        note: "Subject to availability",
+        tier: "Silver",
+        price: 999,
+        perks: ["1 game free per day", "Unlimited water"],
+        note: "Non-transferable",
+      },
+      {
+        id: uid(),
+        tier: "Gold",
+        price: 1499,
+        perks: ["1 game free per day", "10 min massage chair/day", "1 tea/coffee/day", "Unlimited water"],
+        note: "Non-transferable",
+      },
+      {
+        id: uid(),
+        tier: "Platinum",
+        price: 1999,
+        perks: ["Priority bookings", "1 game free per day", "20 min massage chair/day", "2 tea/coffee/day", "Unlimited water"],
+        note: "Non-transferable",
       },
     ],
+
     offers: [
-      { id: uid(), title: "Massage Chair", price: "₹10 / minute", details: "Pay at counter (UPI integration later)." },
+      { id: uid(), title: "Massage Chair", price: "₹99 / 10 min • ₹199 / 20 min", details: "Relax between frames." },
       { id: uid(), title: "Foosball", price: "₹50 / game", details: "Best of 3 fun matches." },
       { id: uid(), title: "Air Hockey", price: "₹50 / game", details: "Fast rounds — winner stays!" },
       { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
     ],
+
     photos: [
-      {
-        id: uid(),
-        url: "https://images.unsplash.com/photo-1546443046-ed1ce6ffd1a9?auto=format&fit=crop&w=1200&q=70",
-        caption: "Tournament night vibes",
-      },
-      {
-        id: uid(),
-        url: "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?auto=format&fit=crop&w=1200&q=70",
-        caption: "Practice & coaching sessions",
-      },
+      // stored as data URLs when uploaded
     ],
+
     players: [
-      { id: uid(), name: "Wilson", city: "Pasighat", photoUrl: "", bestBreak: 0 },
-      { id: uid(), name: "Riku", city: "Pasighat", photoUrl: "", bestBreak: 0 },
-      { id: uid(), name: "Tani", city: "Aalo", photoUrl: "", bestBreak: 0 },
-      { id: uid(), name: "Bikash", city: "Roing", photoUrl: "", bestBreak: 0 },
+      { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "" },
+      { id: uid(), name: "Riku", city: "Pasighat", photo: "", bio: "" },
+      { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "" },
+      { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "" },
     ],
+
     tournaments: [
       {
         id: uid(),
         name: "Monthly Snooker Cup",
-        month: monthISO(),
+        month: monthKey(),
         game: "Snooker",
         format: "Round Robin",
         pointsWin: 3,
         pointsDraw: 1,
         pointsLoss: 0,
-        participantIds: [], // empty = all players
+        participantIds: [], // empty=all players
         matches: [],
       },
     ],
+
     booking: {
       tables: [
-        { id: "S1", name: "Snooker 12x6 - Table 1", rate: 300 },
-        { id: "S2", name: "Snooker 12x6 - Table 2", rate: 300 },
-        { id: "S3", name: "Snooker 10x5", rate: 200 },
-        { id: "P1", name: "Pool Table", rate: 200 },
-        { id: "AH", name: "Air Hockey", rate: 50 },
-        { id: "FB", name: "Foosball", rate: 50 },
-        { id: "MC", name: "Massage Chair", rate: 10 }, // per minute in real life
+        { id: "snk12", label: "Snooker Table 12x6 — ₹400 / hour", pricePerHour: 400 },
+        { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
+        { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
       ],
-      bookings: [
-        // {id, tableId, date, start, end, customer, phone, notes, status: 'hold'|'paid'|'cancelled'}
-      ],
+      // Booking requests (local) for notification/pending verification
+      requests: [],
+      // for admin ping notifications
+      lastSeenRequestAt: 0,
     },
-    payments: {
-      // {id, date, amount, method, note, bookingId?}
-      receipts: [],
-    },
+
     hallOfFame: {
-      // month -> array of {playerId, label, points}
-      months: [],
+      entries: [
+        // {id, title, playerName, month, stats, description, photo}
+      ],
     },
   };
 }
@@ -272,63 +162,29 @@ function defaultData() {
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return ensureMeta(defaultData());
+    if (!raw) return defaultData();
     const parsed = JSON.parse(raw);
-    // soft migrations
-    if (!parsed.ui) parsed.ui = { publicMode: false };
-    if (!parsed.booking) parsed.booking = defaultData().booking;
-    if (!parsed.payments) parsed.payments = { receipts: [] };
-    if (!parsed.hallOfFame) parsed.hallOfFame = { months: [] };
-    if (!parsed.club?.upiId) parsed.club.upiId = "yourupi@bank";
-    return ensureMeta(parsed);
+    // Light migration: ensure required keys exist
+    const d = { ...defaultData(), ...parsed };
+    d.club = { ...defaultData().club, ...(parsed.club || {}) };
+    d.admin = { ...defaultData().admin, ...(parsed.admin || {}) };
+    d.booking = { ...defaultData().booking, ...(parsed.booking || {}) };
+    d.hallOfFame = { ...defaultData().hallOfFame, ...(parsed.hallOfFame || {}) };
+    d.booking.tables = parsed?.booking?.tables?.length ? parsed.booking.tables : defaultData().booking.tables;
+    d.booking.requests = parsed?.booking?.requests || [];
+    d.booking.lastSeenRequestAt = parsed?.booking?.lastSeenRequestAt || 0;
+    d.hallOfFame.entries = parsed?.hallOfFame?.entries || [];
+    return d;
   } catch {
-    return ensureMeta(defaultData());
+    return defaultData();
   }
 }
-
 function saveData(data) {
   localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
 /* ---------------------------
-   Booking + Payments helpers
----------------------------- */
-function computeBookingAmount(tableId, startHHMM, endHHMM, tables) {
-  const t = (tables || []).find((x) => x.id === tableId);
-  if (!t) return 0;
-
-  const [sh, sm] = String(startHHMM || "00:00").split(":").map(Number);
-  const [eh, em] = String(endHHMM || "00:00").split(":").map(Number);
-  const start = sh * 60 + (sm || 0);
-  const end = eh * 60 + (em || 0);
-  const mins = Math.max(0, end - start);
-
-  // Pricing rule (from your earlier plan):
-  // - 12x6 tables = ₹300/hr
-  // - other tables = ₹200/hr
-  const ratePerHour = t.type === "snooker12" ? 300 : 200;
-  const hours = mins / 60;
-  return Math.max(0, Math.round(ratePerHour * hours));
-}
-
-function buildUpiUrl({ vpa, payeeName, amount, note }) {
-  const params = new URLSearchParams();
-  params.set("pa", vpa || "");
-  params.set("pn", payeeName || "The Q CLUB");
-  params.set("am", String(amount || 0));
-  params.set("cu", "INR");
-  if (note) params.set("tn", note);
-  // Works on most Android UPI apps:
-  return `upi://pay?${params.toString()}`;
-}
-
-function clampText(s, n = 60) {
-  const x = String(s || "");
-  return x.length > n ? x.slice(0, n - 1) + "…" : x;
-}
-
-/* ---------------------------
-   Fixtures: Round Robin
+   Round robin fixtures
 ---------------------------- */
 function generateRoundRobin(playerIds) {
   const ids = [...playerIds];
@@ -355,6 +211,7 @@ function generateRoundRobin(playerIds) {
           score1: "",
           score2: "",
           status: "scheduled", // scheduled | done
+          updatedAt: Date.now(),
         });
       }
     }
@@ -367,7 +224,7 @@ function generateRoundRobin(playerIds) {
 }
 
 /* ---------------------------
-   Leaderboard calculation
+   Leaderboard calc (per tournament)
 ---------------------------- */
 function calcLeaderboard(players, tournament) {
   const rows = players.map((p) => ({
@@ -427,115 +284,81 @@ function calcLeaderboard(players, tournament) {
 }
 
 /* ---------------------------
-   Booking helpers
+   Simple "ping" sound
+   (WebAudio oscillator – no files needed)
 ---------------------------- */
-function toMinutes(hhmm) {
-  // "17:30" => 1050
-  const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm || "").trim());
-  if (!m) return null;
-  const hh = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return hh * 60 + mm;
-}
-function overlaps(aStart, aEnd, bStart, bEnd) {
-  return aStart < bEnd && bStart < aEnd;
+function playPing() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.value = 0.08;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      ctx.close();
+    }, 180);
+  } catch {
+    // ignore
+  }
 }
 
-/* ---------------------------
+/* =========================================================
    App
----------------------------- */
+========================================================= */
 export default function App() {
   const [data, setData] = useState(loadData());
-  const [cloudOn, setCloudOn] = useState(cloudAvailable);
-  const [cloudStatus, setCloudStatus] = useState(cloudAvailable ? 'Cloud: ON' : 'Cloud: OFF');
-  const [pushTimer, setPushTimer] = useState(null);
+  const [cloudStatus, setCloudStatus] = useState(isCloudEnabled() ? "syncing" : "local");
   const [admin, setAdmin] = useState(false);
-  const navigate = useNavigate();
 
-  // 1) Load latest data from cloud on startup.
+  // Cloud sync: keep one shared state across all devices
   useEffect(() => {
-    if (!cloudOn) return;
-    let cancelled = false;
-    setCloudStatus('Cloud: syncing…');
-
-    (async () => {
-      try {
-        const remote = await cloudLoadState();
-        if (cancelled || !remote) {
-          setCloudStatus('Cloud: ON');
-          return;
-        }
-        const r = ensureMeta(remote);
-        setData((curr) => {
-          const c = ensureMeta(curr);
-          if ((r.meta.updatedAt || 0) > (c.meta.updatedAt || 0)) {
-            saveData(r);
-            return r;
-          }
-          return c;
-        });
-        setCloudStatus('Cloud: ON');
-      } catch (e) {
-        console.warn('Cloud load failed:', e);
-        setCloudStatus('Cloud: error');
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudOn]);
-
-  // 2) Subscribe for live updates (so friends see your admin edits).
-  useEffect(() => {
-    if (!cloudOn) return;
-    let unsub = null;
-    try {
-      unsub = cloudSubscribeState((remote) => {
-        const r = ensureMeta(remote);
-        setData((curr) => {
-          const c = ensureMeta(curr);
-          if ((r.meta.updatedAt || 0) <= (c.meta.updatedAt || 0)) return c;
-          saveData(r);
-          return r;
-        });
-      });
-    } catch (e) {
-      console.warn('Cloud subscribe failed:', e);
+    if (!isCloudEnabled()) return;
+    const missing = cloudMissingVars();
+    if (missing.length) {
+      console.warn("Firebase env vars missing:", missing);
+      setCloudStatus("error");
+      return;
     }
-    return () => {
-      if (typeof unsub === 'function') unsub();
-    };
-  }, [cloudOn]);
+    setCloudStatus("syncing");
+    const unsub = subscribeState(
+      (remote) => {
+        // Apply remote state + keep a local cache (for offline)
+        setData(remote);
+        try { saveData(remote); } catch {}
+        setCloudStatus("synced");
+      },
+      (err) => {
+        console.error("Cloud sync error:", err);
+        setCloudStatus("error");
+      }
+    );
+    return () => unsub?.();
+  }, []);
 
-  function commit(nextRaw) {
-    const next = ensureMeta({
-      ...nextRaw,
-      meta: { ...(nextRaw.meta || {}), updatedAt: Date.now() },
-    });
+  const navigate = useNavigate();
+  const location = useLocation();
 
+  function commit(next) {
     setData(next);
     saveData(next);
-
-    if (!cloudOn) return;
-    if (pushTimer) clearTimeout(pushTimer);
-
-    setCloudStatus('Cloud: syncing…');
-    const t = setTimeout(() => {
-      cloudSaveState(next)
-        .then(() => setCloudStatus('Cloud: ON'))
-        .catch((e) => {
-          console.warn('Cloud save failed:', e);
-          setCloudStatus('Cloud: error');
-        });
-    }, 700);
-    setPushTimer(t);
+      if (isCloudEnabled()) {
+        setCloudStatus("syncing");
+        writeState(next)
+          .then(() => setCloudStatus("synced"))
+          .catch((e) => {
+            console.error("Cloud write failed:", e);
+            setCloudStatus("error");
+          });
+      }
   }
 
-  const isAdminUI = admin && !data.ui?.publicMode;
-
+  // Active tournament = latest month
   const activeTournament = useMemo(() => {
     const t = [...(data.tournaments || [])]
       .sort((a, b) => (a.month || "").localeCompare(b.month || ""))
@@ -543,22 +366,20 @@ export default function App() {
     return t || null;
   }, [data.tournaments]);
 
-  const playersForActive = useMemo(() => {
-    if (!activeTournament) return data.players || [];
-    const ids = activeTournament.participantIds?.length
-      ? activeTournament.participantIds
-      : (data.players || []).map((p) => p.id);
+  const playersForTournament = (t) => {
+    if (!t) return data.players || [];
+    const ids = t.participantIds?.length ? t.participantIds : (data.players || []).map((p) => p.id);
     const setIds = new Set(ids);
     return (data.players || []).filter((p) => setIds.has(p.id));
-  }, [data.players, activeTournament]);
+  };
 
+  // Admin login
   function toggleAdmin() {
     if (admin) return setAdmin(false);
     const pin = prompt("Enter Admin PIN:");
     if (pin && pin === data.admin?.pin) setAdmin(true);
     else alert("Wrong PIN");
   }
-
   function changePin() {
     if (!admin) return alert("Admin only");
     const p = prompt("New Admin PIN:");
@@ -566,7 +387,6 @@ export default function App() {
     commit({ ...data, admin: { ...data.admin, pin: p } });
     alert("PIN updated.");
   }
-
   function resetAll() {
     if (!admin) return;
     if (!confirm("Reset ALL Q CLUB data to default?")) return;
@@ -576,82 +396,73 @@ export default function App() {
     navigate("/");
   }
 
-  function togglePublicMode() {
-    if (!admin) return alert("Admin only.");
-    commit({ ...data, ui: { ...(data.ui || {}), publicMode: !data.ui?.publicMode } });
-  }
+  // PAYMENT REQUEST PING:
+  // If admin is ON and a new booking request arrives (createdAt newer than lastSeenRequestAt), ping once.
+  useEffect(() => {
+    if (!admin) return;
+    const lastSeen = data.booking?.lastSeenRequestAt || 0;
+    const newest = Math.max(0, ...(data.booking?.requests || []).map((r) => r.createdAt || 0));
+    if (newest > lastSeen) {
+      playPing();
+      commit({
+        ...data,
+        booking: { ...data.booking, lastSeenRequestAt: newest },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, data.booking?.requests?.length]);
+
+  // Always scroll to top on route change (better mobile UX)
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   return (
     <>
-      <TopNav club={data.club} admin={admin} onToggleAdmin={toggleAdmin} onChangePin={changePin} onReset={resetAll} cloudStatus={cloudStatus} cloudOn={cloudOn} setCloudOn={setCloudOn} />
-      <AudioDock />
-      <NavHelper />
+      <TopNav
+        club={data.club}
+        admin={admin}
+        onToggleAdmin={toggleAdmin}
+        onChangePin={changePin}
+        onReset={resetAll}
+        cloudStatus={cloudStatus}
+      />
 
       <Routes>
-        <Route path="/" element={<Home data={data} activeTournament={activeTournament} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/membership" element={<Membership data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/offers" element={<Offers data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/photos" element={<Photos data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/players" element={<Players data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/tournaments" element={<Tournaments data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/fixtures" element={<Fixtures data={data} isAdminUI={isAdminUI} commit={commit} />} />
-        <Route path="/leaderboard" element={<Leaderboard data={data} activeTournament={activeTournament} playersForActive={playersForActive} />} />
-        <Route path="/booking" element={<Booking data={data} admin={isAdminUI} commit={commit} />} />
-        {/* Back-compat: old /pay links redirect into the single Booking experience */}
-        <Route path="/pay" element={<PayRedirect />} />
-        <Route path="/halloffame" element={<HallOfFame data={data} admin={isAdminUI} commit={commit} />} />
-        <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} playersForActive={playersForActive} />} />
+        <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route path="/book" element={<BookTable data={data} admin={admin} commit={commit} />} />
+        <Route path="/membership" element={<Membership data={data} admin={admin} commit={commit} />} />
+        <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
+        <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
+        <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
+        <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
+        <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
+        <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
+        <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      <BottomNav admin={isAdminUI} />
+
+      <BottomPadding />
     </>
   );
 }
 
-/* ---------------------------
-   Nav
----------------------------- */
-
-function NavHelper() {
-  const navigate = useNavigate();
-  const loc = useLocation();
-  if (loc.pathname === "/") return null;
-  return (
-    <div className="navHelper" role="navigation" aria-label="Quick navigation">
-      <button className="navHelperBtn" onClick={() => navigate(-1)} title="Back">←</button>
-      <button className="navHelperBtn" onClick={() => navigate("/")} title="Home">⌂</button>
-    </div>
-  );
+/* =========================================================
+   Layout
+========================================================= */
+function BottomPadding() {
+  return <div style={{ height: 28 }} />;
 }
 
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus, cloudOn, setCloudOn }) {
-  const [open, setOpen] = useState(false);
-
-  // Customer flow: Book Tables → (internally redirects to Pay screen).
-  // We keep the /pay route for the flow, but don't show a separate Pay tab.
-  const links = [
-    { to: "/", label: "Home" },
-    { to: "/membership", label: "Membership" },
-    { to: "/offers", label: "Offers" },
-    { to: "/photos", label: "Photos" },
-    { to: "/players", label: "Players" },
-    { to: "/tournaments", label: "Tournaments" },
-    { to: "/fixtures", label: "Fixtures" },
-    { to: "/leaderboard", label: "Leaderboard" },
-    { to: "/booking", label: "Book Tables" },
-    { to: "/halloffame", label: "Hall of Fame" },
-    { to: "/tv", label: "TV" },
-  ];
-
-  function close() {
-    setOpen(false);
-  }
-
+function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus }) {
   return (
     <div className="nav">
       <div className="nav-inner">
         <div className="brand">
-          <div className="title">{club?.name || "The Q CLUB"}</div>
+          <div className="title">
+            <span className="brandMark">Q</span> {club?.name || "The Q CLUB"}
+          </div>
           <div className="sub">
             {club?.location || "Pasighat"} • {club?.tagline || "Play. Chill. Compete."}
           </div>
@@ -659,95 +470,56 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus,
 
         <div className="spacer" />
 
-        <div className="nav-links">
-          {links.map((l) => (
-            <Link key={l.to} className="pill" to={l.to}>
-              {l.label}
-            </Link>
-          ))}
-        </div>
+        <Link className="pill" to="/">Home</Link>
+        <Link className="pill" to="/book">Book Table</Link>
+        <Link className="pill" to="/membership">Membership</Link>
+        <Link className="pill" to="/offer">What We Offer</Link>
+        <Link className="pill" to="/photos">Photos</Link>
+        <Link className="pill" to="/players">Players</Link>
+        <Link className="pill" to="/tournaments">Tournaments</Link>
+        <Link className="pill" to="/fixtures">Fixtures</Link>
+        <Link className="pill" to="/leaderboard">Leaderboards</Link>
+        <Link className="pill" to="/halloffame">Hall of Fame</Link>
+        <Link className="pill" to="/tv">TV</Link>
 
-        <div className="nav-actions">
-          <button className={"btn " + (admin ? "success" : "primary")} onClick={onToggleAdmin}>
-            {admin ? "Admin: ON" : "Admin Login"}
-          </button>
-          {admin && (
-            <>
-              <button className="btn" onClick={onChangePin}>Change PIN</button>
-              <button className="btn danger" onClick={onReset}>Reset</button>
-            </>
-          )}
-
-          <button className="btn icon" onClick={() => setOpen((s) => !s)} aria-label="Menu">
-            ☰
-          </button>
-        </div>
+        <button className="btn primary" onClick={onToggleAdmin}>
+          {admin ? "Admin: ON" : "Admin Login"}
+        </button>
+        {admin && (
+          <>
+            <button className="btn" onClick={onChangePin}>Change PIN</button>
+            <button className="btn danger" onClick={onReset}>Reset</button>
+          </>
+        )}
       </div>
-
-      {open && (
-        <div className="drawer" role="dialog" aria-modal="true" onClick={close}>
-          <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 900 }}>{club?.name || "The Q CLUB"}</div>
-              <button className="btn icon" onClick={close} aria-label="Close">✕</button>
-            </div>
-
-            <div style={{ marginTop: 10 }}>
-              {links.map((l) => (
-                <Link key={l.to} className="drawer-link" to={l.to} onClick={close}>
-                  {l.label}
-                </Link>
-              ))}
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <button className={"btn " + (admin ? "success" : "primary")} onClick={() => { close(); onToggleAdmin(); }}>
-                {admin ? "Admin: ON" : "Admin Login"}
-              </button>
-              {admin && (
-                <div className="row" style={{ marginTop: 10 }}>
-                  <button className="btn" onClick={() => { close(); onChangePin(); }}>Change PIN</button>
-                  <button className="btn danger" onClick={() => { close(); onReset(); }}>Reset</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-
-
-function PageShell({ title, subtitle, right, children }) {
+function PageShell({ title, subtitle, right }) {
   const navigate = useNavigate();
   return (
-    <div className="page">
-      <div className="pageTop">
-        <div className="pageTopLeft">
-          <div className="pageTitle">{title}</div>
-          {subtitle ? <div className="muted">{subtitle}</div> : null}
+    <div className="container">
+      <div className="pageHead">
+        <div className="pageHeadLeft">
+          <button className="iconBtn" onClick={() => navigate(-1)} aria-label="Back">←</button>
+          <Link className="iconBtn" to="/" aria-label="Home">⌂</Link>
+          <div>
+            <div className="pageTitle">{title}</div>
+            {subtitle ? <div className="muted">{subtitle}</div> : null}
+          </div>
         </div>
-        <div className="pageTopRight">
-          {right}
-          <button className="btn" onClick={() => navigate(-1)} title="Back">
-            ← Back
-          </button>
-          <button className="btn" onClick={() => navigate("/")} title="Home">
-            Home
-          </button>
-        </div>
+        <div className="pageHeadRight">{right || null}</div>
       </div>
-      <div className="card">{children}</div>
     </div>
   );
 }
 
-
-function Home({ data, activeTournament, isAdminUI, commit }) {
+/* =========================================================
+   Home
+========================================================= */
+function Home({ data, admin, commit, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2].filter(Boolean).join(" / ");
-  const nextT = activeTournament ? `${activeTournament.month} • ${activeTournament.name}` : "—";
 
   function addAnnouncement() {
     const text = prompt("Announcement text:");
@@ -757,88 +529,102 @@ function Home({ data, activeTournament, isAdminUI, commit }) {
       announcements: [{ id: uid(), text, createdAt: Date.now() }, ...(data.announcements || [])],
     });
   }
-
   function deleteAnnouncement(id) {
     if (!confirm("Delete this announcement?")) return;
     commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
   }
 
+  const topReq = (data.booking?.requests || [])
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, 3);
+
   return (
-    <div className="container">
+    <div className="container hero">
       <div className="grid">
         <div className="card cols-8">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="badge"><span className="dot" /> Open Today</span>
-            <span className="badge"><span className="dot red" /> UPI payments: ready on Pay page</span>
-          </div>
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+  {admin ? (
+    <button
+      className="badge"
+      style={{ cursor: "pointer", border: "none" }}
+      onClick={() => {
+        commit({
+          ...data,
+          club: { ...(data.club || {}), isOpenNow: !(data.club?.isOpenNow ?? true) },
+        });
+      }}
+      title="Admin: Toggle Open/Closed"
+    >
+      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
+      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+    </button>
+  ) : (
+    <span className="badge">
+      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
+      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+    </span>
+  )}
 
-          <h1>Welcome to {data.club?.name || "The Q CLUB"}</h1>
-          <div className="muted">
+  <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
+</div>
+
+          <h1 style={{ marginTop: 12 }}>
+            Welcome to {data.club?.name || "The Q CLUB"}
+          </h1>
+
+          <p className="muted">
             Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea/Coffee Vending • Monthly Tournaments • Leaderboards
-          </div>
+          </p>
 
-          <div className="kpi">
+          <div className="kpi" style={{ marginTop: 14 }}>
             <div className="chip">
               <div className="muted">Location</div>
-              <div style={{ fontSize: 18, fontWeight: 900 }}>{data.club?.location || "—"}</div>
+              <div className="big">{data.club?.location || "—"}</div>
             </div>
             <div className="chip">
               <div className="muted">Contact</div>
-              <div style={{ fontSize: 18, fontWeight: 900 }}>{phone || "—"}</div>
+              <div className="big">{phone || "—"}</div>
             </div>
             <div className="chip">
-              <div className="muted">Next Tournament</div>
-              <div style={{ fontSize: 16, fontWeight: 900 }}>{nextT}</div>
+              <div className="muted">Current Tournament</div>
+              <div className="big">{activeTournament ? `${activeTournament.month}` : "—"}</div>
             </div>
           </div>
 
-          <div className="hr" />
-          <h2>Cool Things</h2>
-          <div className="row">
-            <span className="badge"><span className="dot" /> Booking system</span>
-            <span className="badge"><span className="dot" /> Pay screen (UPI placeholder)</span>
-            <span className="badge"><span className="dot" /> Player profiles</span>
-            <span className="badge"><span className="dot" /> Hall of Fame</span>
-            <span className="badge"><span className="dot" /> TV mode</span>
-            <span className="badge"><span className="dot warn" /> Public mode toggle</span>
-          </div>
-
-          <div className="hr" />
-          <h2>Quick Buttons</h2>
-          <div className="muted" style={{ marginBottom: 10 }}>
-            Made for phone users — no confusing menu.
-          </div>
-          <div className="quickGrid">
-            <Link className="quickBtn" to="/booking">Book Tables</Link>
-            <Link className="quickBtn" to="/leaderboard">Leaderboard</Link>
-            <Link className="quickBtn" to="/players">Players</Link>
-            <Link className="quickBtn" to="/tournaments">Tournaments</Link>
-            <Link className="quickBtn" to="/fixtures">Fixtures</Link>
-            <Link className="quickBtn" to="/membership">Membership</Link>
-            <Link className="quickBtn" to="/offers">Offers</Link>
-            <Link className="quickBtn" to="/photos">Photos</Link>
-            <Link className="quickBtn" to="/halloffame">Hall of Fame</Link>
-            <Link className="quickBtn" to="/tv">TV Mode</Link>
+          <div className="grid" style={{ marginTop: 14 }}>
+            <Link className="card cols-4 tap" to="/book">
+              <div className="cardTitle">Book Table</div>
+              <div className="muted">Quick booking + UPI QR</div>
+            </Link>
+            <Link className="card cols-4 tap" to="/membership">
+              <div className="cardTitle">Membership</div>
+              <div className="muted">Bronze ₹499 and more</div>
+            </Link>
+            <Link className="card cols-4 tap" to="/leaderboard">
+              <div className="cardTitle">Leaderboards</div>
+              <div className="muted">Rankings & stats</div>
+            </Link>
           </div>
         </div>
 
         <div className="card cols-4">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2>Announcements</h2>
-            {isAdminUI && <button className="btn primary" onClick={addAnnouncement}>+ Add</button>}
+            <h2 style={{ margin: 0 }}>Announcements</h2>
+            {admin && <button className="btn primary" onClick={addAnnouncement}>+ Add</button>}
           </div>
 
           <div style={{ marginTop: 10 }}>
             {(data.announcements || []).length === 0 ? (
               <div className="muted">No announcements.</div>
             ) : (
-              (data.announcements || []).slice(0, 6).map((a) => (
-                <div className="card small" key={a.id} style={{ marginBottom: 10 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>
+              (data.announcements || []).slice(0, 8).map((a) => (
+                <div className="card" key={a.id} style={{ marginBottom: 10 }}>
+                  <div className="muted" style={{ fontSize: 13 }}>
                     {new Date(a.createdAt).toLocaleString()}
                   </div>
                   <div style={{ marginTop: 6 }}>{a.text}</div>
-                  {isAdminUI && (
+                  {admin && (
                     <div style={{ marginTop: 10 }}>
                       <button className="btn danger" onClick={() => deleteAnnouncement(a.id)}>Delete</button>
                     </div>
@@ -849,38 +635,270 @@ function Home({ data, activeTournament, isAdminUI, commit }) {
           </div>
         </div>
 
-        {isAdminUI && (
-          <div className="card cols-12">
-            <h2>How to run a monthly tournament</h2>
-            <div className="muted">
-              1) Add players → 2) Create tournament → 3) Generate fixtures → 4) Enter scores → 5) Leaderboard updates.
-              Then use Hall of Fame to save the top players for the month.
+        <div className="card cols-12">
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0 }}>Latest Booking Requests</h2>
+              <div className="muted">If Admin is ON, you’ll hear a ping when a new request is submitted.</div>
             </div>
+            <Link className="btn" to="/book">Open Book Table</Link>
           </div>
-        )}
+
+          {topReq.length === 0 ? (
+            <div className="muted" style={{ marginTop: 10 }}>No booking requests yet.</div>
+          ) : (
+            <div className="grid" style={{ marginTop: 10 }}>
+              {topReq.map((r) => (
+                <div className="card cols-4" key={r.id}>
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <b>{r.name || "Guest"}</b>
+                    <span className="badge"><span className="dot red" /> pending</span>
+                  </div>
+                  <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <span className="badge"><span className="dot" /> Amount: ₹{r.amount}</span>
+                  </div>
+                  <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+                    {new Date(r.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
 }
 
-/* ---------------------------
-   Membership CRUD
----------------------------- */
-function Membership({ data, isAdminUI, commit }) {
-  const list = data.memberships || [];
+/* =========================================================
+   Book Table (single tab experience)
+========================================================= */
+function BookTable({ data, admin, commit }) {
+  const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [tableId, setTableId] = useState(data.booking?.tables?.[0]?.id || "snk12");
+  const [hours, setHours] = useState(1);
+  const [note, setNote] = useState("");
+  const [submitted, setSubmitted] = useState(null);
 
-  function add() {
-    const name = prompt("Plan name:");
-    if (!name) return;
-    const perks = prompt("Perks (comma separated):", "1 game free/day, Unlimited water");
-    const note = prompt("Note (optional):", "Non-transferable");
+  const tables = data.booking?.tables || [];
+  const selected = tables.find((t) => t.id === tableId) || tables[0];
+  const amount = Math.max(0, safeNum(selected?.pricePerHour, 0) * safeNum(hours, 1));
+
+  const upiId = data.club?.upiId || "yomsoji-1@okicici";
+  const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
+  const txNote = `QClub Booking: ${selected?.label || "Table"} (${hours}h)`;
+  const link = upiDeepLink({ pa: upiId, pn: upiName, am: amount, tn: txNote });
+
+  function submitRequest() {
+    if (!name.trim()) return alert("Enter your name");
+    if (!mobile.trim()) return alert("Enter mobile number");
+    if (!selected) return alert("Select a table");
+    if (amount <= 0) return alert("Invalid amount");
+
+    const req = {
+      id: uid(),
+      name: name.trim(),
+      mobile: mobile.trim(),
+      itemId: selected.id,
+      itemLabel: selected.label,
+      hours: safeNum(hours, 1),
+      amount,
+      note: note.trim(),
+      createdAt: Date.now(),
+      status: "pending", // pending | verified (later)
+    };
+
+    commit({
+      ...data,
+      booking: {
+        ...data.booking,
+        requests: [req, ...(data.booking?.requests || [])],
+      },
+    });
+
+    setSubmitted(req);
+    setNote("");
+  }
+
+  function markVerified(id) {
+    if (!admin) return alert("Admin only");
+    commit({
+      ...data,
+      booking: {
+        ...data.booking,
+        requests: (data.booking?.requests || []).map((r) => (r.id === id ? { ...r, status: "verified" } : r)),
+      },
+    });
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Book a Table"
+        subtitle="Book & pay via UPI (verification later)"
+        right={
+          admin ? (
+            <span className="badge"><span className="dot" /> Admin view</span>
+          ) : null
+        }
+      />
+
+      <div className="container">
+        <div className="grid">
+          <div className="card cols-6">
+            <h2 style={{ marginTop: 0 }}>Customer Booking</h2>
+
+            <div className="field">
+              <label>Name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+            </div>
+
+            <div className="field">
+              <label>Mobile No.</label>
+              <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="10-digit mobile" />
+            </div>
+
+            <div className="field">
+              <label>Select</label>
+              <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
+                {tables.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Hours</label>
+              <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+                {[1,2,3,4,5].map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Note (optional)</label>
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Preferred time / message" />
+            </div>
+
+            <div className="row" style={{ justifyContent: "space-between", marginTop: 10, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div className="muted">Amount</div>
+                <div style={{ fontSize: 22, fontWeight: 900 }}>₹{amount}</div>
+              </div>
+              <button className="btn primary" onClick={submitRequest}>Submit Booking</button>
+            </div>
+
+            {submitted ? (
+              <div className="card" style={{ marginTop: 12 }}>
+                <b>Booking submitted ✅</b>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Show this QR to pay. Admin will get a ping (if admin mode open).
+                </div>
+                <div className="grid" style={{ marginTop: 10 }}>
+                  <div className="cols-6">
+                    <img
+                      src={qrUrl(link, 220)}
+                      alt="UPI QR"
+                      style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }}
+                    />
+                    <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                      If QR doesn’t load, use UPI string below.
+                    </div>
+                  </div>
+                  <div className="cols-6">
+                    <div className="badge"><span className="dot" /> UPI: {upiId}</div>
+                    <div className="muted" style={{ marginTop: 10 }}>
+                      {submitted.itemLabel} • {submitted.hours} hour(s)
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <a className="btn" href={link}>Open UPI App</a>
+                    </div>
+                    <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>
+                      {link}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="card cols-6">
+            <h2 style={{ marginTop: 0 }}>Admin: Requests</h2>
+            <div className="muted">
+              New submissions trigger a <b>ping</b> when Admin is ON.
+            </div>
+
+            {(data.booking?.requests || []).length === 0 ? (
+              <div className="muted" style={{ marginTop: 10 }}>No requests yet.</div>
+            ) : (
+              <div style={{ marginTop: 10 }}>
+                {(data.booking?.requests || []).slice(0, 25).map((r) => (
+                  <div className="card" key={r.id} style={{ marginBottom: 10 }}>
+                    <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <b>{r.name}</b>
+                      <span className="badge">
+                        <span className={r.status === "verified" ? "dot" : "dot red"} />
+                        {r.status}
+                      </span>
+                    </div>
+                    <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                    <div className="row" style={{ justifyContent: "space-between", marginTop: 8, gap: 10, flexWrap: "wrap" }}>
+                      <span className="badge"><span className="dot" /> ₹{r.amount}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>{r.mobile}</span>
+                    </div>
+                    {r.note ? <div className="muted" style={{ marginTop: 8 }}>Note: {r.note}</div> : null}
+                    <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{new Date(r.createdAt).toLocaleString()}</div>
+
+                    {admin ? (
+                      <div className="row" style={{ marginTop: 10, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <button className="btn" onClick={() => playPing()}>Test Ping</button>
+                        {r.status !== "verified" ? (
+                          <button className="btn primary" onClick={() => markVerified(r.id)}>Mark Verified</button>
+                        ) : (
+                          <span className="muted">Verified</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="muted" style={{ marginTop: 10 }}>Admin login to verify requests.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* =========================================================
+   Membership (Edit + Apply Now)
+========================================================= */
+function Membership({ data, admin, commit }) {
+  const [applyTier, setApplyTier] = useState(null); // membership object
+  const tiers = data.memberships || [];
+  const upiId = data.club?.upiId || "yomsoji-1@okicici";
+  const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
+
+  function addTier() {
+    if (!admin) return alert("Admin only");
+    const tier = prompt("Tier name:", "New Tier");
+    if (!tier) return;
+    const price = Number(prompt("Price (INR):", "999"));
+    const perks = prompt("Perks (comma separated):", "Benefit 1, Benefit 2");
+    const note = prompt("Note:", "Non-transferable");
     commit({
       ...data,
       memberships: [
-        ...list,
+        ...tiers,
         {
           id: uid(),
-          name,
+          tier: tier.trim(),
+          price: Number.isFinite(price) ? price : 0,
           perks: (perks || "").split(",").map((s) => s.trim()).filter(Boolean),
           note: note || "",
         },
@@ -888,413 +906,513 @@ function Membership({ data, isAdminUI, commit }) {
     });
   }
 
-  function remove(id) {
-    if (!confirm("Delete this plan?")) return;
-    commit({ ...data, memberships: list.filter((x) => x.id !== id) });
+  function removeTier(id) {
+    if (!admin) return;
+    if (!confirm("Delete this membership tier?")) return;
+    commit({ ...data, memberships: tiers.filter((x) => x.id !== id) });
+  }
+
+  function editTier(t) {
+    if (!admin) return;
+    const tier = prompt("Tier name:", t.tier);
+    if (!tier) return;
+    const price = Number(prompt("Price (INR):", String(t.price ?? 0)));
+    const perks = prompt("Perks (comma separated):", (t.perks || []).join(", "));
+    const note = prompt("Note:", t.note || "");
+    commit({
+      ...data,
+      memberships: tiers.map((x) =>
+        x.id === t.id
+          ? {
+              ...x,
+              tier: tier.trim(),
+              price: Number.isFinite(price) ? price : x.price,
+              perks: (perks || "").split(",").map((s) => s.trim()).filter(Boolean),
+              note: note || "",
+            }
+          : x
+      ),
+    });
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Membership Offers</h2>
-          {isAdminUI && <button className="btn primary" onClick={add}>+ Add Plan</button>}
-        </div>
+    <>
+      <PageShell
+        title="Membership"
+        subtitle="Apply & pay via UPI QR (verification later)"
+        right={admin ? <button className="btn primary" onClick={addTier}>+ Add Tier</button> : null}
+      />
 
+      <div className="container">
         <div className="grid">
-          {list.map((m) => (
-            <div className="card small cols-6" key={m.id}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <h3>{m.name}</h3>
-                {isAdminUI && <button className="btn danger" onClick={() => remove(m.id)}>Delete</button>}
+          {tiers.map((m) => (
+            <div className="card cols-6" key={m.id}>
+              <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div className="cardTitle">{m.tier}</div>
+                  <div className="badge" style={{ marginTop: 8 }}>
+                    <span className="dot" /> ₹{m.price} (fixed)
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn primary" onClick={() => setApplyTier(m)}>Apply Now</button>
+                  {admin ? (
+                    <>
+                      <button className="btn" onClick={() => editTier(m)}>Edit</button>
+                      <button className="btn danger" onClick={() => removeTier(m.id)}>Delete</button>
+                    </>
+                  ) : null}
+                </div>
               </div>
-              <ul className="muted" style={{ marginTop: 6, paddingLeft: 18 }}>
+
+              <ul className="muted" style={{ marginTop: 10 }}>
                 {(m.perks || []).map((p, i) => <li key={i}>{p}</li>)}
               </ul>
-              {m.note ? <div className="badge" style={{ marginTop: 10 }}><span className="dot" /> {m.note}</div> : null}
+              {m.note ? <div className="muted" style={{ marginTop: 10 }}>{m.note}</div> : null}
+            </div>
+          ))}
+        </div>
+
+        {applyTier ? (
+          <ApplyModal
+            tier={applyTier}
+            upiId={upiId}
+            upiName={upiName}
+            onClose={() => setApplyTier(null)}
+          />
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function ApplyModal({ tier, upiId, upiName, onClose }) {
+  const [fullName, setFullName] = useState("");
+  const [location, setLocation] = useState("Pasighat");
+  const [mobile, setMobile] = useState("");
+  const [size, setSize] = useState("M");
+
+  const tn = `QClub Membership: ${tier.tier}`;
+  const link = upiDeepLink({ pa: upiId, pn: upiName, am: tier.price, tn });
+
+  return (
+    <div className="modalOverlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <div className="cardTitle">Apply: {tier.tier}</div>
+            <div className="muted">Amount: ₹{tier.price}</div>
+          </div>
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="grid" style={{ marginTop: 10 }}>
+          <div className="field cols-6">
+            <label>Name</label>
+            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" />
+          </div>
+          <div className="field cols-6">
+            <label>Location</label>
+            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City" />
+          </div>
+          <div className="field cols-6">
+            <label>Mobile No.</label>
+            <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="10-digit mobile" />
+          </div>
+          <div className="field cols-6">
+            <label>T-Shirt Size</label>
+            <select value={size} onChange={(e) => setSize(e.target.value)}>
+              {["XS","S","M","L","XL","XXL"].map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 10 }}>
+          <b>UPI QR (Display only)</b>
+          <div className="muted" style={{ marginTop: 6 }}>
+            Pay using any UPI app. Verification will be added later with PhonePe Business.
+          </div>
+
+          <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
+            <div className="cols-6">
+              <img
+                src={qrUrl(link, 220)}
+                alt="UPI QR"
+                style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }}
+              />
+              <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                {fullName ? `Name: ${fullName}` : "Fill details (optional)"} • Size: {size}
+              </div>
+            </div>
+            <div className="cols-6">
+              <div className="badge"><span className="dot" /> UPI: {upiId}</div>
+              <div style={{ marginTop: 10 }}>
+                <a className="btn primary" href={link}>Open UPI App</a>
+              </div>
+              <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>
+                {link}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+          Note: Auto-verification requires payment gateway / business integration. We’ll add that after you open the Q Club bank account.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   Offers (What We Offer) – Edit buttons for admin
+========================================================= */
+function Offers({ data, admin, commit }) {
+  const list = data.offers || [];
+
+  function add() {
+    if (!admin) return alert("Admin only");
+    const title = prompt("Title:", "New Offer");
+    if (!title) return;
+    const price = prompt("Price display:", "₹");
+    const details = prompt("Details:", "Description");
+    commit({ ...data, offers: [...list, { id: uid(), title, price: price || "", details: details || "" }] });
+  }
+
+  function remove(id) {
+    if (!admin) return;
+    if (!confirm("Delete this offer?")) return;
+    commit({ ...data, offers: list.filter((x) => x.id !== id) });
+  }
+
+  function edit(o) {
+    if (!admin) return;
+    const title = prompt("Title:", o.title);
+    if (!title) return;
+    const price = prompt("Price display:", o.price || "");
+    const details = prompt("Details:", o.details || "");
+    commit({
+      ...data,
+      offers: list.map((x) => (x.id === o.id ? { ...x, title: title.trim(), price: price || "", details: details || "" } : x)),
+    });
+  }
+
+  return (
+    <>
+      <PageShell
+        title="What We Offer"
+        subtitle="Games, fun & extras"
+        right={admin ? <button className="btn primary" onClick={add}>+ Add</button> : null}
+      />
+
+      <div className="container">
+        <div className="grid">
+          {list.map((o) => (
+            <div className="card cols-4" key={o.id}>
+              <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div className="cardTitle">{o.title}</div>
+                {admin ? (
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn" onClick={() => edit(o)}>Edit</button>
+                    <button className="btn danger" onClick={() => remove(o.id)}>Delete</button>
+                  </div>
+                ) : null}
+              </div>
+              {o.price ? <div className="badge" style={{ marginTop: 10 }}><span className="dot" /> {o.price}</div> : null}
+              {o.details ? <div className="muted" style={{ marginTop: 10 }}>{o.details}</div> : null}
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
-/* ---------------------------
-   Offers CRUD
----------------------------- */
+/* =========================================================
+   Photos (Upload file + caption)
+========================================================= */
+function Photos({ data, admin, commit }) {
+  const list = data.photos || [];
+  const fileRef = useRef(null);
 
-function Offers({ data, isAdminUI, commit }) {
-  const list = data.offers || [];
-
-  function add() {
-    const title = prompt("Offer title:");
-    if (!title) return;
-
-    const price = prompt("Price:", "₹");
-    const details = prompt("Details:", "Pay at counter");
-
+  async function addFromFile() {
+    if (!admin) return alert("Admin only");
+    const file = fileRef.current?.files?.[0];
+    if (!file) return alert("Choose a photo file first.");
+    const caption = prompt("Caption / Name:", "Q Club vibes") || "";
+    const dataUrl = await readFileAsDataURL(file);
     commit({
       ...data,
-      offers: [
+      photos: [
+        { id: uid(), dataUrl, caption: caption.trim(), createdAt: Date.now() },
         ...list,
-        {
-          id: uid(),
-          title: title.trim(),
-          price: (price || "").trim(),
-          details: (details || "").trim(),
-          createdAt: Date.now(),
-        },
       ],
     });
-  }
-
-  function edit(id) {
-    const cur = list.find((o) => o.id === id);
-    if (!cur) return;
-
-    const title = prompt("Offer title:", cur.title || "");
-    if (!title) return;
-
-    const price = prompt("Price:", cur.price || "₹");
-    const details = prompt("Details:", cur.details || "");
-
-    commit({
-      ...data,
-      offers: list.map((o) =>
-        o.id !== id
-          ? o
-          : {
-              ...o,
-              title: title.trim(),
-              price: (price || "").trim(),
-              details: (details || "").trim(),
-              updatedAt: Date.now(),
-            }
-      ),
-    });
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   function remove(id) {
-    if (!confirm("Delete this offer?")) return;
-    commit({ ...data, offers: list.filter((o) => o.id !== id) });
+    if (!admin) return;
+    if (!confirm("Delete this photo?")) return;
+    commit({ ...data, photos: list.filter((x) => x.id !== id) });
   }
 
   return (
-    <div className="card">
-      <div className="row space">
-        <div>
-          <div className="h2">Offers</div>
-          <div className="muted">Special deals & packages.</div>
-        </div>
-
-        {isAdminUI ? (
-          <button className="btn" onClick={add}>
-            + Add Offer
-          </button>
-        ) : null}
-      </div>
-
-      <div className="grid2" style={{ marginTop: 12 }}>
-        {list.length ? (
-          list.map((o) => (
-            <div key={o.id} className="card" style={{ padding: 12 }}>
-              <div className="row space">
-                <div style={{ fontWeight: 700 }}>{o.title}</div>
-                <div style={{ fontWeight: 800 }}>{o.price}</div>
-              </div>
-              {o.details ? (
-                <div className="muted" style={{ marginTop: 6 }}>
-                  {o.details}
-                </div>
-              ) : null}
-
-              {isAdminUI ? (
-                <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                  <button className="btn" onClick={() => edit(o.id)}>
-                    Edit
-                  </button>
-                  <button className="btn danger" onClick={() => remove(o.id)}>
-                    Delete
-                  </button>
-                </div>
-              ) : null}
+    <>
+      <PageShell
+        title="Photos"
+        subtitle="Club moments"
+        right={
+          admin ? (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <input ref={fileRef} type="file" accept="image/*" />
+              <button className="btn primary" onClick={addFromFile}>Upload</button>
             </div>
-          ))
+          ) : null
+        }
+      />
+
+      <div className="container">
+        {(list.length === 0) ? (
+          <div className="card">
+            <div className="muted">No photos yet. {admin ? "Upload a photo above." : ""}</div>
+          </div>
         ) : (
-          <div className="muted">No offers yet.</div>
+          <div className="gallery" style={{ marginTop: 8 }}>
+            {list.map((p) => (
+              <div className="photo" key={p.id}>
+                <img src={p.dataUrl || p.url} alt={p.caption || "photo"} />
+                <div className="cap">
+                  <div>{p.caption || "—"}</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    {p.createdAt ? new Date(p.createdAt).toLocaleString() : ""}
+                  </div>
+                  {admin ? (
+                    <div style={{ marginTop: 8 }}>
+                      <button className="btn danger" onClick={() => remove(p.id)}>Delete</button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
-function Photos({ data, isAdminUI, commit }) {
-  const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
-
-  const items = data.photos || [];
-
-  function resetForm() {
-    setEditingId(null);
-    setTitle("");
-    setUrl("");
-  }
-
-  function startAdd() {
-    resetForm();
-    setOpen(true);
-  }
-
-  function startEdit(item) {
-    setEditingId(item.id);
-    setTitle(item.title || "");
-    setUrl(item.url || "");
-    setOpen(true);
-  }
-
-  async function onPickFile(file) {
-    if (!file) return;
-    try {
-      const dataUrl = await resizeImageToDataUrl(file, 1280, 0.82);
-      setUrl(dataUrl);
-    } catch (e) {
-      alert("Could not read image. Try a smaller file.");
-    }
-  }
-
-  function save() {
-    if (!title.trim()) return alert("Enter a title");
-    if (!url.trim()) return alert("Add an image URL or upload a photo");
-
-    const nextPhotos = (() => {
-      if (editingId) {
-        return (data.photos || []).map((p) =>
-          p.id === editingId ? { ...p, title: title.trim(), url: url.trim() } : p
-        );
-      }
-      const newItem = {
-        id: uid(),
-        title: title.trim(),
-        url: url.trim(),
-        createdAt: Date.now(),
-      };
-      return [newItem, ...(data.photos || [])];
-    })();
-
-    commit({ ...data, photos: nextPhotos }, editingId ? "photos_edit" : "photos_add");
-    setOpen(false);
-    resetForm();
-  }
-
-  function remove(id) {
-    if (!confirm("Delete this photo?")) return;
-    commit(
-      { ...data, photos: (data.photos || []).filter((p) => p.id !== id) },
-      "photos_delete"
-    );
-  }
-
-  return (
-    <PageShell
-      title="Club Photos"
-      subtitle="Admin can add/edit photos. You can upload (saved into the club database + cloud sync) or paste an image URL."
-      right={
-        isAdminUI ? (
-          <button className="btnPrimary" onClick={startAdd}>
-            + Add Photo
-          </button>
-        ) : null
-      }
-    >
-      {open ? (
-        <div className="cardInner" style={{ marginBottom: 14 }}>
-          <div className="grid2">
-            <div>
-              <div className="label">Title</div>
-              <input
-                className="input"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g., Tournament night vibes"
-              />
-            </div>
-
-            <div>
-              <div className="label">Image URL (optional)</div>
-              <input
-                className="input"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            <div className="label">Upload photo</div>
-            <input
-              className="input"
-              type="file"
-              accept="image/*"
-              onChange={(e) => onPickFile(e.target.files?.[0])}
-            />
-            <div className="muted" style={{ marginTop: 6 }}>
-              Tip: keep uploads small (1–3 MB) for faster syncing.
-            </div>
-          </div>
-
-          {url ? (
-            <div style={{ marginTop: 12 }}>
-              <div className="label">Preview</div>
-              <img
-                src={url}
-                alt={title}
-                style={{
-                  width: "100%",
-                  maxHeight: 260,
-                  objectFit: "cover",
-                  borderRadius: 12,
-                }}
-              />
-            </div>
-          ) : null}
-
-          <div className="row" style={{ marginTop: 12, gap: 10 }}>
-            <button className="btnPrimary" onClick={save}>
-              {editingId ? "Save Changes" : "Add Photo"}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setOpen(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="photosGrid">
-        {items.length === 0 ? <div className="muted">No photos yet.</div> : null}
-
-        {items.map((p) => (
-          <div key={p.id} className="photoCard">
-            <div className="photoThumb">
-              <img src={p.url} alt={p.title} />
-            </div>
-            <div className="photoMeta">
-              <div className="photoTitle">{p.title}</div>
-              {isAdminUI ? (
-                <div className="row" style={{ gap: 10, marginTop: 8 }}>
-                  <button className="btn" onClick={() => startEdit(p)}>
-                    Edit
-                  </button>
-                  <button className="btnDanger" onClick={() => remove(p.id)}>
-                    Delete
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </PageShell>
-  );
-}
-
-function Players({ data, isAdminUI, commit }) {
+/* =========================================================
+   Players (click name -> profile modal with stats/rank)
+========================================================= */
+function Players({ data, admin, commit, activeTournament }) {
   const players = data.players || [];
+  const [selected, setSelected] = useState(null);
+
+  // For stats: use active tournament leaderboard as "rank"
+  const activePlayers = activeTournament ? playersForTournament(data, activeTournament) : players;
+  const lb = activeTournament ? calcLeaderboard(activePlayers, activeTournament) : [];
+
+  function playersForTournament(d, t) {
+    const ids = t.participantIds?.length ? t.participantIds : (d.players || []).map((p) => p.id);
+    const setIds = new Set(ids);
+    return (d.players || []).filter((p) => setIds.has(p.id));
+  }
+  function rankOf(pid) {
+    const idx = lb.findIndex((r) => r.id === pid);
+    return idx >= 0 ? idx + 1 : null;
+  }
+  function rowOf(pid) {
+    return lb.find((r) => r.id === pid) || null;
+  }
 
   function addPlayer() {
+    if (!admin) return alert("Admin only");
     const name = prompt("Player name:");
     if (!name) return;
-    const city = prompt("City (optional):", "Pasighat") || "";
-    commit({ ...data, players: [...players, { id: uid(), name, city, photoUrl: "", bestBreak: 0 }] });
-  }
-
-  function removePlayer(id) {
-    if (!confirm("Delete player? Tournament fixtures may be affected.")) return;
-    commit({ ...data, players: players.filter((p) => p.id !== id) });
-  }
-
-  function editPlayer(p) {
-    const city = prompt("City:", p.city || "") ?? p.city;
-    const photoUrl = prompt("Photo URL (optional):", p.photoUrl || "") ?? p.photoUrl;
-    const bestBreak = prompt("Best Break (number):", String(p.bestBreak || 0));
-    const bb = Number(bestBreak);
+    const city = prompt("City:", "Pasighat") || "";
     commit({
       ...data,
-      players: players.map((x) =>
-        x.id === p.id ? { ...x, city, photoUrl, bestBreak: Number.isFinite(bb) ? bb : x.bestBreak } : x
-      ),
+      players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "" }],
+    });
+  }
+  function removePlayer(id) {
+    if (!admin) return;
+    if (!confirm("Delete player? (May affect fixtures)")) return;
+    commit({ ...data, players: players.filter((p) => p.id !== id) });
+  }
+  async function editPlayer(p) {
+    if (!admin) return;
+    const name = prompt("Name:", p.name);
+    if (!name) return;
+    const city = prompt("City:", p.city || "");
+    const bio = prompt("Short bio (optional):", p.bio || "");
+    commit({
+      ...data,
+      players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "" } : x)),
+    });
+  }
+  async function uploadPlayerPhoto(p, file) {
+    if (!admin) return;
+    const dataUrl = await readFileAsDataURL(file);
+    commit({
+      ...data,
+      players: players.map((x) => (x.id === p.id ? { ...x, photo: dataUrl } : x)),
     });
   }
 
   return (
-    <div className="container">
-      <div className="grid">
-        <div className="card cols-12">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2>Players</h2>
-            {isAdminUI && <button className="btn primary" onClick={addPlayer}>+ Add Player</button>}
+    <>
+      <PageShell
+        title="Players"
+        subtitle={activeTournament ? `Tap a player to view profile (Rank from ${activeTournament.month})` : "Tap a player to view profile"}
+        right={admin ? <button className="btn primary" onClick={addPlayer}>+ Add Player</button> : null}
+      />
+
+      <div className="container">
+        <div className="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th className="muted">City</th>
+                <th>Rank</th>
+                {admin ? <th>Admin</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {players.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <button className="linkBtn" onClick={() => setSelected(p)}>{p.name}</button>
+                  </td>
+                  <td className="muted">{p.city || "-"}</td>
+                  <td>{rankOf(p.id) ? `#${rankOf(p.id)}` : "-"}</td>
+                  {admin ? (
+                    <td>
+                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                        <button className="btn" onClick={() => editPlayer(p)}>Edit</button>
+                        <button className="btn danger" onClick={() => removePlayer(p.id)}>Delete</button>
+                      </div>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {selected ? (
+          <PlayerModal
+            player={selected}
+            admin={admin}
+            onClose={() => setSelected(null)}
+            rank={rankOf(selected.id)}
+            statsRow={rowOf(selected.id)}
+            onUpload={(file) => uploadPlayerPhoto(selected, file)}
+          />
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
+  const fileRef = useRef(null);
+  return (
+    <div className="modalOverlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div className="cardTitle">{player.name}</div>
+            <div className="muted">{player.city || ""} {rank ? `• Rank #${rank}` : ""}</div>
+          </div>
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
+          <div className="cols-5">
+            <div className="photoBox">
+              {player.photo ? (
+                <img src={player.photo} alt="player" />
+              ) : (
+                <div className="muted">No photo</div>
+              )}
+            </div>
+
+            {admin ? (
+              <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <input ref={fileRef} type="file" accept="image/*" />
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    const f = fileRef.current?.files?.[0];
+                    if (!f) return alert("Choose a file first");
+                    onUpload(f);
+                    fileRef.current.value = "";
+                  }}
+                >
+                  Upload Photo
+                </button>
+              </div>
+            ) : null}
+
+            {player.bio ? <div className="muted" style={{ marginTop: 10 }}>{player.bio}</div> : null}
           </div>
 
-          {players.length === 0 ? (
-            <div className="muted">No players yet.</div>
-          ) : (
-            <table style={{ marginTop: 10 }}>
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>City</th>
-                  <th>Best Break</th>
-                  <th>Photo</th>
-                  {isAdminUI && <th>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {players.map((p) => (
-                  <tr key={p.id}>
-                    <td><b>{p.name}</b></td>
-                    <td className="muted">{p.city || "-"}</td>
-                    <td>{p.bestBreak || 0}</td>
-                    <td className="muted">{p.photoUrl ? "Yes" : "No"}</td>
-                    {isAdminUI && (
-                      <td>
-                        <button className="btn" onClick={() => editPlayer(p)} style={{ marginRight: 8 }}>Edit</button>
-                        <button className="btn danger" onClick={() => removePlayer(p.id)}>Delete</button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <div className="cols-7">
+            <div className="card">
+              <div className="cardTitle">Stats</div>
+              {statsRow ? (
+                <div className="grid" style={{ marginTop: 10 }}>
+                  <Stat label="Matches" value={statsRow.played} />
+                  <Stat label="Wins" value={statsRow.wins} />
+                  <Stat label="Loss" value={statsRow.losses} />
+                  <Stat label="Points" value={statsRow.points} />
+                  <Stat label="For" value={statsRow.for} />
+                  <Stat label="Against" value={statsRow.against} />
+                  <Stat label="Diff" value={statsRow.for - statsRow.against} />
+                </div>
+              ) : (
+                <div className="muted" style={{ marginTop: 8 }}>
+                  Stats appear after fixtures are generated & matches are marked done.
+                </div>
+              )}
+            </div>
 
-          {!isAdminUI && <div className="muted" style={{ marginTop: 10 }}>Admin can add/edit players.</div>}
+            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+              Rank and stats are based on current tournament results.
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------------------------
-   Tournaments
----------------------------- */
-function Tournaments({ data, isAdminUI, commit }) {
+function Stat({ label, value }) {
+  return (
+    <div className="chip">
+      <div className="muted">{label}</div>
+      <div className="big">{value ?? "-"}</div>
+    </div>
+  );
+}
+
+/* =========================================================
+   Tournaments + Tournament Leaderboards
+========================================================= */
+function Tournaments({ data, admin, commit }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
+  const [view, setView] = useState("list"); // list | leaderboards
 
   function addTournament() {
+    if (!admin) return alert("Admin only.");
     const name = prompt("Tournament name:", "Monthly Snooker Cup");
     if (!name) return;
-    const month = prompt("Month (YYYY-MM):", monthISO()) || "";
-    const game = prompt("Game (Snooker/Pool/etc):", "Snooker") || "";
+    const month = prompt("Month (YYYY-MM):", monthKey());
+    const game = prompt("Game (Snooker/Pool/etc):", "Snooker");
     commit({
       ...data,
       tournaments: [
@@ -1302,8 +1420,8 @@ function Tournaments({ data, isAdminUI, commit }) {
         {
           id: uid(),
           name,
-          month,
-          game,
+          month: month || "",
+          game: game || "",
           format: "Round Robin",
           pointsWin: 3,
           pointsDraw: 1,
@@ -1314,83 +1432,149 @@ function Tournaments({ data, isAdminUI, commit }) {
       ],
     });
   }
-
   function removeTournament(id) {
+    if (!admin) return;
     if (!confirm("Delete tournament and its matches?")) return;
     commit({ ...data, tournaments: tournaments.filter((t) => t.id !== id) });
   }
 
-  function setParticipants(t) {
-    const names = players.map((p) => p.name).join(", ");
-    const help = "Type player names separated by commas (leave empty for ALL players).";
-    const input = prompt(`${help}\n\nAvailable:\n${names}`, "");
-    if (input === null) return;
-    const cleaned = input.split(",").map((s) => s.trim()).filter(Boolean);
-    if (cleaned.length === 0) {
-      commit({ ...data, tournaments: tournaments.map((x) => (x.id === t.id ? { ...x, participantIds: [] } : x)) });
-      return;
-    }
-    const matchedIds = players.filter((p) => cleaned.some((n) => n.toLowerCase() === p.name.toLowerCase())).map((p) => p.id);
-    commit({ ...data, tournaments: tournaments.map((x) => (x.id === t.id ? { ...x, participantIds: matchedIds } : x)) });
-  }
+  return (
+    <>
+      <PageShell
+        title="Tournaments"
+        subtitle="Manage tournaments and view per-tournament standings"
+        right={
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button className={view === "list" ? "btn primary" : "btn"} onClick={() => setView("list")}>Tournaments</button>
+            <button className={view === "leaderboards" ? "btn primary" : "btn"} onClick={() => setView("leaderboards")}>Tournament Leaderboards</button>
+            {admin ? <button className="btn" onClick={addTournament}>+ New</button> : null}
+          </div>
+        }
+      />
+
+      <div className="container">
+        {view === "list" ? (
+          <div className="card">
+            {tournaments.length === 0 ? (
+              <div className="muted">No tournaments yet.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Name</th>
+                    <th>Game</th>
+                    <th>Matches</th>
+                    {admin ? <th>Action</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tournaments
+                    .slice()
+                    .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
+                    .map((t) => (
+                      <tr key={t.id}>
+                        <td>{t.month}</td>
+                        <td>{t.name}</td>
+                        <td>{t.game}</td>
+                        <td>{(t.matches || []).length}</td>
+                        {admin ? (
+                          <td>
+                            <button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ) : (
+          <TournamentLeaderboards data={data} players={players} />
+        )}
+      </div>
+    </>
+  );
+}
+
+function TournamentLeaderboards({ data, players }) {
+  const tournaments = data.tournaments || [];
+  const [selectedId, setSelectedId] = useState(tournaments[0]?.id || "");
+  const t = tournaments.find((x) => x.id === selectedId) || null;
+
+  const tourPlayers = useMemo(() => {
+    if (!t) return [];
+    const ids = t.participantIds?.length ? t.participantIds : players.map((p) => p.id);
+    const setIds = new Set(ids);
+    return players.filter((p) => setIds.has(p.id));
+  }, [t, players]);
+
+  const table = useMemo(() => (t ? calcLeaderboard(tourPlayers, t) : []), [t, tourPlayers]);
 
   return (
-    <div className="container">
-      <div className="grid">
-        <div className="card cols-12">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2>Monthly Tournaments</h2>
-            {isAdminUI && <button className="btn primary" onClick={addTournament}>+ New Tournament</button>}
-          </div>
+    <div className="card">
+      <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>Tournament Leaderboard</h2>
+        <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+          {tournaments
+            .slice()
+            .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
+            .map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.month} • {x.name}
+              </option>
+            ))}
+        </select>
+      </div>
 
-          {tournaments.length === 0 ? (
-            <div className="muted">No tournaments yet.</div>
-          ) : (
-            <table style={{ marginTop: 10 }}>
+      {!t ? (
+        <div className="muted" style={{ marginTop: 10 }}>Create a tournament first.</div>
+      ) : (
+        <>
+          <div className="muted" style={{ marginTop: 8 }}>{t.month} • {t.name} • {t.game}</div>
+          <div style={{ marginTop: 12 }}>
+            <table>
               <thead>
                 <tr>
-                  <th>Month</th>
-                  <th>Name</th>
-                  <th>Game</th>
-                  <th>Players</th>
-                  <th>Matches</th>
-                  {isAdminUI && <th>Action</th>}
+                  <th>#</th>
+                  <th>Player</th>
+                  <th>P</th>
+                  <th>W</th>
+                  <th>D</th>
+                  <th>L</th>
+                  <th>Pts</th>
+                  <th>Diff</th>
                 </tr>
               </thead>
               <tbody>
-                {tournaments
-                  .slice()
-                  .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
-                  .map((t) => (
-                    <tr key={t.id}>
-                      <td>{t.month}</td>
-                      <td><b>{t.name}</b></td>
-                      <td className="muted">{t.game}</td>
-                      <td className="muted">{t.participantIds?.length ? t.participantIds.length : "All"}</td>
-                      <td>{(t.matches || []).length}</td>
-                      {isAdminUI && (
-                        <td>
-                          <button className="btn" onClick={() => setParticipants(t)} style={{ marginRight: 8 }}>Set Players</button>
-                          <button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                {table.map((r, i) => (
+                  <tr key={r.id}>
+                    <td>{i + 1}</td>
+                    <td><b>{r.name}</b></td>
+                    <td>{r.played}</td>
+                    <td>{r.wins}</td>
+                    <td>{r.draws}</td>
+                    <td>{r.losses}</td>
+                    <td><b>{r.points}</b></td>
+                    <td>{r.for - r.against}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          )}
-
-          {!isAdminUI && <div className="muted" style={{ marginTop: 10 }}>Admin can create/edit tournaments.</div>}
-        </div>
-      </div>
+          </div>
+          <div className="muted" style={{ marginTop: 10 }}>
+            Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-/* ---------------------------
-   Fixtures + Score entry
----------------------------- */
-function Fixtures({ data, isAdminUI, commit }) {
+/* =========================================================
+   Fixtures
+========================================================= */
+function Fixtures({ data, admin, commit }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
 
@@ -1409,6 +1593,7 @@ function Fixtures({ data, isAdminUI, commit }) {
   }
 
   function generate() {
+    if (!admin) return alert("Admin only.");
     if (!selected) return;
     if (tournamentPlayers.length < 2) return alert("Need at least 2 players.");
     if (!confirm("Generate fixtures? Existing matches will be replaced.")) return;
@@ -1421,11 +1606,15 @@ function Fixtures({ data, isAdminUI, commit }) {
   }
 
   function updateMatch(mid, patch) {
+    if (!admin) return;
     commit({
       ...data,
       tournaments: tournaments.map((t) => {
-        if (!selected || t.id !== selected.id) return t;
-        return { ...t, matches: (t.matches || []).map((m) => (m.id === mid ? { ...m, ...patch } : m)) };
+        if (t.id !== selected.id) return t;
+        return {
+          ...t,
+          matches: (t.matches || []).map((m) => (m.id === mid ? { ...m, ...patch, updatedAt: Date.now() } : m)),
+        };
       }),
     });
   }
@@ -1438,11 +1627,12 @@ function Fixtures({ data, isAdminUI, commit }) {
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Fixtures</h2>
-          <div className="row">
+    <>
+      <PageShell
+        title="Fixtures"
+        subtitle="Generate matchups and enter scores"
+        right={
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
               {tournaments
                 .slice()
@@ -1453,605 +1643,340 @@ function Fixtures({ data, isAdminUI, commit }) {
                   </option>
                 ))}
             </select>
-            {isAdminUI && <button className="btn primary" onClick={generate}>Generate Round Robin</button>}
+            {admin ? <button className="btn primary" onClick={generate}>Generate</button> : null}
           </div>
-        </div>
+        }
+      />
 
-        {!selected ? (
-          <div className="muted">Create a tournament first.</div>
-        ) : (
-          <>
-            <div className="muted">Players: {tournamentPlayers.map((p) => p.name).join(", ") || "—"}</div>
-
-            <div style={{ marginTop: 12 }}>
-              {(selected.matches || []).length === 0 ? (
-                <div className="muted">No fixtures yet. {isAdminUI ? "Click Generate." : "Ask admin to generate."}</div>
-              ) : (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Round</th>
-                      <th>Match</th>
-                      <th>Score</th>
-                      <th>Status</th>
-                      {isAdminUI && <th>Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(selected.matches || []).slice().sort((a, b) => a.round - b.round).map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.round}</td>
-                        <td>{nameOf(m.p1)} vs {nameOf(m.p2)}</td>
-                        <td style={{ width: 260 }}>
-                          {isAdminUI ? (
-                            <div className="row">
-                              <input
-                                style={{ width: 88 }}
-                                value={m.score1}
-                                onChange={(e) => updateMatch(m.id, { score1: e.target.value })}
-                                placeholder="0"
-                              />
-                              <span className="muted">-</span>
-                              <input
-                                style={{ width: 88 }}
-                                value={m.score2}
-                                onChange={(e) => updateMatch(m.id, { score2: e.target.value })}
-                                placeholder="0"
-                              />
-                            </div>
-                          ) : (
-                            <span className="muted">{m.score1 || "—"} - {m.score2 || "—"}</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className="badge">
-                            <span className={m.status === "done" ? "dot" : "dot red"} />
-                            {m.status}
-                          </span>
-                        </td>
-                        {isAdminUI && (
-                          <td>
-                            {m.status !== "done" ? (
-                              <button className="btn primary" onClick={() => markDone(m)}>Mark Done</button>
-                            ) : (
-                              <button className="btn" onClick={() => updateMatch(m.id, { status: "scheduled" })}>Reopen</button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------
-   Leaderboard
----------------------------- */
-function Leaderboard({ data, activeTournament, playersForActive }) {
-  if (!activeTournament) {
-    return (
       <div className="container">
         <div className="card">
-          <h2>Leaderboard</h2>
-          <div className="muted">Create a tournament and fixtures first.</div>
-        </div>
-      </div>
-    );
-  }
-
-  const table = calcLeaderboard(playersForActive, activeTournament);
-
-  return (
-    <div className="container">
-      <div className="grid">
-        <div className="card cols-9">
-          <h2>Leaderboard</h2>
-          <div className="muted">{activeTournament.month} • {activeTournament.name}</div>
-
-          <div style={{ marginTop: 12 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Player</th>
-                  <th>City</th>
-                  <th>P</th>
-                  <th>W</th>
-                  <th>D</th>
-                  <th>L</th>
-                  <th>Pts</th>
-                  <th>For</th>
-                  <th>Ag</th>
-                  <th>Diff</th>
-                </tr>
-              </thead>
-              <tbody>
-                {table.map((r, i) => (
-                  <tr key={r.id}>
-                    <td>{i + 1}</td>
-                    <td><b>{r.name}</b></td>
-                    <td className="muted">{r.city || "-"}</td>
-                    <td>{r.played}</td>
-                    <td>{r.wins}</td>
-                    <td>{r.draws}</td>
-                    <td>{r.losses}</td>
-                    <td><b>{r.points}</b></td>
-                    <td>{r.for}</td>
-                    <td>{r.against}</td>
-                    <td>{r.for - r.against}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="muted" style={{ marginTop: 10 }}>
-            Points: Win {activeTournament.pointsWin}, Draw {activeTournament.pointsDraw}, Loss {activeTournament.pointsLoss}
-          </div>
-        </div>
-
-        <div className="card cols-3">
-          <h3>Tip</h3>
-          <div className="muted">
-            Mark matches “done” in Fixtures and the leaderboard updates instantly.
-          </div>
-          <div className="hr" />
-          <h3>Next</h3>
-          <div className="muted">Go to Hall of Fame to save top players for the month.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------
-   Booking
----------------------------- */
-function Booking({ data, admin, commit }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [payBid, setPayBid] = useState(null);
-  const cfg = data.booking || {};
-  const tables = cfg.tables || [];
-  const bookings = cfg.bookings || [];
-
-  // If URL has ?bid=..., open payment panel inside Booking
-  useEffect(() => {
-    const p = new URLSearchParams(location.search);
-    const bid = p.get("bid");
-    setPayBid(bid || null);
-  }, [location.search]);
-
-  const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
-  const [tableId, setTableId] = useState(tables[0]?.id || "");
-  const [start, setStart] = useState("17:00");
-  const [end, setEnd] = useState("18:00");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState(localStorage.getItem("qclub_phone") || "");
-  const [note, setNote] = useState("");
-
-  const myPhone = phone.trim();
-
-  const visibleBookings = useMemo(() => {
-    const list = (bookings || []).filter((b) => b.date === date);
-    const sorted = list.slice().sort((a, b) => (a.start || "").localeCompare(b.start || ""));
-    if (admin) return sorted;
-    if (!myPhone) return [];
-    return sorted.filter((b) => String(b.customerPhone || "").trim() === myPhone);
-  }, [bookings, date, admin, myPhone]);
-
-  function parseMin(hhmm) {
-    const [h, m] = String(hhmm || "0:0").split(":").map((x) => Number(x));
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
-    return h * 60 + m;
-  }
-  function overlaps(aS, aE, bS, bE) {
-    const as = parseMin(aS), ae = parseMin(aE), bs = parseMin(bS), be = parseMin(bE);
-    return Math.max(as, bs) < Math.min(ae, be);
-  }
-  function calcAmount(t, s, e) {
-    const minutes = Math.max(0, parseMin(e) - parseMin(s));
-    const rate = Number(t?.rate) || 0;
-    const type = t?.type || "hour";
-    if (type === "minute") return Math.round(rate * minutes);
-    if (type === "game") return rate;
-    return Math.round((rate * minutes) / 60);
-  }
-
-  function createBooking() {
-    if (!tableId) return alert("Select a table.");
-    if (!name.trim()) return alert("Enter your name.");
-    if (!myPhone) return alert("Enter phone.");
-    if (parseMin(end) <= parseMin(start)) return alert("End time must be after start.");
-
-    const t = tables.find((x) => x.id === tableId);
-    if (!t) return alert("Invalid table.");
-
-    const clash = bookings.some((b) =>
-      b.date === date &&
-      b.tableId === tableId &&
-      b.status !== "cancelled" &&
-      overlaps(start, end, b.start, b.end)
-    );
-    if (clash) return alert("Slot already booked.");
-
-    const amount = calcAmount(t, start, end);
-    const id = uid();
-    const booking = {
-      id,
-      date,
-      tableId,
-      start,
-      end,
-      customerName: name.trim(),
-      customerPhone: myPhone,
-      note: note.trim(),
-      amount,
-      status: "hold",
-      createdAt: Date.now(),
-    };
-
-    localStorage.setItem("qclub_phone", myPhone);
-    commit({ ...data, booking: { ...cfg, bookings: [booking, ...bookings] } });
-    // Single-tab flow: stay on Booking and open payment panel here
-    navigate(`/booking?bid=${encodeURIComponent(id)}`, { replace: true });
-  }
-
-  function setStatus(id, status) {
-    if (!admin) return;
-    commit({
-      ...data,
-      booking: { ...cfg, bookings: bookings.map((b) => (b.id === id ? { ...b, status } : b)) },
-    });
-  }
-
-  function closePay() {
-    setPayBid(null);
-    navigate("/booking", { replace: true });
-  }
-
-  return (
-    <div className="container">
-      <div className="grid">
-        <div className="card cols-4">
-          <h2>Book a Table</h2>
-          <div className="muted">Choose slot → Pay below.</div>
-
-          <div className="form" style={{ marginTop: 12 }}>
-            <label className="lbl">Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-
-            <label className="lbl">Table</label>
-            <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
-              {tables.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label} • ₹{t.rate}/{t.type === "minute" ? "min" : t.type === "game" ? "game" : "hr"}
-                </option>
-              ))}
-            </select>
-
-            <div className="row" style={{ gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <label className="lbl">Start</label>
-                <input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label className="lbl">End</label>
-                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
-              </div>
-            </div>
-
-            <label className="lbl">Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-
-            <label className="lbl">Phone</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit mobile" />
-
-            <label className="lbl">Note (optional)</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g., coaching" />
-
-            <button className="btn primary" onClick={createBooking}>Book & Pay</button>
-
-            <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-              Your bookings show for this phone number.
-            </div>
-          </div>
-        </div>
-
-        <div className="card cols-8">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2>{admin ? "Bookings" : "My Bookings"} • {date}</h2>
-            <div className="badge">
-              <span className="dot" /> {visibleBookings.filter((b) => b.status !== "cancelled").length} active
-            </div>
-          </div>
-
-          {!admin && <div className="muted" style={{ marginTop: 6 }}>Phone: <b>{myPhone || "—"}</b></div>}
-
-          <div style={{ marginTop: 12 }}>
-            {visibleBookings.length === 0 ? (
-              <div className="muted">No bookings for this date.</div>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Table</th>
-                    <th>Time</th>
-                    <th>Customer</th>
-                    <th>Status</th>
-                    <th>Amount</th>
-                    {admin && <th>Action</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleBookings.map((b) => {
-                    const t = tables.find((x) => x.id === b.tableId);
-                    return (
-                      <tr key={b.id}>
-                        <td>{t?.label || b.tableId}</td>
-                        <td>{b.start} - {b.end}</td>
-                        <td>{b.customerName}</td>
-                        <td>
-                          <span className="badge">
-                            <span className={b.status === "paid" ? "dot" : b.status === "payment_submitted" ? "dot" : "dot amber"} />
-                            {b.status}
-                          </span>
-                        </td>
-                        <td>₹{Number(b.amount || 0)}</td>
-                        {admin && (
-                          <td>
-                            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                              <button className="btn" onClick={() => setStatus(b.id, "hold")}>Hold</button>
-                              <button className="btn primary" onClick={() => setStatus(b.id, "paid")}>Paid</button>
-                              <button className="btn danger" onClick={() => setStatus(b.id, "cancelled")}>Cancel</button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="muted" style={{ marginTop: 10 }}>
-            Status: <b>hold</b> = reserved • <b>payment_submitted</b> = customer paid • <b>paid</b> = confirmed.
-          </div>
-        </div>
-      </div>
-
-      {payBid && (
-        <InlinePay data={data} admin={admin} commit={commit} bid={payBid} onClose={closePay} />
-      )}
-    </div>
-  );
-}
-
-function PayRedirect() {
-  const loc = useLocation();
-  const nav = useNavigate();
-  useEffect(() => {
-    const p = new URLSearchParams(loc.search);
-    const bid = p.get("bid");
-    nav(bid ? `/booking?bid=${encodeURIComponent(bid)}` : "/booking", { replace: true });
-  }, [loc.search, nav]);
-  return null;
-}
-
-function InlinePay({ data, admin, commit, bid, onClose }) {
-  const cfg = data.booking || defaultBookingConfig();
-  const bookings = cfg.bookings || [];
-  const b = bookings.find((x) => x.id === bid);
-  const tables = cfg.tables || [];
-  const club = data.club || {};
-
-  if (!b) {
-    return (
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="muted">Payment link not found.</div>
-      </div>
-    );
-  }
-
-  const t = tables.find((x) => x.id === b.tableId);
-  const amount = Number(b.amount || 0);
-
-  // Placeholder UPI details (we'll wire real verification after bank account is ready)
-  const vpa = (cfg.upi && cfg.upi.vpa) || "yomsoji-1@okicici";
-  const payeeName = (cfg.upi && cfg.upi.name) || (club.name || "The Q CLUB");
-  const note = `Q CLUB booking ${b.date} ${b.start}-${b.end} (${t?.label || b.tableId})`;
-  const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(String(amount))}&cu=INR&tn=${encodeURIComponent(note)}`;
-
-  function markSubmitted() {
-    // Customer says they paid (admin can confirm later)
-    if (b.status === "paid") return;
-    const nextStatus = "payment_submitted";
-    commit({
-      ...data,
-      booking: {
-        ...cfg,
-        bookings: bookings.map((x) => (x.id === b.id ? { ...x, status: nextStatus } : x)),
-      },
-    });
-  }
-
-  return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h2 style={{ marginBottom: 4 }}>Pay for Booking</h2>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {b.date} • {b.start}-{b.end} • {t?.label || b.tableId}
-          </div>
-        </div>
-        {onClose && (
-          <button className="btn" onClick={onClose}>Close</button>
-        )}
-      </div>
-
-      <div className="grid" style={{ marginTop: 12 }}>
-        <div className="card cols-6">
-          <div className="muted">Amount</div>
-          <div style={{ fontSize: 28, fontWeight: 900 }}>₹{amount}</div>
-          <div className="muted" style={{ marginTop: 10 }}>
-            Pay via UPI:
-            <div><b>{vpa}</b></div>
-          </div>
-
-          <div style={{ marginTop: 12 }}>
-            <a className="btn primary" href={upiUrl} style={{ textDecoration: "none" }}>Open UPI App</a>
-          </div>
-
-          <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-            After paying, tap “I have paid”. Admin will confirm during pilot.
-          </div>
-
-          <div style={{ marginTop: 12 }}>
-            <button className="btn" onClick={markSubmitted}>I have paid</button>
-          </div>
-        </div>
-
-        <div className="card cols-6" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ textAlign: "center" }}>
-            <div className="muted" style={{ marginBottom: 10 }}>Scan QR in any UPI app</div>
-            <div style={{ background: "white", padding: 12, borderRadius: 14, display: "inline-block" }}>
-              <QRCodeCanvas value={upiUrl} size={200} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-function Pay({ data, admin, commit }) {
-  const loc = useLocation();
-  const params = new URLSearchParams(loc.search);
-  const bid = params.get("bid") || "";
-
-  const cfg = data.booking || {};
-  const tables = cfg.tables || [];
-  const bookings = cfg.bookings || [];
-
-  const booking = useMemo(() => bookings.find((b) => String(b.id) === String(bid)) || null, [bookings, bid]);
-  const table = booking ? tables.find((t) => t.id === booking.tableId) : null;
-
-  const upiId = data.club?.upiId || "yomsoji-1@okicici";
-  const payeeName = data.club?.name || "The Q CLUB";
-  const amount = Number(booking?.amount || 0);
-  const note = booking ? `${booking.customerName} • ${table?.label || booking.tableId} • ${booking.date} ${booking.start}-${booking.end}` : "Q Club booking";
-
-  const upiLink = useMemo(() => {
-    const qs = new URLSearchParams({ pa: upiId, pn: payeeName, am: String(amount || 0), cu: "INR", tn: note });
-    return `upi://pay?${qs.toString()}`;
-  }, [upiId, payeeName, amount, note]);
-
-  function updateBooking(id, patch) {
-    commit({ ...data, booking: { ...cfg, bookings: bookings.map((b) => (b.id === id ? { ...b, ...patch } : b)) } });
-  }
-
-  function markPaymentSubmitted() {
-    if (!booking) return;
-    updateBooking(booking.id, { status: booking.status === "paid" ? "paid" : "payment_submitted", paidAt: Date.now() });
-    alert("Marked as paid (pending verification).");
-  }
-
-  function setStatus(status) {
-    if (!admin || !booking) return;
-    updateBooking(booking.id, { status });
-  }
-
-  function copyUpi() {
-    navigator.clipboard?.writeText(upiId);
-    alert("UPI ID copied.");
-  }
-
-  return (
-    <div className="container">
-      <div className="grid">
-        <div className="card cols-6">
-          <h2>Pay (UPI)</h2>
-
-          {!booking ? (
-            <div className="muted">Open Pay from <b>Booking → Book & Pay</b>.</div>
+          {!selected ? (
+            <div className="muted">Create a tournament first.</div>
           ) : (
             <>
-              <div className="muted" style={{ marginTop: 6 }}>
-                Booking: <b>{table?.label || booking.tableId}</b> • {booking.date} • {booking.start}-{booking.end}
-              </div>
+              <div className="muted">Players: {tournamentPlayers.map((p) => p.name).join(", ") || "—"}</div>
 
-              <div className="kpi" style={{ marginTop: 12 }}>
-                <div className="chip">
-                  <div className="muted">Amount</div>
-                  <div style={{ fontSize: 22, fontWeight: 900 }}>₹{amount}</div>
-                </div>
-                <div className="chip">
-                  <div className="muted">Status</div>
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>{booking.status}</div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 14 }} className="row">
-                <div className="badge"><span className="dot" /> UPI ID: <b style={{ marginLeft: 6 }}>{upiId}</b></div>
-                <button className="btn" onClick={copyUpi}>Copy</button>
-              </div>
-
-              <div className="payGrid" style={{ marginTop: 14 }}>
-                <div className="payQr">
-                  <div className="muted" style={{ marginBottom: 8 }}>Scan QR in any UPI app</div>
-                  <div className="qrBox">
-                    <QRCodeCanvas value={upiLink} size={220} />
-                  </div>
-                </div>
-
-                <div className="payActions">
-                  <div className="muted">Or tap below to open UPI directly (phones):</div>
-                  <a className="btn primary" href={upiLink}>Open UPI to Pay</a>
-
-                  <button className="btn" style={{ marginTop: 10 }} onClick={markPaymentSubmitted}>I have paid</button>
-
-                  <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-                    Show payment confirmation at counter if asked.
-                  </div>
-
-                  {admin && (
-                    <div style={{ marginTop: 14 }}>
-                      <div className="muted" style={{ marginBottom: 8 }}>Admin controls</div>
-                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                        <button className="btn" onClick={() => setStatus("hold")}>Hold</button>
-                        <button className="btn primary" onClick={() => setStatus("paid")}>Mark Paid</button>
-                        <button className="btn danger" onClick={() => setStatus("cancelled")}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div style={{ marginTop: 12 }}>
+                {(selected.matches || []).length === 0 ? (
+                  <div className="muted">No fixtures yet. {admin ? "Click Generate." : "Ask admin to generate."}</div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Round</th>
+                        <th>Match</th>
+                        <th>Score</th>
+                        <th>Status</th>
+                        {admin ? <th>Action</th> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selected.matches || []).slice().sort((a, b) => a.round - b.round).map((m) => (
+                        <tr key={m.id}>
+                          <td>{m.round}</td>
+                          <td>{nameOf(m.p1)} vs {nameOf(m.p2)}</td>
+                          <td style={{ width: 240 }}>
+                            {admin ? (
+                              <div className="row">
+                                <input
+                                  style={{ width: 80 }}
+                                  value={m.score1}
+                                  onChange={(e) => updateMatch(m.id, { score1: e.target.value })}
+                                  placeholder="0"
+                                />
+                                <span className="muted">-</span>
+                                <input
+                                  style={{ width: 80 }}
+                                  value={m.score2}
+                                  onChange={(e) => updateMatch(m.id, { score2: e.target.value })}
+                                  placeholder="0"
+                                />
+                              </div>
+                            ) : (
+                              <span className="muted">{m.score1 || "—"} - {m.score2 || "—"}</span>
+                            )}
+                          </td>
+                          <td>
+                            <span className="badge">
+                              <span className={m.status === "done" ? "dot" : "dot red"} />
+                              {m.status}
+                            </span>
+                          </td>
+                          {admin ? (
+                            <td>
+                              {m.status !== "done" ? (
+                                <button className="btn primary" onClick={() => markDone(m)}>Mark Done</button>
+                              ) : (
+                                <button className="btn" onClick={() => updateMatch(m.id, { status: "scheduled" })}>Reopen</button>
+                              )}
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </>
           )}
         </div>
-
-        <div className="card cols-6">
-          <h3>How it works</h3>
-          <div className="muted">Book → Pay via UPI → Tap “I have paid” → Admin verifies.</div>
-        </div>
       </div>
-    </div>
+    </>
   );
 }
 
+/* =========================================================
+   Leaderboards (All tournaments + Active)
+========================================================= */
+function LeaderboardAll({ data }) {
+  const tournaments = data.tournaments || [];
+  const players = data.players || [];
 
-function TVMode({ data, activeTournament, playersForActive }) {
-  const table = activeTournament ? calcLeaderboard(playersForActive, activeTournament) : [];
+  const [selectedId, setSelectedId] = useState(tournaments.slice().sort((a,b)=> (b.month||"").localeCompare(a.month||""))[0]?.id || "");
+  const t = tournaments.find((x) => x.id === selectedId) || null;
+
+  const tourPlayers = useMemo(() => {
+    if (!t) return [];
+    const ids = t.participantIds?.length ? t.participantIds : players.map((p) => p.id);
+    const setIds = new Set(ids);
+    return players.filter((p) => setIds.has(p.id));
+  }, [t, players]);
+
+  const table = useMemo(() => (t ? calcLeaderboard(tourPlayers, t) : []), [t, tourPlayers]);
+
+  return (
+    <>
+      <PageShell
+        title="Leaderboards"
+        subtitle="Select any tournament to view standings"
+        right={
+          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+            {tournaments
+              .slice()
+              .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
+              .map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.month} • {x.name}
+                </option>
+              ))}
+          </select>
+        }
+      />
+
+      <div className="container">
+        <div className="card">
+          {!t ? (
+            <div className="muted">Create a tournament and fixtures first.</div>
+          ) : (
+            <>
+              <div className="muted">{t.month} • {t.name}</div>
+              <div style={{ marginTop: 12 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Player</th>
+                      <th>City</th>
+                      <th>P</th>
+                      <th>W</th>
+                      <th>D</th>
+                      <th>L</th>
+                      <th>Pts</th>
+                      <th>For</th>
+                      <th>Ag</th>
+                      <th>Diff</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {table.map((r, i) => (
+                      <tr key={r.id}>
+                        <td>{i + 1}</td>
+                        <td><b>{r.name}</b></td>
+                        <td className="muted">{r.city || "-"}</td>
+                        <td>{r.played}</td>
+                        <td>{r.wins}</td>
+                        <td>{r.draws}</td>
+                        <td>{r.losses}</td>
+                        <td><b>{r.points}</b></td>
+                        <td>{r.for}</td>
+                        <td>{r.against}</td>
+                        <td>{r.for - r.against}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="muted" style={{ marginTop: 10 }}>
+                Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* =========================================================
+   Hall of Fame (Add/Edit + Description + Photo upload)
+========================================================= */
+function HallOfFame({ data, admin, commit }) {
+  const entries = data.hallOfFame?.entries || [];
+  const players = data.players || [];
+  const [fileTargetId, setFileTargetId] = useState(null);
+  const fileRef = useRef(null);
+
+  function addEntry() {
+    if (!admin) return alert("Admin only");
+    const title = prompt("Title:", "Top Performer");
+    if (!title) return;
+    const playerName = prompt("Player name:", players[0]?.name || "Player") || "Player";
+    const month = prompt("Month (YYYY-MM):", monthKey());
+    const stats = prompt("Stats (short):", "Pts 12 • W 4 • Best Break 42") || "";
+    const description = prompt("Description:", "Champion of the month") || "";
+    const e = {
+      id: uid(),
+      title: title.trim(),
+      playerName: playerName.trim(),
+      month: month || "",
+      stats: stats.trim(),
+      description: description.trim(),
+      photo: "",
+      createdAt: Date.now(),
+    };
+    commit({
+      ...data,
+      hallOfFame: { ...data.hallOfFame, entries: [e, ...entries] },
+    });
+  }
+
+  function editEntry(e) {
+    if (!admin) return;
+    const title = prompt("Title:", e.title);
+    if (!title) return;
+    const playerName = prompt("Player name:", e.playerName);
+    if (!playerName) return;
+    const month = prompt("Month (YYYY-MM):", e.month || monthKey());
+    const stats = prompt("Stats (short):", e.stats || "");
+    const description = prompt("Description:", e.description || "");
+    commit({
+      ...data,
+      hallOfFame: {
+        ...data.hallOfFame,
+        entries: entries.map((x) =>
+          x.id === e.id
+            ? { ...x, title: title.trim(), playerName: playerName.trim(), month: month || "", stats: stats || "", description: description || "" }
+            : x
+        ),
+      },
+    });
+  }
+
+  function removeEntry(id) {
+    if (!admin) return;
+    if (!confirm("Delete this Hall of Fame entry?")) return;
+    commit({
+      ...data,
+      hallOfFame: { ...data.hallOfFame, entries: entries.filter((x) => x.id !== id) },
+    });
+  }
+
+  async function uploadPhotoFor(id) {
+    if (!admin) return;
+    const f = fileRef.current?.files?.[0];
+    if (!f) return alert("Choose a file first.");
+    const dataUrl = await readFileAsDataURL(f);
+    commit({
+      ...data,
+      hallOfFame: {
+        ...data.hallOfFame,
+        entries: entries.map((x) => (x.id === id ? { ...x, photo: dataUrl } : x)),
+      },
+    });
+    fileRef.current.value = "";
+    setFileTargetId(null);
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Hall of Fame"
+        subtitle="Champions & Top Performers"
+        right={admin ? <button className="btn primary" onClick={addEntry}>+ Add</button> : null}
+      />
+
+      <div className="container">
+        {(entries.length === 0) ? (
+          <div className="card">
+            <div className="muted">No entries yet. {admin ? "Click + Add" : ""}</div>
+          </div>
+        ) : (
+          <div className="grid">
+            {entries.map((e) => (
+              <div className="card cols-6" key={e.id}>
+                <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="cardTitle">{e.title}</div>
+                    <div className="muted" style={{ marginTop: 6 }}>
+                      <b>{e.playerName}</b> {e.month ? `• ${e.month}` : ""}
+                    </div>
+                  </div>
+                  {admin ? (
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                      <button className="btn" onClick={() => editEntry(e)}>Edit</button>
+                      <button className="btn danger" onClick={() => removeEntry(e.id)}>Delete</button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
+                  <div className="cols-5">
+                    <div className="photoBox">
+                      {e.photo ? <img src={e.photo} alt="hof" /> : <div className="muted">No photo</div>}
+                    </div>
+                    {admin ? (
+                      <div style={{ marginTop: 10 }}>
+                        {fileTargetId === e.id ? (
+                          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                            <input ref={fileRef} type="file" accept="image/*" />
+                            <button className="btn primary" onClick={() => uploadPhotoFor(e.id)}>Upload</button>
+                            <button className="btn" onClick={() => setFileTargetId(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <button className="btn" onClick={() => setFileTargetId(e.id)}>Upload Photo</button>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="cols-7">
+                    {e.stats ? <div className="badge"><span className="dot" /> {e.stats}</div> : null}
+                    {e.description ? (
+                      <div style={{ marginTop: 10 }}>
+                        <div className="muted" style={{ fontSize: 13 }}>Description</div>
+                        <div style={{ marginTop: 6 }}>{e.description}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="muted" style={{ marginTop: 12, fontSize: 12 }}>
+          Auto month-end “Top Performer” publishing needs a server (cron job). We’ll add it later using Vercel Cron / Firebase Functions.
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* =========================================================
+   TV Mode (Big screen)
+========================================================= */
+function TVMode({ data, activeTournament, players }) {
+  const table = activeTournament ? calcLeaderboard(players || [], activeTournament) : [];
   const a = (data.announcements || [])[0]?.text || "Welcome to The Q CLUB";
 
   return (
@@ -2110,533 +2035,16 @@ function TVMode({ data, activeTournament, playersForActive }) {
   );
 }
 
-function BottomNav({ admin }) {
-  return (
-    <div className="bottomNav">
-      <Link to="/" className="bn">Home</Link>
-      <Link to="/booking" className="bn">Book</Link>
-      <Link to="/leaderboard" className="bn">Board</Link>
-      <Link to="/tv" className="bn">TV</Link>
-      <span className={"bn tag " + (admin ? "on" : "off")}>{admin ? "Admin" : "Public"}</span>
-    </div>
-  );
-}
-
-
-
-/* ---------------------------
-   Hall of Fame
----------------------------- */
-
-function HallOfFame({ data, admin, commit }) {
-  const playersRaw = data?.players;
-  const players = Array.isArray(playersRaw)
-    ? playersRaw
-    : playersRaw && typeof playersRaw === "object"
-    ? Object.values(playersRaw)
-    : [];
-
-  // --- Read current HoF entries from multiple legacy shapes ---
-  const hof = data?.hallOfFame;
-  let entries = [];
-  if (Array.isArray(hof)) {
-    entries = hof;
-  } else if (hof && typeof hof === "object" && Array.isArray(hof.entries)) {
-    entries = hof.entries;
-  } else if (hof && typeof hof === "object" && Array.isArray(hof.months)) {
-    // Best-effort migration from older "months" shape
-    const out = [];
-    for (const m of hof.months) {
-      if (!m || typeof m !== "object") continue;
-      const month = m.month || m.key || m.id || "";
-      const arr =
-        (Array.isArray(m.entries) && m.entries) ||
-        (Array.isArray(m.winners) && m.winners) ||
-        (Array.isArray(m.top) && m.top) ||
-        (Array.isArray(m.players) && m.players) ||
-        [];
-      for (const e of arr) {
-        if (!e || typeof e !== "object") continue;
-        out.push({
-          id: e.id || uid(),
-          month,
-          playerId: e.playerId || e.pid || "",
-          name: e.name || e.playerName || "",
-          title: e.title || e.tournament || e.event || "",
-          position: e.position || e.rank || "",
-          notes: e.notes || e.note || "",
-          photo: e.photo || e.photoUrl || e.img || "",
-          createdAt: e.createdAt || Date.now(),
-        });
-      }
-    }
-    entries = out;
-  }
-
-  // Normalize
-  entries = (entries || [])
-    .filter(Boolean)
-    .map((e) => ({
-      id: e.id || uid(),
-      month: e.month || "",
-      playerId: e.playerId || "",
-      name: e.name || "",
-      title: e.title || "",
-      position: e.position || "",
-      notes: e.notes || "",
-      photo: e.photo || "",
-      createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
-      updatedAt: typeof e.updatedAt === "number" ? e.updatedAt : undefined,
-    }))
-    .sort((a, b) => (b.month || "").localeCompare(a.month || "") || (b.createdAt || 0) - (a.createdAt || 0));
-
-  const playersById = useMemo(() => {
-    const m = new Map();
-    for (const p of players) {
-      if (p && p.id) m.set(p.id, p);
-    }
-    return m;
-  }, [players]);
-
-  // --- UI state ---
-  const [editing, setEditing] = useState(null); // entry or null
-  const [draft, setDraft] = useState(() => makeEmptyDraft());
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  function makeEmptyDraft() {
-    const now = new Date();
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    return {
-      id: uid(),
-      month,
-      playerId: "",
-      name: "",
-      title: "",
-      position: "",
-      notes: "",
-      photo: "",
-    };
-  }
-
-  function openAdd() {
-    setErr("");
-    setEditing(null);
-    setDraft(makeEmptyDraft());
-  }
-
-  function openEdit(e) {
-    setErr("");
-    setEditing(e);
-    setDraft({
-      id: e.id,
-      month: e.month || "",
-      playerId: e.playerId || "",
-      name: e.name || "",
-      title: e.title || "",
-      position: e.position || "",
-      notes: e.notes || "",
-      photo: e.photo || "",
-    });
-  }
-
-  function updateDraft(patch) {
-    setDraft((d) => ({ ...d, ...patch }));
-  }
-
-  async function handlePhotoFile(file) {
-    if (!file) return;
-    setBusy(true);
-    setErr("");
-    try {
-      const dataUrl = await resizeImageToDataUrl(file, 900, 0.82);
-      updateDraft({ photo: dataUrl });
-    } catch (e) {
-      setErr("Could not read image. Try a smaller photo.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function validate(d) {
-    const name = (d.name || "").trim();
-    const month = (d.month || "").trim();
-    const title = (d.title || "").trim();
-    if (!month) return "Please set month (YYYY-MM).";
-    if (!name && !d.playerId) return "Select a player (or type a name).";
-    if (!title) return "Enter tournament / title.";
-    return "";
-  }
-
-  function saveDraft() {
-    const msg = validate(draft);
-    if (msg) {
-      setErr(msg);
-      return;
-    }
-
-    const player = draft.playerId ? playersById.get(draft.playerId) : null;
-    const finalName = (draft.name || "").trim() || (player?.name || "").trim();
-
-    const nextEntry = {
-      id: draft.id || uid(),
-      month: (draft.month || "").trim(),
-      playerId: draft.playerId || "",
-      name: finalName,
-      title: (draft.title || "").trim(),
-      position: (draft.position || "").trim(),
-      notes: (draft.notes || "").trim(),
-      photo: draft.photo || "",
-      createdAt: editing ? editing.createdAt || Date.now() : Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    const nextEntries = editing
-      ? entries.map((e) => (e.id === editing.id ? nextEntry : e))
-      : [nextEntry, ...entries];
-
-    const hofNext =
-      hof && typeof hof === "object" && !Array.isArray(hof)
-        ? { ...hof, entries: nextEntries }
-        : { entries: nextEntries };
-
-    // IMPORTANT: commit expects the full app state.
-    commit({ ...data, hallOfFame: hofNext });
-
-    setEditing(null);
-    setDraft(makeEmptyDraft());
-    setErr("");
-  }
-
-  function deleteEntry(id) {
-    if (!admin) return;
-    if (!confirm("Delete this Hall of Fame entry?")) return;
-    const nextEntries = entries.filter((e) => e.id !== id);
-    const hofNext =
-      hof && typeof hof === "object" && !Array.isArray(hof)
-        ? { ...hof, entries: nextEntries }
-        : { entries: nextEntries };
-    commit({ ...data, hallOfFame: hofNext });
-  }
-
-  // Group by month
-  const grouped = useMemo(() => {
-    const m = new Map();
-    for (const e of entries) {
-      const key = e.month || "Unknown";
-      if (!m.has(key)) m.set(key, []);
-      m.get(key).push(e);
-    }
-    // sort each group by position then createdAt
-    for (const [k, arr] of m.entries()) {
-      arr.sort((a, b) => {
-        const pa = (a.position || "").toString();
-        const pb = (b.position || "").toString();
-        const na = parseInt(pa, 10);
-        const nb = parseInt(pb, 10);
-        const ha = Number.isFinite(na) ? na : 9999;
-        const hb = Number.isFinite(nb) ? nb : 9999;
-        return ha - hb || (b.createdAt || 0) - (a.createdAt || 0);
-      });
-    }
-    const keys = Array.from(m.keys()).sort((a, b) => (b || "").localeCompare(a || ""));
-    return keys.map((k) => ({ month: k, list: m.get(k) }));
-  }, [entries]);
-
-  return (
-    <PageShell title="Hall of Fame" subtitle="Monthly winners and top performers">
-      <div className="container">
-        <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div className="h2">Hall of Fame</div>
-            <div className="muted" style={{ marginTop: 4 }}>
-              Add winners each month. Photos are optional.
-            </div>
-          </div>
-          {admin && (
-            <button className="btn primary" onClick={openAdd} disabled={busy}>
-              + Add
-            </button>
-          )}
-        </div>
-
-        {(admin || editing !== null) && (
-          <div className="card" style={{ marginTop: 14 }}>
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <div className="h3">{editing ? "Edit entry" : "Add entry"}</div>
-              {editing && (
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setEditing(null);
-                    setDraft(makeEmptyDraft());
-                    setErr("");
-                  }}
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-
-            <div className="grid" style={{ marginTop: 10 }}>
-              <div>
-                <div className="label">Month (YYYY-MM)</div>
-                <input
-                  className="input"
-                  value={draft.month}
-                  onChange={(e) => updateDraft({ month: e.target.value })}
-                  placeholder="2026-03"
-                />
-              </div>
-
-              <div>
-                <div className="label">Player</div>
-                <select
-                  className="input"
-                  value={draft.playerId}
-                  onChange={(e) => {
-                    const pid = e.target.value;
-                    const p = pid ? playersById.get(pid) : null;
-                    updateDraft({ playerId: pid, name: p?.name || draft.name });
-                  }}
-                >
-                  <option value="">Select…</option>
-                  {players
-                    .slice()
-                    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                </select>
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Or type name (useful if player is not in Players list yet).
-                </div>
-              </div>
-
-              <div>
-                <div className="label">Name</div>
-                <input
-                  className="input"
-                  value={draft.name}
-                  onChange={(e) => updateDraft({ name: e.target.value })}
-                  placeholder="Player name"
-                />
-              </div>
-
-              <div>
-                <div className="label">Tournament / Title</div>
-                <input
-                  className="input"
-                  value={draft.title}
-                  onChange={(e) => updateDraft({ title: e.target.value })}
-                  placeholder="Monthly Snooker Cup"
-                />
-              </div>
-
-              <div>
-                <div className="label">Position / Award</div>
-                <input
-                  className="input"
-                  value={draft.position}
-                  onChange={(e) => updateDraft({ position: e.target.value })}
-                  placeholder="Winner / 1st / Runner-up"
-                />
-              </div>
-
-              <div>
-                <div className="label">Notes</div>
-                <input
-                  className="input"
-                  value={draft.notes}
-                  onChange={(e) => updateDraft({ notes: e.target.value })}
-                  placeholder="Best break: 67" 
-                />
-              </div>
-            </div>
-
-            <div className="row" style={{ marginTop: 12, alignItems: "flex-start", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="label">Photo (upload)</div>
-                <input
-                  className="input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handlePhotoFile(e.target.files?.[0])}
-                />
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Tip: Use a clear face photo. The app compresses it automatically.
-                </div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div className="label">Or Photo URL</div>
-                <input
-                  className="input"
-                  value={draft.photo && draft.photo.startsWith("data:") ? "" : draft.photo}
-                  onChange={(e) => updateDraft({ photo: e.target.value })}
-                  placeholder="https://…"
-                />
-              </div>
-              <div style={{ width: 140 }}>
-                <div className="label">Preview</div>
-                <div
-                  className="card"
-                  style={{
-                    height: 110,
-                    display: "grid",
-                    placeItems: "center",
-                    overflow: "hidden",
-                    padding: 0,
-                  }}
-                >
-                  {draft.photo ? (
-                    <img
-                      src={draft.photo}
-                      alt="preview"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    />
-                  ) : (
-                    <div className="muted">No photo</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {err && (
-              <div className="badge danger" style={{ marginTop: 10 }}>
-                {err}
-              </div>
-            )}
-
-            <div className="row" style={{ marginTop: 12, justifyContent: "flex-end", gap: 10 }}>
-              <button className="btn" onClick={openAdd} disabled={busy}>
-                Clear
-              </button>
-              <button className="btn primary" onClick={saveDraft} disabled={busy}>
-                {busy ? "Working…" : editing ? "Save" : "Add"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 16 }}>
-          {grouped.length === 0 ? (
-            <div className="card">
-              <div className="muted">No Hall of Fame entries yet.</div>
-              {admin && (
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Click <b>+ Add</b> to create your first entry.
-                </div>
-              )}
-            </div>
-          ) : (
-            grouped.map(({ month, list }) => (
-              <div key={month} className="card" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <div className="h3">{month}</div>
-                  <div className="muted">{list.length} entries</div>
-                </div>
-
-                <div className="grid" style={{ marginTop: 10 }}>
-                  {list.map((e) => (
-                    <div key={e.id} className="card" style={{ padding: 12 }}>
-                      <div className="row" style={{ gap: 12, alignItems: "center" }}>
-                        <div
-                          style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 14,
-                            overflow: "hidden",
-                            background: "rgba(255,255,255,0.06)",
-                            flex: "0 0 auto",
-                          }}
-                        >
-                          {e.photo ? (
-                            <img
-                              src={e.photo}
-                              alt={e.name}
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            />
-                          ) : null}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div className="h4" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {e.name || "(No name)"}
-                              </div>
-                              <div className="muted" style={{ marginTop: 2 }}>
-                                {e.title}
-                                {e.position ? ` • ${e.position}` : ""}
-                              </div>
-                              {e.notes ? (
-                                <div className="muted" style={{ marginTop: 6 }}>
-                                  {e.notes}
-                                </div>
-                              ) : null}
-                            </div>
-                            {admin && (
-                              <div className="row" style={{ gap: 8, flex: "0 0 auto" }}>
-                                <button className="btn" onClick={() => openEdit(e)}>
-                                  Edit
-                                </button>
-                                <button className="btn danger" onClick={() => deleteEntry(e.id)}>
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </PageShell>
-  );
-}
-
-function resizeImageToDataUrl(file, maxSide = 900, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("read"));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("img"));
-      img.onload = () => {
-        const w = img.width || 1;
-        const h = img.height || 1;
-        const scale = Math.min(1, maxSide / Math.max(w, h));
-        const nw = Math.max(1, Math.round(w * scale));
-        const nh = Math.max(1, Math.round(h * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = nw;
-        canvas.height = nh;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("ctx"));
-        ctx.drawImage(img, 0, 0, nw, nh);
-        // Use jpeg for smaller size (unless original is png with transparency; acceptable for photos)
-        const out = canvas.toDataURL("image/jpeg", quality);
-        resolve(out);
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function NotFound() {
   return (
-    <div className="container">
-      <div className="card">
-        <h2>Page not found</h2>
-        <div className="muted">Use the menu to navigate.</div>
+    <>
+      <PageShell title="Not Found" subtitle="Use Home to navigate" />
+      <div className="container">
+        <div className="card">
+          <div className="muted">Page not found.</div>
+          <Link className="btn primary" to="/" style={{ marginTop: 10 }}>Go Home</Link>
+        </div>
       </div>
-    </div>
+    </>
   );
-}
+} 
