@@ -324,15 +324,15 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 ---------------------------- */
 export default function App() {
   const [data, setData] = useState(loadData());
-  const cloudEnabled = true; // always-on cloud sync
-      const [cloudStatus, setCloudStatus] = useState(cloudAvailable ? "Cloud: ready" : "Cloud: unavailable");
+  const [cloudOn, setCloudOn] = useState(cloudAvailable);
+  const [cloudStatus, setCloudStatus] = useState(cloudAvailable ? 'Cloud: ON' : 'Cloud: OFF');
   const [pushTimer, setPushTimer] = useState(null);
   const [admin, setAdmin] = useState(false);
   const navigate = useNavigate();
 
   // 1) Load latest data from cloud on startup.
   useEffect(() => {
-    if (!cloudEnabled) return;
+    if (!cloudOn) return;
     let cancelled = false;
     setCloudStatus('Cloud: syncing…');
 
@@ -340,7 +340,7 @@ export default function App() {
       try {
         const remote = await cloudLoadState();
         if (cancelled || !remote) {
-          setCloudStatus('');
+          setCloudStatus('Cloud: ON');
           return;
         }
         const r = ensureMeta(remote);
@@ -352,7 +352,7 @@ export default function App() {
           }
           return c;
         });
-        setCloudStatus('');
+        setCloudStatus('Cloud: ON');
       } catch (e) {
         console.warn('Cloud load failed:', e);
         setCloudStatus('Cloud: error');
@@ -362,11 +362,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [cloudEnabled]);
+  }, [cloudOn]);
 
   // 2) Subscribe for live updates (so friends see your admin edits).
   useEffect(() => {
-    if (!cloudEnabled) return;
+    if (!cloudOn) return;
     let unsub = null;
     try {
       unsub = cloudSubscribeState((remote) => {
@@ -384,7 +384,7 @@ export default function App() {
     return () => {
       if (typeof unsub === 'function') unsub();
     };
-  }, [cloudEnabled]);
+  }, [cloudOn]);
 
   function commit(nextRaw) {
     const next = ensureMeta({
@@ -395,13 +395,13 @@ export default function App() {
     setData(next);
     saveData(next);
 
-    if (!cloudEnabled) return;
+    if (!cloudOn) return;
     if (pushTimer) clearTimeout(pushTimer);
 
     setCloudStatus('Cloud: syncing…');
     const t = setTimeout(() => {
       cloudSaveState(next)
-        .then(() => setCloudStatus(''))
+        .then(() => setCloudStatus('Cloud: ON'))
         .catch((e) => {
           console.warn('Cloud save failed:', e);
           setCloudStatus('Cloud: error');
@@ -459,6 +459,7 @@ export default function App() {
 
   return (
     <>
+      <TopNav club={data.club} admin={admin} onToggleAdmin={toggleAdmin} onChangePin={changePin} onReset={resetAll} cloudStatus={cloudStatus} cloudOn={cloudOn} setCloudOn={setCloudOn} />
       <AudioDock />
       <NavHelper />
 
@@ -499,7 +500,7 @@ function NavHelper() {
   );
 }
 
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus, cloudEnabled,  }) {
+function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus, cloudOn, setCloudOn }) {
   const [open, setOpen] = useState(false);
 
   // Customer flow: Book Tables → (internally redirects to Pay screen).

@@ -1,72 +1,63 @@
-// src/cloud.js
-import { db } from "./firebase";
-import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+// Firestore-based cloud sync.
+// This keeps your admin changes (players, offers, fixtures, admin pin, etc.)
+// consistent across devices and survives uninstall/reinstall.
 
-/**
- * We store ALL state in ONE Firestore document:
- *   collection: qclub
- *   doc: state
- */
-const CLOUD_COLLECTION = "qclub";
-const CLOUD_DOC = "state";
+import { initializeApp, getApps } from "firebase/app";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+  onSnapshot,
+} from "firebase/firestore";
 
-function ref() {
-  return doc(db, CLOUD_COLLECTION, CLOUD_DOC);
+import { firebaseConfig } from "./firebase";
+
+function getDb() {
+  // Avoid re-initializing in HMR.
+  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  return getFirestore(app);
 }
 
-/**
- * ✅ FIX: Exported so App.jsx can import it without build failure
- * Returns { ok: boolean, reason?: string }
- */
-export function cloudAvailable() {
-  try {
-    if (!db) return { ok: false, reason: "Firestore db not initialized" };
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, reason: e?.message || "unknown" };
-  }
-}
+const DOC_PATH = ["qclub", "state"]; // collection, doc
+
+// Exported in the names used by the app.
+export const cloudAvailable = true;
 
 export async function cloudLoadState() {
-  const snap = await getDoc(ref());
+  const db = getDb();
+  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
+  const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-
-  const data = snap.data();
-  // Your document structure: { data: {...actualState...} }
-  // (based on your Firebase screenshots)
-  if (data && typeof data === "object" && data.data && typeof data.data === "object") {
-    return data.data;
-  }
-  // fallback if someone saved state at top-level
-  return data || null;
+  const v = snap.data();
+  return v?.data ?? null;
 }
 
-export async function cloudSaveState(stateObj) {
-  // Always write under { data: ... } to match your Firestore structure
+export async function cloudSaveState(data) {
+  const db = getDb();
+  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
   await setDoc(
-    ref(),
-    { data: stateObj },
+    ref,
+    {
+      data,
+      updatedAt: serverTimestamp(),
+    },
     { merge: true }
   );
 }
 
-export function cloudSubscribeState(onData, onError) {
-  return onSnapshot(
-    ref(),
-    (snap) => {
-      if (!snap.exists()) {
-        onData(null);
-        return;
-      }
-      const data = snap.data();
-      if (data && data.data && typeof data.data === "object") {
-        onData(data.data);
-      } else {
-        onData(data || null);
-      }
-    },
-    (err) => {
-      onError && onError(err);
-    }
-  );
+export function cloudSubscribeState(onData) {
+  const db = getDb();
+  const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
+  return onSnapshot(ref, (snap) => {
+    if (!snap.exists()) return;
+    const v = snap.data();
+    if (v?.data) onData(v.data);
+  });
 }
+
+// Back-compat exports (older names)
+export const cloudPull = cloudLoadState;
+export const cloudPush = cloudSaveState;
+export const cloudSubscribe = cloudSubscribeState;
