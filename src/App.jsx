@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
 import {
@@ -49,6 +49,130 @@ function todayISO() {
 
 function monthISO() {
   return new Date().toISOString().slice(0, 7);
+}
+
+/* ---------------------------
+   Audio dock (safe)
+   ---------------------------
+   A previous build referenced <AudioDock /> but the component was missing,
+   which crashed the whole app (blank screen).
+   This lightweight dock is optional and won't crash if audio can't play.
+---------------------------- */
+function AudioDock() {
+  const [open, setOpen] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  // File is in /public in this repo.
+  const src = "/Q_Club_Anthem.mp3";
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    a.addEventListener("ended", onPause);
+    return () => {
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+      a.removeEventListener("ended", onPause);
+    };
+  }, []);
+
+  function togglePlay() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      a.play().catch(() => {
+        // Autoplay can be blocked; user can try again.
+      });
+    } else {
+      a.pause();
+    }
+  }
+
+  return (
+    <>
+      <audio ref={audioRef} src={src} preload="none" />
+      <div
+        style={{
+          position: "fixed",
+          right: 18,
+          top: 86,
+          zIndex: 9999,
+          userSelect: "none",
+        }}
+      >
+        {open ? (
+          <div
+            style={{
+              background: "rgba(10, 12, 18, 0.72)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 14,
+              padding: "10px 12px",
+              backdropFilter: "blur(10px)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+              minWidth: 220,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={togglePlay}
+                style={{
+                  borderRadius: 12,
+                  padding: "8px 10px",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+                title={playing ? "Pause" : "Play"}
+              >
+                {playing ? "❚❚" : "▶"}
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, opacity: 0.9, fontWeight: 700 }}>Q Club Anthem</div>
+                <div style={{ fontSize: 11, opacity: 0.7 }}>Tap ▶ to play</div>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                style={{
+                  borderRadius: 10,
+                  padding: "6px 8px",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setOpen(true)}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#fff",
+              cursor: "pointer",
+              boxShadow: "0 10px 26px rgba(0,0,0,0.45)",
+            }}
+            title="Open audio"
+          >
+            ♫
+          </button>
+        )}
+      </div>
+    </>
+  );
 }
 
 function defaultData() {
@@ -595,6 +719,32 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus,
 }
 
 
+
+function PageShell({ title, subtitle, right, children }) {
+  const navigate = useNavigate();
+  return (
+    <div className="page">
+      <div className="pageTop">
+        <div className="pageTopLeft">
+          <div className="pageTitle">{title}</div>
+          {subtitle ? <div className="muted">{subtitle}</div> : null}
+        </div>
+        <div className="pageTopRight">
+          {right}
+          <button className="btn" onClick={() => navigate(-1)} title="Back">
+            ← Back
+          </button>
+          <button className="btn" onClick={() => navigate("/")} title="Home">
+            Home
+          </button>
+        </div>
+      </div>
+      <div className="card">{children}</div>
+    </div>
+  );
+}
+
+
 function Home({ data, activeTournament, isAdminUI, commit }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2].filter(Boolean).join(" / ");
   const nextT = activeTournament ? `${activeTournament.month} • ${activeTournament.name}` : "—";
@@ -880,55 +1030,183 @@ function Offers({ data, isAdminUI, commit }) {
 }
 
 function Photos({ data, isAdminUI, commit }) {
-  const list = data.photos || [];
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
 
-  function add() {
-    const url = prompt("Photo URL (for now use image link):");
-    if (!url) return;
-    const caption = prompt("Caption:", "Q Club vibes");
-    commit({ ...data, photos: [...list, { id: uid(), url, caption: caption || "" }] });
+  const items = data.photos || [];
+
+  function resetForm() {
+    setEditingId(null);
+    setTitle("");
+    setUrl("");
+  }
+
+  function startAdd() {
+    resetForm();
+    setOpen(true);
+  }
+
+  function startEdit(item) {
+    setEditingId(item.id);
+    setTitle(item.title || "");
+    setUrl(item.url || "");
+    setOpen(true);
+  }
+
+  async function onPickFile(file) {
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 1280, 0.82);
+      setUrl(dataUrl);
+    } catch (e) {
+      alert("Could not read image. Try a smaller file.");
+    }
+  }
+
+  function save() {
+    if (!title.trim()) return alert("Enter a title");
+    if (!url.trim()) return alert("Add an image URL or upload a photo");
+
+    const nextPhotos = (() => {
+      if (editingId) {
+        return (data.photos || []).map((p) =>
+          p.id === editingId ? { ...p, title: title.trim(), url: url.trim() } : p
+        );
+      }
+      const newItem = {
+        id: uid(),
+        title: title.trim(),
+        url: url.trim(),
+        createdAt: Date.now(),
+      };
+      return [newItem, ...(data.photos || [])];
+    })();
+
+    commit({ ...data, photos: nextPhotos }, editingId ? "photos_edit" : "photos_add");
+    setOpen(false);
+    resetForm();
   }
 
   function remove(id) {
     if (!confirm("Delete this photo?")) return;
-    commit({ ...data, photos: list.filter((x) => x.id !== id) });
+    commit(
+      { ...data, photos: (data.photos || []).filter((p) => p.id !== id) },
+      "photos_delete"
+    );
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Club Photos</h2>
-          {isAdminUI && <button className="btn primary" onClick={add}>+ Add Photo</button>}
-        </div>
-
-        <div className="gallery" style={{ marginTop: 14 }}>
-          {list.map((p) => (
-            <div className="photo" key={p.id}>
-              <img src={p.url} alt={p.caption || "photo"} />
-              <div className="cap">
-                {p.caption || "—"}
-                {isAdminUI && (
-                  <div style={{ marginTop: 8 }}>
-                    <button className="btn danger" onClick={() => remove(p.id)}>Delete</button>
-                  </div>
-                )}
-              </div>
+    <PageShell
+      title="Club Photos"
+      subtitle="Admin can add/edit photos. You can upload (saved into the club database + cloud sync) or paste an image URL."
+      right={
+        isAdminUI ? (
+          <button className="btnPrimary" onClick={startAdd}>
+            + Add Photo
+          </button>
+        ) : null
+      }
+    >
+      {open ? (
+        <div className="cardInner" style={{ marginBottom: 14 }}>
+          <div className="grid2">
+            <div>
+              <div className="label">Title</div>
+              <input
+                className="input"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g., Tournament night vibes"
+              />
             </div>
-          ))}
-        </div>
 
-        <div className="muted" style={{ marginTop: 14 }}>
-          Upgrade later: real uploads (so you don’t need URLs).
+            <div>
+              <div className="label">Image URL (optional)</div>
+              <input
+                className="input"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <div className="label">Upload photo</div>
+            <input
+              className="input"
+              type="file"
+              accept="image/*"
+              onChange={(e) => onPickFile(e.target.files?.[0])}
+            />
+            <div className="muted" style={{ marginTop: 6 }}>
+              Tip: keep uploads small (1–3 MB) for faster syncing.
+            </div>
+          </div>
+
+          {url ? (
+            <div style={{ marginTop: 12 }}>
+              <div className="label">Preview</div>
+              <img
+                src={url}
+                alt={title}
+                style={{
+                  width: "100%",
+                  maxHeight: 260,
+                  objectFit: "cover",
+                  borderRadius: 12,
+                }}
+              />
+            </div>
+          ) : null}
+
+          <div className="row" style={{ marginTop: 12, gap: 10 }}>
+            <button className="btnPrimary" onClick={save}>
+              {editingId ? "Save Changes" : "Add Photo"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setOpen(false);
+                resetForm();
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
+      ) : null}
+
+      <div className="photosGrid">
+        {items.length === 0 ? <div className="muted">No photos yet.</div> : null}
+
+        {items.map((p) => (
+          <div key={p.id} className="photoCard">
+            <div className="photoThumb">
+              <img src={p.url} alt={p.title} />
+            </div>
+            <div className="photoMeta">
+              <div className="photoTitle">{p.title}</div>
+              {isAdminUI ? (
+                <div className="row" style={{ gap: 10, marginTop: 8 }}>
+                  <button className="btn" onClick={() => startEdit(p)}>
+                    Edit
+                  </button>
+                  <button className="btnDanger" onClick={() => remove(p.id)}>
+                    Delete
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
-/* ---------------------------
-   Players (profiles + stats)
----------------------------- */
 function Players({ data, isAdminUI, commit }) {
   const players = data.players || [];
 
