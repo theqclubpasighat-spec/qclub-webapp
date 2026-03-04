@@ -475,7 +475,7 @@ export default function App() {
         <Route path="/booking" element={<Booking data={data} admin={isAdminUI} commit={commit} />} />
         {/* Back-compat: old /pay links redirect into the single Booking experience */}
         <Route path="/pay" element={<PayRedirect />} />
-        <Route path="/halloffame" element={<HallOfFame data={data} activeTournament={activeTournament} playersForActive={playersForActive} isAdminUI={isAdminUI} commit={commit} />} />
+        <Route path="/halloffame" element={<HallOfFame data={data} admin={isAdminUI} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} playersForActive={playersForActive} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -1849,268 +1849,509 @@ function BottomNav({ admin }) {
 /* ---------------------------
    Hall of Fame
 ---------------------------- */
+
 function HallOfFame({ data, admin, commit }) {
-  const [query, setQuery] = useState("");
-  const playersRaw = data?.players ?? [];
-const hofRaw = (() => {
+  const playersRaw = data?.players;
+  const players = Array.isArray(playersRaw)
+    ? playersRaw
+    : playersRaw && typeof playersRaw === "object"
+    ? Object.values(playersRaw)
+    : [];
+
+  // --- Read current HoF entries from multiple legacy shapes ---
   const hof = data?.hallOfFame;
-  if (Array.isArray(hof)) return hof;
-  if (hof && Array.isArray(hof.entries)) return hof.entries;
-  return [];
-})();
+  let entries = [];
+  if (Array.isArray(hof)) {
+    entries = hof;
+  } else if (hof && typeof hof === "object" && Array.isArray(hof.entries)) {
+    entries = hof.entries;
+  } else if (hof && typeof hof === "object" && Array.isArray(hof.months)) {
+    // Best-effort migration from older "months" shape
+    const out = [];
+    for (const m of hof.months) {
+      if (!m || typeof m !== "object") continue;
+      const month = m.month || m.key || m.id || "";
+      const arr =
+        (Array.isArray(m.entries) && m.entries) ||
+        (Array.isArray(m.winners) && m.winners) ||
+        (Array.isArray(m.top) && m.top) ||
+        (Array.isArray(m.players) && m.players) ||
+        [];
+      for (const e of arr) {
+        if (!e || typeof e !== "object") continue;
+        out.push({
+          id: e.id || uid(),
+          month,
+          playerId: e.playerId || e.pid || "",
+          name: e.name || e.playerName || "",
+          title: e.title || e.tournament || e.event || "",
+          position: e.position || e.rank || "",
+          notes: e.notes || e.note || "",
+          photo: e.photo || e.photoUrl || e.img || "",
+          createdAt: e.createdAt || Date.now(),
+        });
+      }
+    }
+    entries = out;
+  }
 
-const players = Array.isArray(playersRaw) ? playersRaw : Object.values(playersRaw || {});
-const hof = hofRaw;
+  // Normalize
+  entries = (entries || [])
+    .filter(Boolean)
+    .map((e) => ({
+      id: e.id || uid(),
+      month: e.month || "",
+      playerId: e.playerId || "",
+      name: e.name || "",
+      title: e.title || "",
+      position: e.position || "",
+      notes: e.notes || "",
+      photo: e.photo || "",
+      createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
+      updatedAt: typeof e.updatedAt === "number" ? e.updatedAt : undefined,
+    }))
+    .sort((a, b) => (b.month || "").localeCompare(a.month || "") || (b.createdAt || 0) - (a.createdAt || 0));
 
-  const byId = new Map(players.map((p) => [p.id, p]));
-  const list = hof
-    .map((h) => ({ ...h, player: byId.get(h.playerId) }))
-    .filter((x) => x.player)
-    .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  const playersById = useMemo(() => {
+    const m = new Map();
+    for (const p of players) {
+      if (p && p.id) m.set(p.id, p);
+    }
+    return m;
+  }, [players]);
 
-  const filtered = query
-    ? list.filter((x) => (x.player.name || "").toLowerCase().includes(query.toLowerCase()))
-    : list;
+  // --- UI state ---
+  const [editing, setEditing] = useState(null); // entry or null
+  const [draft, setDraft] = useState(() => makeEmptyDraft());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  function add() {
-    if (!admin) return alert("Admin only");
-    const name = prompt("Search player name to add:");
-    if (!name) return;
-    const hit = players.find((p) => p.name.toLowerCase().includes(name.toLowerCase()));
-    if (!hit) return alert("No matching player found. Add player first in Players page.");
-    const title = prompt("Title/Reason (optional):", "Champion");
-    const note = prompt("Note (optional):", "");
-    const next = {
-      ...data,
-      hallOfFame: [
-        { id: uid(), playerId: hit.id, title: title || "", note: note || "", addedAt: Date.now() },
-        ...(data.hallOfFame || []),
-      ],
+  function makeEmptyDraft() {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    return {
+      id: uid(),
+      month,
+      playerId: "",
+      name: "",
+      title: "",
+      position: "",
+      notes: "",
+      photo: "",
     };
-    commit(next);
   }
 
-function edit(id) {
-  const entry = hofRaw.find((e) => e.id === id);
-  if (!entry) return;
-  const title = prompt("Edit winner name / title", entry.title || "");
-  if (title === null) return;
-  const note = prompt("Edit notes (optional)", entry.note || "");
-  if (note === null) return;
-  const next = hofRaw.map((e) => (e.id === id ? { ...e, title: title.trim(), note: note.trim() } : e));
-  commit({ hallOfFame: { entries: next } });
-}
+  function openAdd() {
+    setErr("");
+    setEditing(null);
+    setDraft(makeEmptyDraft());
+  }
 
+  function openEdit(e) {
+    setErr("");
+    setEditing(e);
+    setDraft({
+      id: e.id,
+      month: e.month || "",
+      playerId: e.playerId || "",
+      name: e.name || "",
+      title: e.title || "",
+      position: e.position || "",
+      notes: e.notes || "",
+      photo: e.photo || "",
+    });
+  }
 
-  function remove(id) {
+  function updateDraft(patch) {
+    setDraft((d) => ({ ...d, ...patch }));
+  }
+
+  async function handlePhotoFile(file) {
+    if (!file) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 900, 0.82);
+      updateDraft({ photo: dataUrl });
+    } catch (e) {
+      setErr("Could not read image. Try a smaller photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function validate(d) {
+    const name = (d.name || "").trim();
+    const month = (d.month || "").trim();
+    const title = (d.title || "").trim();
+    if (!month) return "Please set month (YYYY-MM).";
+    if (!name && !d.playerId) return "Select a player (or type a name).";
+    if (!title) return "Enter tournament / title.";
+    return "";
+  }
+
+  function saveDraft() {
+    const msg = validate(draft);
+    if (msg) {
+      setErr(msg);
+      return;
+    }
+
+    const player = draft.playerId ? playersById.get(draft.playerId) : null;
+    const finalName = (draft.name || "").trim() || (player?.name || "").trim();
+
+    const nextEntry = {
+      id: draft.id || uid(),
+      month: (draft.month || "").trim(),
+      playerId: draft.playerId || "",
+      name: finalName,
+      title: (draft.title || "").trim(),
+      position: (draft.position || "").trim(),
+      notes: (draft.notes || "").trim(),
+      photo: draft.photo || "",
+      createdAt: editing ? editing.createdAt || Date.now() : Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const nextEntries = editing
+      ? entries.map((e) => (e.id === editing.id ? nextEntry : e))
+      : [nextEntry, ...entries];
+
+    const hofNext =
+      hof && typeof hof === "object" && !Array.isArray(hof)
+        ? { ...hof, entries: nextEntries }
+        : { entries: nextEntries };
+
+    // IMPORTANT: commit expects the full app state.
+    commit({ ...data, hallOfFame: hofNext });
+
+    setEditing(null);
+    setDraft(makeEmptyDraft());
+    setErr("");
+  }
+
+  function deleteEntry(id) {
     if (!admin) return;
-    if (!confirm("Remove from Hall of Fame?")) return;
-    commit({ ...data, hallOfFame: (data.hallOfFame || []).filter((x) => x.id !== id) });
+    if (!confirm("Delete this Hall of Fame entry?")) return;
+    const nextEntries = entries.filter((e) => e.id !== id);
+    const hofNext =
+      hof && typeof hof === "object" && !Array.isArray(hof)
+        ? { ...hof, entries: nextEntries }
+        : { entries: nextEntries };
+    commit({ ...data, hallOfFame: hofNext });
   }
+
+  // Group by month
+  const grouped = useMemo(() => {
+    const m = new Map();
+    for (const e of entries) {
+      const key = e.month || "Unknown";
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(e);
+    }
+    // sort each group by position then createdAt
+    for (const [k, arr] of m.entries()) {
+      arr.sort((a, b) => {
+        const pa = (a.position || "").toString();
+        const pb = (b.position || "").toString();
+        const na = parseInt(pa, 10);
+        const nb = parseInt(pb, 10);
+        const ha = Number.isFinite(na) ? na : 9999;
+        const hb = Number.isFinite(nb) ? nb : 9999;
+        return ha - hb || (b.createdAt || 0) - (a.createdAt || 0);
+      });
+    }
+    const keys = Array.from(m.keys()).sort((a, b) => (b || "").localeCompare(a || ""));
+    return keys.map((k) => ({ month: k, list: m.get(k) }));
+  }, [entries]);
 
   return (
-    <>
-    <PageHeader title="Hall of Fame" />
-    <div className="container">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+    <PageShell title="Hall of Fame" subtitle="Monthly winners and top performers">
+      <div className="container">
+        <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <h2 style={{ margin: 0 }}>Hall of Fame</h2>
-            <div className="muted" style={{ marginTop: 6 }}>
-              Top performers, champions, and special mentions at The Q CLUB.
+            <div className="h2">Hall of Fame</div>
+            <div className="muted" style={{ marginTop: 4 }}>
+              Add winners each month. Photos are optional.
             </div>
           </div>
-          {admin && <button className="btn primary" onClick={add}>+ Add</button>}
+          {admin && (
+            <button className="btn primary" onClick={openAdd} disabled={busy}>
+              + Add
+            </button>
+          )}
         </div>
 
-        <div className="row" style={{ marginTop: 14, gap: 10, flexWrap: "wrap" }}>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search player"
-            style={{ maxWidth: 320 }}
-          />
-          <span className="badge"><span className="dot" /> {filtered.length} entries</span>
-        </div>
+        {(admin || editing !== null) && (
+          <div className="card" style={{ marginTop: 14 }}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div className="h3">{editing ? "Edit entry" : "Add entry"}</div>
+              {editing && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setEditing(null);
+                    setDraft(makeEmptyDraft());
+                    setErr("");
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
 
-        <div className="grid" style={{ marginTop: 14 }}>
-          {filtered.length === 0 ? (
-            <div className="muted">No entries yet.</div>
-          ) : (
-            filtered.map((x) => (
-              <div className="card cols-6" key={x.id}>
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 style={{ margin: 0 }}>{x.player.name}</h3>
-                  {admin && (<div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => edit(x.id)}>Edit</button><button className="btn danger" onClick={() => remove(x.id)}>Remove</button></div>)}
+            <div className="grid" style={{ marginTop: 10 }}>
+              <div>
+                <div className="label">Month (YYYY-MM)</div>
+                <input
+                  className="input"
+                  value={draft.month}
+                  onChange={(e) => updateDraft({ month: e.target.value })}
+                  placeholder="2026-03"
+                />
+              </div>
+
+              <div>
+                <div className="label">Player</div>
+                <select
+                  className="input"
+                  value={draft.playerId}
+                  onChange={(e) => {
+                    const pid = e.target.value;
+                    const p = pid ? playersById.get(pid) : null;
+                    updateDraft({ playerId: pid, name: p?.name || draft.name });
+                  }}
+                >
+                  <option value="">Select…</option>
+                  {players
+                    .slice()
+                    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Or type name (useful if player is not in Players list yet).
                 </div>
-                <div className="muted" style={{ marginTop: 6 }}>{x.player.city || ""}</div>
-                {x.title ? <div className="badge" style={{ marginTop: 10 }}><span className="dot" /> {x.title}</div> : null}
-                {x.note ? <div className="muted" style={{ marginTop: 10 }}>{x.note}</div> : null}
-                <div className="muted" style={{ marginTop: 12, fontSize: 12 }}>Added: {new Date(x.addedAt).toLocaleString()}</div>
+              </div>
+
+              <div>
+                <div className="label">Name</div>
+                <input
+                  className="input"
+                  value={draft.name}
+                  onChange={(e) => updateDraft({ name: e.target.value })}
+                  placeholder="Player name"
+                />
+              </div>
+
+              <div>
+                <div className="label">Tournament / Title</div>
+                <input
+                  className="input"
+                  value={draft.title}
+                  onChange={(e) => updateDraft({ title: e.target.value })}
+                  placeholder="Monthly Snooker Cup"
+                />
+              </div>
+
+              <div>
+                <div className="label">Position / Award</div>
+                <input
+                  className="input"
+                  value={draft.position}
+                  onChange={(e) => updateDraft({ position: e.target.value })}
+                  placeholder="Winner / 1st / Runner-up"
+                />
+              </div>
+
+              <div>
+                <div className="label">Notes</div>
+                <input
+                  className="input"
+                  value={draft.notes}
+                  onChange={(e) => updateDraft({ notes: e.target.value })}
+                  placeholder="Best break: 67" 
+                />
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, alignItems: "flex-start", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div className="label">Photo (upload)</div>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handlePhotoFile(e.target.files?.[0])}
+                />
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Tip: Use a clear face photo. The app compresses it automatically.
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div className="label">Or Photo URL</div>
+                <input
+                  className="input"
+                  value={draft.photo && draft.photo.startsWith("data:") ? "" : draft.photo}
+                  onChange={(e) => updateDraft({ photo: e.target.value })}
+                  placeholder="https://…"
+                />
+              </div>
+              <div style={{ width: 140 }}>
+                <div className="label">Preview</div>
+                <div
+                  className="card"
+                  style={{
+                    height: 110,
+                    display: "grid",
+                    placeItems: "center",
+                    overflow: "hidden",
+                    padding: 0,
+                  }}
+                >
+                  {draft.photo ? (
+                    <img
+                      src={draft.photo}
+                      alt="preview"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <div className="muted">No photo</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {err && (
+              <div className="badge danger" style={{ marginTop: 10 }}>
+                {err}
+              </div>
+            )}
+
+            <div className="row" style={{ marginTop: 12, justifyContent: "flex-end", gap: 10 }}>
+              <button className="btn" onClick={openAdd} disabled={busy}>
+                Clear
+              </button>
+              <button className="btn primary" onClick={saveDraft} disabled={busy}>
+                {busy ? "Working…" : editing ? "Save" : "Add"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          {grouped.length === 0 ? (
+            <div className="card">
+              <div className="muted">No Hall of Fame entries yet.</div>
+              {admin && (
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Click <b>+ Add</b> to create your first entry.
+                </div>
+              )}
+            </div>
+          ) : (
+            grouped.map(({ month, list }) => (
+              <div key={month} className="card" style={{ marginBottom: 12 }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <div className="h3">{month}</div>
+                  <div className="muted">{list.length} entries</div>
+                </div>
+
+                <div className="grid" style={{ marginTop: 10 }}>
+                  {list.map((e) => (
+                    <div key={e.id} className="card" style={{ padding: 12 }}>
+                      <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                        <div
+                          style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 14,
+                            overflow: "hidden",
+                            background: "rgba(255,255,255,0.06)",
+                            flex: "0 0 auto",
+                          }}
+                        >
+                          {e.photo ? (
+                            <img
+                              src={e.photo}
+                              alt={e.name}
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
+                          ) : null}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div className="h4" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {e.name || "(No name)"}
+                              </div>
+                              <div className="muted" style={{ marginTop: 2 }}>
+                                {e.title}
+                                {e.position ? ` • ${e.position}` : ""}
+                              </div>
+                              {e.notes ? (
+                                <div className="muted" style={{ marginTop: 6 }}>
+                                  {e.notes}
+                                </div>
+                              ) : null}
+                            </div>
+                            {admin && (
+                              <div className="row" style={{ gap: 8, flex: "0 0 auto" }}>
+                                <button className="btn" onClick={() => openEdit(e)}>
+                                  Edit
+                                </button>
+                                <button className="btn danger" onClick={() => deleteEntry(e.id)}>
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))
           )}
         </div>
       </div>
-    </div>
-    </> 
+    </PageShell>
   );
 }
 
-/* ---------------------------
-   Music Dock (Q Club Anthem)
-   - Browser blocks autoplay, so user must tap Play once.
----------------------------- */
-function AudioDock({ src = "/music.mp3", title = "Q Club Anthem" }) {
-  const KEY_ENABLED = "qclub_music_enabled";
-  const KEY_VOL = "qclub_music_volume";
-  const KEY_OPEN = "qclub_music_open";
-  const audioRef = React.useRef(null);
-
-  const [open, setOpen] = React.useState(() => {
-    try {
-      const v = localStorage.getItem(KEY_OPEN);
-      return v === null ? true : v === "1";
-    } catch {
-      return true;
-    }
+function resizeImageToDataUrl(file, maxSide = 900, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("img"));
+      img.onload = () => {
+        const w = img.width || 1;
+        const h = img.height || 1;
+        const scale = Math.min(1, maxSide / Math.max(w, h));
+        const nw = Math.max(1, Math.round(w * scale));
+        const nh = Math.max(1, Math.round(h * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = nw;
+        canvas.height = nh;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("ctx"));
+        ctx.drawImage(img, 0, 0, nw, nh);
+        // Use jpeg for smaller size (unless original is png with transparency; acceptable for photos)
+        const out = canvas.toDataURL("image/jpeg", quality);
+        resolve(out);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
-
-  const [enabled, setEnabled] = React.useState(() => {
-    try { return localStorage.getItem(KEY_ENABLED) === "1"; } catch { return false; }
-  });
-
-  const [playing, setPlaying] = React.useState(false);
-
-  const [volume, setVolume] = React.useState(() => {
-    try {
-      const v = Number(localStorage.getItem(KEY_VOL));
-      return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.6;
-    } catch {
-      return 0.6;
-    }
-  });
-
-  const [hint, setHint] = React.useState("");
-
-  // Persist prefs
-  React.useEffect(() => {
-    try { localStorage.setItem(KEY_ENABLED, enabled ? "1" : "0"); } catch {}
-  }, [enabled]);
-
-  React.useEffect(() => {
-    try { localStorage.setItem(KEY_VOL, String(volume)); } catch {}
-  }, [volume]);
-
-  React.useEffect(() => {
-    try { localStorage.setItem(KEY_OPEN, open ? "1" : "0"); } catch {}
-  }, [open]);
-
-  // Keep element state in sync
-  React.useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.loop = true;
-    a.volume = volume;
-  }, [volume]);
-
-  React.useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (!enabled) {
-      a.pause();
-      setPlaying(false);
-    }
-  }, [enabled]);
-
-  async function tryPlay() {
-    const a = audioRef.current;
-    if (!a) return;
-    try {
-      await a.play();
-      setPlaying(true);
-      setHint("");
-    } catch (e) {
-      // Mobile browsers may block audio sometimes — show a helpful hint.
-      setPlaying(false);
-      setHint("If audio doesn’t start, tap anywhere once and press Play again.");
-      console.log("Audio play blocked:", e);
-    }
-  }
-
-  function closeDock() {
-    const a = audioRef.current;
-    if (a) a.pause();
-    setEnabled(false);
-    setPlaying(false);
-    setOpen(false);
-    setHint("");
-  }
-
-  // When closed, show a tiny reopen button (does NOT cover the whole screen)
-  if (!open) {
-    return (
-      <button
-        className="musicReopen"
-        onClick={() => { setOpen(true); }}
-        title="Open music player"
-        aria-label="Open music player"
-      >
-        ♫
-      </button>
-    );
-  }
-
-  return (
-    <>
-      <div className="musicDock" role="region" aria-label="Music player">
-        <audio ref={audioRef} src={src} preload="metadata" />
-
-        <button
-          className="musicBtn"
-          onClick={async () => {
-            if (playing) {
-              audioRef.current?.pause();
-              setPlaying(false);
-              setEnabled(false);
-              setHint("");
-              return;
-            }
-            setEnabled(true);
-            setHint("Tap ▶ to play. (Mobile may block if no user gesture.)");
-            await tryPlay();
-          }}
-          aria-label={playing ? "Pause music" : "Play music"}
-          title={playing ? "Pause" : "Play"}
-        >
-          {playing ? "❚❚" : "▶"}
-        </button>
-
-        <div className="musicMeta">
-          <div className="musicTitle">{title}</div>
-          <div className="musicSub">{playing ? "Playing" : (enabled ? "Ready" : "Tap ▶ to play")}</div>
-        </div>
-
-        <input
-          className="musicVol"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          onChange={(e) => setVolume(Number(e.target.value))}
-          aria-label="Volume"
-        />
-
-        <button className="musicClose" onClick={closeDock} aria-label="Close music player" title="Close">
-          ×
-        </button>
-      </div>
-
-      {hint ? <div className="musicHint">{hint}</div> : null}
-    </>
-  );
 }
+
 function NotFound() {
   return (
     <div className="container">
