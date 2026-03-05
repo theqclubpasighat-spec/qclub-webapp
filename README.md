@@ -1,107 +1,54 @@
-# Q CLUB Web App (PWA) — Firebase Cloud Sync + Vercel Deploy
+# Q CLUB – PWA + Cloud Sync (Supabase)
 
 This is a Vite + React PWA.
 
-It works in **two modes**:
-
-- **Local mode (default)**: data saved in the browser (localStorage).
-- **Cloud Sync mode (recommended)**: if Firebase env vars are set, the app syncs a single shared state via **Firestore** so all phones see the same players/offers/etc.
-
-You’ll see a pill in the top bar:
-- `Cloud: OFF` (local only)
-- `Cloud: Syncing` / `Cloud: ON`
-- `Cloud: ERROR` (Firebase env vars / Firestore rules issue)
-
----
-
-## 1) Run locally (VS Code)
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
----
+## Cloud Sync (recommended)
 
-## 2) Create Firebase project + Firestore (baby steps)
+Cloud sync stores one shared state for the whole club in Supabase so every device sees the same data.
 
-### A) Create project
-1. Go to **Firebase Console**
-2. **Add project** → create (any name)
-3. After project is created:
-   - In the left menu: **Build → Firestore Database**
-   - Click **Create database**
-   - Choose **Production** (recommended) or **Test** (fast)
-   - Pick a location (closest region)
+### 1) Create Supabase project + table
 
-### B) Create a Web App
-1. Firebase Console → Project settings (⚙️)
-2. Scroll to **Your apps**
-3. Click **</> Web app**
-4. Register app (name like `qclub-web`)
-5. Copy the config values (apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId)
+In Supabase **SQL Editor**, run:
 
-### C) Firestore rules (simple for launch)
-In **Firestore → Rules**, paste this (public read/write) so cloud sync works immediately:
+```sql
+create table if not exists public.qclub_state (
+  key text primary key,
+  state jsonb not null,
+  updated_at timestamptz default now()
+);
 
-> Note: this is OK for launch/testing, but later we should lock it down (PIN/auth).
+alter table public.qclub_state enable row level security;
 
-```txt
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /qclub/{docId} {
-      allow read, write: if true;
-    }
-  }
-}
+create policy "public read" on public.qclub_state
+  for select using (true);
+
+create policy "public write" on public.qclub_state
+  for insert with check (true);
+
+create policy "public update" on public.qclub_state
+  for update using (true);
 ```
 
----
+### 2) Add environment variables
 
-## 3) Add Firebase env vars
+Create a file named **.env** (same folder as `package.json`):
 
-### Local dev
-Create a file named **.env** in the project root (same folder as package.json):
-
-```bash
-VITE_FIREBASE_API_KEY=...
-VITE_FIREBASE_AUTH_DOMAIN=...
-VITE_FIREBASE_PROJECT_ID=...
-VITE_FIREBASE_STORAGE_BUCKET=...
-VITE_FIREBASE_MESSAGING_SENDER_ID=...
-VITE_FIREBASE_APP_ID=...
+```
+VITE_SUPABASE_URL=YOUR_PROJECT_URL
+VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
 ```
 
-Restart `npm run dev`.
+Restart the dev server.
 
-### Vercel deploy
-In **Vercel → Project → Settings → Environment Variables**, add the same keys above (all of them).
+### 3) Deploy to Vercel
+
+In Vercel → Project → **Settings → Environment Variables**, add the same 2 keys.
+
 Then redeploy.
-
----
-
-## 4) Deploy to Vercel (GitHub flow)
-
-1. Push this project to GitHub
-2. Vercel → **New Project** → Import your repo
-3. Framework preset: **Vite**
-4. Build command: `npm run build`
-5. Output directory: `dist`
-6. Add env vars (step 3)
-7. Deploy
-
----
-
-## Where cloud state is stored
-Firestore document:
-
-- Collection: `qclub`
-- Doc: `state`
-
-The app writes `{ state: <big json>, updated_at: serverTimestamp() }`.
-
----
-
-## Notes
-- Autoplay audio is blocked by many browsers until the user taps once.
