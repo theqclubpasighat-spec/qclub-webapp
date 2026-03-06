@@ -6,9 +6,11 @@ import App from "./App.jsx";
 import "./styles.css";
 
 // PWA service worker
-registerSW({
-  immediate: true,
-})
+// During cloud-sync debugging, keep this disabled to avoid stale cached bundles.
+// Re-enable after confirming sync is stable.
+// registerSW({
+//   immediate: true,
+// })
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

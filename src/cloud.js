@@ -4,6 +4,7 @@ import { supabase, supabaseReady, getSupabaseMissingVars } from "./supabase";
 // Change this if you ever want multiple "clubs" or "seasons".
 const TABLE = "qclub_state";
 const KEY = "main";
+const POLL_INTERVAL_MS = 5000;
 
 export function isCloudEnabled() {
   return supabaseReady;
@@ -13,6 +14,17 @@ export function cloudMissingVars() {
   return getSupabaseMissingVars();
 }
 
+async function fetchLatestState() {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("state, updated_at")
+    .eq("key", KEY)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.state || null;
+}
+
 export function subscribeState(onState, onError) {
   if (!supabaseReady || !supabase) {
     onError?.(new Error("Supabase env vars missing: " + getSupabaseMissingVars().join(", ")));
@@ -20,23 +32,34 @@ export function subscribeState(onState, onError) {
   }
 
   let isClosed = false;
+  let pollTimer = null;
 
-  // 1) Initial fetch
-  (async () => {
+  const stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+
+  const pullLatest = async () => {
     try {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select("state")
-        .eq("key", KEY)
-        .maybeSingle();
-      if (!isClosed && !error && data?.state) onState(data.state);
-      if (!isClosed && error) onError?.(error);
+      const state = await fetchLatestState();
+      if (!isClosed && state) onState(state);
     } catch (e) {
       if (!isClosed) onError?.(e);
     }
-  })();
+  };
 
-  // 2) Realtime updates (optional; still works without realtime)
+  const startPolling = () => {
+    if (pollTimer) return;
+    pullLatest();
+    pollTimer = setInterval(pullLatest, POLL_INTERVAL_MS);
+  };
+
+  // 1) Initial fetch
+  pullLatest();
+
+  // 2) Realtime updates with polling fallback
   const channel = supabase
     .channel(`qclub_state:${KEY}`)
     .on(
@@ -48,15 +71,20 @@ export function subscribeState(onState, onError) {
       }
     )
     .subscribe((status) => {
-      // If realtime isn't enabled, Supabase may not deliver changes.
-      // We keep the app working anyway (writes + next reload will sync).
-      if (status === "CHANNEL_ERROR") {
-        onError?.(new Error("Supabase realtime channel error (sync will work on refresh)."));
+      if (status === "SUBSCRIBED") {
+        stopPolling();
+        return;
+      }
+
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        onError?.(new Error(`Supabase realtime status: ${status}. Falling back to polling.`));
+        startPolling();
       }
     });
 
   return () => {
     isClosed = true;
+    stopPolling();
     try {
       supabase.removeChannel(channel);
     } catch {

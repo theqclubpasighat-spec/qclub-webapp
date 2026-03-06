@@ -324,7 +324,7 @@ export default function App() {
     if (!isCloudEnabled()) return;
     const missing = cloudMissingVars();
     if (missing.length) {
-      console.warn("Firebase env vars missing:", missing);
+      console.warn("Supabase env vars missing:", missing);
       setCloudStatus("error");
       return;
     }
@@ -337,8 +337,8 @@ export default function App() {
         setCloudStatus("synced");
       },
       (err) => {
-        console.error("Cloud sync error:", err);
-        setCloudStatus("error");
+        console.warn("Cloud sync warning:", err);
+        setCloudStatus((prev) => (prev === "synced" ? "degraded" : "syncing"));
       }
     );
     return () => unsub?.();
