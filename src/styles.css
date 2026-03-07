@@ -472,45 +472,263 @@ select{ padding-right: 30px; }
   color:rgba(255,255,255,0.9);
 }
 
+/* =========================================================
+   MOBILE-FIRST HOTFIXES (safe: styles only)
+   - keeps cloud sync untouched
+   - fixes horizontal overflow
+   - keeps Admin Login reachable on phones
+========================================================= */
 
-
-/* === Mobile overflow + top nav visibility fix === */
-html, body, #root{
+html, body, #root {
   max-width: 100%;
   overflow-x: hidden;
 }
 
-.nav{
+body {
+  overflow-x: hidden;
+}
+
+.container,
+.card,
+.grid,
+.kpi,
+.gallery,
+.row,
+.pageHead,
+.pageHeadLeft,
+.pageHeadRight,
+.quickGrid,
+.payGrid {
+  min-width: 0;
+}
+
+img,
+video,
+iframe,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+
+/* Safer tables on narrow screens */
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Nav: never let it push page width */
+.nav {
   overflow: hidden;
 }
 
-.nav-inner{
-  flex-wrap: wrap;
-  row-gap: 10px;
+.nav-inner {
+  width: 100%;
+  max-width: var(--max);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
-
-.spacer{
+.nav-inner::-webkit-scrollbar {
   display: none;
 }
 
-.nav-inner .pill,
-.nav-inner .btn,
-.nav-inner .brand{
+.brand {
+  flex: 0 0 auto;
+  min-width: 130px;
+}
+
+.spacer {
+  flex: 0 0 8px;
+}
+
+.pill,
+.btn,
+.badge,
+.navPill {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-@media (max-width: 1000px){
-  .nav-inner{
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+/* QR/payment area */
+.qrBox,
+.payGrid,
+.photoBox,
+.modal,
+.modalOverlay {
+  min-width: 0;
+}
+
+@media (max-width: 920px) {
+  .container {
+    padding: 12px 12px 88px;
   }
-  .nav-inner::-webkit-scrollbar{
-    display: none;
+
+  .nav-inner {
+    gap: 8px;
+    padding: 10px 12px;
   }
-  .nav-inner > *{
-    flex: 0 0 auto;
+
+  .brand {
+    min-width: 112px;
+  }
+
+  .brand .title {
+    font-size: 16px;
+  }
+
+  .brand .sub {
+    font-size: 11px;
+    max-width: 100px;
+    white-space: normal;
+    line-height: 1.15;
+  }
+
+  .pill,
+  .btn,
+  .badge,
+  .navPill {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  h1 {
+    font-size: 24px;
+    line-height: 1.15;
+  }
+
+  h2 {
+    font-size: 18px;
+  }
+
+  .card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .chip {
+    padding: 10px 12px;
+  }
+
+  .kpi {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery {
+    grid-template-columns: 1fr;
+  }
+
+  /* Make inline QR images responsive without touching JSX */
+  img[alt="UPI QR"] {
+    width: min(220px, 100%) !important;
+    height: auto !important;
+  }
+
+  .pageHead {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .pageHeadLeft,
+  .pageHeadRight {
+    min-width: 0;
+  }
+
+  /* Two-up hero shortcuts on phones */
+  .tap.card,
+  .tap {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 10px 10px 84px;
+  }
+
+  .nav-inner {
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .brand {
+    min-width: 104px;
+  }
+
+  .brand .title {
+    font-size: 15px;
+  }
+
+  .brand .sub {
+    font-size: 10px;
+    max-width: 92px;
+  }
+
+  .pill,
+  .btn,
+  .badge,
+  .navPill {
+    font-size: 11px;
+    padding: 7px 9px;
+    border-radius: 10px;
+  }
+
+  .row {
+    gap: 8px;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  th,
+  td {
+    font-size: 12px;
+    padding: 8px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* prevents zoom on iPhone */
+  }
+
+  .modal {
+    width: calc(100vw - 20px);
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand {
+    min-width: 96px;
+  }
+
+  .pill,
+  .btn,
+  .badge,
+  .navPill {
+    font-size: 10.5px;
+    padding: 7px 8px;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  .card {
+    padding: 12px;
   }
 }
