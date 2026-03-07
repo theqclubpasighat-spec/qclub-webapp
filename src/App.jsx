@@ -44,6 +44,27 @@ function bookingTimeSlots() {
   }
   return slots;
 }
+function bookingAmountFor(table, bookingType) {
+  if (!table) return 0;
+  if (bookingType !== "member") return Math.max(0, safeNum(table.pricePerHour, 0));
+  if (table.id === "snk12") return 300;
+  if (table.id === "mini10" || table.id === "pool9") return 200;
+  return Math.max(0, safeNum(table.pricePerHour, 0));
+}
+function bookingStatusLabel(status) {
+  switch (status) {
+    case "verified":
+      return "verified";
+    case "member_verified":
+      return "member approved";
+    case "member_rejected":
+      return "member rejected";
+    case "pending_member_verification":
+      return "member verify";
+    default:
+      return "pending";
+  }
+}
 function upiDeepLink({ pa, pn, am, tn }) {
   const params = new URLSearchParams();
   if (pa) params.set("pa", pa);
@@ -687,9 +708,10 @@ function Home({ data, admin, commit, activeTournament }) {
                 <div className="card cols-4" key={r.id}>
                   <div className="row" style={{ justifyContent: "space-between" }}>
                     <b>{r.name || "Guest"}</b>
-                    <span className="badge"><span className="dot red" /> pending</span>
+                    <span className="badge"><span className={r.status === "verified" || r.status === "member_verified" ? "dot" : "dot red"} /> {bookingStatusLabel(r.status)}</span>
                   </div>
                   <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                  <div className="muted" style={{ marginTop: 6 }}>{r.bookingType === "member" ? "Member booking" : "Non-member booking"}</div>
                   <div className="muted" style={{ marginTop: 6 }}>{r.bookingDate || "—"} • {r.timeSlot || "—"}</div>
                   <div style={{ marginTop: 6 }}>
                     <span className="badge"><span className="dot" /> Amount: ₹{r.amount}</span>
@@ -706,8 +728,10 @@ function Home({ data, admin, commit, activeTournament }) {
 }
 
 function BookTable({ data, admin, commit }) {
+  const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
+  const [memberId, setMemberId] = useState("");
   const [tableId, setTableId] = useState(data.booking?.tables?.[0]?.id || "snk12");
   const [bookingDate, setBookingDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState(bookingTimeSlots()[0]?.value || "11:00-12:00");
@@ -716,17 +740,25 @@ function BookTable({ data, admin, commit }) {
 
   const tables = data.booking?.tables || [];
   const selected = tables.find((t) => t.id === tableId) || tables[0];
-  const amount = Math.max(0, safeNum(selected?.pricePerHour, 0));
+  const amount = bookingAmountFor(selected, bookingType);
   const timeOptions = bookingTimeSlots();
 
   const upiId = data.club?.upiId || "yomsoji-1@okicici";
   const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
-  const txNote = `QClub Booking: ${selected?.label || "Table"} ${bookingDate} ${timeSlot}`;
+  const txNote = `${bookingType === "member" ? "QClub Member Booking" : "QClub Booking"}: ${selected?.label || "Table"} ${bookingDate} ${timeSlot}`;
   const link = upiDeepLink({ pa: upiId, pn: upiName, am: amount, tn: txNote });
+
+  function resetFormForMode(nextMode) {
+    setBookingType(nextMode);
+    setSubmitted(null);
+    setNote("");
+    if (nextMode !== "member") setMemberId("");
+  }
 
   function submitRequest() {
     if (!name.trim()) return alert("Enter your name");
     if (!mobile.trim()) return alert("Enter mobile number");
+    if (bookingType === "member" && !memberId.trim()) return alert("Enter member ID / card ID");
     if (!selected) return alert("Select a table");
     if (!bookingDate) return alert("Select booking date");
     if (!timeSlot) return alert("Select a time slot");
@@ -734,8 +766,10 @@ function BookTable({ data, admin, commit }) {
 
     const req = {
       id: uid(),
+      bookingType,
       name: name.trim(),
       mobile: mobile.trim(),
+      memberId: bookingType === "member" ? memberId.trim().toUpperCase() : "",
       itemId: selected.id,
       itemLabel: selected.label,
       bookingDate,
@@ -743,7 +777,7 @@ function BookTable({ data, admin, commit }) {
       amount,
       note: note.trim(),
       createdAt: Date.now(),
-      status: "pending",
+      status: bookingType === "member" ? "pending_member_verification" : "pending",
     };
 
     commit({
@@ -758,13 +792,13 @@ function BookTable({ data, admin, commit }) {
     setNote("");
   }
 
-  function markVerified(id) {
+  function updateRequestStatus(id, status) {
     if (!admin) return alert("Admin only");
     commit({
       ...data,
       booking: {
         ...data.booking,
-        requests: (data.booking?.requests || []).map((r) => (r.id === id ? { ...r, status: "verified" } : r)),
+        requests: (data.booking?.requests || []).map((r) => (r.id === id ? { ...r, status } : r)),
       },
     });
   }
@@ -773,19 +807,28 @@ function BookTable({ data, admin, commit }) {
     <>
       <PageShell
         title="Book a Table"
-        subtitle="Non-members can book and pay via UPI. Members should apply for membership first."
+        subtitle="Non-members can book and pay via UPI. Members can request discounted rates after admin verification."
         right={admin ? <span className="badge"><span className="dot" /> Admin view</span> : null}
       />
 
       <div className="container">
+        <div className="row" style={{ gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          <button className={bookingType === "nonmember" ? "btn primary" : "btn"} onClick={() => resetFormForMode("nonmember")}>Non-Member Booking</button>
+          <button className={bookingType === "member" ? "btn primary" : "btn"} onClick={() => resetFormForMode("member")}>Member Booking (Discounted Rates)</button>
+        </div>
+
         <div className="grid">
           <div className="card cols-6">
             <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
               <div>
-                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Customer Booking (Non-Members Only)</h2>
-                <div className="muted">Each booking is for one time slot only.</div>
+                <h2 style={{ marginTop: 0, marginBottom: 6 }}>{bookingType === "member" ? "Member Booking (Discounted Rates)" : "Customer Booking (Non-Members Only)"}</h2>
+                <div className="muted">
+                  {bookingType === "member"
+                    ? "Enter registered mobile number and member card ID. Admin must approve member pricing."
+                    : "Each booking is for one time slot only."}
+                </div>
               </div>
-              <Link className="btn" to="/membership">Apply for Membership Now</Link>
+              {bookingType === "nonmember" ? <Link className="btn" to="/membership">Apply for Membership Now</Link> : null}
             </div>
 
             <div className="field">
@@ -794,16 +837,24 @@ function BookTable({ data, admin, commit }) {
             </div>
 
             <div className="field">
-              <label>Mobile No.</label>
+              <label>{bookingType === "member" ? "Registered Mobile No." : "Mobile No."}</label>
               <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="10-digit mobile" />
             </div>
+
+            {bookingType === "member" ? (
+              <div className="field">
+                <label>Member ID / Card ID</label>
+                <input value={memberId} onChange={(e) => setMemberId(e.target.value)} placeholder="Example: QC001" />
+              </div>
+            ) : null}
 
             <div className="field">
               <label>Select Table</label>
               <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
-                {tables.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
+                {tables.map((t) => {
+                  const price = bookingAmountFor(t, bookingType);
+                  return <option key={t.id} value={t.id}>{t.label.split(" — ")[0]} — ₹{price} / hour</option>;
+                })}
               </select>
             </div>
 
@@ -821,7 +872,7 @@ function BookTable({ data, admin, commit }) {
 
             <div className="field">
               <label>Note (optional)</label>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Any message for admin" />
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={bookingType === "member" ? "Any message for admin / membership note" : "Any message for admin"} />
             </div>
 
             <div className="row" style={{ justifyContent: "space-between", marginTop: 10, flexWrap: "wrap", gap: 10 }}>
@@ -829,6 +880,7 @@ function BookTable({ data, admin, commit }) {
                 <div className="muted">Amount</div>
                 <div style={{ fontSize: 22, fontWeight: 900 }}>₹{amount}</div>
                 <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>{bookingDate} • {timeOptions.find((slot) => slot.value === timeSlot)?.label || timeSlot}</div>
+                {bookingType === "member" ? <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>Member rate will be honoured after admin verification.</div> : null}
               </div>
               <button className="btn primary" onClick={submitRequest}>Submit Booking</button>
             </div>
@@ -836,7 +888,11 @@ function BookTable({ data, admin, commit }) {
             {submitted ? (
               <div className="card" style={{ marginTop: 12 }}>
                 <b>Booking submitted ✅</b>
-                <div className="muted" style={{ marginTop: 6 }}>Show this QR to pay. Admin will review the requested slot.</div>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {submitted.bookingType === "member"
+                    ? "Member booking submitted. Admin will verify your member ID before final approval."
+                    : "Show this QR to pay. Admin will review the requested slot."}
+                </div>
                 <div className="grid" style={{ marginTop: 10 }}>
                   <div className="cols-6">
                     <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
@@ -846,6 +902,7 @@ function BookTable({ data, admin, commit }) {
                     <div className="badge"><span className="dot" /> UPI: {upiId}</div>
                     <div className="muted" style={{ marginTop: 10 }}>{submitted.itemLabel}</div>
                     <div className="muted" style={{ marginTop: 6 }}>{submitted.bookingDate} • {timeOptions.find((slot) => slot.value === submitted.timeSlot)?.label || submitted.timeSlot}</div>
+                    {submitted.bookingType === "member" && submitted.memberId ? <div className="muted" style={{ marginTop: 6 }}>Member ID: {submitted.memberId}</div> : null}
                     <div style={{ marginTop: 10 }}>
                       <a className="btn" href={link}>Open UPI App</a>
                     </div>
@@ -870,10 +927,12 @@ function BookTable({ data, admin, commit }) {
                   <div className="card" key={r.id} style={{ marginBottom: 10 }}>
                     <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <b>{r.name}</b>
-                      <span className="badge"><span className={r.status === "verified" ? "dot" : "dot red"} />{r.status}</span>
+                      <span className="badge"><span className={r.status === "verified" || r.status === "member_verified" ? "dot" : "dot red"} /> {bookingStatusLabel(r.status)}</span>
                     </div>
                     <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                    <div className="muted" style={{ marginTop: 6 }}>{r.bookingType === "member" ? "Member booking" : "Non-member booking"}</div>
                     <div className="muted" style={{ marginTop: 6 }}>{r.bookingDate || "—"} • {r.timeSlot || "—"}</div>
+                    {r.bookingType === "member" ? <div className="muted" style={{ marginTop: 6 }}>Member ID: {r.memberId || "—"}</div> : null}
                     <div className="row" style={{ justifyContent: "space-between", marginTop: 8, gap: 10, flexWrap: "wrap" }}>
                       <span className="badge"><span className="dot" /> ₹{r.amount}</span>
                       <span className="muted" style={{ fontSize: 12 }}>{r.mobile}</span>
@@ -883,11 +942,16 @@ function BookTable({ data, admin, commit }) {
 
                     <div className="row" style={{ marginTop: 10, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <button className="btn" onClick={() => playPing()}>Test Ping</button>
-                      {r.status !== "verified" ? (
-                        <button className="btn primary" onClick={() => markVerified(r.id)}>Mark Verified</button>
-                      ) : (
-                        <span className="muted">Verified</span>
-                      )}
+                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                        {r.bookingType === "member" ? (
+                          <>
+                            {r.status !== "member_verified" ? <button className="btn primary" onClick={() => updateRequestStatus(r.id, "member_verified")}>Approve Member Rate</button> : null}
+                            {r.status !== "member_rejected" ? <button className="btn danger" onClick={() => updateRequestStatus(r.id, "member_rejected")}>Reject</button> : null}
+                          </>
+                        ) : (
+                          r.status !== "verified" ? <button className="btn primary" onClick={() => updateRequestStatus(r.id, "verified")}>Mark Verified</button> : <span className="muted">Verified</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
