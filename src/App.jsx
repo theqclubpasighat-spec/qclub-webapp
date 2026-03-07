@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 
-// Firebase Cloud Sync helpers (implemented in src/cloud.js)
+// Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
 
 /* =========================================================
@@ -24,16 +24,25 @@ const LS_KEY = "qclub_v5_data";
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
-function clampStr(s, n = 120) {
-  const t = (s || "").toString();
-  return t.length > n ? t.slice(0, n) + "…" : t;
-}
 function safeNum(x, fallback = 0) {
   const v = Number(x);
   return Number.isFinite(v) ? v : fallback;
 }
 function monthKey(d = new Date()) {
   return d.toISOString().slice(0, 7);
+}
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+function bookingTimeSlots() {
+  const slots = [];
+  for (let hour = 11; hour <= 22; hour += 1) {
+    const next = hour + 1;
+    const start = `${String(hour).padStart(2, "0")}:00`;
+    const end = `${String(next).padStart(2, "0")}:00`;
+    slots.push({ value: `${start}-${end}`, label: `${start} to ${end}` });
+  }
+  return slots;
 }
 function upiDeepLink({ pa, pn, am, tn }) {
   const params = new URLSearchParams();
@@ -45,7 +54,6 @@ function upiDeepLink({ pa, pn, am, tn }) {
   return `upi://pay?${params.toString()}`;
 }
 function qrUrl(data, size = 240) {
-  // Uses external QR image generator. Works on Vercel/phones.
   const enc = encodeURIComponent(data);
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${enc}`;
 }
@@ -64,20 +72,18 @@ function readFileAsDataURL(file) {
 function defaultData() {
   return {
     club: {
-  name: "The Q CLUB",
-  location: "Pasighat",
-  tagline: "Play. Chill. Compete.",
-  contact: { phone1: "7005212774", phone2: "7085221922" },
-  upiId: "yomsoji-1@okicici",
-  upiName: "The Q CLUB",
-  isOpenNow: true, // NEW
-},  
+      name: "The Q CLUB",
+      location: "Pasighat",
+      tagline: "Play. Chill. Compete.",
+      contact: { phone1: "7005212774", phone2: "7085221922" },
+      upiId: "yomsoji-1@okicici",
+      upiName: "The Q CLUB",
+      isOpenNow: true,
+    },
     admin: { pin: "1234" },
-
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
-
     memberships: [
       {
         id: uid(),
@@ -108,25 +114,19 @@ function defaultData() {
         note: "Non-transferable",
       },
     ],
-
     offers: [
       { id: uid(), title: "Massage Chair", price: "₹99 / 10 min • ₹199 / 20 min", details: "Relax between frames." },
       { id: uid(), title: "Foosball", price: "₹50 / game", details: "Best of 3 fun matches." },
       { id: uid(), title: "Air Hockey", price: "₹50 / game", details: "Fast rounds — winner stays!" },
       { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
     ],
-
-    photos: [
-      // stored as data URLs when uploaded
-    ],
-
+    photos: [],
     players: [
       { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "" },
       { id: uid(), name: "Riku", city: "Pasighat", photo: "", bio: "" },
       { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "" },
       { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "" },
     ],
-
     tournaments: [
       {
         id: uid(),
@@ -137,29 +137,80 @@ function defaultData() {
         pointsWin: 3,
         pointsDraw: 1,
         pointsLoss: 0,
-        participantIds: [], // empty=all players
+        participantIds: [],
         matches: [],
       },
     ],
-
     booking: {
       tables: [
         { id: "snk12", label: "Snooker Table 12x6 — ₹400 / hour", pricePerHour: 400 },
         { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
         { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
       ],
-      // Booking requests (local) for notification/pending verification
       requests: [],
-      // for admin ping notifications
       lastSeenRequestAt: 0,
     },
-
     hallOfFame: {
-      entries: [
-        // {id, title, playerName, month, stats, description, photo}
-      ],
+      entries: [],
     },
   };
+}
+
+function pickText(value, fallback) {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function mergeWithDefaults(remote) {
+  const base = defaultData();
+  const src = remote && typeof remote === "object" ? remote : {};
+
+  return {
+    ...base,
+    ...src,
+    club: {
+      ...base.club,
+      ...(src.club || {}),
+      name: pickText(src?.club?.name, base.club.name),
+      location: pickText(src?.club?.location, base.club.location),
+      tagline: pickText(src?.club?.tagline, base.club.tagline),
+      upiId: pickText(src?.club?.upiId, base.club.upiId),
+      upiName: pickText(src?.club?.upiName, base.club.upiName),
+      contact: {
+        ...base.club.contact,
+        ...((src.club || {}).contact || {}),
+        phone1: pickText(src?.club?.contact?.phone1, base.club.contact.phone1),
+        phone2: pickText(src?.club?.contact?.phone2, base.club.contact.phone2),
+      },
+    },
+    admin: {
+      ...base.admin,
+      ...(src.admin || {}),
+      pin: pickText(src?.admin?.pin, base.admin.pin),
+    },
+    announcements: Array.isArray(src.announcements) && src.announcements.length ? src.announcements : base.announcements,
+    memberships: Array.isArray(src.memberships) && src.memberships.length ? src.memberships : base.memberships,
+    offers: Array.isArray(src.offers) && src.offers.length ? src.offers : base.offers,
+    photos: Array.isArray(src.photos) ? src.photos : base.photos,
+    players: Array.isArray(src.players) && src.players.length ? src.players : base.players,
+    tournaments: Array.isArray(src.tournaments) && src.tournaments.length ? src.tournaments : base.tournaments,
+    booking: {
+      ...base.booking,
+      ...(src.booking || {}),
+      tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
+      requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
+      lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
+    },
+    hallOfFame: {
+      ...base.hallOfFame,
+      ...(src.hallOfFame || {}),
+      entries: Array.isArray(src?.hallOfFame?.entries) ? src.hallOfFame.entries : base.hallOfFame.entries,
+    },
+  };
+}
+
+function isMeaningfulState(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  return Object.keys(obj).length > 0;
 }
 
 function loadData() {
@@ -167,17 +218,7 @@ function loadData() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultData();
     const parsed = JSON.parse(raw);
-    // Light migration: ensure required keys exist
-    const d = { ...defaultData(), ...parsed };
-    d.club = { ...defaultData().club, ...(parsed.club || {}) };
-    d.admin = { ...defaultData().admin, ...(parsed.admin || {}) };
-    d.booking = { ...defaultData().booking, ...(parsed.booking || {}) };
-    d.hallOfFame = { ...defaultData().hallOfFame, ...(parsed.hallOfFame || {}) };
-    d.booking.tables = parsed?.booking?.tables?.length ? parsed.booking.tables : defaultData().booking.tables;
-    d.booking.requests = parsed?.booking?.requests || [];
-    d.booking.lastSeenRequestAt = parsed?.booking?.lastSeenRequestAt || 0;
-    d.hallOfFame.entries = parsed?.hallOfFame?.entries || [];
-    return d;
+    return mergeWithDefaults(parsed);
   } catch {
     return defaultData();
   }
@@ -213,7 +254,7 @@ function generateRoundRobin(playerIds) {
           p2,
           score1: "",
           score2: "",
-          status: "scheduled", // scheduled | done
+          status: "scheduled",
           updatedAt: Date.now(),
         });
       }
@@ -288,7 +329,6 @@ function calcLeaderboard(players, tournament) {
 
 /* ---------------------------
    Simple "ping" sound
-   (WebAudio oscillator – no files needed)
 ---------------------------- */
 function playPing() {
   try {
@@ -319,7 +359,6 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState(isCloudEnabled() ? "syncing" : "local");
   const [admin, setAdmin] = useState(false);
 
-  // Cloud sync: keep one shared state across all devices
   useEffect(() => {
     if (!isCloudEnabled()) return;
     const missing = cloudMissingVars();
@@ -328,12 +367,25 @@ export default function App() {
       setCloudStatus("error");
       return;
     }
+
     setCloudStatus("syncing");
     const unsub = subscribeState(
       (remote) => {
-        // Apply remote state + keep a local cache (for offline)
-        setData(remote);
-        try { saveData(remote); } catch {}
+        if (!isMeaningfulState(remote)) {
+          const fallback = loadData();
+          setData(fallback);
+          try {
+            saveData(fallback);
+          } catch {}
+          setCloudStatus("degraded");
+          return;
+        }
+
+        const merged = mergeWithDefaults(remote);
+        setData(merged);
+        try {
+          saveData(merged);
+        } catch {}
         setCloudStatus("synced");
       },
       (err) => {
@@ -348,24 +400,23 @@ export default function App() {
   const location = useLocation();
 
   function commit(next) {
-    setData(next);
-    saveData(next);
-      if (isCloudEnabled()) {
-        setCloudStatus("syncing");
-        writeState(next)
-          .then(() => setCloudStatus("synced"))
-          .catch((e) => {
-            console.error("Cloud write failed:", e);
-            setCloudStatus("error");
-          });
-      }
+    const safeNext = mergeWithDefaults(next);
+    setData(safeNext);
+    saveData(safeNext);
+
+    if (isCloudEnabled()) {
+      setCloudStatus("syncing");
+      writeState(safeNext)
+        .then(() => setCloudStatus("synced"))
+        .catch((e) => {
+          console.error("Cloud write failed:", e);
+          setCloudStatus("error");
+        });
+    }
   }
 
-  // Active tournament = latest month
   const activeTournament = useMemo(() => {
-    const t = [...(data.tournaments || [])]
-      .sort((a, b) => (a.month || "").localeCompare(b.month || ""))
-      .pop();
+    const t = [...(data.tournaments || [])].sort((a, b) => (a.month || "").localeCompare(b.month || "")).pop();
     return t || null;
   }, [data.tournaments]);
 
@@ -376,7 +427,6 @@ export default function App() {
     return (data.players || []).filter((p) => setIds.has(p.id));
   };
 
-  // Admin login
   function toggleAdmin() {
     if (admin) return setAdmin(false);
     const pin = prompt("Enter Admin PIN:");
@@ -399,8 +449,6 @@ export default function App() {
     navigate("/");
   }
 
-  // PAYMENT REQUEST PING:
-  // If admin is ON and a new booking request arrives (createdAt newer than lastSeenRequestAt), ping once.
   useEffect(() => {
     if (!admin) return;
     const lastSeen = data.booking?.lastSeenRequestAt || 0;
@@ -415,7 +463,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, data.booking?.requests?.length]);
 
-  // Always scroll to top on route change (better mobile UX)
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -451,21 +498,16 @@ export default function App() {
   );
 }
 
-/* =========================================================
-   Layout
-========================================================= */
 function BottomPadding() {
   return <div style={{ height: 28 }} />;
 }
 
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset, cloudStatus }) {
+function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
   return (
     <div className="nav">
       <div className="nav-inner">
         <div className="brand">
-          <div className="title">
-            <span className="brandMark">Q</span> {club?.name || "The Q CLUB"}
-          </div>
+          <div className="title">{club?.name || "The Q CLUB"}</div>
           <div className="sub">
             {club?.location || "Pasighat"} • {club?.tagline || "Play. Chill. Compete."}
           </div>
@@ -518,9 +560,6 @@ function PageShell({ title, subtitle, right }) {
   );
 }
 
-/* =========================================================
-   Home
-========================================================= */
 function Home({ data, admin, commit, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2].filter(Boolean).join(" / ");
 
@@ -537,44 +576,37 @@ function Home({ data, admin, commit, activeTournament }) {
     commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
   }
 
-  const topReq = (data.booking?.requests || [])
-    .slice()
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .slice(0, 3);
+  const topReq = (data.booking?.requests || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 3);
 
   return (
     <div className="container hero">
       <div className="grid">
         <div className="card cols-8">
           <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-  {admin ? (
-    <button
-      className="badge"
-      style={{ cursor: "pointer", border: "none" }}
-      onClick={() => {
-        commit({
-          ...data,
-          club: { ...(data.club || {}), isOpenNow: !(data.club?.isOpenNow ?? true) },
-        });
-      }}
-      title="Admin: Toggle Open/Closed"
-    >
-      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
-      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
-    </button>
-  ) : (
-    <span className="badge">
-      <span className={data.club?.isOpenNow ? "dot" : "dot red"} />{" "}
-      {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
-    </span>
-  )}
+            {admin ? (
+              <button
+                className="badge"
+                style={{ cursor: "pointer", border: "none" }}
+                onClick={() => {
+                  commit({
+                    ...data,
+                    club: { ...(data.club || {}), isOpenNow: !(data.club?.isOpenNow ?? true) },
+                  });
+                }}
+                title="Admin: Toggle Open/Closed"
+              >
+                <span className={data.club?.isOpenNow ? "dot" : "dot red"} /> {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+              </button>
+            ) : (
+              <span className="badge">
+                <span className={data.club?.isOpenNow ? "dot" : "dot red"} /> {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
+              </span>
+            )}
 
-  <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
-</div>
+            <span className="badge"><span className="dot red" /> Payments: UPI display (verification later)</span>
+          </div>
 
-          <h1 style={{ marginTop: 12 }}>
-            Welcome to {data.club?.name || "The Q CLUB"}
-          </h1>
+          <h1 style={{ marginTop: 12 }}>Welcome to {data.club?.name || "The Q CLUB"}</h1>
 
           <p className="muted">
             Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea/Coffee Vending • Monthly Tournaments • Leaderboards
@@ -623,9 +655,7 @@ function Home({ data, admin, commit, activeTournament }) {
             ) : (
               (data.announcements || []).slice(0, 8).map((a) => (
                 <div className="card" key={a.id} style={{ marginBottom: 10 }}>
-                  <div className="muted" style={{ fontSize: 13 }}>
-                    {new Date(a.createdAt).toLocaleString()}
-                  </div>
+                  <div className="muted" style={{ fontSize: 13 }}>{new Date(a.createdAt).toLocaleString()}</div>
                   <div style={{ marginTop: 6 }}>{a.text}</div>
                   {admin && (
                     <div style={{ marginTop: 10 }}>
@@ -661,44 +691,42 @@ function Home({ data, admin, commit, activeTournament }) {
                   <div style={{ marginTop: 6 }}>
                     <span className="badge"><span className="dot" /> Amount: ₹{r.amount}</span>
                   </div>
-                  <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-                    {new Date(r.createdAt).toLocaleString()}
-                  </div>
+                  <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>{new Date(r.createdAt).toLocaleString()}</div>
                 </div>
               ))}
             </div>
           )}
         </div>
-
       </div>
     </div>
   );
 }
 
-/* =========================================================
-   Book Table (single tab experience)
-========================================================= */
 function BookTable({ data, admin, commit }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [tableId, setTableId] = useState(data.booking?.tables?.[0]?.id || "snk12");
-  const [hours, setHours] = useState(1);
+  const [bookingDate, setBookingDate] = useState(todayIso());
+  const [timeSlot, setTimeSlot] = useState(bookingTimeSlots()[0]?.value || "11:00-12:00");
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(null);
 
   const tables = data.booking?.tables || [];
   const selected = tables.find((t) => t.id === tableId) || tables[0];
-  const amount = Math.max(0, safeNum(selected?.pricePerHour, 0) * safeNum(hours, 1));
+  const amount = Math.max(0, safeNum(selected?.pricePerHour, 0));
+  const timeOptions = bookingTimeSlots();
 
   const upiId = data.club?.upiId || "yomsoji-1@okicici";
   const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
-  const txNote = `QClub Booking: ${selected?.label || "Table"} (${hours}h)`;
+  const txNote = `QClub Booking: ${selected?.label || "Table"} ${bookingDate} ${timeSlot}`;
   const link = upiDeepLink({ pa: upiId, pn: upiName, am: amount, tn: txNote });
 
   function submitRequest() {
     if (!name.trim()) return alert("Enter your name");
     if (!mobile.trim()) return alert("Enter mobile number");
     if (!selected) return alert("Select a table");
+    if (!bookingDate) return alert("Select booking date");
+    if (!timeSlot) return alert("Select a time slot");
     if (amount <= 0) return alert("Invalid amount");
 
     const req = {
@@ -707,11 +735,12 @@ function BookTable({ data, admin, commit }) {
       mobile: mobile.trim(),
       itemId: selected.id,
       itemLabel: selected.label,
-      hours: safeNum(hours, 1),
+      bookingDate,
+      timeSlot,
       amount,
       note: note.trim(),
       createdAt: Date.now(),
-      status: "pending", // pending | verified (later)
+      status: "pending",
     };
 
     commit({
@@ -741,18 +770,20 @@ function BookTable({ data, admin, commit }) {
     <>
       <PageShell
         title="Book a Table"
-        subtitle="Book & pay via UPI (verification later)"
-        right={
-          admin ? (
-            <span className="badge"><span className="dot" /> Admin view</span>
-          ) : null
-        }
+        subtitle="Non-members can book and pay via UPI. Members should apply for membership first."
+        right={admin ? <span className="badge"><span className="dot" /> Admin view</span> : null}
       />
 
       <div className="container">
         <div className="grid">
           <div className="card cols-6">
-            <h2 style={{ marginTop: 0 }}>Customer Booking</h2>
+            <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Customer Booking (Non-Members Only)</h2>
+                <div className="muted">Each booking is for one time slot only.</div>
+              </div>
+              <Link className="btn" to="/membership">Apply for Membership Now</Link>
+            </div>
 
             <div className="field">
               <label>Name</label>
@@ -765,7 +796,7 @@ function BookTable({ data, admin, commit }) {
             </div>
 
             <div className="field">
-              <label>Select</label>
+              <label>Select Table</label>
               <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
                 {tables.map((t) => (
                   <option key={t.id} value={t.id}>{t.label}</option>
@@ -774,21 +805,27 @@ function BookTable({ data, admin, commit }) {
             </div>
 
             <div className="field">
-              <label>Hours</label>
-              <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
-                {[1,2,3,4,5].map((h) => <option key={h} value={h}>{h}</option>)}
+              <label>Booking Date</label>
+              <input type="date" value={bookingDate} onChange={(e) => setBookingDate(e.target.value)} />
+            </div>
+
+            <div className="field">
+              <label>Time</label>
+              <select value={timeSlot} onChange={(e) => setTimeSlot(e.target.value)}>
+                {timeOptions.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
               </select>
             </div>
 
             <div className="field">
               <label>Note (optional)</label>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Preferred time / message" />
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Any message for admin" />
             </div>
 
             <div className="row" style={{ justifyContent: "space-between", marginTop: 10, flexWrap: "wrap", gap: 10 }}>
               <div>
                 <div className="muted">Amount</div>
                 <div style={{ fontSize: 22, fontWeight: 900 }}>₹{amount}</div>
+                <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>{bookingDate} • {timeOptions.find((slot) => slot.value === timeSlot)?.label || timeSlot}</div>
               </div>
               <button className="btn primary" onClick={submitRequest}>Submit Booking</button>
             </div>
@@ -796,31 +833,20 @@ function BookTable({ data, admin, commit }) {
             {submitted ? (
               <div className="card" style={{ marginTop: 12 }}>
                 <b>Booking submitted ✅</b>
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Show this QR to pay. Admin will get a ping (if admin mode open).
-                </div>
+                <div className="muted" style={{ marginTop: 6 }}>Show this QR to pay. Admin will review the requested slot.</div>
                 <div className="grid" style={{ marginTop: 10 }}>
                   <div className="cols-6">
-                    <img
-                      src={qrUrl(link, 220)}
-                      alt="UPI QR"
-                      style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }}
-                    />
-                    <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                      If QR doesn’t load, use UPI string below.
-                    </div>
+                    <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
+                    <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>If QR doesn’t load, use UPI string below.</div>
                   </div>
                   <div className="cols-6">
                     <div className="badge"><span className="dot" /> UPI: {upiId}</div>
-                    <div className="muted" style={{ marginTop: 10 }}>
-                      {submitted.itemLabel} • {submitted.hours} hour(s)
-                    </div>
+                    <div className="muted" style={{ marginTop: 10 }}>{submitted.itemLabel}</div>
+                    <div className="muted" style={{ marginTop: 6 }}>{submitted.bookingDate} • {timeOptions.find((slot) => slot.value === submitted.timeSlot)?.label || submitted.timeSlot}</div>
                     <div style={{ marginTop: 10 }}>
                       <a className="btn" href={link}>Open UPI App</a>
                     </div>
-                    <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>
-                      {link}
-                    </div>
+                    <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{link}</div>
                   </div>
                 </div>
               </div>
@@ -829,9 +855,7 @@ function BookTable({ data, admin, commit }) {
 
           <div className="card cols-6">
             <h2 style={{ marginTop: 0 }}>Admin: Requests</h2>
-            <div className="muted">
-              New submissions trigger a <b>ping</b> when Admin is ON.
-            </div>
+            <div className="muted">New submissions trigger a <b>ping</b> when Admin is ON.</div>
 
             {(data.booking?.requests || []).length === 0 ? (
               <div className="muted" style={{ marginTop: 10 }}>No requests yet.</div>
@@ -841,12 +865,10 @@ function BookTable({ data, admin, commit }) {
                   <div className="card" key={r.id} style={{ marginBottom: 10 }}>
                     <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <b>{r.name}</b>
-                      <span className="badge">
-                        <span className={r.status === "verified" ? "dot" : "dot red"} />
-                        {r.status}
-                      </span>
+                      <span className="badge"><span className={r.status === "verified" ? "dot" : "dot red"} />{r.status}</span>
                     </div>
                     <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                    <div className="muted" style={{ marginTop: 6 }}>{r.bookingDate || "—"} • {r.timeSlot || "—"}</div>
                     <div className="row" style={{ justifyContent: "space-between", marginTop: 8, gap: 10, flexWrap: "wrap" }}>
                       <span className="badge"><span className="dot" /> ₹{r.amount}</span>
                       <span className="muted" style={{ fontSize: 12 }}>{r.mobile}</span>
@@ -871,18 +893,14 @@ function BookTable({ data, admin, commit }) {
               </div>
             )}
           </div>
-
         </div>
       </div>
     </>
   );
 }
 
-/* =========================================================
-   Membership (Edit + Apply Now)
-========================================================= */
 function Membership({ data, admin, commit }) {
-  const [applyTier, setApplyTier] = useState(null); // membership object
+  const [applyTier, setApplyTier] = useState(null);
   const tiers = data.memberships || [];
   const upiId = data.club?.upiId || "yomsoji-1@okicici";
   const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
@@ -940,11 +958,7 @@ function Membership({ data, admin, commit }) {
 
   return (
     <>
-      <PageShell
-        title="Membership"
-        subtitle="Apply & pay via UPI QR (verification later)"
-        right={admin ? <button className="btn primary" onClick={addTier}>+ Add Tier</button> : null}
-      />
+      <PageShell title="Membership" subtitle="Apply & pay via UPI QR (verification later)" right={admin ? <button className="btn primary" onClick={addTier}>+ Add Tier</button> : null} />
 
       <div className="container">
         <div className="grid">
@@ -953,9 +967,7 @@ function Membership({ data, admin, commit }) {
               <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                 <div>
                   <div className="cardTitle">{m.tier}</div>
-                  <div className="badge" style={{ marginTop: 8 }}>
-                    <span className="dot" /> ₹{m.price} (fixed)
-                  </div>
+                  <div className="badge" style={{ marginTop: 8 }}><span className="dot" /> ₹{m.price} (fixed)</div>
                 </div>
                 <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                   <button className="btn primary" onClick={() => setApplyTier(m)}>Apply Now</button>
@@ -976,14 +988,7 @@ function Membership({ data, admin, commit }) {
           ))}
         </div>
 
-        {applyTier ? (
-          <ApplyModal
-            tier={applyTier}
-            upiId={upiId}
-            upiName={upiName}
-            onClose={() => setApplyTier(null)}
-          />
-        ) : null}
+        {applyTier ? <ApplyModal tier={applyTier} upiId={upiId} upiName={upiName} onClose={() => setApplyTier(null)} /> : null}
       </div>
     </>
   );
@@ -1025,36 +1030,26 @@ function ApplyModal({ tier, upiId, upiName, onClose }) {
           <div className="field cols-6">
             <label>T-Shirt Size</label>
             <select value={size} onChange={(e) => setSize(e.target.value)}>
-              {["XS","S","M","L","XL","XXL"].map((x) => <option key={x} value={x}>{x}</option>)}
+              {["XS", "S", "M", "L", "XL", "XXL"].map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
           </div>
         </div>
 
         <div className="card" style={{ marginTop: 10 }}>
           <b>UPI QR (Display only)</b>
-          <div className="muted" style={{ marginTop: 6 }}>
-            Pay using any UPI app. Verification will be added later with PhonePe Business.
-          </div>
+          <div className="muted" style={{ marginTop: 6 }}>Pay using any UPI app. Verification will be added later with PhonePe Business.</div>
 
           <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
             <div className="cols-6">
-              <img
-                src={qrUrl(link, 220)}
-                alt="UPI QR"
-                style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }}
-              />
-              <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                {fullName ? `Name: ${fullName}` : "Fill details (optional)"} • Size: {size}
-              </div>
+              <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
+              <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{fullName ? `Name: ${fullName}` : "Fill details (optional)"} • Size: {size}</div>
             </div>
             <div className="cols-6">
               <div className="badge"><span className="dot" /> UPI: {upiId}</div>
               <div style={{ marginTop: 10 }}>
                 <a className="btn primary" href={link}>Open UPI App</a>
               </div>
-              <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>
-                {link}
-              </div>
+              <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{link}</div>
             </div>
           </div>
         </div>
@@ -1067,9 +1062,6 @@ function ApplyModal({ tier, upiId, upiName, onClose }) {
   );
 }
 
-/* =========================================================
-   Offers (What We Offer) – Edit buttons for admin
-========================================================= */
 function Offers({ data, admin, commit }) {
   const list = data.offers || [];
 
@@ -1094,20 +1086,12 @@ function Offers({ data, admin, commit }) {
     if (!title) return;
     const price = prompt("Price display:", o.price || "");
     const details = prompt("Details:", o.details || "");
-    commit({
-      ...data,
-      offers: list.map((x) => (x.id === o.id ? { ...x, title: title.trim(), price: price || "", details: details || "" } : x)),
-    });
+    commit({ ...data, offers: list.map((x) => (x.id === o.id ? { ...x, title: title.trim(), price: price || "", details: details || "" } : x)) });
   }
 
   return (
     <>
-      <PageShell
-        title="What We Offer"
-        subtitle="Games, fun & extras"
-        right={admin ? <button className="btn primary" onClick={add}>+ Add</button> : null}
-      />
-
+      <PageShell title="What We Offer" subtitle="Games, fun & extras" right={admin ? <button className="btn primary" onClick={add}>+ Add</button> : null} />
       <div className="container">
         <div className="grid">
           {list.map((o) => (
@@ -1131,9 +1115,6 @@ function Offers({ data, admin, commit }) {
   );
 }
 
-/* =========================================================
-   Photos (Upload file + caption)
-========================================================= */
 function Photos({ data, admin, commit }) {
   const list = data.photos || [];
   const fileRef = useRef(null);
@@ -1146,17 +1127,14 @@ function Photos({ data, admin, commit }) {
     const dataUrl = await readFileAsDataURL(file);
     commit({
       ...data,
-      photos: [
-        { id: uid(), dataUrl, caption: caption.trim(), createdAt: Date.now() },
-        ...list,
-      ],
+      photos: [{ id: uid(), dataUrl, caption: caption.trim(), createdAt: Date.now() }, ...list],
     });
     if (fileRef.current) fileRef.current.value = "";
   }
 
   function remove(id) {
     if (!admin) return;
-    if (!confirm("Delete this photo?")) return;
+    if (!confirm("Delete this photo?") ) return;
     commit({ ...data, photos: list.filter((x) => x.id !== id) });
   }
 
@@ -1165,21 +1143,17 @@ function Photos({ data, admin, commit }) {
       <PageShell
         title="Photos"
         subtitle="Club moments"
-        right={
-          admin ? (
-            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <input ref={fileRef} type="file" accept="image/*" />
-              <button className="btn primary" onClick={addFromFile}>Upload</button>
-            </div>
-          ) : null
-        }
+        right={admin ? (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <input ref={fileRef} type="file" accept="image/*" />
+            <button className="btn primary" onClick={addFromFile}>Upload</button>
+          </div>
+        ) : null}
       />
 
       <div className="container">
-        {(list.length === 0) ? (
-          <div className="card">
-            <div className="muted">No photos yet. {admin ? "Upload a photo above." : ""}</div>
-          </div>
+        {list.length === 0 ? (
+          <div className="card"><div className="muted">No photos yet. {admin ? "Upload a photo above." : ""}</div></div>
         ) : (
           <div className="gallery" style={{ marginTop: 8 }}>
             {list.map((p) => (
@@ -1187,14 +1161,8 @@ function Photos({ data, admin, commit }) {
                 <img src={p.dataUrl || p.url} alt={p.caption || "photo"} />
                 <div className="cap">
                   <div>{p.caption || "—"}</div>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                    {p.createdAt ? new Date(p.createdAt).toLocaleString() : ""}
-                  </div>
-                  {admin ? (
-                    <div style={{ marginTop: 8 }}>
-                      <button className="btn danger" onClick={() => remove(p.id)}>Delete</button>
-                    </div>
-                  ) : null}
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{p.createdAt ? new Date(p.createdAt).toLocaleString() : ""}</div>
+                  {admin ? <div style={{ marginTop: 8 }}><button className="btn danger" onClick={() => remove(p.id)}>Delete</button></div> : null}
                 </div>
               </div>
             ))}
@@ -1205,14 +1173,10 @@ function Photos({ data, admin, commit }) {
   );
 }
 
-/* =========================================================
-   Players (click name -> profile modal with stats/rank)
-========================================================= */
 function Players({ data, admin, commit, activeTournament }) {
   const players = data.players || [];
   const [selected, setSelected] = useState(null);
 
-  // For stats: use active tournament leaderboard as "rank"
   const activePlayers = activeTournament ? playersForTournament(data, activeTournament) : players;
   const lb = activeTournament ? calcLeaderboard(activePlayers, activeTournament) : [];
 
@@ -1234,10 +1198,7 @@ function Players({ data, admin, commit, activeTournament }) {
     const name = prompt("Player name:");
     if (!name) return;
     const city = prompt("City:", "Pasighat") || "";
-    commit({
-      ...data,
-      players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "" }],
-    });
+    commit({ ...data, players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "" }] });
   }
   function removePlayer(id) {
     if (!admin) return;
@@ -1250,27 +1211,17 @@ function Players({ data, admin, commit, activeTournament }) {
     if (!name) return;
     const city = prompt("City:", p.city || "");
     const bio = prompt("Short bio (optional):", p.bio || "");
-    commit({
-      ...data,
-      players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "" } : x)),
-    });
+    commit({ ...data, players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "" } : x)) });
   }
   async function uploadPlayerPhoto(p, file) {
     if (!admin) return;
     const dataUrl = await readFileAsDataURL(file);
-    commit({
-      ...data,
-      players: players.map((x) => (x.id === p.id ? { ...x, photo: dataUrl } : x)),
-    });
+    commit({ ...data, players: players.map((x) => (x.id === p.id ? { ...x, photo: dataUrl } : x)) });
   }
 
   return (
     <>
-      <PageShell
-        title="Players"
-        subtitle={activeTournament ? `Tap a player to view profile (Rank from ${activeTournament.month})` : "Tap a player to view profile"}
-        right={admin ? <button className="btn primary" onClick={addPlayer}>+ Add Player</button> : null}
-      />
+      <PageShell title="Players" subtitle={activeTournament ? `Tap a player to view profile (Rank from ${activeTournament.month})` : "Tap a player to view profile"} right={admin ? <button className="btn primary" onClick={addPlayer}>+ Add Player</button> : null} />
 
       <div className="container">
         <div className="card">
@@ -1286,9 +1237,7 @@ function Players({ data, admin, commit, activeTournament }) {
             <tbody>
               {players.map((p) => (
                 <tr key={p.id}>
-                  <td>
-                    <button className="linkBtn" onClick={() => setSelected(p)}>{p.name}</button>
-                  </td>
+                  <td><button className="linkBtn" onClick={() => setSelected(p)}>{p.name}</button></td>
                   <td className="muted">{p.city || "-"}</td>
                   <td>{rankOf(p.id) ? `#${rankOf(p.id)}` : "-"}</td>
                   {admin ? (
@@ -1305,16 +1254,7 @@ function Players({ data, admin, commit, activeTournament }) {
           </table>
         </div>
 
-        {selected ? (
-          <PlayerModal
-            player={selected}
-            admin={admin}
-            onClose={() => setSelected(null)}
-            rank={rankOf(selected.id)}
-            statsRow={rowOf(selected.id)}
-            onUpload={(file) => uploadPlayerPhoto(selected, file)}
-          />
-        ) : null}
+        {selected ? <PlayerModal player={selected} admin={admin} onClose={() => setSelected(null)} rank={rankOf(selected.id)} statsRow={rowOf(selected.id)} onUpload={(file) => uploadPlayerPhoto(selected, file)} /> : null}
       </div>
     </>
   );
@@ -1335,28 +1275,17 @@ function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
 
         <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
           <div className="cols-5">
-            <div className="photoBox">
-              {player.photo ? (
-                <img src={player.photo} alt="player" />
-              ) : (
-                <div className="muted">No photo</div>
-              )}
-            </div>
+            <div className="photoBox">{player.photo ? <img src={player.photo} alt="player" /> : <div className="muted">No photo</div>}</div>
 
             {admin ? (
               <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                 <input ref={fileRef} type="file" accept="image/*" />
-                <button
-                  className="btn primary"
-                  onClick={() => {
-                    const f = fileRef.current?.files?.[0];
-                    if (!f) return alert("Choose a file first");
-                    onUpload(f);
-                    fileRef.current.value = "";
-                  }}
-                >
-                  Upload Photo
-                </button>
+                <button className="btn primary" onClick={() => {
+                  const f = fileRef.current?.files?.[0];
+                  if (!f) return alert("Choose a file first");
+                  onUpload(f);
+                  fileRef.current.value = "";
+                }}>Upload Photo</button>
               </div>
             ) : null}
 
@@ -1377,15 +1306,11 @@ function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
                   <Stat label="Diff" value={statsRow.for - statsRow.against} />
                 </div>
               ) : (
-                <div className="muted" style={{ marginTop: 8 }}>
-                  Stats appear after fixtures are generated & matches are marked done.
-                </div>
+                <div className="muted" style={{ marginTop: 8 }}>Stats appear after fixtures are generated & matches are marked done.</div>
               )}
             </div>
 
-            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-              Rank and stats are based on current tournament results.
-            </div>
+            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>Rank and stats are based on current tournament results.</div>
           </div>
         </div>
       </div>
@@ -1394,21 +1319,13 @@ function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
 }
 
 function Stat({ label, value }) {
-  return (
-    <div className="chip">
-      <div className="muted">{label}</div>
-      <div className="big">{value ?? "-"}</div>
-    </div>
-  );
+  return <div className="chip"><div className="muted">{label}</div><div className="big">{value ?? "-"}</div></div>;
 }
 
-/* =========================================================
-   Tournaments + Tournament Leaderboards
-========================================================= */
 function Tournaments({ data, admin, commit }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
-  const [view, setView] = useState("list"); // list | leaderboards
+  const [view, setView] = useState("list");
 
   function addTournament() {
     if (!admin) return alert("Admin only.");
@@ -1443,17 +1360,7 @@ function Tournaments({ data, admin, commit }) {
 
   return (
     <>
-      <PageShell
-        title="Tournaments"
-        subtitle="Manage tournaments and view per-tournament standings"
-        right={
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <button className={view === "list" ? "btn primary" : "btn"} onClick={() => setView("list")}>Tournaments</button>
-            <button className={view === "leaderboards" ? "btn primary" : "btn"} onClick={() => setView("leaderboards")}>Tournament Leaderboards</button>
-            {admin ? <button className="btn" onClick={addTournament}>+ New</button> : null}
-          </div>
-        }
-      />
+      <PageShell title="Tournaments" subtitle="Manage tournaments and view per-tournament standings" right={<div className="row" style={{ gap: 8, flexWrap: "wrap" }}><button className={view === "list" ? "btn primary" : "btn"} onClick={() => setView("list")}>Tournaments</button><button className={view === "leaderboards" ? "btn primary" : "btn"} onClick={() => setView("leaderboards")}>Tournament Leaderboards</button>{admin ? <button className="btn" onClick={addTournament}>+ New</button> : null}</div>} />
 
       <div className="container">
         {view === "list" ? (
@@ -1472,29 +1379,20 @@ function Tournaments({ data, admin, commit }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {tournaments
-                    .slice()
-                    .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
-                    .map((t) => (
-                      <tr key={t.id}>
-                        <td>{t.month}</td>
-                        <td>{t.name}</td>
-                        <td>{t.game}</td>
-                        <td>{(t.matches || []).length}</td>
-                        {admin ? (
-                          <td>
-                            <button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
+                  {tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.month}</td>
+                      <td>{t.name}</td>
+                      <td>{t.game}</td>
+                      <td>{(t.matches || []).length}</td>
+                      {admin ? <td><button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button></td> : null}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
           </div>
-        ) : (
-          <TournamentLeaderboards data={data} players={players} />
-        )}
+        ) : <TournamentLeaderboards data={data} players={players} />}
       </div>
     </>
   );
@@ -1519,14 +1417,7 @@ function TournamentLeaderboards({ data, players }) {
       <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Tournament Leaderboard</h2>
         <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-          {tournaments
-            .slice()
-            .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
-            .map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.month} • {x.name}
-              </option>
-            ))}
+          {tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{x.month} • {x.name}</option>)}
         </select>
       </div>
 
@@ -1565,22 +1456,16 @@ function TournamentLeaderboards({ data, players }) {
               </tbody>
             </table>
           </div>
-          <div className="muted" style={{ marginTop: 10 }}>
-            Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}
-          </div>
+          <div className="muted" style={{ marginTop: 10 }}>Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}</div>
         </>
       )}
     </div>
   );
 }
 
-/* =========================================================
-   Fixtures
-========================================================= */
 function Fixtures({ data, admin, commit }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
-
   const [selectedId, setSelectedId] = useState(tournaments[0]?.id || "");
   const selected = tournaments.find((t) => t.id === selectedId) || null;
 
@@ -1602,10 +1487,7 @@ function Fixtures({ data, admin, commit }) {
     if (!confirm("Generate fixtures? Existing matches will be replaced.")) return;
 
     const matches = generateRoundRobin(tournamentPlayers.map((p) => p.id));
-    commit({
-      ...data,
-      tournaments: tournaments.map((t) => (t.id === selected.id ? { ...t, matches } : t)),
-    });
+    commit({ ...data, tournaments: tournaments.map((t) => (t.id === selected.id ? { ...t, matches } : t)) });
   }
 
   function updateMatch(mid, patch) {
@@ -1614,10 +1496,7 @@ function Fixtures({ data, admin, commit }) {
       ...data,
       tournaments: tournaments.map((t) => {
         if (t.id !== selected.id) return t;
-        return {
-          ...t,
-          matches: (t.matches || []).map((m) => (m.id === mid ? { ...m, ...patch, updatedAt: Date.now() } : m)),
-        };
+        return { ...t, matches: (t.matches || []).map((m) => (m.id === mid ? { ...m, ...patch, updatedAt: Date.now() } : m)) };
       }),
     });
   }
@@ -1631,25 +1510,7 @@ function Fixtures({ data, admin, commit }) {
 
   return (
     <>
-      <PageShell
-        title="Fixtures"
-        subtitle="Generate matchups and enter scores"
-        right={
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-              {tournaments
-                .slice()
-                .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.month} • {t.name}
-                  </option>
-                ))}
-            </select>
-            {admin ? <button className="btn primary" onClick={generate}>Generate</button> : null}
-          </div>
-        }
-      />
+      <PageShell title="Fixtures" subtitle="Generate matchups and enter scores" right={<div className="row" style={{ gap: 8, flexWrap: "wrap" }}><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((t) => <option key={t.id} value={t.id}>{t.month} • {t.name}</option>)}</select>{admin ? <button className="btn primary" onClick={generate}>Generate</button> : null}</div>} />
 
       <div className="container">
         <div className="card">
@@ -1681,39 +1542,16 @@ function Fixtures({ data, admin, commit }) {
                           <td style={{ width: 240 }}>
                             {admin ? (
                               <div className="row">
-                                <input
-                                  style={{ width: 80 }}
-                                  value={m.score1}
-                                  onChange={(e) => updateMatch(m.id, { score1: e.target.value })}
-                                  placeholder="0"
-                                />
+                                <input style={{ width: 80 }} value={m.score1} onChange={(e) => updateMatch(m.id, { score1: e.target.value })} placeholder="0" />
                                 <span className="muted">-</span>
-                                <input
-                                  style={{ width: 80 }}
-                                  value={m.score2}
-                                  onChange={(e) => updateMatch(m.id, { score2: e.target.value })}
-                                  placeholder="0"
-                                />
+                                <input style={{ width: 80 }} value={m.score2} onChange={(e) => updateMatch(m.id, { score2: e.target.value })} placeholder="0" />
                               </div>
                             ) : (
                               <span className="muted">{m.score1 || "—"} - {m.score2 || "—"}</span>
                             )}
                           </td>
-                          <td>
-                            <span className="badge">
-                              <span className={m.status === "done" ? "dot" : "dot red"} />
-                              {m.status}
-                            </span>
-                          </td>
-                          {admin ? (
-                            <td>
-                              {m.status !== "done" ? (
-                                <button className="btn primary" onClick={() => markDone(m)}>Mark Done</button>
-                              ) : (
-                                <button className="btn" onClick={() => updateMatch(m.id, { status: "scheduled" })}>Reopen</button>
-                              )}
-                            </td>
-                          ) : null}
+                          <td><span className="badge"><span className={m.status === "done" ? "dot" : "dot red"} />{m.status}</span></td>
+                          {admin ? <td>{m.status !== "done" ? <button className="btn primary" onClick={() => markDone(m)}>Mark Done</button> : <button className="btn" onClick={() => updateMatch(m.id, { status: "scheduled" })}>Reopen</button>}</td> : null}
                         </tr>
                       ))}
                     </tbody>
@@ -1728,14 +1566,10 @@ function Fixtures({ data, admin, commit }) {
   );
 }
 
-/* =========================================================
-   Leaderboards (All tournaments + Active)
-========================================================= */
 function LeaderboardAll({ data }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
-
-  const [selectedId, setSelectedId] = useState(tournaments.slice().sort((a,b)=> (b.month||"").localeCompare(a.month||""))[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""))[0]?.id || "");
   const t = tournaments.find((x) => x.id === selectedId) || null;
 
   const tourPlayers = useMemo(() => {
@@ -1749,22 +1583,7 @@ function LeaderboardAll({ data }) {
 
   return (
     <>
-      <PageShell
-        title="Leaderboards"
-        subtitle="Select any tournament to view standings"
-        right={
-          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-            {tournaments
-              .slice()
-              .sort((a, b) => (b.month || "").localeCompare(a.month || ""))
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.month} • {x.name}
-                </option>
-              ))}
-          </select>
-        }
-      />
+      <PageShell title="Leaderboards" subtitle="Select any tournament to view standings" right={<select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{x.month} • {x.name}</option>)}</select>} />
 
       <div className="container">
         <div className="card">
@@ -1809,9 +1628,7 @@ function LeaderboardAll({ data }) {
                   </tbody>
                 </table>
               </div>
-              <div className="muted" style={{ marginTop: 10 }}>
-                Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}
-              </div>
+              <div className="muted" style={{ marginTop: 10 }}>Points: Win {t.pointsWin}, Draw {t.pointsDraw}, Loss {t.pointsLoss}</div>
             </>
           )}
         </div>
@@ -1820,9 +1637,6 @@ function LeaderboardAll({ data }) {
   );
 }
 
-/* =========================================================
-   Hall of Fame (Add/Edit + Description + Photo upload)
-========================================================= */
 function HallOfFame({ data, admin, commit }) {
   const entries = data.hallOfFame?.entries || [];
   const players = data.players || [];
@@ -1837,20 +1651,8 @@ function HallOfFame({ data, admin, commit }) {
     const month = prompt("Month (YYYY-MM):", monthKey());
     const stats = prompt("Stats (short):", "Pts 12 • W 4 • Best Break 42") || "";
     const description = prompt("Description:", "Champion of the month") || "";
-    const e = {
-      id: uid(),
-      title: title.trim(),
-      playerName: playerName.trim(),
-      month: month || "",
-      stats: stats.trim(),
-      description: description.trim(),
-      photo: "",
-      createdAt: Date.now(),
-    };
-    commit({
-      ...data,
-      hallOfFame: { ...data.hallOfFame, entries: [e, ...entries] },
-    });
+    const e = { id: uid(), title: title.trim(), playerName: playerName.trim(), month: month || "", stats: stats.trim(), description: description.trim(), photo: "", createdAt: Date.now() };
+    commit({ ...data, hallOfFame: { ...data.hallOfFame, entries: [e, ...entries] } });
   }
 
   function editEntry(e) {
@@ -1862,26 +1664,13 @@ function HallOfFame({ data, admin, commit }) {
     const month = prompt("Month (YYYY-MM):", e.month || monthKey());
     const stats = prompt("Stats (short):", e.stats || "");
     const description = prompt("Description:", e.description || "");
-    commit({
-      ...data,
-      hallOfFame: {
-        ...data.hallOfFame,
-        entries: entries.map((x) =>
-          x.id === e.id
-            ? { ...x, title: title.trim(), playerName: playerName.trim(), month: month || "", stats: stats || "", description: description || "" }
-            : x
-        ),
-      },
-    });
+    commit({ ...data, hallOfFame: { ...data.hallOfFame, entries: entries.map((x) => x.id === e.id ? { ...x, title: title.trim(), playerName: playerName.trim(), month: month || "", stats: stats || "", description: description || "" } : x) } });
   }
 
   function removeEntry(id) {
     if (!admin) return;
     if (!confirm("Delete this Hall of Fame entry?")) return;
-    commit({
-      ...data,
-      hallOfFame: { ...data.hallOfFame, entries: entries.filter((x) => x.id !== id) },
-    });
+    commit({ ...data, hallOfFame: { ...data.hallOfFame, entries: entries.filter((x) => x.id !== id) } });
   }
 
   async function uploadPhotoFor(id) {
@@ -1889,30 +1678,18 @@ function HallOfFame({ data, admin, commit }) {
     const f = fileRef.current?.files?.[0];
     if (!f) return alert("Choose a file first.");
     const dataUrl = await readFileAsDataURL(f);
-    commit({
-      ...data,
-      hallOfFame: {
-        ...data.hallOfFame,
-        entries: entries.map((x) => (x.id === id ? { ...x, photo: dataUrl } : x)),
-      },
-    });
+    commit({ ...data, hallOfFame: { ...data.hallOfFame, entries: entries.map((x) => (x.id === id ? { ...x, photo: dataUrl } : x)) } });
     fileRef.current.value = "";
     setFileTargetId(null);
   }
 
   return (
     <>
-      <PageShell
-        title="Hall of Fame"
-        subtitle="Champions & Top Performers"
-        right={admin ? <button className="btn primary" onClick={addEntry}>+ Add</button> : null}
-      />
+      <PageShell title="Hall of Fame" subtitle="Champions & Top Performers" right={admin ? <button className="btn primary" onClick={addEntry}>+ Add</button> : null} />
 
       <div className="container">
-        {(entries.length === 0) ? (
-          <div className="card">
-            <div className="muted">No entries yet. {admin ? "Click + Add" : ""}</div>
-          </div>
+        {entries.length === 0 ? (
+          <div className="card"><div className="muted">No entries yet. {admin ? "Click + Add" : ""}</div></div>
         ) : (
           <div className="grid">
             {entries.map((e) => (
@@ -1920,23 +1697,14 @@ function HallOfFame({ data, admin, commit }) {
                 <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div>
                     <div className="cardTitle">{e.title}</div>
-                    <div className="muted" style={{ marginTop: 6 }}>
-                      <b>{e.playerName}</b> {e.month ? `• ${e.month}` : ""}
-                    </div>
+                    <div className="muted" style={{ marginTop: 6 }}><b>{e.playerName}</b> {e.month ? `• ${e.month}` : ""}</div>
                   </div>
-                  {admin ? (
-                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                      <button className="btn" onClick={() => editEntry(e)}>Edit</button>
-                      <button className="btn danger" onClick={() => removeEntry(e.id)}>Delete</button>
-                    </div>
-                  ) : null}
+                  {admin ? <div className="row" style={{ gap: 8, flexWrap: "wrap" }}><button className="btn" onClick={() => editEntry(e)}>Edit</button><button className="btn danger" onClick={() => removeEntry(e.id)}>Delete</button></div> : null}
                 </div>
 
                 <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
                   <div className="cols-5">
-                    <div className="photoBox">
-                      {e.photo ? <img src={e.photo} alt="hof" /> : <div className="muted">No photo</div>}
-                    </div>
+                    <div className="photoBox">{e.photo ? <img src={e.photo} alt="hof" /> : <div className="muted">No photo</div>}</div>
                     {admin ? (
                       <div style={{ marginTop: 10 }}>
                         {fileTargetId === e.id ? (
@@ -1954,12 +1722,7 @@ function HallOfFame({ data, admin, commit }) {
 
                   <div className="cols-7">
                     {e.stats ? <div className="badge"><span className="dot" /> {e.stats}</div> : null}
-                    {e.description ? (
-                      <div style={{ marginTop: 10 }}>
-                        <div className="muted" style={{ fontSize: 13 }}>Description</div>
-                        <div style={{ marginTop: 6 }}>{e.description}</div>
-                      </div>
-                    ) : null}
+                    {e.description ? <div style={{ marginTop: 10 }}><div className="muted" style={{ fontSize: 13 }}>Description</div><div style={{ marginTop: 6 }}>{e.description}</div></div> : null}
                   </div>
                 </div>
               </div>
@@ -1967,17 +1730,12 @@ function HallOfFame({ data, admin, commit }) {
           </div>
         )}
 
-        <div className="muted" style={{ marginTop: 12, fontSize: 12 }}>
-          Auto month-end “Top Performer” publishing needs a server (cron job). We’ll add it later using Vercel Cron / Firebase Functions.
-        </div>
+        <div className="muted" style={{ marginTop: 12, fontSize: 12 }}>Auto month-end “Top Performer” publishing needs a server (cron job). We’ll add it later using Vercel Cron / Functions.</div>
       </div>
     </>
   );
 }
 
-/* =========================================================
-   TV Mode (Big screen)
-========================================================= */
 function TVMode({ data, activeTournament, players }) {
   const table = activeTournament ? calcLeaderboard(players || [], activeTournament) : [];
   const a = (data.announcements || [])[0]?.text || "Welcome to The Q CLUB";
@@ -1989,15 +1747,11 @@ function TVMode({ data, activeTournament, players }) {
           <div style={{ fontSize: 34, fontWeight: 900 }}>{data.club?.name || "The Q CLUB"}</div>
           <div style={{ opacity: 0.8 }}>{data.club?.location || "Pasighat"} • {data.club?.tagline || ""}</div>
         </div>
-        <div style={{ fontSize: 18, opacity: 0.85 }}>
-          <b>Announcement:</b> {a}
-        </div>
+        <div style={{ fontSize: 18, opacity: 0.85 }}><b>Announcement:</b> {a}</div>
       </div>
 
       <div style={{ marginTop: 18, border: "1px solid rgba(255,255,255,.15)", borderRadius: 16, padding: 16 }}>
-        <div style={{ fontSize: 22, fontWeight: 800 }}>
-          {activeTournament ? `${activeTournament.month} • ${activeTournament.name}` : "No tournament yet"}
-        </div>
+        <div style={{ fontSize: 22, fontWeight: 800 }}>{activeTournament ? `${activeTournament.month} • ${activeTournament.name}` : "No tournament yet"}</div>
 
         {activeTournament ? (
           <table style={{ width: "100%", marginTop: 12, borderCollapse: "collapse" }}>
@@ -2015,9 +1769,7 @@ function TVMode({ data, activeTournament, players }) {
               {table.slice(0, 10).map((r, i) => (
                 <tr key={r.id}>
                   <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>{i + 1}</td>
-                  <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)", fontWeight: 700 }}>
-                    {r.name}
-                  </td>
+                  <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)", fontWeight: 700 }}>{r.name}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>{r.points}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>{r.wins}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>{r.losses}</td>
@@ -2031,9 +1783,7 @@ function TVMode({ data, activeTournament, players }) {
         )}
       </div>
 
-      <div style={{ marginTop: 14, opacity: 0.8 }}>
-        Tip: Keep this page open on your hall TV. It updates when you mark matches “done”.
-      </div>
+      <div style={{ marginTop: 14, opacity: 0.8 }}>Tip: Keep this page open on your hall TV. It updates when you mark matches “done”.</div>
     </div>
   );
 }
@@ -2050,4 +1800,4 @@ function NotFound() {
       </div>
     </>
   );
-} 
+}
