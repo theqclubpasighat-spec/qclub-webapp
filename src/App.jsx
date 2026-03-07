@@ -62,6 +62,19 @@ function bookingAmountFor(table, bookingType) {
   if (table.id === "mini10" || table.id === "pool9") return 200;
   return Math.max(0, safeNum(table.pricePerHour, 0));
 }
+function isActiveBookingStatus(status) {
+  return ["pending", "verified", "pending_member_verification", "member_verified"].includes(status);
+}
+function hasBookingConflict(requests, nextRequest) {
+  return (requests || []).some((r) => {
+    if (!isActiveBookingStatus(r.status)) return false;
+    return (
+      r.itemId === nextRequest.itemId &&
+      r.bookingDate === nextRequest.bookingDate &&
+      r.timeSlot === nextRequest.timeSlot
+    );
+  });
+}
 function bookingStatusLabel(status) {
   switch (status) {
     case "verified":
@@ -837,6 +850,10 @@ function BookTable({ data, admin, commit }) {
       status: bookingType === "member" ? "pending_member_verification" : "pending",
     };
 
+    if (hasBookingConflict(data.booking?.requests || [], req)) {
+      return alert("That table is already requested or booked for the selected date and time slot. Please choose another slot.");
+    }
+
     commit({
       ...data,
       booking: {
@@ -949,22 +966,37 @@ function BookTable({ data, admin, commit }) {
                 <div className="muted" style={{ marginTop: 6 }}>
                   {submitted.bookingType === "member"
                     ? "Member booking submitted. Admin will verify your member ID before final approval."
-                    : "Show this QR to pay. Admin will review the requested slot."}
+                    : "Booking request submitted. Pay using the UPI ID below and admin will review the requested slot."}
                 </div>
                 <div className="grid" style={{ marginTop: 10 }}>
                   <div className="cols-6">
-                    <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: "100%", maxWidth: 220, height: "auto", aspectRatio: "1 / 1", borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
-                    <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>If QR doesn’t load, use UPI string below.</div>
+                    <div className="card upiPayCard">
+                      <div className="cardTitle" style={{ fontSize: 16 }}>Pay via UPI</div>
+                      <div className="muted" style={{ marginTop: 8 }}>Copy this UPI ID and paste it inside your UPI app.</div>
+                      <div className="upiIdBox" style={{ marginTop: 12 }}>{upiId}</div>
+                      <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          className="btn primary"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(upiId);
+                              alert("UPI ID copied. Paste it in your UPI app.");
+                            } catch {
+                              alert(`Copy this UPI ID manually: ${upiId}`);
+                            }
+                          }}
+                        >
+                          Copy UPI ID
+                        </button>
+                      </div>
+                      <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>UPI Name: {upiName}</div>
+                    </div>
                   </div>
                   <div className="cols-6">
-                    <div className="badge"><span className="dot" /> UPI: {upiId}</div>
+                    <div className="badge"><span className="dot" /> Amount: ₹{submitted.amount}</div>
                     <div className="muted" style={{ marginTop: 10 }}>{submitted.itemLabel}</div>
                     <div className="muted" style={{ marginTop: 6 }}>{submitted.bookingDate} • {timeOptions.find((slot) => slot.value === submitted.timeSlot)?.label || submitted.timeSlot}</div>
                     {submitted.bookingType === "member" && submitted.memberId ? <div className="muted" style={{ marginTop: 6 }}>Member ID: {submitted.memberId}</div> : null}
-                    <div style={{ marginTop: 10 }}>
-                      <a className="btn" href={link}>Open UPI App</a>
-                    </div>
-                    <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{link}</div>
                     <div className="card" style={{ marginTop: 12 }}>
                       <div className="cardTitle" style={{ fontSize: 16 }}>Terms & Conditions</div>
                       <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>

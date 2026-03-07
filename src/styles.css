@@ -514,3 +514,54 @@ html, body, #root{
     flex: 0 0 auto;
   }
 }
+
+
+/* ===== booking/payment cleanup ===== */
+.upiIdBox{
+  padding:12px 14px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.18);
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:.2px;
+  word-break:break-all;
+}
+.upiPayCard{ height:100%; }
+
+/* ===== desktop nav visibility fix ===== */
+.nav-inner{
+  flex-wrap:wrap;
+  row-gap:10px;
+}
+.spacer{ flex:1 1 auto; }
+
+@media (max-width: 1000px){
+  .nav{
+    overflow:hidden;
+  }
+  .nav-inner{
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+    padding-bottom:12px;
+  }
+  .nav-inner::-webkit-scrollbar{ display:none; }
+  .nav-inner > *{ flex:0 0 auto; }
+  .spacer{ display:none; }
+}
+
+/* ===== mobile overflow guard ===== */
+html, body, #root{ max-width:100%; overflow-x:hidden; }
+.container, .card, .chip, .photo, .modal{ min-width:0; }
+img{ max-width:100%; height:auto; }
+
+@media (max-width: 920px){
+  .grid{ grid-template-columns:1fr; }
+  .cols-12,.cols-10,.cols-9,.cols-8,.cols-7,.cols-6,.cols-5,.cols-4,.cols-3{ grid-column:1 / -1; }
+  .container{ padding:14px 12px 90px; }
+  h1{ font-size:28px; }
+  .card{ padding:16px; }
+  .kpi{ grid-template-columns:1fr; }
+}
