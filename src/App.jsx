@@ -34,13 +34,24 @@ function monthKey(d = new Date()) {
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
-function bookingTimeSlots() {
+function bookingTimeSlots(selectedDate = todayIso()) {
   const slots = [];
+  const today = todayIso();
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
   for (let hour = 11; hour <= 22; hour += 1) {
     const next = hour + 1;
     const start = `${String(hour).padStart(2, "0")}:00`;
     const end = `${String(next).padStart(2, "0")}:00`;
-    slots.push({ value: `${start}-${end}`, label: `${start} to ${end}` });
+    const slotStartMinutes = hour * 60;
+    const slotEndMinutes = next * 60;
+    const isPastToday = selectedDate === today && currentMinutes >= slotEndMinutes;
+    const isRunningNow = selectedDate === today && currentMinutes >= slotStartMinutes && currentMinutes < slotEndMinutes;
+    slots.push({
+      value: `${start}-${end}`,
+      label: `${start} to ${end}`,
+      disabled: isPastToday || isRunningNow,
+    });
   }
   return slots;
 }
@@ -66,44 +77,13 @@ function bookingStatusLabel(status) {
   }
 }
 
-const TABLE_STATUS_OPTIONS = ["available", "reserved", "in_play", "maintenance"];
 
-function statusLabel(status) {
-  switch (status) {
-    case "reserved":
-      return "Reserved";
-    case "in_play":
-      return "In Play";
-    case "maintenance":
-      return "Maintenance";
-    default:
-      return "Available";
-  }
-}
-
-function statusDotClass(status) {
-  return status === "available" ? "dot" : "dot red";
-}
-
-function buildDefaultTableStatuses(tables = []) {
-  const out = {};
-  tables.forEach((t) => {
-    out[t.id] = { status: "available", note: "" };
-  });
-  return out;
-}
-
-function mergeTableStatuses(tables = [], incoming) {
-  const base = buildDefaultTableStatuses(tables);
-  const src = incoming && typeof incoming === "object" ? incoming : {};
-  Object.keys(base).forEach((id) => {
-    const row = src[id] || {};
-    base[id] = {
-      status: TABLE_STATUS_OPTIONS.includes(row.status) ? row.status : "available",
-      note: typeof row.note === "string" ? row.note : "",
-    };
-  });
-  return base;
+function offerPriceLines(price) {
+  if (!price) return [];
+  return String(price)
+    .split(/\s*[•|]\s*|\s*,\s*/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 function tournamentDisplay(t) {
@@ -143,11 +123,12 @@ function defaultData() {
       location: "Pasighat",
       tagline: "Play. Chill. Compete.",
       contact: { phone1: "7005212774", phone2: "7085221922" },
-      upiId: "yomsoji-1@okicici",
-      upiName: "The Q CLUB",
+      upiId: "Q526263817@ybl",
+      upiName: "THE Q CLUB",
       isOpenNow: true,
       hoursNote: "Members only from 6 pm",
       musicUrl: "",
+      videoUrl: "",
     },
     admin: { pin: "1234" },
     announcements: [
@@ -216,17 +197,13 @@ function defaultData() {
         { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
         { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
       ],
-      tableStatuses: {
-        snk12: { status: "available", note: "" },
-        mini10: { status: "available", note: "" },
-        pool9: { status: "available", note: "" },
-      },
       requests: [],
       lastSeenRequestAt: 0,
     },
     hallOfFame: {
       entries: [],
     },
+    mediaLibrary: [],
   };
 }
 
@@ -271,10 +248,6 @@ function mergeWithDefaults(remote) {
       ...base.booking,
       ...(src.booking || {}),
       tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
-      tableStatuses: mergeTableStatuses(
-        Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
-        src?.booking?.tableStatuses
-      ),
       requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
       lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
     },
@@ -613,7 +586,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
-        <Link className="pill" to="/music">Music</Link>
+        <Link className="pill" to="/music">Music & Videos</Link>
         <Link className="pill" to="/tv">TV</Link>
         {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
@@ -759,33 +732,6 @@ function Home({ data, admin, commit, activeTournament }) {
         </div>
 
         <div className="card cols-12">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div>
-              <h2 style={{ margin: 0 }}>Live Table Availability</h2>
-              <div className="muted">Current status of your playing tables.</div>
-            </div>
-            {admin ? <Link className="btn" to="/admin-panel">Manage in Admin Panel</Link> : null}
-          </div>
-          <div className="grid" style={{ marginTop: 12 }}>
-            {(data.booking?.tables || []).map((t) => {
-              const row = data.booking?.tableStatuses?.[t.id] || { status: "available", note: "" };
-              return (
-                <div className="card cols-4" key={t.id}>
-                  <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <div>
-                      <div className="cardTitle">{t.label.split(" — ")[0]}</div>
-                      <div className="muted" style={{ marginTop: 6 }}>{t.label.split(" — ")[1] || ""}</div>
-                    </div>
-                    <span className="badge"><span className={statusDotClass(row.status)} /> {statusLabel(row.status)}</span>
-                  </div>
-                  {row.note ? <div className="muted" style={{ marginTop: 10 }}>{row.note}</div> : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="card cols-12">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0 }}>Latest Booking Requests</h2>
@@ -830,17 +776,25 @@ function BookTable({ data, admin, commit }) {
   const [memberId, setMemberId] = useState("");
   const [tableId, setTableId] = useState(data.booking?.tables?.[0]?.id || "snk12");
   const [bookingDate, setBookingDate] = useState(todayIso());
-  const [timeSlot, setTimeSlot] = useState(bookingTimeSlots()[0]?.value || "11:00-12:00");
+  const [timeSlot, setTimeSlot] = useState(bookingTimeSlots(todayIso()).find((slot) => !slot.disabled)?.value || "11:00-12:00");
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(null);
 
   const tables = data.booking?.tables || [];
   const selected = tables.find((t) => t.id === tableId) || tables[0];
   const amount = bookingAmountFor(selected, bookingType);
-  const timeOptions = bookingTimeSlots();
+  const timeOptions = bookingTimeSlots(bookingDate);
 
-  const upiId = data.club?.upiId || "yomsoji-1@okicici";
-  const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
+  useEffect(() => {
+    const available = bookingTimeSlots(bookingDate).filter((slot) => !slot.disabled);
+    if (!available.length) return;
+    if (!available.some((slot) => slot.value === timeSlot && !slot.disabled)) {
+      setTimeSlot(available[0].value);
+    }
+  }, [bookingDate, timeSlot]);
+
+  const upiId = data.club?.upiId || "Q526263817@ybl";
+  const upiName = data.club?.upiName || data.club?.name || "THE Q CLUB";
   const txNote = `${bookingType === "member" ? "QClub Member Booking" : "QClub Booking"}: ${selected?.label || "Table"} ${bookingDate} ${timeSlot}`;
   const link = upiDeepLink({ pa: upiId, pn: upiName, am: amount, tn: txNote });
 
@@ -858,6 +812,8 @@ function BookTable({ data, admin, commit }) {
     if (!selected) return alert("Select a table");
     if (!bookingDate) return alert("Select booking date");
     if (!timeSlot) return alert("Select a time slot");
+    const chosenSlot = bookingTimeSlots(bookingDate).find((slot) => slot.value === timeSlot);
+    if (!chosenSlot || chosenSlot.disabled) return alert("That time slot has already passed. Please choose a future slot.");
     if (amount <= 0) return alert("Invalid amount");
 
     const req = {
@@ -962,8 +918,9 @@ function BookTable({ data, admin, commit }) {
             <div className="field">
               <label>Time</label>
               <select value={timeSlot} onChange={(e) => setTimeSlot(e.target.value)}>
-                {timeOptions.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
+                {timeOptions.map((slot) => <option key={slot.value} value={slot.value} disabled={slot.disabled}>{slot.disabled ? `${slot.label} (Unavailable)` : slot.label}</option>)}
               </select>
+              {timeOptions.filter((slot) => !slot.disabled).length === 0 ? <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>No time slots left for this date. Please choose another date.</div> : null}
             </div>
 
             <div className="field">
@@ -1003,6 +960,15 @@ function BookTable({ data, admin, commit }) {
                       <a className="btn" href={link}>Open UPI App</a>
                     </div>
                     <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{link}</div>
+                    <div className="card" style={{ marginTop: 12 }}>
+                      <div className="cardTitle" style={{ fontSize: 16 }}>Terms & Conditions</div>
+                      <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+                        • No refund in case of no-show.<br />
+                        • If you arrive 20 minutes late, the slot may be allocated to other players.<br />
+                        • Payment is for booking request submission and final slot confirmation remains subject to availability.<br />
+                        • Please keep your payment screenshot / UTR ready if admin asks for verification.
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1063,8 +1029,8 @@ function BookTable({ data, admin, commit }) {
 function Membership({ data, admin, commit }) {
   const [applyTier, setApplyTier] = useState(null);
   const tiers = data.memberships || [];
-  const upiId = data.club?.upiId || "yomsoji-1@okicici";
-  const upiName = data.club?.upiName || data.club?.name || "The Q CLUB";
+  const upiId = data.club?.upiId || "Q526263817@ybl";
+  const upiName = data.club?.upiName || data.club?.name || "THE Q CLUB";
 
   function addTier() {
     if (!admin) return alert("Admin only");
@@ -1266,11 +1232,16 @@ function Offers({ data, admin, commit }) {
                   </div>
                 ) : null}
               </div>
-              {o.price ? <div className="badge" style={{ marginTop: 10 }}><span className="dot" /> {o.price}</div> : null}
+              {offerPriceLines(o.price).length ? (
+                <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                  {offerPriceLines(o.price).map((line, idx) => <div key={idx} className="badge"><span className="dot" /> {line}</div>)}
+                </div>
+              ) : null}
               {o.details ? <div className="muted" style={{ marginTop: 10 }}>{o.details}</div> : null}
             </div>
           ))}
         </div>
+        <div className="muted" style={{ marginTop: 14, fontSize: 12 }}>Prices are subject to change at the sole discretion of The Q Club management.</div>
       </div>
     </>
   );
@@ -1960,28 +1931,73 @@ function TVMode({ data, activeTournament, players }) {
 
 
 function MusicPage({ data, admin, commit }) {
+  const mediaItems = Array.isArray(data.mediaLibrary) ? data.mediaLibrary : [];
+
   function editMusicLink() {
     if (!admin) return;
-    const next = prompt("Paste YouTube / Spotify music link:", data.club?.musicUrl || "");
+    const next = prompt("Paste main playlist link (YouTube / Spotify):", data.club?.musicUrl || "");
     if (next == null) return;
     commit({ ...data, club: { ...(data.club || {}), musicUrl: next.trim() } });
+  }
+
+  function addMediaItem(type) {
+    if (!admin) return;
+    const title = prompt(`Enter ${type} title:`, type === "video" ? "Q Club Promo Video" : "Weekend Playlist") || "";
+    if (!title.trim()) return;
+    const url = prompt(`Paste ${type} link:`, "https://") || "";
+    if (!url.trim()) return;
+    const nextItem = { id: uid(), type, title: title.trim(), url: url.trim(), createdAt: Date.now() };
+    commit({ ...data, mediaLibrary: [nextItem, ...mediaItems] });
+  }
+
+  function removeMediaItem(id) {
+    if (!admin) return;
+    commit({ ...data, mediaLibrary: mediaItems.filter((x) => x.id !== id) });
   }
 
   return (
     <>
       <PageShell
-        title="Music"
-        subtitle="Club playlist and quick music links"
-        right={admin ? <button className="btn" onClick={editMusicLink}>Edit Link</button> : null}
+        title="Music & Videos"
+        subtitle="Club playlist and quick media links"
+        right={admin ? (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button className="btn" onClick={editMusicLink}>Edit Main Link</button>
+            <button className="btn" onClick={() => addMediaItem("music")}>+ Add Music</button>
+            <button className="btn" onClick={() => addMediaItem("video")}>+ Add Video</button>
+          </div>
+        ) : null}
       />
       <div className="container">
         <div className="card">
-          <div className="cardTitle">Music Control</div>
-          <div className="muted" style={{ marginTop: 8 }}>Use this page as a quick launchpad for your club playlist.</div>
+          <div className="cardTitle">Music & Video Control</div>
+          <div className="muted" style={{ marginTop: 8 }}>Use this page as a quick launchpad for your club playlist and video links.</div>
           <div style={{ marginTop: 12 }}>
-            {data.club?.musicUrl ? <a className="btn primary" href={data.club.musicUrl} target="_blank" rel="noreferrer">Open Playlist</a> : <div className="muted">No playlist link set yet.</div>}
+            {data.club?.musicUrl ? <a className="btn primary" href={data.club.musicUrl} target="_blank" rel="noreferrer">Open Main Playlist</a> : <div className="muted">No main playlist link set yet.</div>}
           </div>
         </div>
+
+        <div className="grid" style={{ marginTop: 12 }}>
+          {mediaItems.length === 0 ? (
+            <div className="card cols-12"><div className="muted">No music or video links added yet.</div></div>
+          ) : mediaItems.map((item) => (
+            <div key={item.id} className="card cols-6">
+              <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div className="cardTitle">{item.title}</div>
+                  <div className="badge" style={{ marginTop: 8 }}><span className="dot" /> {item.type === "video" ? "Video" : "Music"}</div>
+                </div>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  <a className="btn" href={item.url} target="_blank" rel="noreferrer">Open</a>
+                  {admin ? <button className="btn danger" onClick={() => removeMediaItem(item.id)}>Delete</button> : null}
+                </div>
+              </div>
+              <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{item.url}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="muted" style={{ marginTop: 14, fontSize: 12 }}>For sync safety, this page stores links only. Use YouTube / Spotify / Drive / Dropbox links for music and videos.</div>
       </div>
     </>
   );
@@ -2050,34 +2066,6 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
   function updateRequestStatus(id, status) {
     commit({ ...data, booking: { ...(data.booking || {}), requests: (data.booking?.requests || []).map((r) => r.id === id ? { ...r, status } : r) } });
   }
-  function setTableStatus(id, status) {
-    const current = data.booking?.tableStatuses?.[id] || { status: "available", note: "" };
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        tableStatuses: {
-          ...(data.booking?.tableStatuses || {}),
-          [id]: { ...current, status },
-        },
-      },
-    });
-  }
-  function editTableStatusNote(id) {
-    const current = data.booking?.tableStatuses?.[id] || { status: "available", note: "" };
-    const next = prompt("Status note / reservation note:", current.note || "");
-    if (next == null) return;
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        tableStatuses: {
-          ...(data.booking?.tableStatuses || {}),
-          [id]: { ...current, note: next.trim() },
-        },
-      },
-    });
-  }
 
   return (
     <>
@@ -2116,30 +2104,6 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
           </div>
           <div className="cols-5">
             <div className="card" style={{ marginBottom: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Live Table Availability</h2><span className="badge"><span className="dot" /> sync</span></div>
-              <div style={{ marginTop: 10 }}>
-                {(data.booking?.tables || []).map((t) => {
-                  const row = data.booking?.tableStatuses?.[t.id] || { status: "available", note: "" };
-                  return (
-                    <div key={t.id} style={{ padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-                      <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                        <div>
-                          <b>{t.label.split(" — ")[0]}</b>
-                          <div className="muted">{statusLabel(row.status)}{row.note ? ` • ${row.note}` : ""}</div>
-                        </div>
-                        <button className="btn" onClick={() => editTableStatusNote(t.id)}>Note</button>
-                      </div>
-                      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                        {TABLE_STATUS_OPTIONS.map((opt) => (
-                          <button key={opt} className={row.status === opt ? "btn primary" : "btn"} onClick={() => setTableStatus(t.id, opt)}>{statusLabel(opt)}</button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="card" style={{ marginBottom: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Pricing Settings</h2><span className="badge"><span className="dot" /> live sync</span></div>
               <div style={{ marginTop: 10 }}>
                 {currentMembership ? <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>{currentMembership.tier}</b><div className="muted">₹{currentMembership.price}</div></div><button className="btn" onClick={() => editMembershipPrice(currentMembership.id)}>Edit</button></div> : null}
@@ -2147,8 +2111,8 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
               </div>
             </div>
             <div className="card" style={{ marginBottom: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Music</h2><Link className="btn" to="/music">Open</Link></div>
-              <div className="muted" style={{ marginTop: 10 }}>{data.club?.musicUrl ? "Playlist link configured" : "No playlist link yet"}</div>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Music & Videos</h2><Link className="btn" to="/music">Open</Link></div>
+              <div className="muted" style={{ marginTop: 10 }}>{data.club?.musicUrl ? "Media links configured" : "No media links yet"}</div>
             </div>
             <div className="card">
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Current Tournament</h2><Link className="btn" to="/tournaments">Manage</Link></div>
