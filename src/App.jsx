@@ -677,7 +677,9 @@ function Home({ data, admin, commit, activeTournament }) {
             <Link className="btn" to="/book">Open Book Table</Link>
           </div>
 
-          {topReq.length === 0 ? (
+          {!admin ? (
+            <div className="muted" style={{ marginTop: 10 }}>Admin login to view booking requests.</div>
+          ) : topReq.length === 0 ? (
             <div className="muted" style={{ marginTop: 10 }}>No booking requests yet.</div>
           ) : (
             <div className="grid" style={{ marginTop: 10 }}>
@@ -688,6 +690,7 @@ function Home({ data, admin, commit, activeTournament }) {
                     <span className="badge"><span className="dot red" /> pending</span>
                   </div>
                   <div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div>
+                  <div className="muted" style={{ marginTop: 6 }}>{r.bookingDate || "—"} • {r.timeSlot || "—"}</div>
                   <div style={{ marginTop: 6 }}>
                     <span className="badge"><span className="dot" /> Amount: ₹{r.amount}</span>
                   </div>
@@ -857,7 +860,9 @@ function BookTable({ data, admin, commit }) {
             <h2 style={{ marginTop: 0 }}>Admin: Requests</h2>
             <div className="muted">New submissions trigger a <b>ping</b> when Admin is ON.</div>
 
-            {(data.booking?.requests || []).length === 0 ? (
+            {!admin ? (
+              <div className="muted" style={{ marginTop: 10 }}>Admin login to view booking requests.</div>
+            ) : (data.booking?.requests || []).length === 0 ? (
               <div className="muted" style={{ marginTop: 10 }}>No requests yet.</div>
             ) : (
               <div style={{ marginTop: 10 }}>
@@ -876,18 +881,14 @@ function BookTable({ data, admin, commit }) {
                     {r.note ? <div className="muted" style={{ marginTop: 8 }}>Note: {r.note}</div> : null}
                     <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{new Date(r.createdAt).toLocaleString()}</div>
 
-                    {admin ? (
-                      <div className="row" style={{ marginTop: 10, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                        <button className="btn" onClick={() => playPing()}>Test Ping</button>
-                        {r.status !== "verified" ? (
-                          <button className="btn primary" onClick={() => markVerified(r.id)}>Mark Verified</button>
-                        ) : (
-                          <span className="muted">Verified</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="muted" style={{ marginTop: 10 }}>Admin login to verify requests.</div>
-                    )}
+                    <div className="row" style={{ marginTop: 10, justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <button className="btn" onClick={() => playPing()}>Test Ping</button>
+                      {r.status !== "verified" ? (
+                        <button className="btn primary" onClick={() => markVerified(r.id)}>Mark Verified</button>
+                      ) : (
+                        <span className="muted">Verified</span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
