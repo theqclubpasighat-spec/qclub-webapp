@@ -953,7 +953,7 @@ function BookTable({ data, admin, commit }) {
                 </div>
                 <div className="grid" style={{ marginTop: 10 }}>
                   <div className="cols-6">
-                    <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
+                    <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: "100%", maxWidth: 220, height: "auto", aspectRatio: "1 / 1", borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
                     <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>If QR doesn’t load, use UPI string below.</div>
                   </div>
                   <div className="cols-6">
@@ -1173,7 +1173,7 @@ function ApplyModal({ tier, upiId, upiName, onClose }) {
 
           <div className="grid" style={{ marginTop: 10, alignItems: "start" }}>
             <div className="cols-6">
-              <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
+              <img src={qrUrl(link, 220)} alt="UPI QR" style={{ width: "100%", maxWidth: 220, height: "auto", aspectRatio: "1 / 1", borderRadius: 12, border: "1px solid rgba(255,255,255,.12)" }} />
               <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{fullName ? `Name: ${fullName}` : "Fill details (optional)"} • Size: {size}</div>
             </div>
             <div className="cols-6">

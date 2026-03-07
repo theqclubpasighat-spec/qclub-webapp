@@ -471,3 +471,46 @@ select{ padding-right: 30px; }
   background:rgba(255,255,255,0.06);
   color:rgba(255,255,255,0.9);
 }
+
+
+
+/* === Mobile overflow + top nav visibility fix === */
+html, body, #root{
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.nav{
+  overflow: hidden;
+}
+
+.nav-inner{
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.spacer{
+  display: none;
+}
+
+.nav-inner .pill,
+.nav-inner .btn,
+.nav-inner .brand{
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 1000px){
+  .nav-inner{
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav-inner::-webkit-scrollbar{
+    display: none;
+  }
+  .nav-inner > *{
+    flex: 0 0 auto;
+  }
+}
