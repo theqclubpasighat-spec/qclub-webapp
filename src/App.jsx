@@ -592,6 +592,36 @@ function Home({ data, admin, commit, activeTournament }) {
       announcements: [{ id: uid(), text, createdAt: Date.now() }, ...(data.announcements || [])],
     });
   }
+
+  function editLocation() {
+    if (!admin) return;
+    const nextLocation = prompt("Update club location:", data.club?.location || "Pasighat");
+    if (nextLocation == null) return;
+    commit({
+      ...data,
+      club: { ...(data.club || {}), location: nextLocation.trim() || (data.club?.location || "Pasighat") },
+    });
+  }
+
+  function editContacts() {
+    if (!admin) return;
+    const phone1 = prompt("Primary contact number:", data.club?.contact?.phone1 || "");
+    if (phone1 == null) return;
+    const phone2 = prompt("Secondary contact number:", data.club?.contact?.phone2 || "");
+    if (phone2 == null) return;
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        contact: {
+          ...(data.club?.contact || {}),
+          phone1: phone1.trim(),
+          phone2: phone2.trim(),
+        },
+      },
+    });
+  }
+
   function deleteAnnouncement(id) {
     if (!confirm("Delete this announcement?")) return;
     commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
@@ -635,11 +665,17 @@ function Home({ data, admin, commit, activeTournament }) {
 
           <div className="kpi" style={{ marginTop: 14 }}>
             <div className="chip">
-              <div className="muted">Location</div>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div className="muted">Location</div>
+                {admin ? <button className="btn" onClick={editLocation}>Edit</button> : null}
+              </div>
               <div className="big">{data.club?.location || "—"}</div>
             </div>
             <div className="chip">
-              <div className="muted">Contact</div>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div className="muted">Contact</div>
+                {admin ? <button className="btn" onClick={editContacts}>Edit</button> : null}
+              </div>
               <div className="big">{phone || "—"}</div>
             </div>
             <div className="chip">
