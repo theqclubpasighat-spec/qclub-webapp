@@ -91,6 +91,13 @@ function tournamentDisplay(t) {
   const parts = [t.name, t.month].filter(Boolean);
   return parts.join(" • ") || "—";
 }
+
+function normalizedClubUpiId(raw) {
+  const value = String(raw || "").trim();
+  if (!value || /yomsoji/i.test(value)) return "Q526263817@ybl";
+  return value;
+}
+
 function upiDeepLink({ pa, pn, am, tn }) {
   const params = new URLSearchParams();
   if (pa) params.set("pa", pa);
@@ -548,7 +555,6 @@ export default function App() {
         <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
         <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
-        <Route path="/music" element={<MusicPage data={data} admin={admin} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
         <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="*" element={<NotFound />} />
@@ -586,7 +592,6 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
-        <Link className="pill" to="/music">Music & Videos</Link>
         <Link className="pill" to="/tv">TV</Link>
         {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
@@ -793,7 +798,7 @@ function BookTable({ data, admin, commit }) {
     }
   }, [bookingDate, timeSlot]);
 
-  const upiId = data.club?.upiId || "Q526263817@ybl";
+  const upiId = normalizedClubUpiId(data.club?.upiId);
   const upiName = data.club?.upiName || data.club?.name || "THE Q CLUB";
   const txNote = `${bookingType === "member" ? "QClub Member Booking" : "QClub Booking"}: ${selected?.label || "Table"} ${bookingDate} ${timeSlot}`;
   const link = upiDeepLink({ pa: upiId, pn: upiName, am: amount, tn: txNote });
@@ -1029,7 +1034,7 @@ function BookTable({ data, admin, commit }) {
 function Membership({ data, admin, commit }) {
   const [applyTier, setApplyTier] = useState(null);
   const tiers = data.memberships || [];
-  const upiId = data.club?.upiId || "Q526263817@ybl";
+  const upiId = normalizedClubUpiId(data.club?.upiId);
   const upiName = data.club?.upiName || data.club?.name || "THE Q CLUB";
 
   function addTier() {
@@ -1930,79 +1935,6 @@ function TVMode({ data, activeTournament, players }) {
 }
 
 
-function MusicPage({ data, admin, commit }) {
-  const mediaItems = Array.isArray(data.mediaLibrary) ? data.mediaLibrary : [];
-
-  function editMusicLink() {
-    if (!admin) return;
-    const next = prompt("Paste main playlist link (YouTube / Spotify):", data.club?.musicUrl || "");
-    if (next == null) return;
-    commit({ ...data, club: { ...(data.club || {}), musicUrl: next.trim() } });
-  }
-
-  function addMediaItem(type) {
-    if (!admin) return;
-    const title = prompt(`Enter ${type} title:`, type === "video" ? "Q Club Promo Video" : "Weekend Playlist") || "";
-    if (!title.trim()) return;
-    const url = prompt(`Paste ${type} link:`, "https://") || "";
-    if (!url.trim()) return;
-    const nextItem = { id: uid(), type, title: title.trim(), url: url.trim(), createdAt: Date.now() };
-    commit({ ...data, mediaLibrary: [nextItem, ...mediaItems] });
-  }
-
-  function removeMediaItem(id) {
-    if (!admin) return;
-    commit({ ...data, mediaLibrary: mediaItems.filter((x) => x.id !== id) });
-  }
-
-  return (
-    <>
-      <PageShell
-        title="Music & Videos"
-        subtitle="Club playlist and quick media links"
-        right={admin ? (
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <button className="btn" onClick={editMusicLink}>Edit Main Link</button>
-            <button className="btn" onClick={() => addMediaItem("music")}>+ Add Music</button>
-            <button className="btn" onClick={() => addMediaItem("video")}>+ Add Video</button>
-          </div>
-        ) : null}
-      />
-      <div className="container">
-        <div className="card">
-          <div className="cardTitle">Music & Video Control</div>
-          <div className="muted" style={{ marginTop: 8 }}>Use this page as a quick launchpad for your club playlist and video links.</div>
-          <div style={{ marginTop: 12 }}>
-            {data.club?.musicUrl ? <a className="btn primary" href={data.club.musicUrl} target="_blank" rel="noreferrer">Open Main Playlist</a> : <div className="muted">No main playlist link set yet.</div>}
-          </div>
-        </div>
-
-        <div className="grid" style={{ marginTop: 12 }}>
-          {mediaItems.length === 0 ? (
-            <div className="card cols-12"><div className="muted">No music or video links added yet.</div></div>
-          ) : mediaItems.map((item) => (
-            <div key={item.id} className="card cols-6">
-              <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <div>
-                  <div className="cardTitle">{item.title}</div>
-                  <div className="badge" style={{ marginTop: 8 }}><span className="dot" /> {item.type === "video" ? "Video" : "Music"}</div>
-                </div>
-                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                  <a className="btn" href={item.url} target="_blank" rel="noreferrer">Open</a>
-                  {admin ? <button className="btn danger" onClick={() => removeMediaItem(item.id)}>Delete</button> : null}
-                </div>
-              </div>
-              <div className="muted" style={{ marginTop: 10, fontSize: 12, wordBreak: "break-all" }}>{item.url}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="muted" style={{ marginTop: 14, fontSize: 12 }}>For sync safety, this page stores links only. Use YouTube / Spotify / Drive / Dropbox links for music and videos.</div>
-      </div>
-    </>
-  );
-}
-
 function AdminPanel({ data, admin, commit, activeTournament }) {
   const navigate = useNavigate();
   if (!admin) {
@@ -2109,10 +2041,6 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
                 {currentMembership ? <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>{currentMembership.tier}</b><div className="muted">₹{currentMembership.price}</div></div><button className="btn" onClick={() => editMembershipPrice(currentMembership.id)}>Edit</button></div> : null}
                 {tableSummary ? <div className="row" style={{ justifyContent: "space-between", padding: "10px 0" }}><div><b>Table Rate</b><div className="muted">{tableSummary.label}</div></div><button className="btn" onClick={() => editTableRate(tableSummary.id)}>Edit</button></div> : null}
               </div>
-            </div>
-            <div className="card" style={{ marginBottom: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Music & Videos</h2><Link className="btn" to="/music">Open</Link></div>
-              <div className="muted" style={{ marginTop: 10 }}>{data.club?.musicUrl ? "Media links configured" : "No media links yet"}</div>
             </div>
             <div className="card">
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Current Tournament</h2><Link className="btn" to="/tournaments">Manage</Link></div>
