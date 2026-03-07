@@ -65,6 +65,52 @@ function bookingStatusLabel(status) {
       return "pending";
   }
 }
+
+const TABLE_STATUS_OPTIONS = ["available", "reserved", "in_play", "maintenance"];
+
+function statusLabel(status) {
+  switch (status) {
+    case "reserved":
+      return "Reserved";
+    case "in_play":
+      return "In Play";
+    case "maintenance":
+      return "Maintenance";
+    default:
+      return "Available";
+  }
+}
+
+function statusDotClass(status) {
+  return status === "available" ? "dot" : "dot red";
+}
+
+function buildDefaultTableStatuses(tables = []) {
+  const out = {};
+  tables.forEach((t) => {
+    out[t.id] = { status: "available", note: "" };
+  });
+  return out;
+}
+
+function mergeTableStatuses(tables = [], incoming) {
+  const base = buildDefaultTableStatuses(tables);
+  const src = incoming && typeof incoming === "object" ? incoming : {};
+  Object.keys(base).forEach((id) => {
+    const row = src[id] || {};
+    base[id] = {
+      status: TABLE_STATUS_OPTIONS.includes(row.status) ? row.status : "available",
+      note: typeof row.note === "string" ? row.note : "",
+    };
+  });
+  return base;
+}
+
+function tournamentDisplay(t) {
+  if (!t) return "—";
+  const parts = [t.name, t.month].filter(Boolean);
+  return parts.join(" • ") || "—";
+}
 function upiDeepLink({ pa, pn, am, tn }) {
   const params = new URLSearchParams();
   if (pa) params.set("pa", pa);
@@ -100,6 +146,8 @@ function defaultData() {
       upiId: "yomsoji-1@okicici",
       upiName: "The Q CLUB",
       isOpenNow: true,
+      hoursNote: "Members only from 6 pm",
+      musicUrl: "",
     },
     admin: { pin: "1234" },
     announcements: [
@@ -168,6 +216,11 @@ function defaultData() {
         { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
         { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
       ],
+      tableStatuses: {
+        snk12: { status: "available", note: "" },
+        mini10: { status: "available", note: "" },
+        pool9: { status: "available", note: "" },
+      },
       requests: [],
       lastSeenRequestAt: 0,
     },
@@ -218,6 +271,10 @@ function mergeWithDefaults(remote) {
       ...base.booking,
       ...(src.booking || {}),
       tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
+      tableStatuses: mergeTableStatuses(
+        Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
+        src?.booking?.tableStatuses
+      ),
       requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
       lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
     },
@@ -437,8 +494,16 @@ export default function App() {
   }
 
   const activeTournament = useMemo(() => {
-    const t = [...(data.tournaments || [])].sort((a, b) => (a.month || "").localeCompare(b.month || "")).pop();
-    return t || null;
+    const list = [...(data.tournaments || [])];
+    const flagged = list.find((t) => t.isCurrent);
+    if (flagged) return flagged;
+    return list
+      .sort((a, b) => {
+        const ak = `${a.month || ""}|${a.createdAt || 0}|${a.name || ""}`;
+        const bk = `${b.month || ""}|${b.createdAt || 0}|${b.name || ""}`;
+        return ak.localeCompare(bk);
+      })
+      .pop() || null;
   }, [data.tournaments]);
 
   const playersForTournament = (t) => {
@@ -510,7 +575,9 @@ export default function App() {
         <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
         <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
+        <Route path="/music" element={<MusicPage data={data} admin={admin} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
+        <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
 
@@ -546,7 +613,9 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
+        <Link className="pill" to="/music">Music</Link>
         <Link className="pill" to="/tv">TV</Link>
+        {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
         <button className="btn primary" onClick={onToggleAdmin}>
           {admin ? "Admin: ON" : "Admin Login"}
@@ -592,36 +661,6 @@ function Home({ data, admin, commit, activeTournament }) {
       announcements: [{ id: uid(), text, createdAt: Date.now() }, ...(data.announcements || [])],
     });
   }
-
-  function editLocation() {
-    if (!admin) return;
-    const nextLocation = prompt("Update club location:", data.club?.location || "Pasighat");
-    if (nextLocation == null) return;
-    commit({
-      ...data,
-      club: { ...(data.club || {}), location: nextLocation.trim() || (data.club?.location || "Pasighat") },
-    });
-  }
-
-  function editContacts() {
-    if (!admin) return;
-    const phone1 = prompt("Primary contact number:", data.club?.contact?.phone1 || "");
-    if (phone1 == null) return;
-    const phone2 = prompt("Secondary contact number:", data.club?.contact?.phone2 || "");
-    if (phone2 == null) return;
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        contact: {
-          ...(data.club?.contact || {}),
-          phone1: phone1.trim(),
-          phone2: phone2.trim(),
-        },
-      },
-    });
-  }
-
   function deleteAnnouncement(id) {
     if (!confirm("Delete this announcement?")) return;
     commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
@@ -665,22 +704,16 @@ function Home({ data, admin, commit, activeTournament }) {
 
           <div className="kpi" style={{ marginTop: 14 }}>
             <div className="chip">
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div className="muted">Location</div>
-                {admin ? <button className="btn" onClick={editLocation}>Edit</button> : null}
-              </div>
+              <div className="muted">Location</div>
               <div className="big">{data.club?.location || "—"}</div>
             </div>
             <div className="chip">
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div className="muted">Contact</div>
-                {admin ? <button className="btn" onClick={editContacts}>Edit</button> : null}
-              </div>
+              <div className="muted">Contact</div>
               <div className="big">{phone || "—"}</div>
             </div>
             <div className="chip">
               <div className="muted">Current Tournament</div>
-              <div className="big">{activeTournament ? `${activeTournament.month}` : "—"}</div>
+              <div className="big">{tournamentDisplay(activeTournament)}</div>
             </div>
           </div>
 
@@ -722,6 +755,33 @@ function Home({ data, admin, commit, activeTournament }) {
                 </div>
               ))
             )}
+          </div>
+        </div>
+
+        <div className="card cols-12">
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0 }}>Live Table Availability</h2>
+              <div className="muted">Current status of your playing tables.</div>
+            </div>
+            {admin ? <Link className="btn" to="/admin-panel">Manage in Admin Panel</Link> : null}
+          </div>
+          <div className="grid" style={{ marginTop: 12 }}>
+            {(data.booking?.tables || []).map((t) => {
+              const row = data.booking?.tableStatuses?.[t.id] || { status: "available", note: "" };
+              return (
+                <div className="card cols-4" key={t.id}>
+                  <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                    <div>
+                      <div className="cardTitle">{t.label.split(" — ")[0]}</div>
+                      <div className="muted" style={{ marginTop: 6 }}>{t.label.split(" — ")[1] || ""}</div>
+                    </div>
+                    <span className="badge"><span className={statusDotClass(row.status)} /> {statusLabel(row.status)}</span>
+                  </div>
+                  {row.note ? <div className="muted" style={{ marginTop: 10 }}>{row.note}</div> : null}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1443,6 +1503,8 @@ function Tournaments({ data, admin, commit }) {
           name,
           month: month || "",
           game: game || "",
+          isCurrent: tournaments.length === 0,
+          createdAt: Date.now(),
           format: "Round Robin",
           pointsWin: 3,
           pointsDraw: 1,
@@ -1457,6 +1519,13 @@ function Tournaments({ data, admin, commit }) {
     if (!admin) return;
     if (!confirm("Delete tournament and its matches?")) return;
     commit({ ...data, tournaments: tournaments.filter((t) => t.id !== id) });
+  }
+  function setCurrentTournament(id) {
+    if (!admin) return;
+    commit({
+      ...data,
+      tournaments: tournaments.map((t) => ({ ...t, isCurrent: t.id === id })),
+    });
   }
 
   return (
@@ -1486,7 +1555,7 @@ function Tournaments({ data, admin, commit }) {
                       <td>{t.name}</td>
                       <td>{t.game}</td>
                       <td>{(t.matches || []).length}</td>
-                      {admin ? <td><button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button></td> : null}
+                      {admin ? <td><div className="row" style={{ gap: 8, flexWrap: "wrap" }}>{t.isCurrent ? <span className="badge"><span className="dot" /> current</span> : <button className="btn" onClick={() => setCurrentTournament(t.id)}>Set Current</button>}<button className="btn danger" onClick={() => removeTournament(t.id)}>Delete</button></div></td> : null}
                     </tr>
                   ))}
                 </tbody>
@@ -1518,7 +1587,7 @@ function TournamentLeaderboards({ data, players }) {
       <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Tournament Leaderboard</h2>
         <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-          {tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{x.month} • {x.name}</option>)}
+          {tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{tournamentDisplay(x)}</option>)}
         </select>
       </div>
 
@@ -1526,7 +1595,7 @@ function TournamentLeaderboards({ data, players }) {
         <div className="muted" style={{ marginTop: 10 }}>Create a tournament first.</div>
       ) : (
         <>
-          <div className="muted" style={{ marginTop: 8 }}>{t.month} • {t.name} • {t.game}</div>
+          <div className="muted" style={{ marginTop: 8 }}>{tournamentDisplay(t)} • {t.game}</div>
           <div style={{ marginTop: 12 }}>
             <table>
               <thead>
@@ -1684,7 +1753,7 @@ function LeaderboardAll({ data }) {
 
   return (
     <>
-      <PageShell title="Leaderboards" subtitle="Select any tournament to view standings" right={<select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{x.month} • {x.name}</option>)}</select>} />
+      <PageShell title="Leaderboards" subtitle="Select any tournament to view standings" right={<select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{tournamentDisplay(x)}</option>)}</select>} />
 
       <div className="container">
         <div className="card">
@@ -1886,6 +1955,211 @@ function TVMode({ data, activeTournament, players }) {
 
       <div style={{ marginTop: 14, opacity: 0.8 }}>Tip: Keep this page open on your hall TV. It updates when you mark matches “done”.</div>
     </div>
+  );
+}
+
+
+function MusicPage({ data, admin, commit }) {
+  function editMusicLink() {
+    if (!admin) return;
+    const next = prompt("Paste YouTube / Spotify music link:", data.club?.musicUrl || "");
+    if (next == null) return;
+    commit({ ...data, club: { ...(data.club || {}), musicUrl: next.trim() } });
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Music"
+        subtitle="Club playlist and quick music links"
+        right={admin ? <button className="btn" onClick={editMusicLink}>Edit Link</button> : null}
+      />
+      <div className="container">
+        <div className="card">
+          <div className="cardTitle">Music Control</div>
+          <div className="muted" style={{ marginTop: 8 }}>Use this page as a quick launchpad for your club playlist.</div>
+          <div style={{ marginTop: 12 }}>
+            {data.club?.musicUrl ? <a className="btn primary" href={data.club.musicUrl} target="_blank" rel="noreferrer">Open Playlist</a> : <div className="muted">No playlist link set yet.</div>}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AdminPanel({ data, admin, commit, activeTournament }) {
+  const navigate = useNavigate();
+  if (!admin) {
+    return (
+      <>
+        <PageShell title="Admin Panel" subtitle="Admin login required" />
+        <div className="container"><div className="card"><div className="muted">Login as admin to view this page.</div></div></div>
+      </>
+    );
+  }
+
+  const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2].filter(Boolean).join(" / ");
+  const topReq = (data.booking?.requests || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6);
+  const currentMembership = data.memberships?.[0];
+  const tableSummary = data.booking?.tables?.[0];
+
+  function editLocation() {
+    const next = prompt("Update club location:", data.club?.location || "Pasighat");
+    if (next == null) return;
+    commit({ ...data, club: { ...(data.club || {}), location: next.trim() || data.club?.location || "Pasighat" } });
+  }
+  function editContacts() {
+    const phone1 = prompt("Primary contact number:", data.club?.contact?.phone1 || "");
+    if (phone1 == null) return;
+    const phone2 = prompt("Secondary contact number:", data.club?.contact?.phone2 || "");
+    if (phone2 == null) return;
+    commit({ ...data, club: { ...(data.club || {}), contact: { ...(data.club?.contact || {}), phone1: phone1.trim(), phone2: phone2.trim() } } });
+  }
+  function editHoursNote() {
+    const next = prompt("Opening hours / members note:", data.club?.hoursNote || "Members only from 6 pm");
+    if (next == null) return;
+    commit({ ...data, club: { ...(data.club || {}), hoursNote: next.trim() } });
+  }
+  function editMembershipPrice(id) {
+    const m = (data.memberships || []).find((x) => x.id === id);
+    if (!m) return;
+    const price = prompt(`Update ${m.tier} price:`, String(m.price || 0));
+    if (price == null) return;
+    commit({ ...data, memberships: (data.memberships || []).map((x) => x.id === id ? { ...x, price: safeNum(price, x.price) } : x) });
+  }
+  function editTableRate(id) {
+    const t = (data.booking?.tables || []).find((x) => x.id === id);
+    if (!t) return;
+    const price = prompt(`Update rate for ${t.label}:`, String(t.pricePerHour || 0));
+    if (price == null) return;
+    const nextPrice = safeNum(price, t.pricePerHour);
+    commit({ ...data, booking: { ...(data.booking || {}), tables: (data.booking?.tables || []).map((x) => x.id === id ? { ...x, pricePerHour: nextPrice, label: x.label.replace(/₹\d+\s*\/\s*hour/i, `₹${nextPrice} / hour`) } : x) } });
+  }
+  function setCurrentTournament(id) {
+    commit({ ...data, tournaments: (data.tournaments || []).map((t) => ({ ...t, isCurrent: t.id === id })) });
+  }
+  function deleteAnnouncement(id) {
+    if (!confirm("Delete this announcement?")) return;
+    commit({ ...data, announcements: (data.announcements || []).filter((a) => a.id !== id) });
+  }
+  function addAnnouncement() {
+    const text = prompt("Announcement text:");
+    if (!text) return;
+    commit({ ...data, announcements: [{ id: uid(), text, createdAt: Date.now() }, ...(data.announcements || [])] });
+  }
+  function updateRequestStatus(id, status) {
+    commit({ ...data, booking: { ...(data.booking || {}), requests: (data.booking?.requests || []).map((r) => r.id === id ? { ...r, status } : r) } });
+  }
+  function setTableStatus(id, status) {
+    const current = data.booking?.tableStatuses?.[id] || { status: "available", note: "" };
+    commit({
+      ...data,
+      booking: {
+        ...(data.booking || {}),
+        tableStatuses: {
+          ...(data.booking?.tableStatuses || {}),
+          [id]: { ...current, status },
+        },
+      },
+    });
+  }
+  function editTableStatusNote(id) {
+    const current = data.booking?.tableStatuses?.[id] || { status: "available", note: "" };
+    const next = prompt("Status note / reservation note:", current.note || "");
+    if (next == null) return;
+    commit({
+      ...data,
+      booking: {
+        ...(data.booking || {}),
+        tableStatuses: {
+          ...(data.booking?.tableStatuses || {}),
+          [id]: { ...current, note: next.trim() },
+        },
+      },
+    });
+  }
+
+  return (
+    <>
+      <PageShell title="Admin Panel" subtitle="Cleaner control center for The Q CLUB" />
+      <div className="container">
+        <div className="grid">
+          <div className="card cols-7">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Business Info</h2>
+              <button className="btn" onClick={() => navigate("/")}>Home Preview</button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>Location</b><div className="muted">{data.club?.location || "—"}</div></div><button className="btn" onClick={editLocation}>Edit</button></div>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>Contact</b><div className="muted">{phone || "—"}</div></div><button className="btn" onClick={editContacts}>Edit</button></div>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>Opening Hours Note</b><div className="muted">{data.club?.hoursNote || "—"}</div></div><button className="btn" onClick={editHoursNote}>Edit</button></div>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0" }}><div><b>Current Tournament</b><div className="muted">{tournamentDisplay(activeTournament)}</div></div><Link className="btn" to="/tournaments">Manage</Link></div>
+            </div>
+          </div>
+          <div className="card cols-5">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Announcements</h2>
+              <button className="btn primary" onClick={addAnnouncement}>+ Add</button>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              {(data.announcements || []).slice(0, 5).map((a) => <div key={a.id} className="card" style={{ marginBottom: 10 }}><div className="muted" style={{ fontSize: 12 }}>{new Date(a.createdAt).toLocaleString()}</div><div style={{ marginTop: 6 }}>{a.text}</div><div style={{ marginTop: 10 }}><button className="btn danger" onClick={() => deleteAnnouncement(a.id)}>Delete</button></div></div>)}
+            </div>
+          </div>
+          <div className="card cols-7">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Booking Requests</h2>
+              <Link className="btn" to="/book">Open Book Table</Link>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              {topReq.length === 0 ? <div className="muted">No booking requests yet.</div> : topReq.map((r) => <div key={r.id} className="card" style={{ marginBottom: 10 }}><div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}><b>{r.name || "Guest"}</b><span className="badge"><span className={r.status === "verified" || r.status === "member_verified" ? "dot" : "dot red"} /> {bookingStatusLabel(r.status)}</span></div><div className="muted" style={{ marginTop: 6 }}>{r.itemLabel}</div><div className="muted" style={{ marginTop: 6 }}>{r.bookingDate || "—"} • {r.timeSlot || "—"}</div><div className="muted" style={{ marginTop: 6 }}>{r.bookingType === "member" ? `Member booking • ID: ${r.memberId || "—"}` : "Non-member booking"}</div><div className="row" style={{ justifyContent: "space-between", marginTop: 10, gap: 8, flexWrap: "wrap" }}><span className="badge"><span className="dot" /> ₹{r.amount}</span><div className="row" style={{ gap: 8, flexWrap: "wrap" }}>{r.bookingType === "member" ? <><button className="btn primary" onClick={() => updateRequestStatus(r.id, "member_verified")}>Approve</button><button className="btn danger" onClick={() => updateRequestStatus(r.id, "member_rejected")}>Reject</button></> : <button className="btn primary" onClick={() => updateRequestStatus(r.id, "verified")}>Approve</button>}</div></div></div>)}
+            </div>
+          </div>
+          <div className="cols-5">
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Live Table Availability</h2><span className="badge"><span className="dot" /> sync</span></div>
+              <div style={{ marginTop: 10 }}>
+                {(data.booking?.tables || []).map((t) => {
+                  const row = data.booking?.tableStatuses?.[t.id] || { status: "available", note: "" };
+                  return (
+                    <div key={t.id} style={{ padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+                      <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                        <div>
+                          <b>{t.label.split(" — ")[0]}</b>
+                          <div className="muted">{statusLabel(row.status)}{row.note ? ` • ${row.note}` : ""}</div>
+                        </div>
+                        <button className="btn" onClick={() => editTableStatusNote(t.id)}>Note</button>
+                      </div>
+                      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        {TABLE_STATUS_OPTIONS.map((opt) => (
+                          <button key={opt} className={row.status === opt ? "btn primary" : "btn"} onClick={() => setTableStatus(t.id, opt)}>{statusLabel(opt)}</button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Pricing Settings</h2><span className="badge"><span className="dot" /> live sync</span></div>
+              <div style={{ marginTop: 10 }}>
+                {currentMembership ? <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div><b>{currentMembership.tier}</b><div className="muted">₹{currentMembership.price}</div></div><button className="btn" onClick={() => editMembershipPrice(currentMembership.id)}>Edit</button></div> : null}
+                {tableSummary ? <div className="row" style={{ justifyContent: "space-between", padding: "10px 0" }}><div><b>Table Rate</b><div className="muted">{tableSummary.label}</div></div><button className="btn" onClick={() => editTableRate(tableSummary.id)}>Edit</button></div> : null}
+              </div>
+            </div>
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Music</h2><Link className="btn" to="/music">Open</Link></div>
+              <div className="muted" style={{ marginTop: 10 }}>{data.club?.musicUrl ? "Playlist link configured" : "No playlist link yet"}</div>
+            </div>
+            <div className="card">
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0 }}>Current Tournament</h2><Link className="btn" to="/tournaments">Manage</Link></div>
+              <div style={{ marginTop: 10 }}>
+                {(data.tournaments || []).slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).slice(0, 4).map((t) => <div key={t.id} className="row" style={{ justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}><div style={{ paddingRight: 8 }}><div>{tournamentDisplay(t)}</div><div className="muted">{t.game || ""}</div></div>{t.isCurrent ? <span className="badge"><span className="dot" /> Current</span> : <button className="btn" onClick={() => setCurrentTournament(t.id)}>Set Current</button>}</div>)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
