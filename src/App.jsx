@@ -105,6 +105,123 @@ function tournamentDisplay(t) {
   return parts.join(" • ") || "—";
 }
 
+
+function normalizePlayerGames(value) {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const cleaned = raw
+    .map((x) => String(x || "").trim().toLowerCase())
+    .filter(Boolean)
+    .map((x) => (x === "snooker" || x === "pool" ? x : null))
+    .filter(Boolean);
+  return cleaned.length ? Array.from(new Set(cleaned)) : ["snooker"];
+}
+
+function playerGamesLabel(player) {
+  const games = normalizePlayerGames(player?.games);
+  return games.map((x) => (x === "snooker" ? "Snooker" : "Pool")).join(" / ");
+}
+
+function tournamentGameKey(game) {
+  const value = String(game || "").trim().toLowerCase();
+  if (value.includes("pool")) return "pool";
+  return "snooker";
+}
+
+function getPlayersForGame(players, gameKey) {
+  return (players || []).filter((p) => normalizePlayerGames(p.games).includes(gameKey));
+}
+
+function getEligiblePlayersForTournament(players, tournament) {
+  const gameKey = tournamentGameKey(tournament?.game);
+  return getPlayersForGame(players || [], gameKey);
+}
+
+function getCurrentTournamentForGame(tournaments, gameKey) {
+  const list = (tournaments || []).filter((t) => tournamentGameKey(t?.game) === gameKey);
+  const flagged = list.find((t) => t.isCurrent);
+  if (flagged) return flagged;
+  return list
+    .slice()
+    .sort((a, b) => {
+      const ak = `${a.month || ""}|${a.createdAt || 0}|${a.name || ""}`;
+      const bk = `${b.month || ""}|${b.createdAt || 0}|${b.name || ""}`;
+      return ak.localeCompare(bk);
+    })
+    .pop() || null;
+}
+
+function calcAutoRankingBoard(players, tournaments, gameKey) {
+  const relevantTournaments = (tournaments || []).filter((t) => tournamentGameKey(t?.game) === gameKey);
+  const eligiblePlayers = getPlayersForGame(players || [], gameKey);
+  const rows = eligiblePlayers.map((p) => ({
+    id: p.id,
+    name: p.name,
+    city: p.city || "",
+    tournaments: 0,
+    matches: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    points: 0,
+    for: 0,
+    against: 0,
+  }));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  relevantTournaments.forEach((t) => {
+    const participantIds = t?.participantIds?.length ? new Set(t.participantIds) : null;
+    const touched = new Set();
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+      const a = byId.get(m.p1);
+      const b = byId.get(m.p2);
+      if (!a || !b) return;
+      if (participantIds && (!participantIds.has(m.p1) || !participantIds.has(m.p2))) return;
+      const s1 = Number(m.score1);
+      const s2 = Number(m.score2);
+      if (!Number.isFinite(s1) || !Number.isFinite(s2)) return;
+      touched.add(m.p1);
+      touched.add(m.p2);
+      a.matches++;
+      b.matches++;
+      a.for += s1;
+      a.against += s2;
+      b.for += s2;
+      b.against += s1;
+      if (s1 > s2) {
+        a.wins++;
+        b.losses++;
+        a.points += t.pointsWin ?? 3;
+        b.points += t.pointsLoss ?? 0;
+      } else if (s2 > s1) {
+        b.wins++;
+        a.losses++;
+        b.points += t.pointsWin ?? 3;
+        a.points += t.pointsLoss ?? 0;
+      } else {
+        a.draws++;
+        b.draws++;
+        a.points += t.pointsDraw ?? 1;
+        b.points += t.pointsDraw ?? 1;
+      }
+    });
+    touched.forEach((id) => {
+      const row = byId.get(id);
+      if (row) row.tournaments++;
+    });
+  });
+
+  return rows.sort((x, y) => {
+    const dx = x.for - x.against;
+    const dy = y.for - y.against;
+    return (y.points - x.points) || (dy - dx) || (y.wins - x.wins) || x.name.localeCompare(y.name);
+  });
+}
+
 function normalizedClubUpiId(raw) {
   const value = String(raw || "").trim();
   if (!value || /yomsoji/i.test(value)) return "Q526263817@ybl";
@@ -192,10 +309,10 @@ function defaultData() {
     ],
     photos: [],
     players: [
-      { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "" },
-      { id: uid(), name: "Riku", city: "Pasighat", photo: "", bio: "" },
-      { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "" },
-      { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "" },
+      { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "", games: ["snooker", "pool"] },
+      { id: uid(), name: "Riku", city: "Pasighat", photo: "", bio: "", games: ["snooker"] },
+      { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "", games: ["pool"] },
+      { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "", games: ["snooker", "pool"] },
     ],
     tournaments: [
       {
@@ -262,7 +379,7 @@ function mergeWithDefaults(remote) {
     memberships: Array.isArray(src.memberships) && src.memberships.length ? src.memberships : base.memberships,
     offers: Array.isArray(src.offers) && src.offers.length ? src.offers : base.offers,
     photos: Array.isArray(src.photos) ? src.photos : base.photos,
-    players: Array.isArray(src.players) && src.players.length ? src.players : base.players,
+    players: Array.isArray(src.players) && src.players.length ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) })) : base.players,
     tournaments: Array.isArray(src.tournaments) && src.tournaments.length ? src.tournaments : base.tournaments,
     booking: {
       ...base.booking,
@@ -499,11 +616,15 @@ export default function App() {
       .pop() || null;
   }, [data.tournaments]);
 
+  const snookerTournament = useMemo(() => getCurrentTournamentForGame(data.tournaments || [], "snooker"), [data.tournaments]);
+  const poolTournament = useMemo(() => getCurrentTournamentForGame(data.tournaments || [], "pool"), [data.tournaments]);
+
   const playersForTournament = (t) => {
     if (!t) return data.players || [];
-    const ids = t.participantIds?.length ? t.participantIds : (data.players || []).map((p) => p.id);
+    const eligiblePlayers = getEligiblePlayersForTournament(data.players || [], t);
+    const ids = t.participantIds?.length ? t.participantIds : eligiblePlayers.map((p) => p.id);
     const setIds = new Set(ids);
-    return (data.players || []).filter((p) => setIds.has(p.id));
+    return eligiblePlayers.filter((p) => setIds.has(p.id));
   };
 
   function toggleAdmin() {
@@ -563,10 +684,10 @@ export default function App() {
         <Route path="/membership" element={<Membership data={data} admin={admin} commit={commit} />} />
         <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
-        <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route path="/players" element={<Players data={data} admin={admin} commit={commit} tournaments={data.tournaments || []} />} />
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
         <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
-        <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
+        <Route path="/leaderboard" element={<LeaderboardAll data={data} snookerTournament={snookerTournament} poolTournament={poolTournament} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
         <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
@@ -1125,6 +1246,13 @@ function Membership({ data, admin, commit }) {
       <PageShell title="Membership" subtitle="Apply & pay via UPI QR (verification later)" right={admin ? <button className="btn primary" onClick={addTier}>+ Add Tier</button> : null} />
 
       <div className="container">
+        <div className="membershipNote card small">
+          <div className="membershipNoteTitle">Please Note</div>
+          <div className="muted" style={{ marginTop: 6 }}>
+            Monthly Membership perks are daily, non-transferable, and reset at 00:00. All perks are subject to table availability. For free play: Pool game max time 15 minutes, Mini Snooker max time 20 minutes, Snooker table max time 30 minutes. Unless otherwise specified, free play is valid only during the 11am–5pm slot.
+          </div>
+        </div>
+
         <div className="grid">
           {tiers.map((m) => (
             <div className="card cols-6" key={m.id}>
@@ -1147,7 +1275,6 @@ function Membership({ data, admin, commit }) {
               <ul className="muted" style={{ marginTop: 10 }}>
                 {(m.perks || []).map((p, i) => <li key={i}>{p}</li>)}
               </ul>
-              {m.note ? <div className="muted" style={{ marginTop: 10 }}>{m.note}</div> : null}
             </div>
           ))}
         </div>
@@ -1342,18 +1469,21 @@ function Photos({ data, admin, commit }) {
   );
 }
 
-function Players({ data, admin, commit, activeTournament }) {
+function Players({ data, admin, commit, tournaments }) {
   const players = data.players || [];
   const [selected, setSelected] = useState(null);
+  const [gameFilter, setGameFilter] = useState("snooker");
 
-  const activePlayers = activeTournament ? playersForTournament(data, activeTournament) : players;
-  const lb = activeTournament ? calcLeaderboard(activePlayers, activeTournament) : [];
-
-  function playersForTournament(d, t) {
-    const ids = t.participantIds?.length ? t.participantIds : (d.players || []).map((p) => p.id);
+  const currentTournament = useMemo(() => getCurrentTournamentForGame(tournaments || [], gameFilter), [tournaments, gameFilter]);
+  const eligiblePlayers = useMemo(() => getPlayersForGame(players, gameFilter), [players, gameFilter]);
+  const activePlayers = useMemo(() => {
+    if (!currentTournament) return eligiblePlayers;
+    const ids = currentTournament.participantIds?.length ? currentTournament.participantIds : eligiblePlayers.map((p) => p.id);
     const setIds = new Set(ids);
-    return (d.players || []).filter((p) => setIds.has(p.id));
-  }
+    return eligiblePlayers.filter((p) => setIds.has(p.id));
+  }, [currentTournament, eligiblePlayers]);
+  const lb = useMemo(() => (currentTournament ? calcLeaderboard(activePlayers, currentTournament) : []), [activePlayers, currentTournament]);
+
   function rankOf(pid) {
     const idx = lb.findIndex((r) => r.id === pid);
     return idx >= 0 ? idx + 1 : null;
@@ -1367,7 +1497,8 @@ function Players({ data, admin, commit, activeTournament }) {
     const name = prompt("Player name:");
     if (!name) return;
     const city = prompt("City:", "Pasighat") || "";
-    commit({ ...data, players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "" }] });
+    const games = normalizePlayerGames(prompt("Games (comma separated: snooker, pool):", gameFilter === "snooker" ? "snooker" : "pool") || gameFilter);
+    commit({ ...data, players: [...players, { id: uid(), name: name.trim(), city: city.trim(), photo: "", bio: "", games }] });
   }
   function removePlayer(id) {
     if (!admin) return;
@@ -1380,7 +1511,8 @@ function Players({ data, admin, commit, activeTournament }) {
     if (!name) return;
     const city = prompt("City:", p.city || "");
     const bio = prompt("Short bio (optional):", p.bio || "");
-    commit({ ...data, players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "" } : x)) });
+    const games = normalizePlayerGames(prompt("Games (comma separated: snooker, pool):", normalizePlayerGames(p.games).join(", ")) || normalizePlayerGames(p.games).join(", "));
+    commit({ ...data, players: players.map((x) => (x.id === p.id ? { ...x, name: name.trim(), city: (city || "").trim(), bio: bio || "", games } : x)) });
   }
   async function uploadPlayerPhoto(p, file) {
     if (!admin) return;
@@ -1390,24 +1522,32 @@ function Players({ data, admin, commit, activeTournament }) {
 
   return (
     <>
-      <PageShell title="Players" subtitle={activeTournament ? `Tap a player to view profile (Rank from ${activeTournament.month})` : "Tap a player to view profile"} right={admin ? <button className="btn primary" onClick={addPlayer}>+ Add Player</button> : null} />
+      <PageShell title="Players" subtitle={currentTournament ? `Tap a player to view profile (Rank from ${tournamentDisplay(currentTournament)})` : `Tap a player to view ${gameFilter} profile`} right={admin ? <button className="btn primary" onClick={addPlayer}>+ Add Player</button> : null} />
 
       <div className="container">
+        <div className="playerTabs row" style={{ marginBottom: 12 }}>
+          <button className={gameFilter === "snooker" ? "btn primary" : "btn"} onClick={() => setGameFilter("snooker")}>Snooker Players</button>
+          <button className={gameFilter === "pool" ? "btn primary" : "btn"} onClick={() => setGameFilter("pool")}>Pool Players</button>
+          <span className="badge"><span className="dot" /> Auto ranking: {gameFilter === "snooker" ? "Snooker" : "Pool"}</span>
+        </div>
+
         <div className="card">
           <table>
             <thead>
               <tr>
                 <th>Player</th>
                 <th className="muted">City</th>
+                <th>Games</th>
                 <th>Rank</th>
                 {admin ? <th>Admin</th> : null}
               </tr>
             </thead>
             <tbody>
-              {players.map((p) => (
+              {eligiblePlayers.map((p) => (
                 <tr key={p.id}>
                   <td><button className="linkBtn" onClick={() => setSelected(p)}>{p.name}</button></td>
                   <td className="muted">{p.city || "-"}</td>
+                  <td className="muted">{playerGamesLabel(p)}</td>
                   <td>{rankOf(p.id) ? `#${rankOf(p.id)}` : "-"}</td>
                   {admin ? (
                     <td>
@@ -1437,7 +1577,7 @@ function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
         <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
             <div className="cardTitle">{player.name}</div>
-            <div className="muted">{player.city || ""} {rank ? `• Rank #${rank}` : ""}</div>
+            <div className="muted">{player.city || ""} • {playerGamesLabel(player)} {rank ? `• Rank #${rank}` : ""}</div>
           </div>
           <button className="btn" onClick={onClose}>Close</button>
         </div>
@@ -1479,7 +1619,7 @@ function PlayerModal({ player, admin, onClose, rank, statsRow, onUpload }) {
               )}
             </div>
 
-            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>Rank and stats are based on current tournament results.</div>
+            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>Rank and stats are based on the latest tournament of the selected game.</div>
           </div>
         </div>
       </div>
@@ -1583,9 +1723,10 @@ function TournamentLeaderboards({ data, players }) {
 
   const tourPlayers = useMemo(() => {
     if (!t) return [];
-    const ids = t.participantIds?.length ? t.participantIds : players.map((p) => p.id);
+    const eligiblePlayers = getEligiblePlayersForTournament(players, t);
+    const ids = t.participantIds?.length ? t.participantIds : eligiblePlayers.map((p) => p.id);
     const setIds = new Set(ids);
-    return players.filter((p) => setIds.has(p.id));
+    return eligiblePlayers.filter((p) => setIds.has(p.id));
   }, [t, players]);
 
   const table = useMemo(() => (t ? calcLeaderboard(tourPlayers, t) : []), [t, tourPlayers]);
@@ -1649,9 +1790,10 @@ function Fixtures({ data, admin, commit }) {
 
   const tournamentPlayers = useMemo(() => {
     if (!selected) return [];
-    const ids = selected.participantIds?.length ? selected.participantIds : players.map((p) => p.id);
+    const eligiblePlayers = getEligiblePlayersForTournament(players, selected);
+    const ids = selected.participantIds?.length ? selected.participantIds : eligiblePlayers.map((p) => p.id);
     const setIds = new Set(ids);
-    return players.filter((p) => setIds.has(p.id));
+    return eligiblePlayers.filter((p) => setIds.has(p.id));
   }, [selected, players]);
 
   function nameOf(pid) {
@@ -1744,32 +1886,114 @@ function Fixtures({ data, admin, commit }) {
   );
 }
 
-function LeaderboardAll({ data }) {
+function LeaderboardAll({ data, snookerTournament, poolTournament }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
-  const [selectedId, setSelectedId] = useState(tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""))[0]?.id || "");
-  const t = tournaments.find((x) => x.id === selectedId) || null;
+  const [selectedGame, setSelectedGame] = useState("snooker");
+  const [selectedId, setSelectedId] = useState("");
+
+  const filteredTournaments = useMemo(
+    () => tournaments
+      .filter((t) => tournamentGameKey(t?.game) === selectedGame)
+      .slice()
+      .sort((a, b) => (b.month || "").localeCompare(a.month || "")),
+    [tournaments, selectedGame]
+  );
+
+  useEffect(() => {
+    if (!filteredTournaments.length) {
+      setSelectedId("");
+      return;
+    }
+    if (!filteredTournaments.some((x) => x.id === selectedId)) {
+      const preferred = selectedGame === "snooker" ? snookerTournament : poolTournament;
+      setSelectedId(preferred?.id && filteredTournaments.some((x) => x.id === preferred.id) ? preferred.id : filteredTournaments[0].id);
+    }
+  }, [filteredTournaments, poolTournament, selectedGame, selectedId, snookerTournament]);
+
+  const t = filteredTournaments.find((x) => x.id === selectedId) || null;
 
   const tourPlayers = useMemo(() => {
     if (!t) return [];
-    const ids = t.participantIds?.length ? t.participantIds : players.map((p) => p.id);
+    const eligiblePlayers = getEligiblePlayersForTournament(players, t);
+    const ids = t.participantIds?.length ? t.participantIds : eligiblePlayers.map((p) => p.id);
     const setIds = new Set(ids);
-    return players.filter((p) => setIds.has(p.id));
+    return eligiblePlayers.filter((p) => setIds.has(p.id));
   }, [t, players]);
 
   const table = useMemo(() => (t ? calcLeaderboard(tourPlayers, t) : []), [t, tourPlayers]);
+  const autoBoard = useMemo(() => calcAutoRankingBoard(players, tournaments, selectedGame), [players, tournaments, selectedGame]);
 
   return (
     <>
-      <PageShell title="Leaderboards" subtitle="Select any tournament to view standings" right={<select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{tournaments.slice().sort((a, b) => (b.month || "").localeCompare(a.month || "")).map((x) => <option key={x.id} value={x.id}>{tournamentDisplay(x)}</option>)}</select>} />
+      <PageShell
+        title="Leaderboards"
+        subtitle="Separate snooker and pool auto ranking boards"
+        right={
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button className={selectedGame === "snooker" ? "btn primary" : "btn"} onClick={() => setSelectedGame("snooker")}>Snooker Rankings</button>
+            <button className={selectedGame === "pool" ? "btn primary" : "btn"} onClick={() => setSelectedGame("pool")}>Pool Rankings</button>
+            <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+              {filteredTournaments.map((x) => <option key={x.id} value={x.id}>{tournamentDisplay(x)}</option>)}
+            </select>
+          </div>
+        }
+      />
 
-      <div className="container">
+      <div className="container leaderboardStack">
         <div className="card">
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0 }}>{selectedGame === "snooker" ? "Snooker Auto Ranking Board" : "Pool Auto Ranking Board"}</h2>
+            <span className="badge"><span className="dot" /> Auto-calculated from completed tournaments</span>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Player</th>
+                  <th>City</th>
+                  <th>Tournaments</th>
+                  <th>Matches</th>
+                  <th>W</th>
+                  <th>D</th>
+                  <th>L</th>
+                  <th>Pts</th>
+                  <th>Diff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {autoBoard.map((r, i) => (
+                  <tr key={r.id}>
+                    <td>{i + 1}</td>
+                    <td><b>{r.name}</b></td>
+                    <td className="muted">{r.city || "-"}</td>
+                    <td>{r.tournaments}</td>
+                    <td>{r.matches}</td>
+                    <td>{r.wins}</td>
+                    <td>{r.draws}</td>
+                    <td>{r.losses}</td>
+                    <td><b>{r.points}</b></td>
+                    <td>{r.for - r.against}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 14 }}>
           {!t ? (
-            <div className="muted">Create a tournament and fixtures first.</div>
+            <div className="muted">Create a {selectedGame} tournament and fixtures first.</div>
           ) : (
             <>
-              <div className="muted">{t.month} • {t.name}</div>
+              <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Tournament Standings</h2>
+                  <div className="muted" style={{ marginTop: 6 }}>{t.month} • {t.name}</div>
+                </div>
+                <span className="badge"><span className="dot" /> {selectedGame === "snooker" ? "Snooker" : "Pool"} tournament</span>
+              </div>
               <div style={{ marginTop: 12 }}>
                 <table>
                   <thead>
