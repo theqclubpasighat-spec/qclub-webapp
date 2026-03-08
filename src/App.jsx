@@ -259,6 +259,8 @@ function defaultData() {
       name: "The Q CLUB",
       location: "Pasighat",
       tagline: "Play. Chill. Compete.",
+      membershipNote:
+        "Monthly Membership perks are daily, non-transferable, and reset at 00:00. All perks are subject to table availability. For free play: Pool game max time 15 minutes, Mini Snooker max time 20 minutes, Snooker table max time 30 minutes. Unless otherwise specified, free play is valid only during the 11am–5pm slot.",
       contact: { phone1: "7005212774", phone2: "7085221922" },
       upiId: "Q526263817@ybl",
       upiName: "THE Q CLUB",
@@ -361,6 +363,7 @@ function mergeWithDefaults(remote) {
       name: pickText(src?.club?.name, base.club.name),
       location: pickText(src?.club?.location, base.club.location),
       tagline: pickText(src?.club?.tagline, base.club.tagline),
+      membershipNote: pickText(src?.club?.membershipNote, base.club.membershipNote),
       upiId: pickText(src?.club?.upiId, base.club.upiId),
       upiName: pickText(src?.club?.upiName, base.club.upiName),
       contact: {
@@ -1241,15 +1244,35 @@ function Membership({ data, admin, commit }) {
     });
   }
 
+  function editMembershipNote() {
+    if (!admin) return alert("Admin only");
+    const next = prompt(
+      "Edit membership note / terms:",
+      data.club?.membershipNote || ""
+    );
+    if (next == null) return;
+
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        membershipNote: next.trim(),
+      },
+    });
+  }
+
   return (
     <>
       <PageShell title="Membership" subtitle="Apply & pay via UPI QR (verification later)" right={admin ? <button className="btn primary" onClick={addTier}>+ Add Tier</button> : null} />
 
       <div className="container">
         <div className="membershipNote card small">
-          <div className="membershipNoteTitle">Please Note</div>
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div className="membershipNoteTitle">Please Note</div>
+            {admin ? <button className="btn" onClick={editMembershipNote}>Edit Note</button> : null}
+          </div>
           <div className="muted" style={{ marginTop: 6 }}>
-            Monthly Membership perks are daily, non-transferable, and reset at 00:00. All perks are subject to table availability. For free play: Pool game max time 15 minutes, Mini Snooker max time 20 minutes, Snooker table max time 30 minutes. Unless otherwise specified, free play is valid only during the 11am–5pm slot.
+            {data.club?.membershipNote || "No note added yet."}
           </div>
         </div>
 
