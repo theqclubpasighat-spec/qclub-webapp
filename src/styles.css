@@ -473,216 +473,81 @@ select{ padding-right: 30px; }
 }
 
 
-
-/* === Mobile overflow + top nav visibility fix === */
-html, body, #root{
-  max-width: 100%;
-  overflow-x: hidden;
-}
-
-.nav{
-  overflow: hidden;
-}
-
-.nav-inner{
-  flex-wrap: wrap;
-  row-gap: 10px;
-}
-
-.spacer{
-  display: none;
-}
-
-.nav-inner .pill,
-.nav-inner .btn,
-.nav-inner .brand{
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-@media (max-width: 1000px){
-  .nav-inner{
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .nav-inner::-webkit-scrollbar{
-    display: none;
-  }
-  .nav-inner > *{
-    flex: 0 0 auto;
-  }
-}
-
-
-/* ===== booking/payment cleanup ===== */
-.upiIdBox{
-  padding:12px 14px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(0,0,0,.18);
-  font-size:18px;
-  font-weight:800;
-  letter-spacing:.2px;
-  word-break:break-all;
-}
-.upiPayCard{ height:100%; }
-
-/* ===== desktop nav visibility fix ===== */
-.nav-inner{
-  flex-wrap:wrap;
-  row-gap:10px;
-}
-.spacer{ flex:1 1 auto; }
-
-@media (max-width: 1000px){
-  .nav{
-    overflow:hidden;
-  }
-  .nav-inner{
-    flex-wrap:nowrap;
-    overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
-    scrollbar-width:none;
-    padding-bottom:12px;
-  }
-  .nav-inner::-webkit-scrollbar{ display:none; }
-  .nav-inner > *{ flex:0 0 auto; }
-  .spacer{ display:none; }
-}
-
-/* ===== mobile overflow guard ===== */
-html, body, #root{ max-width:100%; overflow-x:hidden; }
-.container, .card, .chip, .photo, .modal{ min-width:0; }
-img{ max-width:100%; height:auto; }
-
-@media (max-width: 920px){
-  .grid{ grid-template-columns:1fr; }
-  .cols-12,.cols-10,.cols-9,.cols-8,.cols-7,.cols-6,.cols-5,.cols-4,.cols-3{ grid-column:1 / -1; }
-  .container{ padding:14px 12px 90px; }
-  h1{ font-size:28px; }
-  .card{ padding:16px; }
-  .kpi{ grid-template-columns:1fr; }
-}
-
-
-.membershipNote{
-  margin-bottom: 14px;
-}
-.membershipNoteTitle{
-  font-weight: 800;
-  letter-spacing: .2px;
-}
-.playerTabs{
-  align-items: center;
-}
-.leaderboardStack{
-  min-width: 0;
-}
-.linkBtn{
-  background: transparent;
-  border: 0;
-  color: inherit;
-  padding: 0;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.linkBtn:hover{
-  text-decoration: underline;
-}
-.pageHead{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  flex-wrap:wrap;
-}
-.pageHeadLeft{
-  display:flex;
-  align-items:flex-start;
-  gap:10px;
-  min-width:0;
-}
-.pageHeadRight{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-}
-.pageTitle{
-  font-size: 28px;
-  font-weight: 900;
-  line-height: 1.05;
-}
-.iconBtn{
-  width:42px;
-  height:42px;
-  display:grid;
-  place-items:center;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.04);
-  color: rgba(234,240,255,.92);
-  text-decoration:none;
-  cursor:pointer;
-}
-.field{
-  margin-top: 12px;
-}
-.field label{
-  display:block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.cardTitle{
-  font-weight: 800;
-  font-size: 18px;
-}
-.big{
-  font-weight: 900;
-  font-size: 22px;
-  line-height: 1.15;
-}
-.tap{
-  display:block;
-}
-.photoBox{
-  min-height: 220px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.03);
-  overflow: hidden;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-.photoBox img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:block;
-}
+/* ===== FIX 1: Player popup always above everything ===== */
 .modalOverlay{
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.55);
-  z-index: 2000;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding: 16px;
+  z-index:5000 !important;
 }
 .modal{
-  width:min(960px, 100%);
-  max-height: 90vh;
-  overflow:auto;
-  border-radius: 22px;
-  border:1px solid rgba(255,255,255,.12);
-  background: rgba(11,18,32,.96);
-  box-shadow: var(--shadow);
-  padding: 18px;
+  z-index:5001 !important;
+  position:relative;
 }
-.card{ overflow: visible; }
+
+/* ===== FIX 2: Admin panel cards overlapping ===== */
+.grid{
+  align-items:start;
+}
+
+.card{
+  overflow:visible !important;
+  position:relative;
+}
+
+/* Force admin cards to wrap cleanly */
+@media (min-width:900px){
+  .grid{
+    grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+  }
+}
+
+/* Ensure nav does not cover modals */
+.nav{
+  z-index:1000;
+}
+
+
+/* ===== FIX 3: Player name must look clickable and modal must render properly ===== */
+.linkBtn{
+  appearance:none;
+  -webkit-appearance:none;
+  border:none;
+  background:transparent;
+  color:rgba(255,255,255,0.96);
+  font:inherit;
+  font-weight:700;
+  padding:0;
+  margin:0;
+  cursor:pointer;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.linkBtn:hover{
+  opacity:0.9;
+}
+
+.modalOverlay{
+  position:fixed !important;
+  inset:0 !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:24px !important;
+  background:rgba(0,0,0,0.55) !important;
+  backdrop-filter:blur(4px);
+  z-index:5000 !important;
+}
+
+.modal{
+  position:relative !important;
+  width:min(760px, calc(100vw - 24px)) !important;
+  max-height:calc(100vh - 48px) !important;
+  overflow:auto !important;
+  border-radius:22px !important;
+  border:1px solid rgba(255,255,255,0.12) !important;
+  background:linear-gradient(180deg, rgba(10,18,40,0.98), rgba(8,14,28,0.96)) !important;
+  box-shadow:0 20px 60px rgba(0,0,0,0.45) !important;
+  z-index:5001 !important;
+}
+
+.modal .photoBox{
+  min-height:180px;
+}
