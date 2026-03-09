@@ -669,7 +669,7 @@ img{ max-width:100%; height:auto; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,.55);
-  z-index: 200;
+  z-index: 2000;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -685,3 +685,4 @@ img{ max-width:100%; height:auto; }
   box-shadow: var(--shadow);
   padding: 18px;
 }
+.card{ overflow: visible; }
