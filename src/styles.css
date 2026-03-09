@@ -567,168 +567,121 @@ img{ max-width:100%; height:auto; }
 }
 
 
-/* ---------------------------
-   Admin Panel redesign only
----------------------------- */
-.adminGrid{
-  display:grid;
-  grid-template-columns: minmax(0,1.45fr) minmax(320px,0.9fr) minmax(280px,0.8fr);
-  gap:16px;
-  align-items:start;
+.membershipNote{
+  margin-bottom: 14px;
 }
-.adminSection{
-  min-width:0;
+.membershipNoteTitle{
+  font-weight: 800;
+  letter-spacing: .2px;
 }
-.adminBookings{ grid-column: 1 / 2; }
-.adminAnnouncements{ grid-column: 2 / 3; }
-.adminBusiness{ grid-column: 3 / 4; }
-.adminMemberships{ grid-column: 1 / 2; }
-.adminPlayers{ grid-column: 2 / 4; }
-.adminTournament{ grid-column: 3 / 4; }
-.adminSectionHead{
+.playerTabs{
+  align-items: center;
+}
+.leaderboardStack{
+  min-width: 0;
+}
+.linkBtn{
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.linkBtn:hover{
+  text-decoration: underline;
+}
+.pageHead{
   display:flex;
-  justify-content:space-between;
   align-items:flex-start;
+  justify-content:space-between;
   gap:12px;
   flex-wrap:wrap;
-  margin-bottom:14px;
 }
-.adminStatRow{
+.pageHeadLeft{
   display:flex;
-  flex-wrap:wrap;
+  align-items:flex-start;
   gap:10px;
-  margin-bottom:14px;
+  min-width:0;
 }
-.adminStatPill{
-  display:inline-flex;
+.pageHeadRight{
+  display:flex;
   align-items:center;
   gap:8px;
-  padding:8px 12px;
-  border-radius:999px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.10);
-  color:rgba(234,240,255,.92);
-  font-size:13px;
+  flex-wrap:wrap;
 }
-.adminCardsStack{
+.pageTitle{
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+.iconBtn{
+  width:42px;
+  height:42px;
   display:grid;
-  gap:12px;
+  place-items:center;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: rgba(234,240,255,.92);
+  text-decoration:none;
+  cursor:pointer;
 }
-.adminCardsStack.compact{
-  gap:10px;
+.field{
+  margin-top: 12px;
 }
-.adminRequestCard,
-.adminMiniCard{
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.03);
-  border-radius:20px;
-  padding:16px;
-  min-width:0;
+.field label{
+  display:block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.adminRequestName{
-  font-size:20px;
-  font-weight:800;
-  line-height:1.15;
+.cardTitle{
+  font-weight: 800;
+  font-size: 18px;
 }
-.adminRequestMeta{
-  margin-top:10px;
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap:8px 14px;
-  color:rgba(234,240,255,.8);
-  font-size:14px;
+.big{
+  font-weight: 900;
+  font-size: 22px;
+  line-height: 1.15;
 }
-.adminInfoList{
-  display:grid;
-  gap:10px;
+.tap{
+  display:block;
 }
-.adminInfoRow{
+.photoBox{
+  min-height: 220px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.03);
+  overflow: hidden;
   display:flex;
-  justify-content:space-between;
   align-items:center;
-  gap:12px;
-  padding:14px 0;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  justify-content:center;
 }
-.adminInfoRow:last-child{
-  border-bottom:none;
-  padding-bottom:0;
+.photoBox img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
 }
-.adminMiniGrid{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap:12px;
-}
-.adminDualBoard{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap:12px;
-}
-.adminRankBoard{
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.03);
-  border-radius:20px;
-  padding:16px;
-  min-width:0;
-}
-.adminBoardHead{
-  font-weight:800;
-  font-size:18px;
-  margin-bottom:10px;
-}
-.adminRankRow{
-  display:grid;
-  grid-template-columns: 52px minmax(0,1fr) minmax(0,1fr) auto;
-  gap:10px;
+.modalOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 200;
+  display:flex;
   align-items:center;
-  padding:10px 0;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  justify-content:center;
+  padding: 16px;
 }
-.adminRankRow:last-child{ border-bottom:none; }
-.adminRankNum{
-  font-weight:800;
-}
-.adminRankName{
-  font-weight:700;
-}
-.adminRankPts{
-  white-space:nowrap;
-  color:rgba(234,240,255,.9);
-}
-
-@media (max-width: 1240px){
-  .adminGrid{
-    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
-  }
-  .adminBookings,
-  .adminMemberships{ grid-column: 1 / 2; }
-  .adminAnnouncements,
-  .adminBusiness,
-  .adminTournament{ grid-column: 2 / 3; }
-  .adminPlayers{ grid-column: 1 / 3; }
-}
-
-@media (max-width: 920px){
-  .adminGrid{
-    grid-template-columns: 1fr;
-  }
-  .adminBookings,
-  .adminAnnouncements,
-  .adminBusiness,
-  .adminMemberships,
-  .adminPlayers,
-  .adminTournament{ grid-column: auto; }
-  .adminMiniGrid,
-  .adminDualBoard{
-    grid-template-columns: 1fr;
-  }
-  .adminRequestMeta{
-    grid-template-columns: 1fr;
-  }
-  .adminRankRow{
-    grid-template-columns: 44px minmax(0,1fr) auto;
-  }
-  .adminRankRow .muted{
-    display:none;
-  }
+.modal{
+  width:min(960px, 100%);
+  max-height: 90vh;
+  overflow:auto;
+  border-radius: 22px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(11,18,32,.96);
+  box-shadow: var(--shadow);
+  padding: 18px;
 }
