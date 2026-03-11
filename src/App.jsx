@@ -1247,24 +1247,9 @@ function Membership({ data, admin, commit }) {
 
       <div className="container">
         <div className="membershipNote card small">
-          <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-            <div className="membershipNoteTitle">Please Note</div>
-            {admin ? (
-              <button
-                className="btn"
-                onClick={() => {
-                  const txt = prompt("Edit membership terms:", data.membershipNote || "");
-                  if(txt!==null){
-                    commit({...data, membershipNote: txt});
-                  }
-                }}
-              >
-                Edit
-              </button>
-            ) : null}
-          </div>
+          <div className="membershipNoteTitle">Please Note</div>
           <div className="muted" style={{ marginTop: 6 }}>
-            {data.membershipNote || "Monthly Membership perks are daily, non-transferable, and reset at 00:00. All perks are subject to table availability. For free play: Pool game max time 15 minutes, Mini Snooker max time 20 minutes, Snooker table max time 30 minutes. Unless otherwise specified, free play is valid only during the 11am–5pm slot."}
+            Monthly Membership perks are daily, non-transferable, and reset at 00:00. All perks are subject to table availability. For free play: Pool game max time 15 minutes, Mini Snooker max time 20 minutes, Snooker table max time 30 minutes. Unless otherwise specified, free play is valid only during the 11am–5pm slot.
           </div>
         </div>
 
