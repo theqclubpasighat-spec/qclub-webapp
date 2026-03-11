@@ -1295,7 +1295,7 @@ function Offers({ data, admin, commit }) {
       />
 
       <div className="container">
-        <div className="grid">
+                  <div className="grid offerGrid">
           {(data.offers || []).map((item) => (
             <div className="card cols-4" key={item.id}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1315,16 +1315,16 @@ function Offers({ data, admin, commit }) {
                 ) : null}
               </div>
 
-              <div style={{ marginTop: 12 }} className="muted">
+                            <div style={{ marginTop: 12 }} className="muted offerDetailsText">
                 {item.details || "Available at the club."}
               </div>
 
               {offerPriceLines(item.price).length > 1 ? (
-                <div style={{ marginTop: 12 }}>
+                <div className="offerLineChips">
                   {offerPriceLines(item.price).map((line) => (
-                    <div key={line} className="badge" style={{ marginRight: 8, marginBottom: 8 }}>
+                    <span key={line} className="offerMiniChip">
                       {line}
-                    </div>
+                    </span>
                   ))}
                 </div>
               ) : null}
@@ -2175,7 +2175,7 @@ function Photos({ data, admin, commit }) {
       </div>
             {activePhoto ? (
         <div className="modalBackdrop" onClick={() => setActivePhoto("")}>
-          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+          <div className="modalCard playerModal" onClick={(e) => e.stopPropagation()}>
             <img
               src={activePhoto}
               alt="Expanded"
@@ -2478,17 +2478,15 @@ function Players({ data, admin, commit, activeTournament }) {
         >
           {selectedPlayer.photo ? (
             <img
-              src={selectedPlayer.photo}
-              alt={selectedPlayer.name}
-              style={{
-                width: 120,
-                height: 120,
-                objectFit: "cover",
-                borderRadius: 18,
-                border: "1px solid rgba(255,255,255,.12)",
-                flexShrink: 0,
-              }}
-            />
+  src={selectedPlayer.photo}
+  alt={selectedPlayer.name}
+  style={{
+    width: "100%",
+    height: 420,
+    objectFit: "cover",
+    borderRadius: 18
+  }}
+/>
           ) : (
             <div
               style={{
