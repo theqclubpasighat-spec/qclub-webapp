@@ -2075,15 +2075,27 @@ function Membership({ data, admin, commit, startPayment }) {
           <button
   className="btn primary"
   onClick={async () => {
-    setMembershipError("");
-    setShowMembershipPopup(false);
 
-    try {
-      submitMembershipApplication();
-      await startPayment(
-        selectedTier ? safeNum(selectedTier.price, 0) : 0,
-        mobile || "9999999999"
-      );
+  if (!applicantName || applicantName.trim() === "") {
+    alert("Please enter your name");
+    return;
+  }
+
+  if (!mobile || mobile.trim().length < 10) {
+    alert("Please enter a valid mobile number");
+    return;
+  }
+
+  setMembershipError("");
+  setShowMembershipPopup(false);
+
+  try {
+    submitMembershipApplication();
+
+    await startPayment(
+      selectedTier ? safeNum(selectedTier.price, 0) : 0,
+      mobile.trim()
+    );
     } catch (err) {
       setShowMembershipPopup(true);
       setMembershipError("Unable to start payment. Please try again.");
