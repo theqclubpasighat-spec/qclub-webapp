@@ -616,6 +616,39 @@ export default function App() {
         )[0] || null
     );
   }, [data.tournaments]);
+    async function startPayment(amount, customerPhone = "9999999999") {
+    try {
+      const res = await fetch("/api/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount,
+          customer_phone: customerPhone,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data?.payment_session_id) {
+        const cashfree = window.Cashfree({
+          mode: "production",
+        });
+
+        cashfree.checkout({
+          paymentSessionId: data.payment_session_id,
+          redirectTarget: "_self",
+        });
+      } else {
+        alert("Unable to start payment. Please try again.");
+        console.log(data);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Payment error. Please try again.");
+    }
+  }
 
   function commit(next) {
     const safeNext = mergeWithDefaults(next);
@@ -1297,38 +1330,42 @@ function Offers({ data, admin, commit }) {
       <div className="container">
                   <div className="grid offerGrid">
           {(data.offers || []).map((item) => (
-            <div className="card cols-4" key={item.id}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <h2 style={{ marginBottom: 6 }}>{item.title}</h2>
-                  <div className="badge">
-                    <span className="dot" />
-                    {item.price || "Ask at counter"}
-                  </div>
-                </div>
+            <div className="card cols-4 offerCard" key={item.id}>
+  <div className="offerCardTop">
+    <div className="offerCardHead">
+      <h2 className="offerCardTitle">{item.title}</h2>
 
-                {admin ? (
-                  <div className="row">
-                    <button className="btn" onClick={() => editOffer(item.id)}>Edit</button>
-                    <button className="btn danger" onClick={() => deleteOffer(item.id)}>Delete</button>
-                  </div>
-                ) : null}
-              </div>
+      {!offerPriceLines(item.price).length ? (
+        <div className="badge">
+          <span className="dot" />
+          Ask at counter
+        </div>
+      ) : null}
+    </div>
 
-                            <div style={{ marginTop: 12 }} className="muted offerDetailsText">
-                {item.details || "Available at the club."}
-              </div>
+    {admin ? (
+      <div className="row offerAdminBtns">
+        <button className="btn" onClick={() => editOffer(item.id)}>Edit</button>
+        <button className="btn danger" onClick={() => deleteOffer(item.id)}>Delete</button>
+      </div>
+    ) : null}
+  </div>
 
-              {offerPriceLines(item.price).length > 1 ? (
-                <div className="offerLineChips">
-                  {offerPriceLines(item.price).map((line) => (
-                    <span key={line} className="offerMiniChip">
-                      {line}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+  {offerPriceLines(item.price).length > 0 ? (
+    <div className="offerLineList">
+      {offerPriceLines(item.price).map((line) => (
+        <div key={line} className="offerLinePill">
+          <span className="dot" />
+          <span>{line}</span>
+        </div>
+      ))}
+    </div>
+  ) : null}
+
+  <div className="offerDetailsText">
+    {item.details || "Available at the club."}
+  </div>
+</div>
           ))}
         </div>
       </div>
@@ -1595,9 +1632,16 @@ function BookTable({ data, admin, commit }) {
                 <div style={{ fontSize: 28, fontWeight: 900 }}>₹{amount}</div>
               </div>
 
-              <button className="btn primary" onClick={submitBooking} type="button">
-                Submit Booking
-              </button>
+              <button
+  className="btn primary"
+  onClick={() => {
+    submitBooking();
+    startPayment(amount, mobile || "9999999999");
+  }}
+  type="button"
+>
+  Submit Booking
+</button>
             </div>
 
             {submittedId ? (
