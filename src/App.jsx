@@ -633,7 +633,7 @@ export default function App() {
 
       if (data?.payment_session_id) {
         const cashfree = window.Cashfree({
-          mode: "sandbox",
+          mode: "production",
         });
 
         cashfree.checkout({
