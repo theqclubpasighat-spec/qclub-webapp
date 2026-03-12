@@ -1762,6 +1762,7 @@ function Membership({ data, admin, commit, startPayment }) {
   const [memberRef, setMemberRef] = useState("");
   const [submittedId, setSubmittedId] = useState("");
   const [showMembershipPopup, setShowMembershipPopup] = useState(false);
+  const [membershipError, setMembershipError] = useState("");
 
   const tiers = data.memberships || [];
   const selectedTier =
@@ -2060,18 +2061,30 @@ function Membership({ data, admin, commit, startPayment }) {
           </div>
 
           <button
-            className="btn primary"
-            onClick={() => {
-              submitMembershipApplication();
-              startPayment(
-                selectedTier ? safeNum(selectedTier.price, 0) : 0,
-                mobile || "9999999999"
-              );
-            }}
-          >
-            Proceed to Payment
-          </button>
-        </div>
+  className="btn primary"
+  onClick={async () => {
+    setMembershipError("");
+    setShowMembershipPopup(false);
+
+    try {
+      submitMembershipApplication();
+      await startPayment(
+        selectedTier ? safeNum(selectedTier.price, 0) : 0,
+        mobile || "9999999999"
+      );
+    } catch (err) {
+      setShowMembershipPopup(true);
+      setMembershipError("Unable to start payment. Please try again.");
+    }
+  }}
+>
+  Proceed to Payment
+</button>
+        </div>{membershipError ? (
+  <div style={{ marginTop: 14, color: "#ffb4b4", fontWeight: 600 }}>
+    {membershipError}
+  </div>
+) : null}
 
         {submittedId ? (
           <div style={{ marginTop: 14 }}>
