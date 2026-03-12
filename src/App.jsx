@@ -762,6 +762,7 @@ export default function App() {
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
         <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
+        <Route path="/payment-status" element={<PaymentStatus />} />
         <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
@@ -3777,6 +3778,68 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
         </div>
       </div>
     </>
+  );
+}
+function PaymentStatus() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [status, setStatus] = useState("checking");
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const order_id = params.get("order_id");
+
+    if (!order_id) {
+      setStatus("failed");
+      return;
+    }
+
+    fetch(`/api/get-order-status?order_id=${order_id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.order_status === "PAID") {
+          setStatus("success");
+        } else {
+          setStatus("failed");
+        }
+      })
+      .catch(() => setStatus("failed"));
+  }, [location.search]);
+
+  return (
+    <div className="container">
+      <div className="card" style={{maxWidth:600,margin:"40px auto"}}>
+
+        {status === "checking" && (
+          <>
+            <h2>Checking your payment...</h2>
+          </>
+        )}
+
+        {status === "success" && (
+          <>
+            <h2>Payment Successful 🎉</h2>
+            <p>Thank you for your payment at The Q Club.</p>
+
+            <button className="btn primary" onClick={()=>navigate("/")}>
+              Go Home
+            </button>
+          </>
+        )}
+
+        {status === "failed" && (
+          <>
+            <h2>Payment Not Completed</h2>
+            <p>Your payment was cancelled or failed.</p>
+
+            <button className="btn primary" onClick={()=>navigate("/book")}>
+              Try Again
+            </button>
+          </>
+        )}
+
+      </div>
+    </div>
   );
 }
 function NotFound() {
