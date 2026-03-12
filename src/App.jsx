@@ -735,7 +735,17 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
-        <Route path="/book" element={<BookTable data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/book"
+  element={
+    <BookTable
+      data={data}
+      admin={admin}
+      commit={commit}
+      startPayment={startPayment}
+    />
+  }
+/>
         <Route path="/membership" element={<Membership data={data} admin={admin} commit={commit} />} />
         <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
@@ -1372,7 +1382,7 @@ function Offers({ data, admin, commit }) {
     </>
   );
 }
-function BookTable({ data, admin, commit }) {
+function BookTable({ data, admin, commit, startPayment }) {
   const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
