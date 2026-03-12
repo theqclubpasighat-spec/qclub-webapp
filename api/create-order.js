@@ -17,14 +17,17 @@ export default async function handler(req, res) {
       "x-api-version": "2022-09-01"
     },
     body: JSON.stringify({
-      order_id: order_id,
-      order_amount: amount,
-      order_currency: "INR",
-      customer_details: {
-        customer_id: "cust_" + Date.now(),
-        customer_phone: customer_phone
-      }
-    })
+  order_id: order_id,
+  order_amount: amount,
+  order_currency: "INR",
+  customer_details: {
+    customer_id: "cust_" + Date.now(),
+    customer_phone: customer_phone
+  },
+  order_meta: {
+    return_url: "https://www.theqclubpasighat.com/payment-status?order_id={order_id}"
+  }
+})
   });
 
   const data = await response.json();
