@@ -746,7 +746,17 @@ export default function App() {
     />
   }
 />
-        <Route path="/membership" element={<Membership data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/membership"
+  element={
+    <Membership
+      data={data}
+      admin={admin}
+      commit={commit}
+      startPayment={startPayment}
+    />
+  }
+/>
         <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
@@ -1424,6 +1434,7 @@ function BookTable({ data, admin, commit, startPayment }) {
     if (!mobile.trim()) return alert("Please enter mobile number");
     if (!selectedTable) return alert("Please select table");
     if (!bookingDate) return alert("Please select date");
+    if (bookingDate < todayIso()) return alert("Past dates are not allowed");
     if (!timeSlot) return alert("Please select a time slot");
 
     const req = {
@@ -1522,7 +1533,7 @@ function BookTable({ data, admin, commit, startPayment }) {
     <>
       <PageShell
         title="Book Table"
-        subtitle="Quick booking + UPI QR"
+        subtitle="Quick Booking + Secure Online Payment"
         right={
           admin ? (
             <Link className="btn" to="/admin-panel">
@@ -1602,11 +1613,14 @@ function BookTable({ data, admin, commit, startPayment }) {
               <div className="cols-6">
                 <label className="lbl">Booking Date</label>
                 <input
-                  type="date"
-                  value={bookingDate}
-                  min={todayIso()}
-                  onChange={(e) => setBookingDate(e.target.value)}
-                />
+  type="date"
+  value={bookingDate}
+  min={todayIso()}
+  onChange={(e) => {
+    setBookingDate(e.target.value);
+  }}
+
+/>
               </div>
 
               <div className="cols-6">
@@ -1664,36 +1678,7 @@ function BookTable({ data, admin, commit, startPayment }) {
             ) : null}
           </div>
 
-          <div className="card cols-5 upiPayCard">
-            <h2>{bookingType === "member" ? "Proceed to Payment" : "Payment"}</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Scan this QR to pay the shown amount. Verification is done by admin.
-            </div>
-
-            <div className="qrBox">
-              <img src={qr} alt="UPI QR" width="260" height="260" />
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <div className="muted">UPI ID</div>
-              <div className="upiIdBox">{upiId}</div>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <div className="muted">UPI Name</div>
-              <div className="badge" style={{ marginTop: 6 }}>
-                <span className="dot" />
-                {upiName}
-              </div>
-            </div>
-
-            <div className="row" style={{ marginTop: 14 }}>
-              <a className="btn primary" href={upiLink}>
-                Open UPI App
-              </a>
-            </div>
-          </div>
-
+          
           {admin ? (
   <div className="card cols-12">
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -1770,12 +1755,13 @@ function BookTable({ data, admin, commit, startPayment }) {
     </>
   );
 }
-function Membership({ data, admin, commit }) {
+function Membership({ data, admin, commit, startPayment }) {
   const [selectedTierId, setSelectedTierId] = useState("");
   const [applicantName, setApplicantName] = useState("");
   const [mobile, setMobile] = useState("");
   const [memberRef, setMemberRef] = useState("");
   const [submittedId, setSubmittedId] = useState("");
+  const [showMembershipPopup, setShowMembershipPopup] = useState(false);
 
   const tiers = data.memberships || [];
   const selectedTier =
@@ -1916,7 +1902,7 @@ function Membership({ data, admin, commit }) {
     setApplicantName("");
     setMobile("");
     setMemberRef("");
-    alert("Membership application submitted. Proceed to payment and await verification.");
+    
   }
 
   const upiId = normalizedClubUpiId(data.club?.upiId);
@@ -1935,7 +1921,7 @@ function Membership({ data, admin, commit }) {
     <>
       <PageShell
         title="Membership"
-        subtitle="Apply for Membership"
+        subtitle="Apply for Membership with Secure Online Payment"
         right={
           admin ? (
             <div className="row">
@@ -1980,7 +1966,10 @@ function Membership({ data, admin, commit }) {
                 <div className="row">
                   <button
   className="btn"
-  onClick={() => setSelectedTierId(tier.id)}
+  onClick={() => {
+    setSelectedTierId(tier.id);
+    setShowMembershipPopup(true);
+  }}
 >
   Apply Now
 </button>
@@ -2006,106 +1995,98 @@ function Membership({ data, admin, commit }) {
             </div>
           ))}
 
-          <div className="card cols-7">
-            <h2>Apply for Membership</h2>
+          {showMembershipPopup ? (
+  <div className="modalBackdrop" onClick={() => setShowMembershipPopup(false)}>
+    <div className="modalCard playerModal" onClick={(e) => e.stopPropagation()}>
+      <div className="card" style={{ margin: 0 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0 }}>Apply for Membership</h2>
+          <button className="btn" onClick={() => setShowMembershipPopup(false)}>
+            Close
+          </button>
+        </div>
 
-            <div className="grid">
-              <div className="cols-6">
-                <label className="lbl">Selected Tier</label>
-                <select
-                  value={selectedTierId}
-                  onChange={(e) => setSelectedTierId(e.target.value)}
-                >
-                  {(tiers || []).map((tier) => (
-                    <option value={tier.id} key={tier.id}>
-                      {tier.tier} — ₹{safeNum(tier.price, 0)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="cols-6">
-                <label className="lbl">Applicant Name</label>
-                <input
-                  value={applicantName}
-                  onChange={(e) => setApplicantName(e.target.value)}
-                  placeholder="Enter full name"
-                />
-              </div>
-
-              <div className="cols-6">
-                <label className="lbl">Mobile Number</label>
-                <input
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  placeholder="Enter mobile number"
-                />
-              </div>
-
-              <div className="cols-6">
-                <label className="lbl">Reference / ID (optional)</label>
-                <input
-                  value={memberRef}
-                  onChange={(e) => setMemberRef(e.target.value)}
-                  placeholder="Enter reference"
-                />
-              </div>
-            </div>
-
-            <div className="hr" />
-
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div className="muted">Membership Fee</div>
-                <div style={{ fontSize: 28, fontWeight: 900 }}>
-                  ₹{selectedTier ? safeNum(selectedTier.price, 0) : 0}
-                </div>
-              </div>
-
-              <button className="btn primary" onClick={submitMembershipApplication}>
-                Proceed to Payment
-              </button>
-            </div>
-
-            {submittedId ? (
-              <div style={{ marginTop: 14 }}>
-                <span className="badge">
-                  <span className="dot warn" />
-                  Application submitted. Reference: {submittedId}
-                </span>
-              </div>
-            ) : null}
+        <div className="grid" style={{ marginTop: 14 }}>
+          <div className="cols-6">
+            <label className="lbl">Selected Tier</label>
+            <select
+              value={selectedTierId}
+              onChange={(e) => setSelectedTierId(e.target.value)}
+            >
+              {(tiers || []).map((tier) => (
+                <option value={tier.id} key={tier.id}>
+                  {tier.tier} — ₹{safeNum(tier.price, 0)}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div className="card cols-5 upiPayCard">
-            <h2>Proceed to Payment</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Scan the QR to pay the membership fee for the selected tier.
-            </div>
+          <div className="cols-6">
+            <label className="lbl">Applicant Name</label>
+            <input
+              value={applicantName}
+              onChange={(e) => setApplicantName(e.target.value)}
+              placeholder="Enter full name"
+            />
+          </div>
 
-            <div className="qrBox">
-              <img src={qr} alt="Membership UPI QR" width="260" height="260" />
-            </div>
+          <div className="cols-6">
+            <label className="lbl">Mobile Number</label>
+            <input
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              placeholder="Enter mobile number"
+            />
+          </div>
 
-            <div style={{ marginTop: 14 }}>
-              <div className="muted">UPI ID</div>
-              <div className="upiIdBox">{upiId}</div>
-            </div>
+          <div className="cols-6">
+            <label className="lbl">Reference / ID (optional)</label>
+            <input
+              value={memberRef}
+              onChange={(e) => setMemberRef(e.target.value)}
+              placeholder="Enter reference"
+            />
+          </div>
+        </div>
 
-            <div style={{ marginTop: 12 }}>
-              <div className="muted">UPI Name</div>
-              <div className="badge" style={{ marginTop: 6 }}>
-                <span className="dot" />
-                {upiName}
-              </div>
-            </div>
+        <div className="hr" />
 
-            <div className="row" style={{ marginTop: 14 }}>
-              <a className="btn primary" href={upiLink}>
-                Open UPI App
-              </a>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div className="muted">Membership Fee</div>
+            <div style={{ fontSize: 28, fontWeight: 900 }}>
+              ₹{selectedTier ? safeNum(selectedTier.price, 0) : 0}
             </div>
           </div>
+
+          <button
+            className="btn primary"
+            onClick={() => {
+              submitMembershipApplication();
+              startPayment(
+                selectedTier ? safeNum(selectedTier.price, 0) : 0,
+                mobile || "9999999999"
+              );
+            }}
+          >
+            Proceed to Payment
+          </button>
+        </div>
+
+        {submittedId ? (
+          <div style={{ marginTop: 14 }}>
+            <span className="badge">
+              <span className="dot warn" />
+              Application submitted. Reference: {submittedId}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  </div>
+) : null}
+
+          
         </div>
       </div>
     </>
