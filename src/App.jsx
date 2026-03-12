@@ -762,7 +762,7 @@ export default function App() {
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
         <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
-        <Route path="/payment-status" element={<PaymentStatus />} />
+        
         <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
         <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
@@ -772,6 +772,7 @@ export default function App() {
         <Route path="/terms" element={<StaticPage title="Terms & Conditions"><TermsContent /></StaticPage>} />
         <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
+        <Route path="/payment-status" element={<PaymentStatus />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
 
@@ -1660,9 +1661,19 @@ function BookTable({ data, admin, commit, startPayment }) {
               <button
   className="btn primary"
   onClick={() => {
-    submitBooking();
-    startPayment(amount, mobile || "9999999999");
-  }}
+  if (!name || name.trim() === "") {
+    alert("Please enter your name");
+    return;
+  }
+
+  if (!mobile || mobile.trim().length < 10) {
+    alert("Please enter a valid mobile number");
+    return;
+  }
+
+  submitBooking();
+  startPayment(amount, mobile.trim());
+}}
   type="button"
 >
   Submit Booking
