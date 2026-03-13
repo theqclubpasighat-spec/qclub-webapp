@@ -765,7 +765,16 @@ export default function App() {
         
         <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
-        <Route path="/tv" element={<TVMode data={data} activeTournament={activeTournament} players={playersForTournament(activeTournament)} />} />
+        <Route
+  path="/tv"
+  element={
+    <TVMode
+      data={data}
+      activeTournament={activeTournament}
+      players={playersForTournament(activeTournament, data.players || [])}
+    />
+  }
+/>
         <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/about" element={<StaticPage title="About The Q Club"><AboutContent data={data} /></StaticPage>} />
         <Route path="/contact" element={<StaticPage title="Contact Us"><ContactContent data={data} /></StaticPage>} />
@@ -790,10 +799,10 @@ function FooterLinks() {
           <div>
             <div className="siteFooterBrand">The Q Club</div>
             <div className="muted">
-              Premium indoor gaming lounge in Pasighat with cue sports and leisure activities.
+              Premium indoor gaming lounge at GTC, Pasighat.
             </div>
             <div className="muted" style={{ marginTop: 10 }}>
-              The Q Club is a recreational indoor sports lounge offering cue sports and leisure activities.
+              Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee.
             </div>
           </div>
 
@@ -809,7 +818,6 @@ function FooterLinks() {
     </footer>
   );
 }
-
 function StaticPage({ title, children }) {
   return (
     <>
@@ -1105,56 +1113,54 @@ function Home({ data, admin, commit, activeTournament }) {
     .filter(Boolean)
     .join(" / ");
 
-  const galleryItems =
-    (data.photos || []).slice(0, 3).map((p) => ({
-      id: p.id,
-      url: p.dataUrl || p.url,
-      caption: p.caption || "The Q Club",
-    })) ||
-    [];
+  const galleryItems = (data.photos || []).slice(0, 6).map((p) => ({
+    id: p.id,
+    url: p.dataUrl || p.url,
+    caption: p.caption || "The Q Club",
+  }));
 
-  const fallbackGallery = [
+  const heroPhotos = galleryItems.length
+    ? galleryItems.slice(0, 3)
+    : [
+        {
+          id: "fallback-1",
+          url: "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1800&q=80",
+          caption: "Snooker",
+        },
+      ];
+
+  const features = [
     {
-      id: "fallback-1",
-      url: "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80",
-      caption: "Premium Snooker",
+      title: "Premium Cue Sports",
+      text: "Full-size snooker, mini snooker and American pool in a proper club environment.",
     },
     {
-      id: "fallback-2",
-      url: "https://images.unsplash.com/photo-1511884642898-4c92249e20b6?auto=format&fit=crop&w=1200&q=80",
-      caption: "Club Atmosphere",
+      title: "Fast Fun Between Frames",
+      text: "Air Hockey and Foosball for quick competitive sessions.",
     },
     {
-      id: "fallback-3",
-      url: "https://images.unsplash.com/photo-1543357480-c60d40007a3f?auto=format&fit=crop&w=1200&q=80",
-      caption: "Game Night",
+      title: "Relax & Recharge",
+      text: "Massage chair plus tea and coffee inside the club.",
+    },
+    {
+      title: "Tournaments & Rankings",
+      text: "Monthly events, fixtures, standings and player profiles.",
     },
   ];
 
-  const photos = galleryItems.length ? galleryItems : fallbackGallery;
-
-  const highlights = [
-    {
-      title: "Premium Tables",
-      text: "Snooker, Mini Snooker and American Pool in a premium lounge setting.",
-    },
-    {
-      title: "Club Events",
-      text: "Friendly matches and monthly recreational tournaments.",
-    },
-    {
-      title: "Relax & Refresh",
-      text: "Massage chair, tea, coffee and club-style downtime.",
-    },
-    {
-      title: "More Than Cue Sports",
-      text: "Air Hockey and Foosball for quick fun between longer sessions.",
-    },
-  ];
+  const currentOffers = (data.offers || []).slice(0, 4);
 
   return (
     <div className="container premiumHome">
-      <section className="homeHeroPanel">
+      <section
+        className="homeHeroPanel"
+        style={{
+          backgroundImage: `linear-gradient(180deg, rgba(5,9,14,.24), rgba(5,9,14,.82)),
+            radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.18), transparent 60%),
+            radial-gradient(900px 420px at 90% 10%, rgba(255,77,77,.14), transparent 60%),
+            url("${heroPhotos[0]?.url}")`,
+        }}
+      >
         <div className="homeHeroOverlay">
           <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
             <span className="badge premiumBadgeLite">
@@ -1163,33 +1169,36 @@ function Home({ data, admin, commit, activeTournament }) {
             </span>
 
             <span className="badge premiumBadgeLite">
-              Recreational Indoor Sports Lounge
+              GTC, {data.club?.location || "Pasighat"}
             </span>
           </div>
 
           <div className="homeHeroCopy">
-            <div className="heroEyebrowLite">Premium Gaming Lounge • Pasighat</div>
+            <div className="heroEyebrowLite">The Q Club • Pasighat</div>
             <h1 className="heroMainTitle">{data.club?.name || "The Q CLUB"}</h1>
-            <div className="heroMainSubtitle">
-{data.club?.tagline2 || "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
-</div>
 
-{admin && (
-<button
-className="btn"
-onClick={()=>{
-const v = prompt("Edit feature line", data.club?.tagline2 || "")
-if(v){
-commit({
-...data,
-club:{...data.club, tagline2:v}
-})
-}
-}}
->
-Edit
-</button>
-)}  
+            <div className="heroMainSubtitle">
+              {data.club?.tagline2 ||
+                "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
+            </div>
+
+            {admin ? (
+              <button
+                className="btn"
+                style={{ marginTop: 14 }}
+                onClick={() => {
+                  const v = prompt("Edit feature line", data.club?.tagline2 || "");
+                  if (v !== null) {
+                    commit({
+                      ...data,
+                      club: { ...data.club, tagline2: v },
+                    });
+                  }
+                }}
+              >
+                Edit Feature Line
+              </button>
+            ) : null}
 
             <div className="heroButtonRow">
               <Link className="btn primary premiumCta" to="/book">
@@ -1197,6 +1206,9 @@ Edit
               </Link>
               <Link className="btn premiumGhost" to="/membership">
                 Membership
+              </Link>
+              <Link className="btn premiumGhost" to="/offer">
+                What We Offer
               </Link>
             </div>
           </div>
@@ -1206,7 +1218,7 @@ Edit
       <section className="infoCardsGrid">
         <div className="premiumHeroCard">
           <div className="infoLabel">Location</div>
-          <div className="infoValue">{data.club?.location || "Pasighat"}</div>
+          <div className="infoValue">GTC, {data.club?.location || "Pasighat"}</div>
         </div>
 
         <div className="premiumHeroCard">
@@ -1221,27 +1233,34 @@ Edit
       </section>
 
       <section className="quickLinksRow">
-        
+        <Link className="quickLinkTile" to="/book">
+          <div className="quickLinkTitle">Book a Table</div>
+          <div className="muted">Reserve your next session</div>
+        </Link>
+
         <Link className="quickLinkTile" to="/leaderboard">
           <div className="quickLinkTitle">Leaderboards</div>
-          <div className="muted">Snooker and Pool rankings at a glance</div>
+          <div className="muted">Snooker and Pool rankings</div>
+        </Link>
+
+        <Link className="quickLinkTile" to="/players">
+          <div className="quickLinkTitle">Players</div>
+          <div className="muted">Profiles, rankings and stats</div>
         </Link>
       </section>
 
       <section className="sectionBlock tournamentSpotlight">
         <div className="sectionKicker">Current Highlight</div>
         <h2 className="sectionHeadline">
-          {activeTournament ? activeTournament.name : "Club Events Coming Soon"}
+          {activeTournament ? activeTournament.name : "Q Club Experience"}
         </h2>
 
         <div className="tournamentSpotlightGrid">
           <div>
             <div className="spotlightMeta muted">
               {activeTournament
-                ? `${activeTournament.month || "This Month"} • ${
-                    activeTournament.game || "Snooker"
-                  }`
-                : "Friendly matches and recreational tournaments organised by the club."}
+                ? `${activeTournament.month || "This Month"} • ${activeTournament.game || "Snooker"}`
+                : "Premium recreational indoor gaming lounge with cue sports and leisure activities."}
             </div>
 
             <div className="row" style={{ marginTop: 16 }}>
@@ -1257,22 +1276,45 @@ Edit
           <div className="spotlightNoteBox">
             <div className="infoLabel">Club Note</div>
             <div className="spotlightNoteText">
-              The Q Club is a recreational indoor sports lounge offering cue sports
-              and leisure activities.
+              The Q Club is built for serious play, friendly competition and a premium lounge feel in Pasighat.
             </div>
           </div>
         </div>
       </section>
 
       <section className="sectionBlock">
-        <div className="sectionKicker">Inside The Q Club</div>
-        <h2 className="sectionHeadline">A more premium club experience</h2>
+        <div className="sectionKicker">What We Offer</div>
+        <h2 className="sectionHeadline">Games, comfort and club atmosphere</h2>
+
+        <div className="whyGridCompact">
+          {currentOffers.length
+            ? currentOffers.map((item) => (
+                <div className="whyTile" key={item.id}>
+                  <div className="quickLinkTitle">{item.title}</div>
+                  <div className="muted">{item.price || "Ask at counter"}</div>
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    {item.details || "Available at the club."}
+                  </div>
+                </div>
+              ))
+            : features.map((item) => (
+                <div className="whyTile" key={item.title}>
+                  <div className="quickLinkTitle">{item.title}</div>
+                  <div className="muted">{item.text}</div>
+                </div>
+              ))}
+        </div>
+      </section>
+
+      <section className="sectionBlock">
+        <div className="sectionKicker">Inside The Club</div>
+        <h2 className="sectionHeadline">A premium gaming space in Pasighat</h2>
         <div className="muted">
-          Use real club photos later for the best effect. These are placeholders for now.
+          Real club photos appear here automatically when uploaded from admin.
         </div>
 
         <div className="galleryStrip">
-          {photos.map((item) => (
+          {(galleryItems.length ? galleryItems.slice(0, 3) : heroPhotos).map((item) => (
             <div className="miniGalleryCard" key={item.id}>
               <img src={item.url} alt={item.caption} />
               <div className="miniGalleryCap">{item.caption}</div>
@@ -1282,11 +1324,11 @@ Edit
       </section>
 
       <section className="sectionBlock">
-        <div className="sectionKicker">Why Q Club</div>
-        <h2 className="sectionHeadline">Built for players, friends and club nights</h2>
+        <div className="sectionKicker">Why The Q Club</div>
+        <h2 className="sectionHeadline">More than just a table booking app</h2>
 
         <div className="whyGridCompact">
-          {highlights.map((item) => (
+          {features.map((item) => (
             <div className="whyTile" key={item.title}>
               <div className="quickLinkTitle">{item.title}</div>
               <div className="muted">{item.text}</div>
@@ -1670,6 +1712,12 @@ function BookTable({ data, admin, commit, startPayment }) {
     alert("Please enter a valid mobile number");
     return;
   }
+  localStorage.setItem("qclub_payment_context", "booking");
+localStorage.setItem("qclub_payment_name", name.trim());
+localStorage.setItem("qclub_payment_mobile", mobile.trim());
+localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
+localStorage.setItem("qclub_booking_date", bookingDate || "");
+localStorage.setItem("qclub_booking_slot", timeSlot || "");
 
   submitBooking();
   startPayment(amount, mobile.trim());
@@ -1772,6 +1820,7 @@ function Membership({ data, admin, commit, startPayment }) {
   const [applicantName, setApplicantName] = useState("");
   const [mobile, setMobile] = useState("");
   const [memberRef, setMemberRef] = useState("");
+  const [tshirtSize, setTshirtSize] = useState("M");
   const [submittedId, setSubmittedId] = useState("");
   const [showMembershipPopup, setShowMembershipPopup] = useState(false);
   const [membershipError, setMembershipError] = useState("");
@@ -1892,6 +1941,7 @@ function Membership({ data, admin, commit, startPayment }) {
       name: applicantName.trim(),
       mobile: mobile.trim(),
       memberId: memberRef.trim(),
+      tshirtSize,
       bookingType: "member",
       itemId: `membership-${selectedTier.id}`,
       itemLabel: `${selectedTier.tier} Membership`,
@@ -2061,6 +2111,20 @@ function Membership({ data, admin, commit, startPayment }) {
             />
           </div>
         </div>
+        <div className="cols-6">
+  <label className="lbl">T-Shirt Size</label>
+  <select
+    value={tshirtSize}
+    onChange={(e) => setTshirtSize(e.target.value)}
+  >
+    <option value="S">S</option>
+    <option value="M">M</option>
+    <option value="L">L</option>
+    <option value="XL">XL</option>
+    <option value="XXL">XXL</option>
+    <option value="XXXL">XXXL</option>
+  </select>
+</div>
 
         <div className="hr" />
 
@@ -2085,6 +2149,11 @@ function Membership({ data, admin, commit, startPayment }) {
     alert("Please enter a valid mobile number");
     return;
   }
+  localStorage.setItem("qclub_payment_context", "membership");
+localStorage.setItem("qclub_payment_name", applicantName.trim());
+localStorage.setItem("qclub_payment_mobile", mobile.trim());
+localStorage.setItem("qclub_membership_tier", selectedTier?.tier || "");
+localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
 
   setMembershipError("");
   setShowMembershipPopup(false);
@@ -2218,7 +2287,15 @@ function Photos({ data, admin, commit }) {
                 <img
   src={p.dataUrl || p.url}
   alt={p.caption || "The Q Club"}
-  style={{ cursor: "pointer", maxHeight: 180, objectFit: "cover", width: "100%" }}
+  style={{
+    cursor: "pointer",
+    height: 220,
+    objectFit: "contain",
+    width: "100%",
+    background: "#0b1020",
+    borderRadius: 12,
+    padding: 8
+  }}
   onClick={() => setActivePhoto(p.dataUrl || p.url)}
 />
                 <div className="photoCardFooter">
@@ -2960,7 +3037,25 @@ function Fixtures({ data, admin, commit }) {
   const standings = selectedTournament
     ? calcLeaderboard(playersForTournament(selectedTournament, players), selectedTournament)
     : [];
+function updateMatchStatus(matchId, status) {
 
+  commit({
+    ...data,
+    tournaments: tournaments.map((t) =>
+      t.id !== selectedTournament.id
+        ? t
+        : {
+            ...t,
+            matches: (t.matches || []).map((m) =>
+              m.id === matchId
+                ? { ...m, status, updatedAt: Date.now() }
+                : m
+            ),
+          }
+    ),
+  });
+
+}
   return (
     <>
       <PageShell
@@ -2996,6 +3091,7 @@ function Fixtures({ data, admin, commit }) {
         ) : (
           <>
             <div className="grid">
+              {admin ? (
               <div className="card cols-5">
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <h2 style={{ margin: 0 }}>Participants</h2>
@@ -3042,10 +3138,45 @@ function Fixtures({ data, admin, commit }) {
                   )}
                 </div>
               </div>
+              ) : null}
 
-              <div className="card cols-7">
+              <div className={`card ${admin ? "cols-7" : "cols-12"}`}>
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <h2 style={{ margin: 0 }}>Standings Preview</h2>
+                  {admin ? (
+    <button
+      className="btn"
+      onClick={() => {
+  const name = prompt("Player Name");
+  if (!name) return;
+
+  const value = prompt("Highest Break");
+  if (value === null) return;
+
+  const player = data.players.find(
+    (x) => x.name.toLowerCase() === name.trim().toLowerCase()
+  );
+
+  if (!player) {
+    alert("Player not found");
+    return;
+  }
+
+  commit({
+    ...data,
+    players: (data.players || []).map((p) =>
+      p.id === player.id
+        ? { ...p, bestBreak: Number(value || 0) }
+        : p
+    ),
+  });
+
+  alert("Highest Break updated");
+}}
+    >
+      Edit Break
+    </button>
+  ) : null}
                   <span className="badge">
                     <span className="dot warn" />
                     Live from results
@@ -3062,24 +3193,26 @@ function Fixtures({ data, admin, commit }) {
                       <thead>
                         <tr>
                           <th>#</th>
-                          <th>Player</th>
-                          <th>P</th>
-                          <th>W</th>
-                          <th>D</th>
-                          <th>L</th>
-                          <th>Pts</th>
+<th>Player</th>
+<th>P</th>
+<th>W</th>
+<th>L</th>
+<th>Pts</th>
+{tournamentGameKey(selectedTournament.game) === "snooker" ? <th>Highest Break</th> : null}
                         </tr>
                       </thead>
                       <tbody>
                         {standings.map((r, i) => (
                           <tr key={r.id}>
                             <td>#{i + 1}</td>
-                            <td>{r.name}</td>
-                            <td>{r.played}</td>
-                            <td>{r.wins}</td>
-                            <td>{r.draws}</td>
-                            <td>{r.losses}</td>
-                            <td>{r.points}</td>
+<td>{r.name}</td>
+<td>{r.played}</td>
+<td>{r.wins}</td>
+<td>{r.losses}</td>
+<td>{r.points}</td>
+{tournamentGameKey(selectedTournament.game) === "snooker" ? (
+  <td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
+) : null}
                           </tr>
                         ))}
                       </tbody>
@@ -3266,30 +3399,28 @@ function LeaderboardAll({ data }) {
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>Player</th>
-                      <th>City</th>
-                      <th>P</th>
-                      <th>W</th>
-                      <th>D</th>
-                      <th>L</th>
-                      <th>Pts</th>
-                      <th>For</th>
-                      <th>Against</th>
+<th>Player</th>
+<th>City</th>
+<th>P</th>
+<th>W</th>
+<th>L</th>
+<th>Pts</th>
+{selectedGameKey === "snooker" ? <th>Highest Break</th> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {standings.map((r, i) => (
                       <tr key={r.id}>
                         <td>#{i + 1}</td>
-                        <td>{r.name}</td>
-                        <td>{r.city || "—"}</td>
-                        <td>{r.played}</td>
-                        <td>{r.wins}</td>
-                        <td>{r.draws}</td>
-                        <td>{r.losses}</td>
-                        <td>{r.points}</td>
-                        <td>{r.for}</td>
-                        <td>{r.against}</td>
+<td>{r.name}</td>
+<td>{r.city || "—"}</td>
+<td>{r.played}</td>
+<td>{r.wins}</td>
+<td>{r.losses}</td>
+<td>{r.points}</td>
+{selectedGameKey === "snooker" ? (
+  <td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
+) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -3313,22 +3444,24 @@ function LeaderboardAll({ data }) {
         <thead>
           <tr>
             <th>#</th>
-            <th>Player</th>
-            <th>Pts</th>
-            <th>W</th>
-            <th>L</th>
-            <th>Matches</th>
+<th>Player</th>
+<th>P</th>
+<th>W</th>
+<th>L</th>
+<th>Pts</th>
+<th>Highest Break</th>
           </tr>
         </thead>
         <tbody>
           {snookerBoard.map((r, i) => (
             <tr key={r.id}>
               <td>#{i + 1}</td>
-              <td>{r.name}</td>
-              <td>{r.points}</td>
-              <td>{r.wins}</td>
-              <td>{r.losses}</td>
-              <td>{r.matches}</td>
+<td>{r.name}</td>
+<td>{r.matches}</td>
+<td>{r.wins}</td>
+<td>{r.losses}</td>
+<td>{r.points}</td>
+<td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
             </tr>
           ))}
         </tbody>
@@ -3352,22 +3485,22 @@ function LeaderboardAll({ data }) {
         <thead>
           <tr>
             <th>#</th>
-            <th>Player</th>
-            <th>Pts</th>
-            <th>W</th>
-            <th>L</th>
-            <th>Matches</th>
+<th>Player</th>
+<th>P</th>
+<th>W</th>
+<th>L</th>
+<th>Pts</th>
           </tr>
         </thead>
         <tbody>
           {poolBoard.map((r, i) => (
             <tr key={r.id}>
               <td>#{i + 1}</td>
-              <td>{r.name}</td>
-              <td>{r.points}</td>
-              <td>{r.wins}</td>
-              <td>{r.losses}</td>
-              <td>{r.matches}</td>
+<td>{r.name}</td>
+<td>{r.matches}</td>
+<td>{r.wins}</td>
+<td>{r.losses}</td>
+<td>{r.points}</td>
             </tr>
           ))}
         </tbody>
@@ -3558,6 +3691,14 @@ function HallOfFame({ data, admin, commit }) {
 function TVMode({ data, activeTournament, players }) {
 
   const matches = activeTournament?.matches || [];
+  const isSnooker =
+  tournamentGameKey(activeTournament?.game) === "snooker";
+
+const highestBreakPlayer = isSnooker
+  ? (players || [])
+      .slice()
+      .sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
+  : null;
 
   return (
     <>
@@ -3575,6 +3716,17 @@ function TVMode({ data, activeTournament, players }) {
               ? tournamentDisplay(activeTournament)
               : "No active tournament"}
           </h2>
+          {isSnooker ? (
+  <div style={{ marginBottom: 14 }}>
+    <span className="badge">
+      <span className="dot" />
+      Highest Break Leader:{" "}
+      {highestBreakPlayer
+        ? `${highestBreakPlayer.name} – ${highestBreakPlayer.bestBreak || 0}`
+        : "—"}
+    </span>
+  </div>
+) : null}
 
           {matches.length === 0 ? (
             <div className="muted">No matches available.</div>
@@ -3609,6 +3761,15 @@ function TVMode({ data, activeTournament, players }) {
                       <td>
                         {m.score1 ?? "-"} : {m.score2 ?? "-"}
                       </td>
+                      <td>
+
+  <span className="badge">
+    <span className="dot" />
+    {m.status || "scheduled"}
+  </span>
+
+  
+</td>
 
                       <td>
                         <span className="badge">
@@ -3839,16 +4000,72 @@ function PaymentStatus() {
           </>
         )}
 
-        {status === "success" && (
-          <>
-            <h2>Payment Successful 🎉</h2>
-            <p>Thank you for your payment at The Q Club.</p>
+        {status === "success" && (() => {
+  const context = localStorage.getItem("qclub_payment_context");
+  const savedName = localStorage.getItem("qclub_payment_name") || "";
+  const savedMobile = localStorage.getItem("qclub_payment_mobile") || "";
 
-            <button className="btn primary" onClick={()=>navigate("/")}>
-              Go Home
-            </button>
-          </>
-        )}
+  if (context === "membership") {
+    const tier = localStorage.getItem("qclub_membership_tier") || "";
+    const tshirtSize = localStorage.getItem("qclub_tshirt_size") || "";
+
+    return (
+      <>
+        <h2>Welcome to The Q Club Membership 🏆</h2>
+        <p>
+          Welcome to <strong>The Q Club</strong> — where legends are made.
+        </p>
+
+        <div className="card" style={{ marginTop: 14 }}>
+          <div><b>Name:</b> {savedName || "—"}</div>
+          <div><b>Mobile:</b> {savedMobile || "—"}</div>
+          <div><b>Membership Tier:</b> {tier || "—"}</div>
+          <div><b>T-Shirt Size:</b> {tshirtSize || "—"}</div>
+        </div>
+
+        <div className="row" style={{ marginTop: 16 }}>
+          <button className="btn primary" onClick={() => navigate("/")}>
+            Enter The Q Club
+          </button>
+          <button className="btn" onClick={() => navigate("/membership")}>
+            Membership Page
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  const table = localStorage.getItem("qclub_booking_table") || "";
+  const bookingDate = localStorage.getItem("qclub_booking_date") || "";
+  const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
+
+  return (
+    <>
+      <h2>🎱 Table Booked Successfully</h2>
+      <p>
+        Your table booking at <strong>The Q Club</strong> is confirmed.
+      </p>
+      <p className="muted">Have a great game.</p>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div><b>Name:</b> {savedName || "—"}</div>
+        <div><b>Mobile:</b> {savedMobile || "—"}</div>
+        <div><b>Table:</b> {table || "—"}</div>
+        <div><b>Date:</b> {bookingDate || "—"}</div>
+        <div><b>Time Slot:</b> {bookingSlot || "—"}</div>
+      </div>
+
+      <div className="row" style={{ marginTop: 16 }}>
+        <button className="btn primary" onClick={() => navigate("/book")}>
+          Book Another Table
+        </button>
+        <button className="btn" onClick={() => navigate("/")}>
+          Home
+        </button>
+      </div>
+    </>
+  );
+})()}
 
         {status === "failed" && (
           <>
