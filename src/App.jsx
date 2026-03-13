@@ -2582,41 +2582,51 @@ function Players({ data, admin, commit, activeTournament }) {
       >
         <div
           className="row"
-          style={{ alignItems: "center", gap: 16, flexWrap: "wrap" }}
+          style={{ alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}
         >
           {selectedPlayer.photo ? (
-           <img
-  src={selectedPlayer.photo}
-  alt={selectedPlayer.name}
-  style={{
-    width: 140,
-    height: 140,
-    minWidth: 140,
-    flexShrink: 0,
-    objectFit: "cover",
-    borderRadius: 18,
-    display: "block"
-  }}
-/>
-          ) : (
-            <div
-              style={{
-                width: 120,
-                height: 120,
-                borderRadius: 18,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 42,
-                fontWeight: 900,
-                background: "rgba(255,255,255,.08)",
-                border: "1px solid rgba(255,255,255,.12)",
-                flexShrink: 0,
-              }}
-            >
-              {String(selectedPlayer.name || "?").slice(0, 1).toUpperCase()}
-            </div>
-          )}
+  <div
+    style={{
+      width: 220,
+      height: 320,
+      minWidth: 220,
+      flexShrink: 0,
+      borderRadius: 18,
+      overflow: "hidden",
+      background: "rgba(255,255,255,.06)",
+      border: "1px solid rgba(255,255,255,.10)",
+    }}
+  >
+    <img
+      src={selectedPlayer.photo}
+      alt={selectedPlayer.name}
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        display: "block",
+      }}
+    />
+  </div>
+) : (
+  <div
+    style={{
+      width: 120,
+      height: 120,
+      borderRadius: 18,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 42,
+      fontWeight: 900,
+      background: "rgba(255,255,255,.08)",
+      border: "1px solid rgba(255,255,255,.12)",
+      flexShrink: 0,
+    }}
+  >
+    {String(selectedPlayer.name || "?").slice(0, 1).toUpperCase()}
+  </div>
+)}
 
           <div>
             <h2 style={{ margin: 0 }}>{selectedPlayer.name}</h2>
