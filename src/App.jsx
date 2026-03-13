@@ -592,10 +592,11 @@ function playPing() {
 
 export default function App() {
 
-  const [data, setData] = useState(loadData());
+  const [data, setData] = useState(defaultData());
   const [cloudStatus, setCloudStatus] = useState(
     isCloudEnabled() ? "syncing" : "local"
   );
+  const [hasHydratedFromCloud, setHasHydratedFromCloud] = useState(false);
 
   const [admin, setAdmin] = useState(false);
 
@@ -651,19 +652,25 @@ export default function App() {
   }
 
   function commit(next) {
-    const safeNext = mergeWithDefaults(next);
+  const safeNext = mergeWithDefaults(next);
 
-    setData(safeNext);
-    saveData(safeNext);
+  setData(safeNext);
+  saveData(safeNext);
 
-    if (isCloudEnabled()) {
-      setCloudStatus("syncing");
+  if (!isCloudEnabled()) return;
+  if (!hasHydratedFromCloud) return;
 
-      writeState(safeNext)
-        .then(() => setCloudStatus("synced"))
-        .catch(() => setCloudStatus("error"));
-    }
-  }
+  setCloudStatus("syncing");
+
+  writeState(safeNext)
+    .then(() => {
+      setCloudStatus("synced");
+    })
+    .catch((err) => {
+      console.error("Cloud sync error:", err);
+      setCloudStatus("error");
+    });
+}
 
   function toggleAdmin() {
   if (admin === true) {
@@ -717,7 +724,37 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, data.booking?.requests?.length]);
+useEffect(() => {
+  if (!isCloudEnabled()) {
+    setData(loadData());
+    setHasHydratedFromCloud(true);
+    return;
+  }
 
+  setCloudStatus("syncing");
+
+  const fallbackTimer = setTimeout(() => {
+    setHasHydratedFromCloud(true);
+    setCloudStatus("synced");
+  }, 2500);
+
+  const unsubscribe = subscribeState((remoteState) => {
+    if (!remoteState || typeof remoteState !== "object") return;
+
+    clearTimeout(fallbackTimer);
+
+    const merged = mergeWithDefaults(remoteState);
+    setData(merged);
+    saveData(merged);
+    setHasHydratedFromCloud(true);
+    setCloudStatus("synced");
+  });
+
+  return () => {
+    clearTimeout(fallbackTimer);
+    if (typeof unsubscribe === "function") unsubscribe();
+  };
+}, []);
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
