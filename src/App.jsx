@@ -1232,24 +1232,7 @@ function Home({ data, admin, commit, activeTournament }) {
         </div>
       </section>
 
-      <section className="quickLinksRow">
-        <Link className="quickLinkTile" to="/book">
-          <div className="quickLinkTitle">Book a Table</div>
-          <div className="muted">Reserve your next session</div>
-        </Link>
-
-        <Link className="quickLinkTile" to="/leaderboard">
-          <div className="quickLinkTitle">Leaderboards</div>
-          <div className="muted">Snooker and Pool rankings</div>
-        </Link>
-
-        <Link className="quickLinkTile" to="/players">
-          <div className="quickLinkTitle">Players</div>
-          <div className="muted">Profiles, rankings and stats</div>
-        </Link>
-      </section>
-
-      <section className="sectionBlock tournamentSpotlight">
+            <section className="sectionBlock tournamentSpotlight">
         <div className="sectionKicker">Current Highlight</div>
         <h2 className="sectionHeadline">
           {activeTournament ? activeTournament.name : "Q Club Experience"}
@@ -1281,31 +1264,7 @@ function Home({ data, admin, commit, activeTournament }) {
           </div>
         </div>
       </section>
-
-      <section className="sectionBlock">
-        <div className="sectionKicker">What We Offer</div>
-        <h2 className="sectionHeadline">Games, comfort and club atmosphere</h2>
-
-        <div className="whyGridCompact">
-          {currentOffers.length
-            ? currentOffers.map((item) => (
-                <div className="whyTile" key={item.id}>
-                  <div className="quickLinkTitle">{item.title}</div>
-                  <div className="muted">{item.price || "Ask at counter"}</div>
-                  <div className="muted" style={{ marginTop: 8 }}>
-                    {item.details || "Available at the club."}
-                  </div>
-                </div>
-              ))
-            : features.map((item) => (
-                <div className="whyTile" key={item.title}>
-                  <div className="quickLinkTitle">{item.title}</div>
-                  <div className="muted">{item.text}</div>
-                </div>
-              ))}
-        </div>
-      </section>
-
+      
       <section className="sectionBlock">
         <div className="sectionKicker">Inside The Club</div>
         <h2 className="sectionHeadline">A premium gaming space in Pasighat</h2>
@@ -1325,7 +1284,7 @@ function Home({ data, admin, commit, activeTournament }) {
 
       <section className="sectionBlock">
         <div className="sectionKicker">Why The Q Club</div>
-        <h2 className="sectionHeadline">More than just a table booking app</h2>
+        <h2 className="sectionHeadline">More than just a Snooker Room</h2>
 
         <div className="whyGridCompact">
           {features.map((item) => (
@@ -2623,17 +2582,20 @@ function Players({ data, admin, commit, activeTournament }) {
       >
         <div
           className="row"
-          style={{ alignItems: "center", gap: 16, flexWrap: "nowrap" }}
+          style={{ alignItems: "center", gap: 16, flexWrap: "wrap" }}
         >
           {selectedPlayer.photo ? (
-            <img
+           <img
   src={selectedPlayer.photo}
   alt={selectedPlayer.name}
   style={{
-    width: "100%",
-    height: 420,
+    width: 140,
+    height: 140,
+    minWidth: 140,
+    flexShrink: 0,
     objectFit: "cover",
-    borderRadius: 18
+    borderRadius: 18,
+    display: "block"
   }}
 />
           ) : (
