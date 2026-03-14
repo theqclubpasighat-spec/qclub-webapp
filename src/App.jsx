@@ -578,7 +578,109 @@ function generateRoundRobin(playerIds) {
   }
   return matches;
 }
+function generateKnockout(playerIds) {
+  const ids = [...playerIds].filter(Boolean);
+  if (ids.length < 2) return [];
 
+  function nextPowerOfTwo(n) {
+    let p = 1;
+    while (p < n) p *= 2;
+    return p;
+  }
+
+  function shuffle(arr) {
+    return [...arr].sort(() => Math.random() - 0.5);
+  }
+
+  const shuffled = shuffle(ids);
+  const matches = [];
+
+  const bracketSize = nextPowerOfTwo(shuffled.length);
+  const byes = bracketSize - shuffled.length;
+
+  // Players getting a bye straight into Round 2
+  const byePlayers = shuffled.slice(0, byes);
+
+  // Players who must play Round 1
+  const round1Players = shuffled.slice(byes);
+
+  // Round 1
+  const round1WinnerSlots = [];
+  for (let i = 0; i < round1Players.length; i += 2) {
+    const p1 = round1Players[i];
+    const p2 = round1Players[i + 1];
+    if (!p1 || !p2) continue;
+
+    const matchNumber = round1WinnerSlots.length + 1;
+
+    matches.push({
+      id: uid(),
+      round: 1,
+      matchNo: matchNumber,
+      p1,
+      p2,
+      score1: "",
+      score2: "",
+      winner: "",
+      result: "",
+      status: "scheduled",
+      bestOf: 3,
+      updatedAt: Date.now(),
+    });
+
+    round1WinnerSlots.push(`WINNER_R1_M${matchNumber}`);
+  }
+
+  // Round 2 starts with bye players + winners of Round 1
+  let currentRoundPlayers = [...byePlayers, ...round1WinnerSlots];
+  let roundNumber = 2;
+
+  while (currentRoundPlayers.length > 1) {
+    const nextRoundPlayers = [];
+
+    for (let i = 0; i < currentRoundPlayers.length; i += 2) {
+      const p1 = currentRoundPlayers[i];
+      const p2 = currentRoundPlayers[i + 1];
+
+      if (!p1 && !p2) continue;
+
+      if (p1 && !p2) {
+        nextRoundPlayers.push(p1);
+        continue;
+      }
+
+      if (!p1 && p2) {
+        nextRoundPlayers.push(p2);
+        continue;
+      }
+
+      const matchNumber = nextRoundPlayers.length + 1;
+      const isFinal = currentRoundPlayers.length === 2;
+
+      matches.push({
+        id: uid(),
+        round: roundNumber,
+        matchNo: matchNumber,
+        p1,
+        p2,
+        score1: "",
+        score2: "",
+        winner: "",
+        result: "",
+        status: "scheduled",
+        bestOf: isFinal ? 5 : 3,
+        updatedAt: Date.now(),
+      });
+
+      nextRoundPlayers.push(`WINNER_R${roundNumber}_M${matchNumber}`);
+    }
+
+    currentRoundPlayers = nextRoundPlayers;
+    roundNumber += 1;
+  }
+
+  return matches;
+}
 /* ---------------------------
    Leaderboard calc (per tournament)
 ---------------------------- */
@@ -685,6 +787,24 @@ export default function App() {
 
   const navigate = useNavigate();
   const location = useLocation();
+    const [selectedPlayer, setSelectedPlayer] = useState(null);
+    function openPlayerModal(playerId) {
+  const found = (data.players || []).find(p => p.id === playerId);
+  if (found) setSelectedPlayer(found);
+}
+
+function closePlayerModal() {
+  setSelectedPlayer(null);
+}
+
+  function openPlayerById(playerId) {
+    const found = (data.players || []).find((p) => p.id === playerId);
+    if (found) setSelectedPlayer(found);
+  }
+
+  function closePlayerModal() {
+    setSelectedPlayer(null);
+  }
     const activeTournament = useMemo(() => {
     const list = data.tournaments || [];
     const flagged = list.find((t) => t.isCurrent);
@@ -700,6 +820,15 @@ export default function App() {
         )[0] || null
     );
   }, [data.tournaments]);
+    const snookerBoard = useMemo(
+    () => calcAutoRankingBoard(data.players || [], data.tournaments || [], "snooker"),
+    [data.players, data.tournaments]
+  );
+
+  const poolBoard = useMemo(
+    () => calcAutoRankingBoard(data.players || [], data.tournaments || [], "pool"),
+    [data.players, data.tournaments]
+  );
     async function startPayment(amount, customerPhone = "9999999999") {
     try {
       const res = await fetch("/api/create-order", {
@@ -894,14 +1023,41 @@ useEffect(() => {
     />
   }
 />
-        <Route path="/live" element={<LiveMatches data={data} admin={admin} />} />
+                <Route
+          path="/live"
+          element={
+            <LiveMatches
+              data={data}
+              admin={admin}
+              onOpenPlayer={openPlayerModal}
+            />
+          }
+        />
         <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
-        <Route path="/fixtures" element={<Fixtures data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/fixtures"
+  element={
+    <Fixtures
+      data={data}
+      admin={admin}
+      commit={commit}
+      onOpenPlayer={openPlayerModal}
+    />
+  }
+/>
         
-        <Route path="/leaderboard" element={<LeaderboardAll data={data} />} />
+        <Route
+  path="/leaderboard"
+  element={
+    <LeaderboardAll
+      data={data}
+      onOpenPlayer={openPlayerModal}
+    />
+  }
+/>
         <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
         <Route
   path="/tv"
@@ -924,6 +1080,198 @@ useEffect(() => {
       </Routes>
 
       <FooterLinks />
+            {selectedPlayer ? (
+        <div
+          onClick={closePlayerModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(3, 8, 18, 0.72)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            zIndex: 9999,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(760px, 96vw)",
+              maxHeight: "88vh",
+              overflowY: "auto",
+              borderRadius: 24,
+              border: "1px solid rgba(255,255,255,.12)",
+              background:
+                "linear-gradient(180deg, rgba(24,32,54,.96), rgba(10,16,30,.96))",
+              boxShadow: "0 24px 80px rgba(0,0,0,.45)",
+              padding: 20,
+            }}
+          >
+            <div
+              className="row"
+              style={{
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 16,
+              }}
+            >
+              <div
+                className="row"
+                style={{ alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}
+              >
+                {selectedPlayer.photo ? (
+                  <div
+                    style={{
+                      width: 220,
+                      height: 320,
+                      minWidth: 220,
+                      flexShrink: 0,
+                      borderRadius: 18,
+                      overflow: "hidden",
+                      background: "rgba(255,255,255,.06)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                    }}
+                  >
+                    <img
+                      src={selectedPlayer.photo}
+                      alt={selectedPlayer.name}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        display: "block",
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: 120,
+                      height: 120,
+                      borderRadius: 18,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 42,
+                      fontWeight: 900,
+                      background: "rgba(255,255,255,.08)",
+                      border: "1px solid rgba(255,255,255,.12)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {String(selectedPlayer.name || "?").slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+
+                <div>
+                  <h2 style={{ margin: 0 }}>{selectedPlayer.name}</h2>
+             <div className="grid" style={{ marginTop: 16 }}>     <div className="muted" style={{ marginTop: 6 }}>
+                    {selectedPlayer.city || "—"}
+                  </div>
+                  <div className="badge" style={{ marginTop: 10 }}>
+                    <span className="dot" />
+                    {playerGamesLabel(selectedPlayer)}
+                  </div>
+                </div>
+              </div>
+
+              <button className="iconBtn" onClick={closePlayerModal}>
+                ✕
+              </button>
+            </div>
+
+            <div className="hr" />
+
+            <div>
+              <div className="infoLabel">Bio</div>
+              <div className="muted" style={{ marginTop: 6 }}>
+                {selectedPlayer.bio || "No bio added yet."}
+              </div>
+            </div>
+
+            
+              <div className="grid" style={{ marginTop: 16 }}>
+  <div className="card cols-6">
+    <div className="infoLabel">Snooker Rank</div>
+    <div className="infoValue">
+      {(() => {
+        const idx = snookerBoard.findIndex((r) => r.id === selectedPlayer.id);
+        return idx >= 0 ? `#${idx + 1}` : "—";
+      })()}
+    </div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Pool Rank</div>
+    <div className="infoValue">
+      {(() => {
+        const idx = poolBoard.findIndex((r) => r.id === selectedPlayer.id);
+        return idx >= 0 ? `#${idx + 1}` : "—";
+      })()}
+    </div>
+  </div>
+
+  <div className="card cols-4">
+    <div className="infoLabel">Snooker Wins</div>
+    <div className="infoValue">
+      {(() => {
+        const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+        return row ? row.wins : 0;
+      })()}
+    </div>
+  </div>
+
+  <div className="card cols-4">
+    <div className="infoLabel">Snooker Losses</div>
+    <div className="infoValue">
+      {(() => {
+        const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+        return row ? row.losses : 0;
+      })()}
+    </div>
+  </div>
+
+  <div className="card cols-4">
+    <div className="infoLabel">Best Break</div>
+    <div className="infoValue">
+      {selectedPlayer.bestBreak || 0}
+    </div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Pool Wins</div>
+    <div className="infoValue">
+      {(() => {
+        const row = poolBoard.find((r) => r.id === selectedPlayer.id);
+        return row ? row.wins : 0;
+      })()}
+    </div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Pool Losses</div>
+    <div className="infoValue">
+      {(() => {
+        const row = poolBoard.find((r) => r.id === selectedPlayer.id);
+        return row ? row.losses : 0;
+      })()}
+    </div>
+  </div>
+</div>
+
+              <div className="card cols-6">
+                <div className="infoLabel">Games</div>
+                <div className="infoValue">
+                  {playerGamesLabel(selectedPlayer)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <BottomPadding />
     </>
   );
@@ -1343,7 +1691,7 @@ function Home({ data, activeTournament }) {
           </div>
 
           <div style={{ marginTop: 18 }}>
-            <Link className="btn neonGreen refViewBtn" to="/fixtures">
+            <Link className="btn neonGreen refViewBtn" to={`/fixtures?game=${isSnookerTournament ? "snooker" : "pool"}`}>
               View Fixtures
             </Link>
           </div>
@@ -2748,7 +3096,7 @@ function Players({ data, admin, commit, activeTournament }) {
 
           <div>
             <h2 style={{ margin: 0 }}>{selectedPlayer.name}</h2>
-            <div className="muted" style={{ marginTop: 6 }}>
+       <div className="grid" style={{ marginTop: 16 }}>     <div className="muted" style={{ marginTop: 6 }}>
               {selectedPlayer.city || "—"}
             </div>
             <div className="badge" style={{ marginTop: 10 }}>
@@ -2772,7 +3120,7 @@ function Players({ data, admin, commit, activeTournament }) {
         </div>
       </div>
 
-      <div className="grid" style={{ marginTop: 16 }}>
+      
         <div className="card cols-6">
           <div className="infoLabel">Snooker Rank</div>
           <div className="infoValue">
@@ -2868,13 +3216,14 @@ function Tournaments({ data, admin, commit }) {
       tournaments: [
         ...tournaments,
         {
-          id: uid(),
-          name: name.trim(),
-          month: month.trim(),
-          game: tournamentGameKey(game),
-          participantIds: [],
-          matches: [],
-        },
+  id: uid(),
+  name: name.trim(),
+  month: month.trim(),
+  game: tournamentGameKey(game),
+  format: "round_robin",
+  participantIds: [],
+  matches: [],
+}
       ],
     });
   }
@@ -2985,12 +3334,30 @@ function Tournaments({ data, admin, commit }) {
     </>
   );
 }
-function Fixtures({ data, admin, commit }) {
+function Fixtures({ data, admin, commit, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
+  
+  const location = useLocation();
+const queryGame = new URLSearchParams(location.search).get("game");
   const players = data.players || [];
-  const [selectedTournamentId, setSelectedTournamentId] = useState(
-    tournaments[0]?.id || ""
+  const [selectedTournamentId, setSelectedTournamentId] = useState(() => {
+  if (queryGame) {
+    const matched = tournaments.find(
+      (t) => String(t.game || "").toLowerCase() === queryGame.toLowerCase()
+    );
+    if (matched) return matched.id;
+  }
+  return tournaments[0]?.id || "";
+});
+useEffect(() => {
+  if (!queryGame) return;
+  const matched = tournaments.find(
+    (t) => String(t.game || "").toLowerCase() === queryGame.toLowerCase()
   );
+  if (matched && matched.id !== selectedTournamentId) {
+    setSelectedTournamentId(matched.id);
+  }
+}, [queryGame, tournaments, selectedTournamentId]);
 
   useEffect(() => {
     if (!selectedTournamentId && tournaments[0]?.id) {
@@ -2999,9 +3366,11 @@ function Fixtures({ data, admin, commit }) {
   }, [selectedTournamentId, tournaments]);
 
   const selectedTournament =
-    tournaments.find((t) => t.id === selectedTournamentId) || null;
+  tournaments.find((t) => t.id === selectedTournamentId) || null;
 
-  const eligiblePlayers = selectedTournament
+const isKnockout = selectedTournament?.format === "knockout";
+
+const eligiblePlayers = selectedTournament
     ? getEligiblePlayersForTournament(players, selectedTournament)
     : [];
 
@@ -3023,7 +3392,7 @@ function Fixtures({ data, admin, commit }) {
     });
   }
 
-  function generateFixtures() {
+  function generateFixtures(format = "round_robin") {
     if (!admin) return alert("Admin only");
     if (!selectedTournament) return alert("Select a tournament first");
 
@@ -3040,13 +3409,16 @@ function Fixtures({ data, admin, commit }) {
 
     if (!confirm("Generate / regenerate fixtures for this tournament?")) return;
 
-    const matches = generateRoundRobin(pool.map((p) => p.id));
+    const matches =
+  format === "knockout"
+    ? generateKnockout(pool.map((p) => p.id))
+    : generateRoundRobin(pool.map((p) => p.id));
 
     commit({
       ...data,
       tournaments: tournaments.map((t) =>
         t.id === selectedTournament.id
-          ? { ...t, matches }
+          ? { ...t, format, matches }
           : t
       ),
     });
@@ -3069,7 +3441,64 @@ function Fixtures({ data, admin, commit }) {
       ),
     });
   }
+  function advanceKnockoutWinner(matchId) {
+  if (!admin || !selectedTournament) return;
 
+  const allMatches = selectedTournament.matches || [];
+  const match = allMatches.find((m) => m.id === matchId);
+  if (!match) return;
+
+  if (!match.winner) {
+    alert("Please select winner first.");
+    return;
+  }
+
+  const round = Number(match.round || 0);
+  const matchNo = Number(match.matchNo || 0);
+
+  const winnerToken = `WINNER_R${round}_M${matchNo}`;
+
+  const updatedMatches = allMatches.map((m) => {
+    if (m.id === match.id) {
+      return {
+        ...m,
+        status: "done",
+        updatedAt: Date.now(),
+      };
+    }
+
+    let changed = false;
+    const next = { ...m };
+
+    if (next.p1 === winnerToken) {
+      next.p1 = match.winner;
+      changed = true;
+    }
+
+    if (next.p2 === winnerToken) {
+      next.p2 = match.winner;
+      changed = true;
+    }
+
+    if (changed) {
+      next.updatedAt = Date.now();
+    }
+
+    return next;
+  });
+
+  commit({
+    ...data,
+    tournaments: tournaments.map((t) =>
+      t.id !== selectedTournament.id
+        ? t
+        : {
+            ...t,
+            matches: updatedMatches,
+          }
+    ),
+  });
+}
   function markMatchDone(matchId) {
     if (!admin || !selectedTournament) return;
 
@@ -3165,10 +3594,15 @@ function updateMatchStatus(matchId, status) {
             </select>
 
             {admin ? (
-              <button className="btn primary" onClick={generateFixtures}>
-                Generate Fixtures
-              </button>
-            ) : null}
+  <>
+    <button className="btn" onClick={() => generateFixtures("round_robin")}>
+      Generate Round Robin
+    </button>
+    <button className="btn primary" onClick={() => generateFixtures("knockout")}>
+      Generate Knockout
+    </button>
+  </>
+) : null}
           </div>
         }
       />
@@ -3268,9 +3702,9 @@ function updateMatchStatus(matchId, status) {
     </button>
   ) : null}
                   <span className="badge">
-                    <span className="dot warn" />
-                    Live from results
-                  </span>
+  <span className="dot warn" />
+  Format: {selectedTournament?.format === "knockout" ? "Knockout" : "Round Robin"}
+</span>
                 </div>
 
                 {standings.length === 0 ? (
@@ -3295,7 +3729,15 @@ function updateMatchStatus(matchId, status) {
                         {standings.map((r, i) => (
                           <tr key={r.id}>
                             <td>#{i + 1}</td>
-<td>{r.name}</td>
+<td>
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(r.id)}
+    style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+  >
+    {r.name}
+  </span>
+</td>
 <td>{r.played}</td>
 <td>{r.wins}</td>
 <td>{r.losses}</td>
@@ -3330,8 +3772,8 @@ function updateMatchStatus(matchId, status) {
                         <tr>
                           <th>Round</th>
                           <th>Match</th>
-                          <th>Score 1</th>
-                          <th>Score 2</th>
+                          <th>{isKnockout ? "Winner" : "Score 1"}</th>
+                          <th>{isKnockout ? "Result" : "Score 2"}</th>
                           <th>Status</th>
                           <th>Action</th>
                         </tr>
@@ -3341,28 +3783,70 @@ function updateMatchStatus(matchId, status) {
                           <tr key={m.id}>
                             <td>{m.round}</td>
                             <td>
-                              {playerName(m.p1)} vs {playerName(m.p2)}
+                              <>
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(m.p1)}
+    style={{ textDecoration: "underline", cursor: "pointer" }}
+  >
+    {playerName(m.p1)}
+  </span>
+  {" "}vs{" "}
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(m.p2)}
+    style={{ textDecoration: "underline", cursor: "pointer" }}
+  >
+    {playerName(m.p2)}
+  </span>
+</>
                             </td>
                             <td>
-                              <input
-                                value={m.score1}
-                                onChange={(e) =>
-                                  updateMatchField(m.id, "score1", e.target.value)
-                                }
-                                disabled={!admin}
-                                style={{ width: 80 }}
-                              />
-                            </td>
+  {!isKnockout ? (
+    <input
+      value={m.score1}
+      onChange={(e) =>
+        updateMatchField(m.id, "score1", e.target.value)
+      }
+      disabled={!admin}
+      style={{ width: 80 }}
+    />
+  ) : (
+    <select
+      value={m.winner || ""}
+      disabled={!admin}
+      onChange={(e) =>
+        updateMatchField(m.id, "winner", e.target.value)
+      }
+    >
+      <option value="">Select</option>
+      <option value={m.p1}>{playerName(m.p1)}</option>
+      <option value={m.p2}>{playerName(m.p2)}</option>
+    </select>
+  )}
+</td>
                             <td>
-                              <input
-                                value={m.score2}
-                                onChange={(e) =>
-                                  updateMatchField(m.id, "score2", e.target.value)
-                                }
-                                disabled={!admin}
-                                style={{ width: 80 }}
-                              />
-                            </td>
+  {!isKnockout ? (
+    <input
+      value={m.score2}
+      onChange={(e) =>
+        updateMatchField(m.id, "score2", e.target.value)
+      }
+      disabled={!admin}
+      style={{ width: 80 }}
+    />
+  ) : (
+    <input
+      value={m.result || ""}
+      onChange={(e) =>
+        updateMatchField(m.id, "result", e.target.value)
+      }
+      disabled={!admin}
+      placeholder={m.bestOf === 5 ? "3-2" : "2-1"}
+      style={{ width: 80 }}
+    />
+  )}
+</td>
                             <td>
                               <span className="badge">
                                 <span
@@ -3373,26 +3857,44 @@ function updateMatchStatus(matchId, status) {
                             </td>
                             <td>
                               {admin ? (
-                                <div className="row">
-                                  {m.status === "done" ? (
-                                    <button
-                                      className="btn"
-                                      onClick={() => reopenMatch(m.id)}
-                                    >
-                                      Reopen
-                                    </button>
-                                  ) : (
-                                    <button
-                                      className="btn primary"
-                                      onClick={() => markMatchDone(m.id)}
-                                    >
-                                      Mark Done
-                                    </button>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="muted">—</span>
-                              )}
+  <div className="row">
+    {isKnockout ? (
+      m.status === "done" ? (
+        <button
+          className="btn"
+          onClick={() => reopenMatch(m.id)}
+        >
+          Reopen
+        </button>
+      ) : (
+        <button
+          className="btn primary"
+          onClick={() => advanceKnockoutWinner(m.id)}
+        >
+          Advance Winner
+        </button>
+      )
+    ) : (
+      m.status === "done" ? (
+        <button
+          className="btn"
+          onClick={() => reopenMatch(m.id)}
+        >
+          Reopen
+        </button>
+      ) : (
+        <button
+          className="btn primary"
+          onClick={() => markMatchDone(m.id)}
+        >
+          Mark Done
+        </button>
+      )
+    )}
+  </div>
+) : (
+  <span className="muted">—</span>
+)}
                             </td>
                           </tr>
                         ))}
@@ -3409,7 +3911,7 @@ function updateMatchStatus(matchId, status) {
   );
 }
 
-function LeaderboardAll({ data }) {
+function LeaderboardAll({ data, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
 
@@ -3502,7 +4004,15 @@ function LeaderboardAll({ data }) {
                     {standings.map((r, i) => (
                       <tr key={r.id}>
                         <td>#{i + 1}</td>
-<td>{r.name}</td>
+<td>
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(r.id)}
+    style={{ textDecoration: "underline", cursor: "pointer" }}
+  >
+    {r.name}
+  </span>
+</td>
 <td>{r.city || "—"}</td>
 <td>{r.played}</td>
 <td>{r.wins}</td>
@@ -3546,7 +4056,15 @@ function LeaderboardAll({ data }) {
           {snookerBoard.map((r, i) => (
             <tr key={r.id}>
               <td>#{i + 1}</td>
-<td>{r.name}</td>
+<td>
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(r.id)}
+    style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+  >
+    {r.name}
+  </span>
+</td>
 <td>{r.matches}</td>
 <td>{r.wins}</td>
 <td>{r.losses}</td>
@@ -3586,7 +4104,15 @@ function LeaderboardAll({ data }) {
           {poolBoard.map((r, i) => (
             <tr key={r.id}>
               <td>#{i + 1}</td>
-<td>{r.name}</td>
+<td>
+  <span
+    className="player-link"
+    onClick={() => onOpenPlayer(r.id)}
+    style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+  >
+    {r.name}
+  </span>
+</td>
 <td>{r.matches}</td>
 <td>{r.wins}</td>
 <td>{r.losses}</td>
@@ -3872,7 +4398,8 @@ function LiveMatchesHeroCard() {
   );
 }
 
-function LiveMatches({ data, admin }) {
+
+function LiveMatches({ data, admin, onOpenPlayer }) {
   const [rows, setRows] = useState([]);
   const [gameFilter, setGameFilter] = useState("snooker");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -3881,12 +4408,82 @@ function LiveMatches({ data, admin }) {
   const players = data.players || [];
   const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
 
+  function nowDateIso() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function nowTimeValue() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function formatDateLabel(value) {
+    if (!value) return "—";
+    try {
+      return new Date(value).toLocaleDateString();
+    } catch {
+      return value;
+    }
+  }
+
+  function formatTimeLabel(value) {
+    if (!value) return "—";
+    return value;
+  }
+
+  function calcDurationLabel(startTime, endTime) {
+    if (!startTime || !endTime) return "—";
+    const [sh, sm] = String(startTime).split(":").map(Number);
+    const [eh, em] = String(endTime).split(":").map(Number);
+    if (![sh, sm, eh, em].every(Number.isFinite)) return "—";
+    let startMins = sh * 60 + sm;
+    let endMins = eh * 60 + em;
+    if (endMins < startMins) endMins += 24 * 60;
+    const diff = endMins - startMins;
+    const hours = Math.floor(diff / 60);
+    const mins = diff % 60;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  }
+
+  function getWinnerInfo(row) {
+    const s1 = safeNum(row.score1, 0);
+    const s2 = safeNum(row.score2, 0);
+    if (s1 === s2) {
+      return {
+        label: "Draw",
+        photo: "",
+        breakValue: Math.max(safeNum(row.break1, 0), safeNum(row.break2, 0)),
+      };
+    }
+
+    if (row.match_type === "doubles") {
+      const teamNo = s1 > s2 ? 1 : 2;
+      const ids = teamNo === 1 ? [row.player1, row.player2] : [row.player3, row.player4];
+      return {
+        label: teamLabel(row, teamNo),
+        photo: playerPhoto(ids[0]),
+        breakValue: teamNo === 1 ? safeNum(row.break1, 0) : safeNum(row.break2, 0),
+      };
+    }
+
+    const winnerId = s1 > s2 ? row.player1 : row.player2;
+    return {
+      label: playerName(winnerId),
+      photo: playerPhoto(winnerId),
+      breakValue: s1 > s2 ? safeNum(row.break1, 0) : safeNum(row.break2, 0),
+    };
+  }
+
   const [form, setForm] = useState({
     id: "",
     title: "",
     match_type: "singles",
     game: "snooker",
     status: "upcoming",
+    match_date: nowDateIso(),
+    start_time: "",
+    end_time: "",
     player1: "",
     player2: "",
     player3: "",
@@ -3943,6 +4540,9 @@ function LiveMatches({ data, admin }) {
       match_type: "singles",
       game: "snooker",
       status: "upcoming",
+      match_date: nowDateIso(),
+      start_time: "",
+      end_time: "",
       player1: "",
       player2: "",
       player3: "",
@@ -3966,6 +4566,9 @@ function LiveMatches({ data, admin }) {
       match_type: form.match_type,
       game: form.game,
       status: form.status,
+      match_date: form.match_date || nowDateIso(),
+      start_time: String(form.start_time || "").trim(),
+      end_time: String(form.end_time || "").trim(),
       player1: form.player1 || "",
       player2: form.player2 || "",
       player3: form.match_type === "doubles" ? form.player3 || "" : "",
@@ -3990,6 +4593,20 @@ function LiveMatches({ data, admin }) {
     fetchMatches();
   }
 
+  async function quickUpdateMatch(id, patch) {
+    if (!admin) return alert("Admin only");
+    const { error } = await supabase
+      .from("live_matches")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      console.error(error);
+      alert("Failed to update live match.");
+      return;
+    }
+    fetchMatches();
+  }
+
   function editMatch(row) {
     setForm({
       id: row.id || "",
@@ -3997,6 +4614,9 @@ function LiveMatches({ data, admin }) {
       match_type: row.match_type || "singles",
       game: row.game || "snooker",
       status: row.status || "upcoming",
+      match_date: row.match_date || nowDateIso(),
+      start_time: row.start_time || "",
+      end_time: row.end_time || "",
       player1: row.player1 || "",
       player2: row.player2 || "",
       player3: row.player3 || "",
@@ -4120,6 +4740,21 @@ function LiveMatches({ data, admin }) {
                 </select>
               </div>
 
+              <div className="cols-3">
+                <label className="lbl">Date</label>
+                <input type="date" value={form.match_date} onChange={(e) => setForm({ ...form, match_date: e.target.value })} />
+              </div>
+
+              <div className="cols-3">
+                <label className="lbl">Start Time</label>
+                <input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
+              </div>
+
+              <div className="cols-3">
+                <label className="lbl">End Time</label>
+                <input type="time" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
+              </div>
+
               {renderPlayerSelect(form.match_type === "singles" ? "Player 1" : "Team A - Player 1", "player1")}
               {renderPlayerSelect(form.match_type === "singles" ? "Player 2" : "Team A - Player 2", "player2")}
 
@@ -4163,6 +4798,8 @@ function LiveMatches({ data, admin }) {
 
             <div className="row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={saveMatch}>{form.id ? "Update Match" : "Add Match"}</button>
+              <button className="btn" onClick={() => setForm({ ...form, start_time: nowTimeValue(), match_date: form.match_date || nowDateIso() })}>Set Start Now</button>
+              <button className="btn" onClick={() => setForm({ ...form, end_time: nowTimeValue() })}>Set End Now</button>
             </div>
           </div>
         ) : null}
@@ -4187,10 +4824,14 @@ function LiveMatches({ data, admin }) {
                       <div className="badge"><span className="dot red" />LIVE</div>
                       <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
                       <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} • {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
+                      <div className="muted" style={{ marginTop: 6 }}>
+                        Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • Duration: {calcDurationLabel(row.start_time, row.end_time || nowTimeValue())}
+                      </div>
                     </div>
                     {admin ? (
                       <div className="row">
                         <button className="btn" onClick={() => editMatch(row)}>Edit</button>
+                        <button className="btn primary" onClick={() => quickUpdateMatch(row.id, { status: "finished", end_time: row.end_time || nowTimeValue() })}>End Match</button>
                         <button className="btn danger" onClick={() => deleteMatch(row.id)}>Delete</button>
                       </div>
                     ) : null}
@@ -4218,11 +4859,17 @@ function LiveMatches({ data, admin }) {
                           <div style={{ marginTop: 10, fontWeight: 800, fontSize: 20 }}>{label}</div>
                           <div className="muted" style={{ marginTop: 6 }}>
                             {ids.map((pid, idx) => (
-                              <span key={pid}>
-                                <Link to={`/players?playerId=${pid}`} style={{ color: "inherit", textDecoration: "underline" }}>{playerName(pid)}</Link>
-                                {idx < ids.length - 1 ? " + " : ""}
-                              </span>
-                            ))}
+  <span key={pid}>
+    <span
+      className="player-link"
+      onClick={() => onOpenPlayer(pid)}
+      style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
+    >
+      {playerName(pid)}
+    </span>
+    {idx < ids.length - 1 ? " + " : ""}
+  </span>
+))}
                           </div>
                         </div>
                       );
@@ -4243,43 +4890,126 @@ function LiveMatches({ data, admin }) {
 
             {otherRows.length ? <h2 style={{ marginTop: 18, marginBottom: 10 }}>Upcoming / Finished</h2> : null}
             <div className="grid">
-              {otherRows.map((row) => (
-                <div className="card cols-6" key={row.id}>
-                  <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div>
-                      <div className="badge"><span className={row.status === "finished" ? "dot" : "dot warn"} />{String(row.status || "upcoming").toUpperCase()}</div>
-                      <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
-                      <div className="muted">{teamLabel(row, 1)} vs {teamLabel(row, 2)}</div>
+              {otherRows.map((row) => {
+                const winner = row.status === "finished" ? getWinnerInfo(row) : null;
+                return (
+                  <div className="card cols-6" key={row.id}>
+                    <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                      <div>
+                        <div className="badge"><span className={row.status === "finished" ? "dot" : "dot warn"} />{String(row.status || "upcoming").toUpperCase()}</div>
+                        <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
+                        <div className="muted">{teamLabel(row, 1)} vs {teamLabel(row, 2)}</div>
+                        <div className="muted" style={{ marginTop: 6 }}>
+                          Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • End: {formatTimeLabel(row.end_time)} • Total: {calcDurationLabel(row.start_time, row.end_time)}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 28, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
                     </div>
-                    <div style={{ fontSize: 28, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
-                  </div>
 
-                  <div className="muted" style={{ marginTop: 12 }}>
-                    {row.match_type === "doubles"
-                      ? (
-                        <>
-                          <Link to={`/players?playerId=${row.player1}`}>{playerName(row.player1)}</Link> + <Link to={`/players?playerId=${row.player2}`}>{playerName(row.player2)}</Link>
-                          {" "}vs{" "}
-                          <Link to={`/players?playerId=${row.player3}`}>{playerName(row.player3)}</Link> + <Link to={`/players?playerId=${row.player4}`}>{playerName(row.player4)}</Link>
-                        </>
-                      )
-                      : (
-                        <>
-                          <Link to={`/players?playerId=${row.player1}`}>{playerName(row.player1)}</Link>
-                          {" "}vs{" "}
-                          <Link to={`/players?playerId=${row.player2}`}>{playerName(row.player2)}</Link>
-                        </>
-                      )}
-                  </div>
-
-                  {admin ? (
-                    <div className="row" style={{ marginTop: 12 }}>
-                      <button className="btn" onClick={() => editMatch(row)}>Edit</button>
-                      <button className="btn danger" onClick={() => deleteMatch(row.id)}>Delete</button>
+                    <div className="muted" style={{ marginTop: 12 }}>
+                      {row.match_type === "doubles"
+  ? (
+    <>
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player1)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player1)}
+      </span>
+      {" + "}
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player2)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player2)}
+      </span>
+      {" "}vs{" "}
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player3)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player3)}
+      </span>
+      {" + "}
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player4)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player4)}
+      </span>
+    </>
+  )
+  : (
+    <>
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player1)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player1)}
+      </span>
+      {" "}vs{" "}
+      <span
+        className="player-link"
+        onClick={() => onOpenPlayer(row.player2)}
+        style={{ textDecoration: "underline", cursor: "pointer" }}
+      >
+        {playerName(row.player2)}
+      </span>
+    </>
+  )}
                     </div>
-                  ) : null}
-                </div>
-              ))}
+
+                    {row.status === "finished" ? (
+                      <div
+                        className="card"
+                        style={{
+                          marginTop: 14,
+                          marginBottom: 0,
+                          padding: 14,
+                          borderRadius: 16,
+                          background: "linear-gradient(180deg, rgba(18,28,44,.94), rgba(9,14,26,.94))",
+                        }}
+                      >
+                        <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                          {winner?.photo ? (
+                            <img src={winner.photo} alt={winner.label} style={{ width: 72, height: 72, borderRadius: 16, objectFit: "cover" }} />
+                          ) : (
+                            <div style={{ width: 72, height: 72, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.08)", fontWeight: 900, fontSize: 26 }}>
+                              {String(winner?.label || "?").slice(0, 1).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <div className="badge"><span className="dot" />Winner</div>
+                            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 8 }}>{winner?.label || "—"}</div>
+                            <div className="muted" style={{ marginTop: 6 }}>
+                              Final Score: {safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}
+                              {row.game === "snooker" ? ` • Highest Break: ${winner?.breakValue || 0}` : ""}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {admin ? (
+                      <div className="row" style={{ marginTop: 12 }}>
+                        <button className="btn" onClick={() => editMatch(row)}>Edit</button>
+                        {row.status !== "live" ? (
+                          <button className="btn primary" onClick={() => quickUpdateMatch(row.id, { status: "live", start_time: row.start_time || nowTimeValue(), match_date: row.match_date || nowDateIso() })}>Start Match</button>
+                        ) : null}
+                        {row.status !== "finished" ? (
+                          <button className="btn primary" onClick={() => quickUpdateMatch(row.id, { status: "finished", end_time: row.end_time || nowTimeValue() })}>End Match</button>
+                        ) : null}
+                        <button className="btn danger" onClick={() => deleteMatch(row.id)}>Delete</button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
