@@ -8,6 +8,7 @@ import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom"
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
+import { supabase, supabaseReady } from "./supabase";
 
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
@@ -22,6 +23,64 @@ import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./
 ========================================================= */
 
 const LS_KEY = "qclub_v5_data";
+const STORAGE_BUCKET = "photos";
+const LAST_SEEN_BOOKING_KEY = "qclub_last_seen_booking_at";
+
+function getLastSeenBookingAt() {
+  return Number(localStorage.getItem(LAST_SEEN_BOOKING_KEY) || 0);
+}
+
+function setLastSeenBookingAt(value) {
+  localStorage.setItem(LAST_SEEN_BOOKING_KEY, String(value || 0));
+}
+
+function fileExt(file) {
+  const fromName = String(file?.name || "").split(".").pop()?.toLowerCase();
+  if (fromName && fromName !== String(file?.name || "").toLowerCase()) return fromName;
+
+  const mime = String(file?.type || "").toLowerCase();
+  if (mime.includes("png")) return "png";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("gif")) return "gif";
+  return "jpg";
+}
+
+function isDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+async function uploadImageToStorage(file, folder = "general") {
+  if (!supabaseReady || !supabase) {
+    throw new Error("Supabase is not ready for storage uploads.");
+  }
+
+  const ext = fileExt(file);
+  const path = `${folder}/${Date.now()}-${uid()}.${ext}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: file?.type || undefined,
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return { path, url: data?.publicUrl || "" };
+}
+
+async function deleteStorageObject(path) {
+  if (!path || !supabaseReady || !supabase) return;
+  try {
+    await supabase.storage.from(STORAGE_BUCKET).remove([path]);
+  } catch {
+    // ignore cleanup failures
+  }
+}
 
 /* ---------------------------
    Helpers
@@ -435,6 +494,30 @@ function mergeWithDefaults(remote) {
         hallOfFame: Array.isArray(src.hallOfFame) ? src.hallOfFame : base.hallOfFame,
   };
 }
+function stripHeavyMediaForCloud(src) {
+  const next = JSON.parse(JSON.stringify(src || {}));
+
+  next.photos = (next.photos || []).map((p) => ({
+    ...p,
+    dataUrl: isDataUrl(p?.dataUrl) ? "" : (p?.dataUrl || ""),
+  }));
+
+  next.players = (next.players || []).map((p) => ({
+    ...p,
+    photo: isDataUrl(p?.photo) ? "" : (p?.photo || ""),
+  }));
+
+  next.hallOfFame = (next.hallOfFame || []).map((h) => ({
+    ...h,
+    photo: isDataUrl(h?.photo) ? "" : (h?.photo || ""),
+  }));
+
+  return next;
+}
+
+function hydrateLocalMediaIntoState(src) {
+  return JSON.parse(JSON.stringify(src || {}));
+}
 
 function isMeaningfulState(obj) {
   if (!obj || typeof obj !== "object") return false;
@@ -652,7 +735,7 @@ export default function App() {
   }
 
   function commit(next) {
-  const safeNext = mergeWithDefaults(next);
+  const safeNext = hydrateLocalMediaIntoState(mergeWithDefaults(next));
 
   setData(safeNext);
   saveData(safeNext);
@@ -662,7 +745,9 @@ export default function App() {
 
   setCloudStatus("syncing");
 
-  writeState(safeNext)
+  const cloudSafe = stripHeavyMediaForCloud(safeNext);
+
+  writeState(cloudSafe)
     .then(() => {
       setCloudStatus("synced");
     })
@@ -713,17 +798,13 @@ export default function App() {
 
   useEffect(() => {
     if (!admin) return;
-    const lastSeen = data.booking?.lastSeenRequestAt || 0;
+    const lastSeen = getLastSeenBookingAt();
     const newest = Math.max(0, ...(data.booking?.requests || []).map((r) => r.createdAt || 0));
     if (newest > lastSeen) {
       playPing();
-      commit({
-        ...data,
-        booking: { ...data.booking, lastSeenRequestAt: newest },
-      });
+      setLastSeenBookingAt(newest);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [admin, data.booking?.requests?.length]);
+  }, [admin, data.booking?.requests]);
 useEffect(() => {
   if (!isCloudEnabled()) {
     setData(loadData());
@@ -743,7 +824,7 @@ useEffect(() => {
 
     clearTimeout(fallbackTimer);
 
-    const merged = mergeWithDefaults(remoteState);
+    const merged = hydrateLocalMediaIntoState(mergeWithDefaults(remoteState));
     setData(merged);
     saveData(merged);
     setHasHydratedFromCloud(true);
@@ -758,6 +839,25 @@ useEffect(() => {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
+  if (!hasHydratedFromCloud) {
+  return (
+    <div className="container" style={{ paddingTop: 40 }}>
+      <div
+        className="card"
+        style={{
+          minHeight: 180,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 20,
+          fontWeight: 800,
+        }}
+      >
+        Loading The Q Club...
+      </div>
+    </div>
+  );
+}
 
   return (
     <>
@@ -794,6 +894,7 @@ useEffect(() => {
     />
   }
 />
+        <Route path="/live" element={<LiveMatches data={data} admin={admin} />} />
         <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
@@ -1093,6 +1194,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/">Home</Link>
         <Link className="pill" to="/book">Book Table</Link>
         <Link className="pill" to="/membership">Membership</Link>
+        <Link className="pill" to="/live">Live Matches</Link>
         <Link className="pill" to="/offer">What We Offer</Link>
         <Link className="pill" to="/photos">Photos</Link>
         <Link className="pill" to="/players">Players</Link>
@@ -1145,189 +1247,144 @@ function playersForTournament(tournament, allPlayers = []) {
   return (allPlayers || []).filter((p) => ids.includes(p.id));
 }
 
-function Home({ data, admin, commit, activeTournament }) {
+
+function Home({ data, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2]
     .filter(Boolean)
     .join(" / ");
 
-  const galleryItems = (data.photos || []).slice(0, 6).map((p) => ({
-    id: p.id,
-    url: p.dataUrl || p.url,
-    caption: p.caption || "The Q Club",
-  }));
+  const heroImage = "/home/snooker.jpg";
+  const isSnookerTournament = tournamentGameKey(activeTournament?.game) === "snooker";
+  const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
 
-  const heroPhotos = galleryItems.length
-    ? galleryItems.slice(0, 3)
-    : [
-        {
-          id: "fallback-1",
-          url: "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1800&q=80",
-          caption: "Snooker",
-        },
-      ];
-
-  const features = [
-    {
-      title: "Premium Cue Sports",
-      text: "Full-size snooker, mini snooker and American pool in a proper club environment.",
-    },
-    {
-      title: "Fast Fun Between Frames",
-      text: "Air Hockey and Foosball for quick competitive sessions.",
-    },
-    {
-      title: "Relax & Recharge",
-      text: "Massage chair plus tea and coffee inside the club.",
-    },
-    {
-      title: "Tournaments & Rankings",
-      text: "Monthly events, fixtures, standings and player profiles.",
-    },
+  const clubGallery = [
+    { id: "snooker", url: "/home/snooker.jpg", caption: "Snooker" },
+    { id: "airhockey", url: "/home/air-hockey.png", caption: "Air Hockey" },
+    { id: "foosball", url: "/home/foosball.jpg", caption: "Foosball" },
   ];
 
-  const currentOffers = (data.offers || []).slice(0, 4);
+  const memberships = (data.memberships || []).slice(0, 3);
+
+  const features = [
+    "Premium Snooker Tables",
+    "Monthly Tournaments",
+    "Air Hockey & Foosball",
+    "Massage Chair",
+    "Tea & Coffee",
+    "Members Privileges",
+  ];
 
   return (
-    <div className="container premiumHome">
+    <div className="container refHome">
       <section
-        className="homeHeroPanel"
+        className="refHero"
         style={{
-          backgroundImage: `linear-gradient(180deg, rgba(5,9,14,.24), rgba(5,9,14,.82)),
-            radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.18), transparent 60%),
-            radial-gradient(900px 420px at 90% 10%, rgba(255,77,77,.14), transparent 60%),
-            url("${heroPhotos[0]?.url}")`,
+          backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.40), rgba(7,10,18,.78)),
+            radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
+            radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
+            url("${heroImage}")`,
         }}
       >
-        <div className="homeHeroOverlay">
+        <div className="refHeroTopBar">
+          <div className="refHeroActionRow">
+            <Link className="btn neonGreen refHeroActionBtn" to="/book">
+              Book Table
+            </Link>
+            <Link className="btn neonGreen refHeroActionBtn" to="/membership">
+              Membership
+            </Link>
+          </div>
+        </div>
+
+        <div className="refHeroSpacer" />
+
+        <div className="refHeroBottom">
           <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
             <span className="badge premiumBadgeLite">
               <span className={data.club?.isOpenNow ? "dot" : "dot red"} />
               {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
             </span>
-
-            <span className="badge premiumBadgeLite">
-              GTC, {data.club?.location || "Pasighat"}
-            </span>
           </div>
 
-          <div className="homeHeroCopy">
-            <div className="heroEyebrowLite">The Q Club • Pasighat</div>
-            <h1 className="heroMainTitle">{data.club?.name || "The Q CLUB"}</h1>
+          <h1 className="refHeroTitle">{data.club?.name || "The Q CLUB"}</h1>
 
-            <div className="heroMainSubtitle">
-              {data.club?.tagline2 ||
-                "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
-            </div>
-
-            {admin ? (
-              <button
-                className="btn"
-                style={{ marginTop: 14 }}
-                onClick={() => {
-                  const v = prompt("Edit feature line", data.club?.tagline2 || "");
-                  if (v !== null) {
-                    commit({
-                      ...data,
-                      club: { ...data.club, tagline2: v },
-                    });
-                  }
-                }}
-              >
-                Edit Feature Line
-              </button>
-            ) : null}
-
-            <div className="heroButtonRow">
-              <Link className="btn primary premiumCta" to="/book">
-                Book Table
-              </Link>
-              <Link className="btn premiumGhost" to="/membership">
-                Membership
-              </Link>
-              <Link className="btn premiumGhost" to="/offer">
-                What We Offer
-              </Link>
-            </div>
+          <div className="refHeroSubtitle">
+            {data.club?.tagline2 ||
+              "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
           </div>
         </div>
       </section>
 
-      <section className="infoCardsGrid">
-        <div className="premiumHeroCard">
-          <div className="infoLabel">Location</div>
-          <div className="infoValue">GTC, {data.club?.location || "Pasighat"}</div>
+      <LiveMatchesHeroCard />
+
+      <section className="refInfoGrid">
+        <div className="refGlassCard">
+          <div className="refInfoLabel">Location</div>
+          <div className="refInfoValue">GTC Pasighat</div>
         </div>
 
-        <div className="premiumHeroCard">
-          <div className="infoLabel">Contact</div>
-          <div className="infoValue">{phone || "—"}</div>
-        </div>
-
-        <div className="premiumHeroCard">
-          <div className="infoLabel">Current Tournament</div>
-          <div className="infoValue">{tournamentDisplay(activeTournament)}</div>
+        <div className="refGlassCard">
+          <div className="refInfoLabel">Contact</div>
+          <div className="refInfoValue">{phone || "—"}</div>
         </div>
       </section>
 
-            <section className="sectionBlock tournamentSpotlight">
-        <div className="sectionKicker">Current Highlight</div>
-        <h2 className="sectionHeadline">
-          {activeTournament ? activeTournament.name : "Q Club Experience"}
-        </h2>
-
-        <div className="tournamentSpotlightGrid">
-          <div>
-            <div className="spotlightMeta muted">
-              {activeTournament
-                ? `${activeTournament.month || "This Month"} • ${activeTournament.game || "Snooker"}`
-                : "Premium recreational indoor gaming lounge with cue sports and leisure activities."}
-            </div>
-
-            <div className="row" style={{ marginTop: 16 }}>
-              <Link className="btn primary premiumCta" to="/tournaments">
-                View Tournaments
-              </Link>
-              <Link className="btn premiumGhost" to="/fixtures">
-                Fixtures
-              </Link>
-            </div>
+      <section className="refTournamentCard">
+        <div className="refTournamentContent">
+          <div className="refTournamentKicker">Current Tournament</div>
+          <div className="refTournamentName">
+            {activeTournament?.name || "Q Club Tournament"}
+          </div>
+          <div className="refTournamentMonth">
+            {activeTournament?.month || "This Month"}
+          </div>
+          <div className="muted" style={{ marginTop: 8 }}>
+            {isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
           </div>
 
-          <div className="spotlightNoteBox">
-            <div className="infoLabel">Club Note</div>
-            <div className="spotlightNoteText">
-              The Q Club is built for serious play, friendly competition and a premium lounge feel in Pasighat.
-            </div>
+          <div style={{ marginTop: 18 }}>
+            <Link className="btn neonGreen refViewBtn" to="/fixtures">
+              View Fixtures
+            </Link>
           </div>
+        </div>
+
+        <div className="refTournamentVisual">
+          <img
+            src={tournamentImage}
+            alt={isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
+          />
         </div>
       </section>
-      
-      <section className="sectionBlock">
-        <div className="sectionKicker">Inside The Club</div>
-        <h2 className="sectionHeadline">A premium gaming space in Pasighat</h2>
-        <div className="muted">
-          Real club photos appear here automatically when uploaded from admin.
-        </div>
 
-        <div className="galleryStrip">
-          {(galleryItems.length ? galleryItems.slice(0, 3) : heroPhotos).map((item) => (
-            <div className="miniGalleryCard" key={item.id}>
-              <img src={item.url} alt={item.caption} />
-              <div className="miniGalleryCap">{item.caption}</div>
+      <section className="refGalleryCard">
+        <h2 className="refSectionTitle">Inside The Q Club</h2>
+
+        <div className="refGalleryGrid">
+          {clubGallery.map((item) => (
+            <div className="refGalleryItem" key={item.id}>
+              <img src={item.url} alt={item.caption || "The Q Club"} />
             </div>
           ))}
         </div>
       </section>
 
-      <section className="sectionBlock">
-        <div className="sectionKicker">Why The Q Club</div>
-        <h2 className="sectionHeadline">More than just a Snooker Room</h2>
+      <section className="refWhyCard">
+        <h2 className="refSectionTitle">Why Q Club?</h2>
 
-        <div className="whyGridCompact">
+        <div className="refTierGrid">
+          {memberships.map((tier) => (
+            <div className="refTierBox" key={tier.id}>
+              <div className="refTierTitle">{tier.tier}</div>
+              <div className="refTierPrice">₹{safeNum(tier.price, 0)}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="refFeatureGrid">
           {features.map((item) => (
-            <div className="whyTile" key={item.title}>
-              <div className="quickLinkTitle">{item.title}</div>
-              <div className="muted">{item.text}</div>
+            <div className="refFeatureItem" key={item}>
+              {item}
             </div>
           ))}
         </div>
@@ -2203,15 +2260,16 @@ function Photos({ data, admin, commit }) {
     if (!file) return;
 
     try {
-      const dataUrl = await readFileAsDataURL(file);
       const caption = prompt("Caption (optional):", "") || "";
+      const uploaded = await uploadImageToStorage(file, "gallery");
 
       commit({
         ...data,
         photos: [
           {
             id: uid(),
-            dataUrl,
+            url: uploaded.url,
+            storagePath: uploaded.path,
             caption: caption.trim(),
             createdAt: Date.now(),
           },
@@ -2220,8 +2278,9 @@ function Photos({ data, admin, commit }) {
       });
 
       e.target.value = "";
-    } catch {
-      alert("Failed to read image file.");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload image. If this is your first storage upload, add Storage INSERT/UPDATE/DELETE policies for the photos bucket in Supabase.");
     }
   }
 
@@ -2241,9 +2300,12 @@ function Photos({ data, admin, commit }) {
     });
   }
 
-  function deletePhoto(id) {
+  async function deletePhoto(id) {
     if (!admin) return alert("Admin only");
     if (!confirm("Delete this photo?")) return;
+
+    const current = (data.photos || []).find((p) => p.id === id);
+    await deleteStorageObject(current?.storagePath);
 
     commit({
       ...data,
@@ -2281,7 +2343,7 @@ function Photos({ data, admin, commit }) {
             {(data.photos || []).map((p) => (
               <div className="photoCard" key={p.id}>
                 <img
-  src={p.dataUrl || p.url}
+  src={p.url || p.dataUrl}
   alt={p.caption || "The Q Club"}
   style={{
     cursor: "pointer",
@@ -2292,7 +2354,7 @@ function Photos({ data, admin, commit }) {
     borderRadius: 12,
     padding: 8
   }}
-  onClick={() => setActivePhoto(p.dataUrl || p.url)}
+  onClick={() => setActivePhoto(p.url || p.dataUrl)}
 />
                 <div className="photoCardFooter">
                   <div>
@@ -2344,10 +2406,23 @@ function Photos({ data, admin, commit }) {
 }
 
 function Players({ data, admin, commit, activeTournament }) {
+  const location = useLocation();
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
   const [viewGame, setViewGame] = useState("snooker");
 
   const players = data.players || [];
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const pid = params.get("playerId") || "";
+    if (!pid) return;
+    const found = players.find((p) => p.id === pid);
+    if (!found) return;
+    setSelectedPlayerId(pid);
+    const games = normalizePlayerGames(found.games);
+    if (games.includes("snooker")) setViewGame("snooker");
+    else if (games.includes("pool")) setViewGame("pool");
+  }, [location.search, players]);
 
   const snookerBoard = useMemo(
     () => calcAutoRankingBoard(players, data.tournaments || [], "snooker"),
@@ -2401,16 +2476,19 @@ function Players({ data, admin, commit, activeTournament }) {
     if (!file) return;
 
     try {
-      const dataUrl = await readFileAsDataURL(file);
+      const current = (data.players || []).find((p) => p.id === id);
+      const uploaded = await uploadImageToStorage(file, "players");
+      await deleteStorageObject(current?.photoPath);
 
       commit({
         ...data,
         players: (data.players || []).map((p) =>
-          p.id === id ? { ...p, photo: dataUrl } : p
+          p.id === id ? { ...p, photo: uploaded.url, photoPath: uploaded.path } : p
         ),
       });
-    } catch {
-      alert("Failed to upload photo.");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload photo. If this is your first storage upload, add Storage INSERT/UPDATE/DELETE policies for the photos bucket in Supabase.");
     }
   }
 
@@ -2451,9 +2529,12 @@ function Players({ data, admin, commit, activeTournament }) {
     });
   }
 
-  function deletePlayer(id) {
+  async function deletePlayer(id) {
     if (!admin) return alert("Admin only");
     if (!confirm("Delete this player?")) return;
+
+    const current = (data.players || []).find((p) => p.id === id);
+    await deleteStorageObject(current?.photoPath);
 
     commit({
       ...data,
@@ -3554,9 +3635,12 @@ function HallOfFame({ data, admin, commit }) {
     });
   }
 
-  function deleteEntry(id) {
+  async function deleteEntry(id) {
     if (!admin) return;
     if (!confirm("Delete this entry?")) return;
+
+    const current = entries.find((x) => x.id === id);
+    await deleteStorageObject(current?.photoPath);
 
     commit({
       ...data,
@@ -3581,21 +3665,25 @@ function HallOfFame({ data, admin, commit }) {
     });
   }
 
-  function uploadPhoto(id, file) {
+  async function uploadPhoto(id, file) {
+    if (!admin) return alert("Admin only");
     if (!file) return;
 
-    const reader = new FileReader();
+    try {
+      const current = entries.find((x) => x.id === id);
+      const uploaded = await uploadImageToStorage(file, "hall-of-fame");
+      await deleteStorageObject(current?.photoPath);
 
-    reader.onload = () => {
       commit({
         ...data,
         hallOfFame: entries.map((x) =>
-          x.id === id ? { ...x, photo: reader.result } : x
+          x.id === id ? { ...x, photo: uploaded.url, photoPath: uploaded.path } : x
         ),
       });
-    };
-
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload photo. If this is your first storage upload, add Storage INSERT/UPDATE/DELETE policies for the photos bucket in Supabase.");
+    }
   }
 
   return (
@@ -3697,111 +3785,782 @@ function HallOfFame({ data, admin, commit }) {
 
 
 
-function TVMode({ data, activeTournament, players }) {
 
-  const matches = activeTournament?.matches || [];
-  const isSnooker =
-  tournamentGameKey(activeTournament?.game) === "snooker";
 
-const highestBreakPlayer = isSnooker
-  ? (players || [])
-      .slice()
-      .sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
-  : null;
+function LiveMatchesHeroCard() {
+  const [summary, setSummary] = useState({ total: 0, live: 0, singles: 0, doubles: 0 });
+
+  useEffect(() => {
+    if (!supabaseReady || !supabase) return;
+
+    let alive = true;
+
+    const loadSummary = async () => {
+      const { data: rows, error } = await supabase
+        .from("live_matches")
+        .select("id, match_type, status");
+      if (!alive || error) return;
+      const list = rows || [];
+      setSummary({
+        total: list.length,
+        live: list.filter((x) => x.status === "live").length,
+        singles: list.filter((x) => x.match_type === "singles").length,
+        doubles: list.filter((x) => x.match_type === "doubles").length,
+      });
+    };
+
+    loadSummary();
+
+    const channel = supabase
+      .channel("live-matches-hero-summary")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_matches" },
+        () => loadSummary()
+      )
+      .subscribe();
+
+    return () => {
+      alive = false;
+      try { supabase.removeChannel(channel); } catch {}
+    };
+  }, []);
+
+  const hasLive = summary.live > 0;
+
+  return (
+    <section
+      className="card"
+      style={{
+        marginTop: 18,
+        border: hasLive ? "1px solid rgba(255,80,80,.45)" : undefined,
+        boxShadow: hasLive ? "0 0 0 1px rgba(255,80,80,.12), 0 18px 50px rgba(255,80,80,.10)" : undefined,
+      }}
+    >
+      <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <div className="badge" style={{ marginBottom: 8 }}>
+            <span className={hasLive ? "dot red" : "dot warn"} />
+            {hasLive ? "LIVE NOW" : "TODAY'S MATCHUPS"}
+          </div>
+          <h2 style={{ margin: 0 }}>Live Matches</h2>
+          <div className="muted" style={{ marginTop: 8 }}>
+            {hasLive
+              ? `${summary.live} live match${summary.live > 1 ? "es" : ""} running now`
+              : "Follow today's snooker and pool singles / doubles matches"}
+          </div>
+        </div>
+
+        <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+          <span className="badge"><span className="dot" />Total: {summary.total}</span>
+          <span className="badge"><span className="dot" />Singles: {summary.singles}</span>
+          <span className="badge"><span className="dot" />Doubles: {summary.doubles}</span>
+          <Link
+            to="/live"
+            className="btn primary"
+            style={{
+              minWidth: 180,
+              textAlign: "center",
+              animation: hasLive ? "pulseGlow 1.2s infinite" : "none",
+            }}
+          >
+            {hasLive ? "🔴 LIVE MATCHES NOW" : "Open Live Matches"}
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LiveMatches({ data, admin }) {
+  const [rows, setRows] = useState([]);
+  const [gameFilter, setGameFilter] = useState("snooker");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+
+  const players = data.players || [];
+  const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+
+  const [form, setForm] = useState({
+    id: "",
+    title: "",
+    match_type: "singles",
+    game: "snooker",
+    status: "upcoming",
+    player1: "",
+    player2: "",
+    player3: "",
+    player4: "",
+    team1_name: "",
+    team2_name: "",
+    score1: 0,
+    score2: 0,
+    break1: 0,
+    break2: 0,
+  });
+
+  async function fetchMatches() {
+    if (!supabaseReady || !supabase) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data: liveRows, error } = await supabase
+      .from("live_matches")
+      .select("*")
+      .order("updated_at", { ascending: false });
+    if (error) {
+      console.error("live_matches fetch error:", error);
+      setLoading(false);
+      return;
+    }
+    setRows(liveRows || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchMatches();
+    if (!supabaseReady || !supabase) return;
+
+    const channel = supabase
+      .channel("live-matches-page")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_matches" },
+        () => fetchMatches()
+      )
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch {}
+    };
+  }, []);
+
+  function resetForm() {
+    setForm({
+      id: "",
+      title: "",
+      match_type: "singles",
+      game: "snooker",
+      status: "upcoming",
+      player1: "",
+      player2: "",
+      player3: "",
+      player4: "",
+      team1_name: "",
+      team2_name: "",
+      score1: 0,
+      score2: 0,
+      break1: 0,
+      break2: 0,
+    });
+  }
+
+  async function saveMatch() {
+    if (!admin) return alert("Admin only");
+    if (!supabaseReady || !supabase) return alert("Supabase is not ready.");
+
+    const payload = {
+      id: form.id || uid(),
+      title: String(form.title || "").trim(),
+      match_type: form.match_type,
+      game: form.game,
+      status: form.status,
+      player1: form.player1 || "",
+      player2: form.player2 || "",
+      player3: form.match_type === "doubles" ? form.player3 || "" : "",
+      player4: form.match_type === "doubles" ? form.player4 || "" : "",
+      team1_name: String(form.team1_name || "").trim(),
+      team2_name: String(form.team2_name || "").trim(),
+      score1: safeNum(form.score1, 0),
+      score2: safeNum(form.score2, 0),
+      break1: form.game === "snooker" ? safeNum(form.break1, 0) : 0,
+      break2: form.game === "snooker" ? safeNum(form.break2, 0) : 0,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("live_matches").upsert(payload);
+    if (error) {
+      console.error(error);
+      alert("Failed to save live match.");
+      return;
+    }
+
+    resetForm();
+    fetchMatches();
+  }
+
+  function editMatch(row) {
+    setForm({
+      id: row.id || "",
+      title: row.title || "",
+      match_type: row.match_type || "singles",
+      game: row.game || "snooker",
+      status: row.status || "upcoming",
+      player1: row.player1 || "",
+      player2: row.player2 || "",
+      player3: row.player3 || "",
+      player4: row.player4 || "",
+      team1_name: row.team1_name || "",
+      team2_name: row.team2_name || "",
+      score1: safeNum(row.score1, 0),
+      score2: safeNum(row.score2, 0),
+      break1: safeNum(row.break1, 0),
+      break2: safeNum(row.break2, 0),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function deleteMatch(id) {
+    if (!admin) return alert("Admin only");
+    if (!confirm("Delete this live match?")) return;
+    const { error } = await supabase.from("live_matches").delete().eq("id", id);
+    if (error) {
+      console.error(error);
+      alert("Failed to delete live match.");
+      return;
+    }
+    fetchMatches();
+  }
+
+  const filteredPlayers = players.filter((p) => normalizePlayerGames(p.games).includes(form.game));
+
+  function renderPlayerSelect(label, keyName) {
+    return (
+      <div className="cols-6">
+        <label className="lbl">{label}</label>
+        <select value={form[keyName]} onChange={(e) => setForm({ ...form, [keyName]: e.target.value })}>
+          <option value="">Select player</option>
+          {filteredPlayers.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  function playerName(id) {
+    return playerMap.get(id)?.name || "Player";
+  }
+
+  function playerPhoto(id) {
+    return playerMap.get(id)?.photo || "";
+  }
+
+  function teamLabel(row, side) {
+    const pA = side === 1 ? row.player1 : row.player3;
+    const pB = side === 1 ? row.player2 : row.player4;
+    const custom = side === 1 ? row.team1_name : row.team2_name;
+    if (custom) return custom;
+    if (row.match_type !== "doubles") return playerName(side === 1 ? row.player1 : row.player2);
+    return [playerName(pA), playerName(pB)].join(" + ");
+  }
+
+  const visibleRows = rows.filter((row) => {
+    if (row.game !== gameFilter) return false;
+    if (typeFilter !== "all" && row.match_type !== typeFilter) return false;
+    return true;
+  });
+
+  const liveRows = visibleRows.filter((x) => x.status === "live");
+  const otherRows = visibleRows.filter((x) => x.status !== "live");
 
   return (
     <>
       <PageShell
-        title="TV Display"
-        subtitle="Live tournament fixtures"
+        title="Live Matches"
+        subtitle="Daily snooker and pool singles / doubles"
+        right={
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button className={`btn ${gameFilter === "snooker" ? "primary" : ""}`} onClick={() => setGameFilter("snooker")}>Snooker</button>
+            <button className={`btn ${gameFilter === "pool" ? "primary" : ""}`} onClick={() => setGameFilter("pool")}>Pool</button>
+            <button className={`btn ${typeFilter === "all" ? "primary" : ""}`} onClick={() => setTypeFilter("all")}>All</button>
+            <button className={`btn ${typeFilter === "singles" ? "primary" : ""}`} onClick={() => setTypeFilter("singles")}>Singles</button>
+            <button className={`btn ${typeFilter === "doubles" ? "primary" : ""}`} onClick={() => setTypeFilter("doubles")}>Doubles</button>
+          </div>
+        }
       />
 
       <div className="container">
+        {admin ? (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>{form.id ? "Edit Live Match" : "Add Live Match"}</h2>
+              {form.id ? <button className="btn" onClick={resetForm}>Clear</button> : null}
+            </div>
 
-        <div className="card">
+            <div className="grid" style={{ marginTop: 14 }}>
+              <div className="cols-6">
+                <label className="lbl">Title (optional)</label>
+                <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Evening Singles Showdown" />
+              </div>
 
-          <h2>
-            {activeTournament
-              ? tournamentDisplay(activeTournament)
-              : "No active tournament"}
-          </h2>
-          {isSnooker ? (
-  <div style={{ marginBottom: 14 }}>
-    <span className="badge">
-      <span className="dot" />
-      Highest Break Leader:{" "}
-      {highestBreakPlayer
-        ? `${highestBreakPlayer.name} – ${highestBreakPlayer.bestBreak || 0}`
-        : "—"}
-    </span>
-  </div>
-) : null}
+              <div className="cols-3">
+                <label className="lbl">Game</label>
+                <select value={form.game} onChange={(e) => setForm({ ...form, game: e.target.value })}>
+                  <option value="snooker">Snooker</option>
+                  <option value="pool">Pool</option>
+                </select>
+              </div>
 
-          {matches.length === 0 ? (
-            <div className="muted">No matches available.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Round</th>
-                  <th>Match</th>
-                  <th>Score</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
+              <div className="cols-3">
+                <label className="lbl">Match Type</label>
+                <select value={form.match_type} onChange={(e) => setForm({ ...form, match_type: e.target.value, player3: "", player4: "" })}>
+                  <option value="singles">Singles</option>
+                  <option value="doubles">Doubles</option>
+                </select>
+              </div>
 
-              <tbody>
-                {matches.map((m) => {
+              <div className="cols-3">
+                <label className="lbl">Status</label>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="live">Live</option>
+                  <option value="finished">Finished</option>
+                </select>
+              </div>
 
-                  const p1 =
-                    players.find((x) => x.id === m.p1)?.name || "Player 1";
+              {renderPlayerSelect(form.match_type === "singles" ? "Player 1" : "Team A - Player 1", "player1")}
+              {renderPlayerSelect(form.match_type === "singles" ? "Player 2" : "Team A - Player 2", "player2")}
 
-                  const p2 =
-                    players.find((x) => x.id === m.p2)?.name || "Player 2";
+              {form.match_type === "doubles" ? (
+                <>
+                  {renderPlayerSelect("Team B - Player 1", "player3")}
+                  {renderPlayerSelect("Team B - Player 2", "player4")}
+                  <div className="cols-6">
+                    <label className="lbl">Team A Name (optional)</label>
+                    <input value={form.team1_name} onChange={(e) => setForm({ ...form, team1_name: e.target.value })} placeholder="Cue Masters" />
+                  </div>
+                  <div className="cols-6">
+                    <label className="lbl">Team B Name (optional)</label>
+                    <input value={form.team2_name} onChange={(e) => setForm({ ...form, team2_name: e.target.value })} placeholder="Pocket Kings" />
+                  </div>
+                </>
+              ) : null}
 
-                  return (
-                    <tr key={m.id}>
-                      <td>{m.round}</td>
+              <div className="cols-3">
+                <label className="lbl">Score 1</label>
+                <input type="number" value={form.score1} onChange={(e) => setForm({ ...form, score1: e.target.value })} />
+              </div>
+              <div className="cols-3">
+                <label className="lbl">Score 2</label>
+                <input type="number" value={form.score2} onChange={(e) => setForm({ ...form, score2: e.target.value })} />
+              </div>
 
-                      <td>
-                        {p1} vs {p2}
-                      </td>
+              {form.game === "snooker" ? (
+                <>
+                  <div className="cols-3">
+                    <label className="lbl">Highest Break 1</label>
+                    <input type="number" value={form.break1} onChange={(e) => setForm({ ...form, break1: e.target.value })} />
+                  </div>
+                  <div className="cols-3">
+                    <label className="lbl">Highest Break 2</label>
+                    <input type="number" value={form.break2} onChange={(e) => setForm({ ...form, break2: e.target.value })} />
+                  </div>
+                </>
+              ) : null}
+            </div>
 
-                      <td>
-                        {m.score1 ?? "-"} : {m.score2 ?? "-"}
-                      </td>
-                      <td>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button className="btn primary" onClick={saveMatch}>{form.id ? "Update Match" : "Add Match"}</button>
+            </div>
+          </div>
+        ) : null}
 
-  <span className="badge">
-    <span className="dot" />
-    {m.status || "scheduled"}
-  </span>
-
-  
-</td>
-
-                      <td>
-                        <span className="badge">
-                          <span className="dot" />
-                          {m.status || "scheduled"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-
-            </table>
-          )}
-
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+          <div className="badge"><span className="dot red" />Live: {liveRows.length}</div>
+          <div className="badge"><span className="dot" />Total: {visibleRows.length}</div>
         </div>
 
+        {loading ? (
+          <div className="card"><div className="muted">Loading live matches...</div></div>
+        ) : visibleRows.length === 0 ? (
+          <div className="card"><div className="muted">No live matches added yet.</div></div>
+        ) : (
+          <>
+            {liveRows.length ? <h2 style={{ marginBottom: 10 }}>Live Now</h2> : null}
+            <div className="grid">
+              {liveRows.map((row) => (
+                <div className="card cols-6" key={row.id} style={{ border: "1px solid rgba(255,80,80,.35)" }}>
+                  <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div>
+                      <div className="badge"><span className="dot red" />LIVE</div>
+                      <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
+                      <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} • {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
+                    </div>
+                    {admin ? (
+                      <div className="row">
+                        <button className="btn" onClick={() => editMatch(row)}>Edit</button>
+                        <button className="btn danger" onClick={() => deleteMatch(row.id)}>Delete</button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "center" }}>
+                    {[1, 2].map((side) => {
+                      const ids = row.match_type === "doubles"
+                        ? (side === 1 ? [row.player1, row.player2] : [row.player3, row.player4])
+                        : [side === 1 ? row.player1 : row.player2].filter(Boolean);
+                      const label = teamLabel(row, side);
+                      return (
+                        <div key={side} style={{ textAlign: "center" }}>
+                          <div className="row" style={{ justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                            {ids.map((pid) => (
+                              playerPhoto(pid) ? (
+                                <img key={pid} src={playerPhoto(pid)} alt={playerName(pid)} style={{ width: 68, height: 68, borderRadius: 14, objectFit: "cover" }} />
+                              ) : (
+                                <div key={pid} style={{ width: 68, height: 68, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.08)", fontWeight: 900 }}>
+                                  {String(playerName(pid)).slice(0,1).toUpperCase()}
+                                </div>
+                              )
+                            ))}
+                          </div>
+                          <div style={{ marginTop: 10, fontWeight: 800, fontSize: 20 }}>{label}</div>
+                          <div className="muted" style={{ marginTop: 6 }}>
+                            {ids.map((pid, idx) => (
+                              <span key={pid}>
+                                <Link to={`/players?playerId=${pid}`} style={{ color: "inherit", textDecoration: "underline" }}>{playerName(pid)}</Link>
+                                {idx < ids.length - 1 ? " + " : ""}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    <div style={{ textAlign: "center", minWidth: 110 }}>
+                      <div style={{ fontSize: 34, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
+                      {row.game === "snooker" ? (
+                        <div className="muted" style={{ marginTop: 8 }}>
+                          Breaks: {safeNum(row.break1, 0)} / {safeNum(row.break2, 0)}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {otherRows.length ? <h2 style={{ marginTop: 18, marginBottom: 10 }}>Upcoming / Finished</h2> : null}
+            <div className="grid">
+              {otherRows.map((row) => (
+                <div className="card cols-6" key={row.id}>
+                  <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div>
+                      <div className="badge"><span className={row.status === "finished" ? "dot" : "dot warn"} />{String(row.status || "upcoming").toUpperCase()}</div>
+                      <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
+                      <div className="muted">{teamLabel(row, 1)} vs {teamLabel(row, 2)}</div>
+                    </div>
+                    <div style={{ fontSize: 28, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
+                  </div>
+
+                  <div className="muted" style={{ marginTop: 12 }}>
+                    {row.match_type === "doubles"
+                      ? (
+                        <>
+                          <Link to={`/players?playerId=${row.player1}`}>{playerName(row.player1)}</Link> + <Link to={`/players?playerId=${row.player2}`}>{playerName(row.player2)}</Link>
+                          {" "}vs{" "}
+                          <Link to={`/players?playerId=${row.player3}`}>{playerName(row.player3)}</Link> + <Link to={`/players?playerId=${row.player4}`}>{playerName(row.player4)}</Link>
+                        </>
+                      )
+                      : (
+                        <>
+                          <Link to={`/players?playerId=${row.player1}`}>{playerName(row.player1)}</Link>
+                          {" "}vs{" "}
+                          <Link to={`/players?playerId=${row.player2}`}>{playerName(row.player2)}</Link>
+                        </>
+                      )}
+                  </div>
+
+                  {admin ? (
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <button className="btn" onClick={() => editMatch(row)}>Edit</button>
+                      <button className="btn danger" onClick={() => deleteMatch(row.id)}>Delete</button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </>
   );
 }
 
 
+function TVMode({ data, activeTournament, players }) {
+  const matches = activeTournament?.matches || [];
+  const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
+
+  const highestBreakPlayer = isSnooker
+    ? (players || []).slice().sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
+    : null;
+
+  const leaderboard = activeTournament
+    ? calcLeaderboard(playersForTournament(activeTournament, data.players || []), activeTournament)
+    : [];
+
+  const nextMatches = matches.filter((m) => m.status !== "done");
+  const doneMatches = matches.filter((m) => m.status === "done");
+
+  function playerById(id) {
+    return (players || []).find((x) => x.id === id) || null;
+  }
+
+  function playerName(id) {
+    return playerById(id)?.name || "Player";
+  }
+
+  function playerPhoto(id) {
+    return playerById(id)?.photo || "";
+  }
+
+  function statusDotClass(status) {
+    return status === "done" ? "dot" : status === "live" ? "dot warn" : "dot";
+  }
+
+  function scoreText(m) {
+    const s1 = m?.score1 === "" || m?.score1 == null ? "-" : m.score1;
+    const s2 = m?.score2 === "" || m?.score2 == null ? "-" : m.score2;
+    return `${s1} : ${s2}`;
+  }
+
+  const renderMatchCards = (list) => {
+    if (!list.length) return <div className="muted">No matches available.</div>;
+
+    return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 16,
+          marginTop: 14,
+        }}
+      >
+        {list.map((m) => (
+          <div
+            key={m.id}
+            className="card"
+            style={{
+              margin: 0,
+              padding: 18,
+              borderRadius: 18,
+              background: "linear-gradient(180deg, rgba(13,20,36,.96), rgba(8,12,24,.96))",
+            }}
+          >
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
+              <span className="badge">
+                <span className="dot" />
+                Round {m.round}
+              </span>
+              <span className="badge">
+                <span className={statusDotClass(m.status)} />
+                {m.status || "scheduled"}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
+              {[m.p1, m.p2].map((pid, idx) => {
+                const photo = playerPhoto(pid);
+                const name = playerName(pid);
+                return (
+                  <div
+                    key={pid || idx}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 10,
+                      textAlign: "center",
+                    }}
+                  >
+                    {photo ? (
+                      <img
+                        src={photo}
+                        alt={name}
+                        style={{
+                          width: 96,
+                          height: 96,
+                          objectFit: "cover",
+                          borderRadius: 18,
+                          border: "1px solid rgba(255,255,255,.12)",
+                          background: "rgba(255,255,255,.05)",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 96,
+                          height: 96,
+                          borderRadius: 18,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 34,
+                          fontWeight: 900,
+                          background: "rgba(255,255,255,.08)",
+                          border: "1px solid rgba(255,255,255,.12)",
+                        }}
+                      >
+                        {String(name || "?").slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+
+                    <div style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.15 }}>{name}</div>
+                  </div>
+                );
+              })}
+
+              <div
+                style={{
+                  minWidth: 90,
+                  textAlign: "center",
+                  fontSize: 28,
+                  fontWeight: 900,
+                  letterSpacing: 1,
+                }}
+              >
+                {scoreText(m)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <PageShell title="TV Display" subtitle="Live tournament fixtures" />
+
+      <div className="container">
+        <div className="card">
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ marginBottom: 6 }}>
+                {activeTournament ? tournamentDisplay(activeTournament) : "No active tournament"}
+              </h2>
+              <div className="muted">
+                {isSnooker ? "Snooker TV Mode" : "Pool TV Mode"}
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+              <span className="badge">
+                <span className="dot" />
+                Total Matches: {matches.length}
+              </span>
+              <span className="badge">
+                <span className="dot warn" />
+                Pending: {nextMatches.length}
+              </span>
+              <span className="badge">
+                <span className="dot" />
+                Completed: {doneMatches.length}
+              </span>
+              {isSnooker ? (
+                <span className="badge">
+                  <span className="dot" />
+                  Highest Break: {highestBreakPlayer ? `${highestBreakPlayer.name} – ${highestBreakPlayer.bestBreak || 0}` : "—"}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          {leaderboard.length ? (
+            <div style={{ marginTop: 16 }}>
+              <h3 style={{ marginBottom: 10 }}>Top Players</h3>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {leaderboard.slice(0, 4).map((row, idx) => {
+                  const p = playerById(row.id);
+                  return (
+                    <div
+                      key={row.id}
+                      className="card"
+                      style={{
+                        margin: 0,
+                        padding: 14,
+                        borderRadius: 16,
+                        background: "linear-gradient(180deg, rgba(16,24,42,.94), rgba(9,13,24,.94))",
+                      }}
+                    >
+                      <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                        {p?.photo ? (
+                          <img
+                            src={p.photo}
+                            alt={row.name}
+                            style={{
+                              width: 56,
+                              height: 56,
+                              objectFit: "cover",
+                              borderRadius: 14,
+                              border: "1px solid rgba(255,255,255,.12)",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 56,
+                              height: 56,
+                              borderRadius: 14,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontWeight: 900,
+                              fontSize: 22,
+                              background: "rgba(255,255,255,.08)",
+                              border: "1px solid rgba(255,255,255,.12)",
+                            }}
+                          >
+                            {String(row.name || "?").slice(0, 1).toUpperCase()}
+                          </div>
+                        )}
+
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, opacity: 0.8 }}>#{idx + 1}</div>
+                          <div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{row.name}</div>
+                          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                            {row.points} pts • {row.wins} wins
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 18 }}>
+            <h3 style={{ marginBottom: 6 }}>Upcoming / Live</h3>
+            {renderMatchCards(nextMatches)}
+          </div>
+
+          {doneMatches.length ? (
+            <div style={{ marginTop: 22 }}>
+              <h3 style={{ marginBottom: 6 }}>Completed Matches</h3>
+              {renderMatchCards(doneMatches)}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
+}
 
 function AdminPanel({ data, admin, commit, activeTournament }) {
   if (!admin) {
@@ -3926,6 +4685,11 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
           <div className="card cols-12">
             <h2>Quick Admin Actions</h2>
             <div className="grid" style={{ marginTop: 12 }}>
+              <div className="cols-3">
+                <Link className="btn primary" to="/live" style={{ width: "100%" }}>
+                  Live Matches
+                </Link>
+              </div>
               <div className="cols-3">
                 <Link className="btn primary" to="/book" style={{ width: "100%" }}>
                   Bookings

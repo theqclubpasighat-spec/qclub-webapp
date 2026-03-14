@@ -80,12 +80,25 @@ a{ color:inherit; text-decoration:none; }
 .spacer{ flex:1; }
 
 .pill{
-  padding:8px 12px;
+  padding:8px 14px;
   border-radius:999px;
-  border: 1px solid var(--stroke);
-  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.14);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
   font-size: 13px;
-  color: rgba(234,240,255,.90);
+  color: rgba(234,240,255,.94);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.03) inset,
+    0 6px 18px rgba(0,0,0,.18);
+}
+
+.pill:hover{
+  border-color: rgba(212,175,55,.28);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+  box-shadow:
+    0 0 0 1px rgba(212,175,55,.05) inset,
+    0 0 14px rgba(212,175,55,.08);
 }
 .pill:hover{ border-color: var(--stroke2); background: rgba(255,255,255,.05); }
 
@@ -100,8 +113,40 @@ a{ color:inherit; text-decoration:none; }
 }
 .btn:hover{ border-color: var(--stroke2); background: rgba(255,255,255,.06); }
 .btn.primary{
-  border-color: rgba(56,211,159,.35);
-  background: rgba(56,211,159,.12);
+  border: 1px solid rgba(56,211,159,.55);
+  background:
+    linear-gradient(180deg, rgba(56,211,159,.18), rgba(56,211,159,.10));
+  color: #f4fff9;
+  box-shadow:
+    0 0 0 1px rgba(56,211,159,.18) inset,
+    0 0 14px rgba(56,211,159,.18),
+    0 0 28px rgba(56,211,159,.12);
+}
+
+.btn.primary:hover{
+  border-color: rgba(56,211,159,.80);
+  background:
+    linear-gradient(180deg, rgba(56,211,159,.24), rgba(56,211,159,.14));
+  box-shadow:
+    0 0 0 1px rgba(56,211,159,.24) inset,
+    0 0 18px rgba(56,211,159,.28),
+    0 0 36px rgba(56,211,159,.16);
+}
+.premiumGhost{
+  border: 1px solid rgba(212,175,55,.28);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  color: rgba(255,248,225,.96);
+  box-shadow:
+    0 0 0 1px rgba(212,175,55,.08) inset,
+    0 0 18px rgba(212,175,55,.08);
+}
+
+.premiumGhost:hover{
+  border-color: rgba(212,175,55,.48);
+  box-shadow:
+    0 0 0 1px rgba(212,175,55,.12) inset,
+    0 0 20px rgba(212,175,55,.14);
 }
 .btn.danger{
   border-color: rgba(255,77,77,.35);
@@ -576,9 +621,9 @@ img{ max-width:100%; height:auto; }
 .homeHeroPanel{
   position:relative;
   overflow:hidden;
-  min-height:440px;
-  border-radius:32px;
-  border:1px solid rgba(255,255,255,.12);
+  min-height:520px;
+border-radius:0;
+  
   box-shadow:0 28px 70px rgba(0,0,0,.42);
   background:
     linear-gradient(180deg, rgba(5,9,14,.22), rgba(5,9,14,.82)),
@@ -1160,5 +1205,688 @@ img{ max-width:100%; height:auto; }
 
   .offerLinePill{
     white-space:normal;
+  }
+}
+.neonGreen{
+  background: linear-gradient(90deg,#1cff9a,#14b86a);
+  color:#02110a;
+  font-weight:600;
+  border-radius:999px;
+  padding:10px 20px;
+  border:none;
+
+  box-shadow:
+  0 0 8px rgba(56,211,159,.6),
+  0 0 18px rgba(56,211,159,.45),
+  0 0 32px rgba(56,211,159,.25);
+
+  transition:.25s;
+}
+
+.neonGreen:hover{
+  transform:translateY(-1px);
+  box-shadow:
+  0 0 12px rgba(56,211,159,.8),
+  0 0 28px rgba(56,211,159,.55),
+  0 0 50px rgba(56,211,159,.35);
+}
+.premiumHomeRef{
+  gap: 18px;
+}
+
+.refHero{
+  min-height: 760px;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.refHeroOverlay{
+  min-height: 760px;
+  padding: 28px 28px 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.refHeroTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:16px;
+}
+
+.refBrandTitle{
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: .02em;
+}
+
+.refBrandSub{
+  margin-top: 6px;
+  font-size: 18px;
+  color: rgba(234,240,255,.86);
+}
+
+.refTopActions{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.refTopBtn{
+  min-width: 150px;
+  justify-content: center;
+}
+
+.refNavRow{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-top: 18px;
+}
+
+.refHeroBottom{
+  max-width: 100%;
+}
+
+.refCopy{
+  max-width: 720px;
+  margin-top: 18px;
+}
+
+.refInfoRow{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:16px;
+  margin-top: -70px;
+  position: relative;
+  z-index: 2;
+}
+
+.refInfoCard{
+  background:
+    radial-gradient(420px 120px at 0% 100%, rgba(56,211,159,.10), transparent 60%),
+    radial-gradient(420px 120px at 100% 0%, rgba(212,175,55,.10), transparent 60%),
+    rgba(12,18,30,.58);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.03) inset,
+    0 18px 42px rgba(0,0,0,.28);
+}
+
+.refTournamentBlock{
+  display:grid;
+  grid-template-columns: minmax(0,1fr) 380px;
+  gap:18px;
+  align-items:stretch;
+  background:
+    radial-gradient(520px 240px at 0% 0%, rgba(212,175,55,.12), transparent 60%),
+    radial-gradient(520px 240px at 100% 100%, rgba(56,211,159,.10), transparent 60%),
+    rgba(10,14,24,.68);
+}
+
+.refTournamentLeft{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.refTournamentKicker{
+  color: #f2c35b;
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.refTournamentTitle{
+  margin: 14px 0 8px;
+  font-size: 54px;
+  line-height: .98;
+  letter-spacing: -.04em;
+}
+
+.refTournamentDate{
+  font-size: 22px;
+  color: rgba(255,255,255,.88);
+}
+
+.refTournamentImage{
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  min-height: 260px;
+}
+
+.refTournamentImage img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+
+.refGalleryStrip{
+  grid-template-columns:repeat(3, minmax(0,1fr));
+}
+
+.refMembershipRow{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:14px;
+  margin-top:16px;
+  margin-bottom:18px;
+}
+
+.refTierCard{
+  text-align:center;
+  background:
+    radial-gradient(220px 120px at 50% 0%, rgba(212,175,55,.12), transparent 60%),
+    rgba(255,255,255,.05);
+}
+
+.refTierName{
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.refTierPrice{
+  margin-top: 8px;
+  font-size: 34px;
+  font-weight: 900;
+  color: rgba(255,248,225,.96);
+}
+
+.refWhyGrid{
+  grid-template-columns:repeat(3, minmax(0,1fr));
+}
+
+@media (max-width: 1000px){
+  .refHero{
+    min-height: 620px;
+  }
+
+  .refHeroOverlay{
+    min-height: 620px;
+  }
+
+  .refInfoRow,
+  .refTournamentBlock,
+  .refMembershipRow,
+  .refWhyGrid{
+    grid-template-columns:1fr;
+  }
+
+  .refInfoRow{
+    margin-top: 0;
+  }
+
+  .refTournamentTitle{
+    font-size: 38px;
+  }
+}
+
+@media (max-width: 700px){
+  .refBrandTitle{
+    font-size: 26px;
+  }
+
+  .refBrandSub{
+    font-size: 15px;
+  }
+
+  .refHero{
+    min-height: 560px;
+  }
+
+  .refHeroOverlay{
+    min-height: 560px;
+    padding: 18px;
+  }
+
+  .refTopBtn{
+    min-width: auto;
+  }
+
+  .refTournamentTitle{
+    font-size: 32px;
+  }
+
+  .refTierPrice{
+    font-size: 28px;
+  }
+}
+/* =========================
+   CLEAN REBUILD HOME
+========================= */
+.refHome{
+  display:flex;
+  flex-direction:column;
+  gap:22px;
+}
+
+.refHero{
+  position:relative;
+  min-height:420px;
+  border-radius:28px;
+  overflow:hidden;
+  background-size:cover;
+  background-position:center;
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 28px 70px rgba(0,0,0,.42);
+  padding:22px;
+  display:flex;
+  flex-direction:column;
+}
+
+.refHero::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(420px 220px at 18% 78%, rgba(56,211,159,.16), transparent 60%),
+    radial-gradient(320px 180px at 78% 22%, rgba(212,175,55,.12), transparent 60%),
+    radial-gradient(220px 140px at 56% 58%, rgba(255,255,255,.06), transparent 70%);
+  opacity:.95;
+  pointer-events:none;
+  transition: transform .45s ease, opacity .45s ease;
+}
+.refHero::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(120deg, transparent 0%, rgba(255,255,255,.05) 35%, transparent 60%);
+  opacity:.35;
+  pointer-events:none;
+  transform: translateX(-8%);
+  transition: transform .5s ease, opacity .5s ease;
+}
+.refHero:hover::before{
+  transform: scale(1.03);
+  opacity:1;
+}
+
+.refHero:hover::after{
+  transform: translateX(2%);
+  opacity:.5;
+}
+
+.refHero:hover{
+  box-shadow:
+    0 32px 90px rgba(0,0,0,.48),
+    0 0 24px rgba(56,211,159,.10);
+}
+
+.refHeroTopBar,
+.refHeroNavRow,
+.refHeroBottom{
+  position:relative;
+  z-index:2;
+}
+
+.refHeroTopBar{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:18px;
+}
+
+.refBrandBlock{
+  max-width:420px;
+}
+
+.refBrandTitle{
+  font-size:34px;
+  font-weight:900;
+  line-height:1;
+  letter-spacing:.02em;
+}
+
+.refBrandSub{
+  margin-top:8px;
+  font-size:18px;
+  color:rgba(234,240,255,.88);
+}
+
+.refHeroActionRow{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.refHeroActionBtn{
+  min-width:150px;
+  justify-content:center;
+}
+
+.refHeroNavRow{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-top:18px;
+}
+
+.refHeroSpacer{
+  flex:1;
+  min-height:120px;
+}
+
+.refHeroBottom{
+  max-width:700px;
+}
+
+.refHeroEyebrow{
+  display:inline-flex;
+  margin-top:18px;
+  padding:7px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.92);
+  font-size:12px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.refHeroTitle{
+  margin:16px 0 10px;
+  font-size:64px;
+  line-height:.96;
+  letter-spacing:-.04em;
+  text-shadow:0 16px 38px rgba(0,0,0,.38);
+}
+
+.refHeroSubtitle{
+  font-size:19px;
+  line-height:1.65;
+  color:rgba(234,240,255,.88);
+  max-width:640px;
+}
+
+.refInfoGrid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:16px;
+  margin-top:-72px;
+  position:relative;
+  z-index:3;
+}
+
+.refGlassCard,
+.refTournamentCard,
+.refGalleryCard,
+.refWhyCard{
+  border:1px solid rgba(255,255,255,.11);
+  background:
+    linear-gradient(180deg, rgba(20,28,42,.70), rgba(10,16,28,.78));
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+
+.refGlassCard{
+  border-radius:24px;
+  padding:22px;
+}
+
+.refInfoLabel{
+  font-size:13px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:rgba(234,240,255,.66);
+}
+
+.refInfoValue{
+  margin-top:10px;
+  font-size:21px;
+  font-weight:900;
+  line-height:1.35;
+}
+
+.refTournamentCard{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 360px;
+  gap:22px;
+  align-items:stretch;
+  border-radius:28px;
+  padding:22px;
+}
+
+.refTournamentContent{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.refTournamentKicker{
+  color:#f2c35b;
+  font-size:14px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.10em;
+}
+
+.refTournamentName{
+  margin-top:14px;
+  font-size:56px;
+  line-height:.98;
+  font-weight:900;
+  letter-spacing:-.05em;
+}
+
+.refTournamentMonth{
+  margin-top:12px;
+  font-size:22px;
+  color:rgba(255,255,255,.90);
+}
+
+.refViewBtn{
+  min-width:180px;
+  justify-content:center;
+}
+
+.refTournamentVisual{
+  border-radius:24px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+  min-height:260px;
+  background:rgba(255,255,255,.04);
+}
+
+.refTournamentVisual img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+
+.refGalleryCard{
+  position:relative;
+  border-radius:18px;
+  overflow:hidden;
+  cursor:pointer;
+  transition: transform .35s ease, box-shadow .35s ease;
+}
+
+.refWhyCard{
+  border-radius:28px;
+  padding:22px;
+}
+.refGalleryCard img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  transition: transform .5s ease;
+}
+.refGalleryCard:hover{
+  transform: translateY(-8px) scale(1.02);
+  box-shadow:
+    0 20px 60px rgba(0,0,0,.45),
+    0 0 18px rgba(56,211,159,.18);
+}
+
+.refGalleryCard:hover img{
+  transform: scale(1.08);
+}
+.refGalleryCard::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:18px;
+  background: linear-gradient(
+    120deg,
+    rgba(56,211,159,.15),
+    transparent 40%,
+    rgba(212,175,55,.15)
+  );
+  opacity:0;
+  transition: opacity .35s ease;
+  pointer-events:none;
+}
+
+.refGalleryCard:hover::after{
+  opacity:.6;
+}
+.refSectionTitle{
+  margin:0 0 16px;
+  font-size:28px;
+  letter-spacing:-.03em;
+}
+
+.refGalleryGrid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:14px;
+}
+
+.refGalleryItem{
+  border-radius:18px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+  min-height:180px;
+}
+
+.refGalleryItem img{
+  width:100%;
+  height:100%;
+  min-height:180px;
+  object-fit:cover;
+  display:block;
+}
+
+.refTierGrid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:14px;
+  margin-bottom:16px;
+}
+
+.refTierBox{
+  text-align:center;
+  border-radius:20px;
+  padding:18px;
+  border:1px solid rgba(255,255,255,.10);
+  background:
+    radial-gradient(240px 120px at 50% 0%, rgba(212,175,55,.12), transparent 60%),
+    rgba(255,255,255,.05);
+  box-shadow:0 10px 30px rgba(0,0,0,.18);
+}
+
+.refTierTitle{
+  font-size:20px;
+  font-weight:900;
+}
+
+.refTierPrice{
+  margin-top:8px;
+  font-size:38px;
+  font-weight:900;
+  color:rgba(255,248,225,.98);
+}
+
+.refFeatureGrid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:14px;
+}
+
+.refFeatureItem{
+  border-radius:18px;
+  padding:16px 18px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.045);
+  font-size:17px;
+  font-weight:700;
+  color:rgba(234,240,255,.94);
+}
+
+@media (max-width: 1000px){
+  .refHero{
+    min-height:620px;
+    padding:22px;
+  }
+
+  .refInfoGrid,
+  .refTournamentCard,
+  .refGalleryGrid,
+  .refTierGrid,
+  .refFeatureGrid{
+    grid-template-columns:1fr;
+  }
+
+  .refInfoGrid{
+    margin-top:0;
+  }
+
+  .refTournamentName{
+    font-size:40px;
+  }
+
+  .refHeroTitle{
+    font-size:46px;
+  }
+}
+
+@media (max-width: 700px){
+  .refHero{
+    min-height:560px;
+    padding:18px;
+    border-radius:22px;
+  }
+
+  .refHeroTopBar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .refBrandTitle{
+    font-size:26px;
+  }
+
+  .refBrandSub{
+    font-size:15px;
+  }
+
+  .refHeroTitle{
+    font-size:38px;
+  }
+
+  .refHeroSubtitle{
+    font-size:16px;
+  }
+
+  .refHeroActionBtn{
+    min-width:auto;
+  }
+
+  .refTournamentName{
+    font-size:32px;
+  }
+
+  .refTierPrice{
+    font-size:30px;
   }
 }

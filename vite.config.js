@@ -7,7 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['apple-touch-icon.png', 'maskable-icon.png', 'pwa-192.png', 'pwa-512.png', 'music.mp3'],
+      includeAssets: [
+        'apple-touch-icon.png',
+        'maskable-icon.png',
+        'pwa-192.png',
+        'pwa-512.png',
+        'music.mp3'
+      ],
       manifest: {
         name: 'The Q CLUB',
         short_name: 'Q CLUB',
@@ -25,4 +31,9 @@ export default defineConfig({
       }
     })
   ],
+
+  server: {
+    host: true,
+    port: 5173
+  }
 })
