@@ -1734,22 +1734,38 @@ transition: "background-image 0.25s ease-in-out",
         }}
       >
         <div className="refHeroTopBar">
-  <div className="refHeroActionRow">
-  <Link className="btn neonGreen refHeroActionBtn" to="/book">
+  <div
+  className="refHeroActionRow"
+  style={{
+    display: "flex",
+    gap: 12,
+    flexWrap: "nowrap",
+    alignItems: "center",
+  }}
+>
+  <Link
+    className="btn neonGreen refHeroActionBtn"
+    to="/book"
+    style={{ padding: "10px 16px", fontSize: "0.95rem", whiteSpace: "nowrap" }}
+  >
     Book Table
   </Link>
 
-  <Link className="btn neonGreen refHeroActionBtn" to="/membership">
+  <Link
+    className="btn neonGreen refHeroActionBtn"
+    to="/membership"
+    style={{ padding: "10px 16px", fontSize: "0.95rem", whiteSpace: "nowrap" }}
+  >
     Membership
   </Link>
 
   <Link
-  className="btn neonGreen refHeroActionBtn"
-  to="/offer"
-  style={{ padding: "10px 18px", fontSize: "0.9rem" }}
->
-  The Q Lounge
-</Link>
+    className="btn neonGreen refHeroActionBtn"
+    to="/offer"
+    style={{ padding: "10px 14px", fontSize: "0.88rem", whiteSpace: "nowrap" }}
+  >
+    The Q Lounge
+  </Link>
 </div>
 
   <div className="row" style={{ gap: 8 }}>
