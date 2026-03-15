@@ -499,6 +499,7 @@ function defaultData() {
       { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "", games: ["pool"] },
       { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "", games: ["snooker", "pool"] },
     ],
+    foodOrders: [],
     tournaments: [
       {
         id: uid(),
@@ -565,6 +566,7 @@ function mergeWithDefaults(remote) {
     menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
     photos: Array.isArray(src.photos) ? src.photos : base.photos,
     players: Array.isArray(src.players) && src.players.length ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) })) : base.players,
+    foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
     tournaments: Array.isArray(src.tournaments) && src.tournaments.length ? src.tournaments : base.tournaments,
     booking: {
       ...base.booking,
@@ -1206,7 +1208,8 @@ useEffect(() => {
         <Route path="/terms" element={<StaticPage title="Terms & Conditions"><TermsContent /></StaticPage>} />
         <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
-        <Route path="/payment-status" element={<PaymentStatus />} />
+        <Route path="/admin/orders" element={<FoodOrdersAdmin data={data} admin={admin} />} />
+        <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
 
@@ -6306,10 +6309,80 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     </>
   );
 }
-function PaymentStatus() {
+function FoodOrdersAdmin({ data, admin }) {
+  if (!admin) {
+    return (
+      <div className="container">
+        <div className="card" style={{ maxWidth: 700, margin: "40px auto" }}>
+          <h2>Admin Only</h2>
+          <p className="muted">Turn admin mode on to view food orders.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const orders = Array.isArray(data.foodOrders) ? [...data.foodOrders].reverse() : [];
+
+  return (
+    <div className="container">
+      <div className="sectionTitle">
+        <span className="dot" />
+        <span>Food Orders Dashboard</span>
+      </div>
+
+      <h1 style={{ marginBottom: 18 }}>Food Orders</h1>
+
+      {orders.length === 0 ? (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>No food orders yet</h3>
+          <p className="muted">Paid food orders will appear here.</p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          {orders.map((order) => (
+            <div key={order.id} className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <h3 style={{ margin: "0 0 8px" }}>Order #{order.id}</h3>
+                  <div><b>Name:</b> {order.name || "—"}</div>
+                  <div><b>Mobile:</b> {order.mobile || "—"}</div>
+                  <div><b>Status:</b> {order.status || "Paid"}</div>
+                </div>
+
+                <div style={{ textAlign: "right" }}>
+                  <div><b>Total:</b> ₹{order.total || 0}</div>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    {order.time ? new Date(order.time).toLocaleString() : "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14 }}>
+                <b>Items:</b>
+                <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                  {(order.items || []).map((item, idx) => (
+                    <div
+                      key={`${order.id}-${idx}`}
+                      style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+                    >
+                      <span>{item.name} × {item.qty}</span>
+                      <span>₹{item.lineTotal}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+function PaymentStatus({ data, commit }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState("checking");
+  const [orderSaved, setOrderSaved] = useState(false);
 
   const paymentContext = localStorage.getItem("qclub_payment_context") || "";
   const foodCart = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
@@ -6329,12 +6402,34 @@ function PaymentStatus() {
     fetch(`/api/get-order-status?order_id=${order_id}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.order_status === "PAID") {
-          setStatus("success");
-        } else {
-          setStatus("failed");
-        }
-      })
+  if (data.order_status === "PAID") {
+
+    if (paymentContext === "food" && !orderSaved) {
+
+      const newOrder = {
+        id: Date.now(),
+        name: paymentName,
+        mobile: paymentMobile,
+        items: foodCart,
+        total: foodTotal,
+        time: new Date().toISOString(),
+        status: "Paid"
+      };
+
+      commit({
+  ...data,
+  foodOrders: [...(data.foodOrders || []), newOrder]
+});
+
+      setOrderSaved(true);
+    }
+
+    setStatus("success");
+
+  } else {
+    setStatus("failed");
+  }
+})
       .catch(() => setStatus("failed"));
   }, [location.search]);
 
