@@ -6296,11 +6296,12 @@ function PaymentStatus() {
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState("checking");
-  const paymentContext = localStorage.getItem("qclub_payment_context");
-const foodCart = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
-const foodTotal = localStorage.getItem("qclub_food_total") || "0";
-const paymentMobile = localStorage.getItem("qclub_payment_mobile") || "";
-const paymentName = localStorage.getItem("qclub_payment_name") || "";
+
+  const paymentContext = localStorage.getItem("qclub_payment_context") || "";
+  const foodCart = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
+  const foodTotal = localStorage.getItem("qclub_food_total") || "0";
+  const paymentMobile = localStorage.getItem("qclub_payment_mobile") || "";
+  const paymentName = localStorage.getItem("qclub_payment_name") || "";
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -6312,8 +6313,8 @@ const paymentName = localStorage.getItem("qclub_payment_name") || "";
     }
 
     fetch(`/api/get-order-status?order_id=${order_id}`)
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         if (data.order_status === "PAID") {
           setStatus("success");
         } else {
@@ -6323,130 +6324,132 @@ const paymentName = localStorage.getItem("qclub_payment_name") || "";
       .catch(() => setStatus("failed"));
   }, [location.search]);
 
+  function retryPath() {
+    if (paymentContext === "food") return "/offer";
+    if (paymentContext === "membership") return "/membership";
+    return "/book";
+  }
+
+  const savedName = localStorage.getItem("qclub_payment_name") || "";
+  const savedMobile = localStorage.getItem("qclub_payment_mobile") || "";
+  const table = localStorage.getItem("qclub_booking_table") || "";
+  const bookingDate = localStorage.getItem("qclub_booking_date") || "";
+  const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
+  const tier = localStorage.getItem("qclub_membership_tier") || "";
+  const tshirtSize = localStorage.getItem("qclub_tshirt_size") || "";
+
   return (
     <div className="container">
-      <div className="card" style={{maxWidth:600,margin:"40px auto"}}>
-
+      <div className="card" style={{ maxWidth: 600, margin: "40px auto" }}>
         {status === "checking" && (
           <>
             <h2>Checking your payment...</h2>
           </>
         )}
 
-        {status === "success" && (() => {
-  const context = localStorage.getItem("qclub_payment_context");
-  const savedName = localStorage.getItem("qclub_payment_name") || "";
-  const savedMobile = localStorage.getItem("qclub_payment_mobile") || "";
+        {status === "success" && (
+          <>
+            {paymentContext === "membership" ? (
+              <>
+                <h2>Welcome to The Q Club Membership 🏆</h2>
+                <p>
+                  Welcome to <strong>The Q Club</strong> — where legends are made.
+                </p>
 
-  if (context === "membership") {
-    const tier = localStorage.getItem("qclub_membership_tier") || "";
-    const tshirtSize = localStorage.getItem("qclub_tshirt_size") || "";
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {savedName || "—"}</div>
+                  <div><b>Mobile:</b> {savedMobile || "—"}</div>
+                  <div><b>Membership Tier:</b> {tier || "—"}</div>
+                  <div><b>T-Shirt Size:</b> {tshirtSize || "—"}</div>
+                </div>
 
-    return (
-      <>
-        <h2>Welcome to The Q Club Membership 🏆</h2>
-        <p>
-          Welcome to <strong>The Q Club</strong> — where legends are made.
-        </p>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/")}>
+                    Enter The Q Club
+                  </button>
+                  <button className="btn" onClick={() => navigate("/membership")}>
+                    Membership Page
+                  </button>
+                </div>
+              </>
+            ) : paymentContext === "food" ? (
+              <>
+                <h2>Order Placed Successfully</h2>
 
-        <div className="card" style={{ marginTop: 14 }}>
-          <div><b>Name:</b> {savedName || "—"}</div>
-          <div><b>Mobile:</b> {savedMobile || "—"}</div>
-          <div><b>Membership Tier:</b> {tier || "—"}</div>
-          <div><b>T-Shirt Size:</b> {tshirtSize || "—"}</div>
-        </div>
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {paymentName || "—"}</div>
+                  <div><b>Mobile:</b> {paymentMobile || "—"}</div>
 
-        <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn primary" onClick={() => navigate("/")}>
-            Enter The Q Club
-          </button>
-          <button className="btn" onClick={() => navigate("/membership")}>
-            Membership Page
-          </button>
-        </div>
-      </>
-    );
-  }
+                  <div style={{ marginTop: 12 }}><b>Items:</b></div>
 
-  const table = localStorage.getItem("qclub_booking_table") || "";
-  const bookingDate = localStorage.getItem("qclub_booking_date") || "";
-  const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
+                  {foodCart.length > 0 ? (
+                    foodCart.map((item) => (
+                      <div
+                        key={item.id}
+                        style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+                      >
+                        <span>{item.name} × {item.qty}</span>
+                        <span>₹{item.lineTotal}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="muted">No items found.</div>
+                  )}
 
-  return (
-  <>
-    {paymentContext === "food" ? (
-      <>
-        <h2>Order Placed Successfully</h2>
+                  <div style={{ marginTop: 10, fontWeight: 700 }}>
+                    Total Paid: ₹{foodTotal}
+                  </div>
+                </div>
 
-        <div className="card" style={{ marginTop: 14 }}>
-          <div><b>Name:</b> {paymentName}</div>
-          <div><b>Mobile:</b> {paymentMobile}</div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/offer")}>
+                    Order More
+                  </button>
+                  <button className="btn" onClick={() => navigate("/")}>
+                    Home
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Table Booked Successfully</h2>
 
-          <div style={{ marginTop: 12 }}><b>Items:</b></div>
+                <p>
+                  Your table booking at <strong>The Q Club</strong> is confirmed.
+                </p>
+                <p className="muted">Have a great game.</p>
 
-          {foodCart.map((item) => (
-            <div key={item.id} style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>{item.name} × {item.qty}</span>
-              <span>₹{item.lineTotal}</span>
-            </div>
-          ))}
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {savedName || "—"}</div>
+                  <div><b>Mobile:</b> {savedMobile || "—"}</div>
+                  <div><b>Table:</b> {table || "—"}</div>
+                  <div><b>Date:</b> {bookingDate || "—"}</div>
+                  <div><b>Time Slot:</b> {bookingSlot || "—"}</div>
+                </div>
 
-          <div style={{ marginTop: 10, fontWeight: 700 }}>
-            Total Paid: ₹{foodTotal}
-          </div>
-        </div>
-
-        <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn primary" onClick={() => navigate("/offer")}>
-            Order More
-          </button>
-          <button className="btn" onClick={() => navigate("/")}>
-            Home
-          </button>
-        </div>
-      </>
-    ) : (
-      <>
-        <h2>Table Booked Successfully</h2>
-
-        <p>
-          Your table booking at <strong>The Q Club</strong> is confirmed.
-        </p>
-        <p className="muted">Have a great game.</p>
-
-        <div className="card" style={{ marginTop: 14 }}>
-          <div><b>Name:</b> {savedName || "—"}</div>
-          <div><b>Mobile:</b> {savedMobile || "—"}</div>
-          <div><b>Table:</b> {table || "—"}</div>
-          <div><b>Date:</b> {bookingDate || "—"}</div>
-          <div><b>Time Slot:</b> {bookingSlot || "—"}</div>
-        </div>
-
-        <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn primary" onClick={() => navigate("/book")}>
-            Book Another Table
-          </button>
-          <button className="btn" onClick={() => navigate("/")}>
-            Home
-          </button>
-        </div>
-      </>
-    )}
-  </>
-);
-})()}
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/book")}>
+                    Book Another Table
+                  </button>
+                  <button className="btn" onClick={() => navigate("/")}>
+                    Home
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
 
         {status === "failed" && (
           <>
             <h2>Payment Not Completed</h2>
             <p>Your payment was cancelled or failed.</p>
 
-            <button className="btn primary" onClick={()=>navigate("/book")}>
+            <button className="btn primary" onClick={() => navigate(retryPath())}>
               Try Again
             </button>
           </>
         )}
-
       </div>
     </div>
   );
