@@ -1637,12 +1637,52 @@ function playersForTournament(tournament, allPlayers = []) {
 }
 
 
-function Home({ data, activeTournament }) {
+function Home({ data, admin, commit, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2]
     .filter(Boolean)
     .join(" / ");
 
-  const heroImage = "/home/snooker.jpg";
+    const heroImages = [
+    "/home/snooker.jpg",
+    "/home/air-hockey.png",
+    "/home/foosball.jpg",
+    ...(data.photos || []).map((p) => p.url || p.dataUrl).filter(Boolean),
+  ];
+
+  const [heroIndex, setHeroIndex] = useState(0);
+
+  const heroImage =
+    heroImages[heroIndex] || "/home/snooker.jpg";
+
+  function prevHeroImage() {
+    setHeroIndex((prev) =>
+      prev === 0 ? heroImages.length - 1 : prev - 1
+    );
+  }
+
+  function nextHeroImage() {
+    setHeroIndex((prev) =>
+      prev === heroImages.length - 1 ? 0 : prev + 1
+    );
+  }
+    useEffect(() => {
+    if (heroImages.length <= 1) return;
+
+    const timer = setInterval(() => {
+      setHeroIndex((prev) =>
+        prev === heroImages.length - 1 ? 0 : prev + 1
+      );
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [heroImages.length]);
+    useEffect(() => {
+    heroImages.forEach((src) => {
+      if (!src) return;
+      const img = new Image();
+      img.src = src;
+    });
+  }, [heroImages]);
   const isSnookerTournament = tournamentGameKey(activeTournament?.game) === "snooker";
   const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
 
@@ -1654,13 +1694,20 @@ function Home({ data, activeTournament }) {
 
   const memberships = (data.memberships || []).slice(0, 3);
 
-  const features = [
-    "Premium Snooker Tables",
+  const features =
+  data.club?.homeFeatures || [
+    "2xPremium Snooker Tables",
+    "American Pool Table",
+    "Mini Snooker Table",
     "Monthly Tournaments",
     "Air Hockey & Foosball",
     "Massage Chair",
-    "Tea & Coffee",
+    "Tea & Coffee Vending Machines",
     "Members Privileges",
+    "Smoking Room",
+    "Separate Toilets",
+    "Mocktails",
+    "Food and Snacks",
   ];
 
   return (
@@ -1672,18 +1719,41 @@ function Home({ data, activeTournament }) {
             radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
             radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
             url("${heroImage}")`,
+            backgroundSize: "cover",
+backgroundPosition: "center",
+backgroundRepeat: "no-repeat",
+transition: "background-image 0.25s ease-in-out",
         }}
       >
         <div className="refHeroTopBar">
-          <div className="refHeroActionRow">
-            <Link className="btn neonGreen refHeroActionBtn" to="/book">
-              Book Table
-            </Link>
-            <Link className="btn neonGreen refHeroActionBtn" to="/membership">
-              Membership
-            </Link>
-          </div>
-        </div>
+  <div className="refHeroActionRow">
+    <Link className="btn neonGreen refHeroActionBtn" to="/book">
+      Book Table
+    </Link>
+    <Link className="btn neonGreen refHeroActionBtn" to="/membership">
+      Membership
+    </Link>
+  </div>
+
+  <div className="row" style={{ gap: 8 }}>
+    <button
+      className="btn"
+      type="button"
+      onClick={prevHeroImage}
+      aria-label="Previous image"
+    >
+      ←
+    </button>
+    <button
+      className="btn"
+      type="button"
+      onClick={nextHeroImage}
+      aria-label="Next image"
+    >
+      →
+    </button>
+  </div>
+</div>
 
         <div className="refHeroSpacer" />
 
@@ -1746,36 +1816,55 @@ function Home({ data, activeTournament }) {
         </div>
       </section>
 
-      <section className="refGalleryCard">
-        <h2 className="refSectionTitle">Inside The Q Club</h2>
+      
 
-        <div className="refGalleryGrid">
-          {clubGallery.map((item) => (
-            <div className="refGalleryItem" key={item.id}>
-              <img src={item.url} alt={item.caption || "The Q Club"} />
-            </div>
-          ))}
-        </div>
-      </section>
+            <section className="refWhyCard">
 
-      <section className="refWhyCard">
-        <h2 className="refSectionTitle">Why Q Club?</h2>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+    <h2 className="refSectionTitle">Why Q Club?</h2>
 
-        <div className="refTierGrid">
-          {memberships.map((tier) => (
-            <div className="refTierBox" key={tier.id}>
-              <div className="refTierTitle">{tier.tier}</div>
-              <div className="refTierPrice">₹{safeNum(tier.price, 0)}</div>
-            </div>
-          ))}
-        </div>
+    {admin && (
+      <button
+  className="btn"
+  onClick={() => {
+    const current = features.join(" | ");
+    const next = prompt(
+      "Edit Why Q Club items. Separate each item with |",
+      current
+    );
+
+    if (next === null) return;
+
+    const cleaned = next
+      .split("|")
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    if (!cleaned.length) {
+      alert("Please enter at least one item.");
+      return;
+    }
+
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        homeFeatures: cleaned,
+      }
+    });
+  }}
+>
+  Edit
+</button>
+    )}
+  </div>
 
         <div className="refFeatureGrid">
-          {features.map((item) => (
-            <div className="refFeatureItem" key={item}>
-              {item}
-            </div>
-          ))}
+          {features.map((item, idx) => (
+  <div className="refFeatureItem" key={`${item}-${idx}`}>
+    {item}
+  </div>
+))}
         </div>
       </section>
     </div>
