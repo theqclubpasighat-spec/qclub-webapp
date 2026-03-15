@@ -368,17 +368,19 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
 function defaultData() {
   return {
     club: {
-      name: "The Q CLUB",
-      location: "Pasighat",
-      tagline: "Play. Chill. Compete.",
-      contact: { phone1: "7005212774", phone2: "7085221922" },
-      upiId: "Q526263817@ybl",
-      upiName: "THE Q CLUB",
-      isOpenNow: true,
-      hoursNote: "Members only from 6 pm",
-      musicUrl: "",
-      videoUrl: "",
-    },
+  name: "The Q CLUB",
+  location: "Pasighat",
+  tagline: "Play. Chill. Compete.",
+  contact: { phone1: "7005212774", phone2: "7085221922" },
+  upiId: "Q526263817@ybl",
+  upiName: "THE Q CLUB",
+  isOpenNow: true,
+  hoursNote: "Members only from 6 pm",
+  musicUrl: "",
+  videoUrl: "",
+  heroSlides: [],
+  heroSpeed: 3500,
+},
     admin: { pin: "1234" },
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
@@ -473,6 +475,7 @@ function mergeWithDefaults(remote) {
       tagline: pickText(src?.club?.tagline, base.club.tagline),
       upiId: pickText(src?.club?.upiId, base.club.upiId),
       upiName: pickText(src?.club?.upiName, base.club.upiName),
+        heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
       contact: {
         ...base.club.contact,
         ...((src.club || {}).contact || {}),
@@ -1642,12 +1645,18 @@ function Home({ data, admin, commit, activeTournament }) {
     .filter(Boolean)
     .join(" / ");
 
-    const heroImages = [
-    "/home/snooker.jpg",
-    "/home/air-hockey.png",
-    "/home/foosball.jpg",
-    ...(data.photos || []).map((p) => p.url || p.dataUrl).filter(Boolean),
-  ];
+    const fallbackHeroImages = [
+  "/home/snooker.jpg",
+  "/home/air-hockey.png",
+  "/home/foosball.jpg",
+  ...(data.photos || []).map((p) => p.url || p.dataUrl).filter(Boolean),
+];
+
+const heroImages =
+  Array.isArray(data.club?.heroSlides) && data.club.heroSlides.length
+    ? data.club.heroSlides.filter(Boolean)
+    : fallbackHeroImages;
+      const heroSlideSpeed = Math.max(1000, Number(data.club?.heroSpeed || 3500));
 
   const [heroIndex, setHeroIndex] = useState(0);
 
@@ -1672,10 +1681,10 @@ function Home({ data, admin, commit, activeTournament }) {
       setHeroIndex((prev) =>
         prev === heroImages.length - 1 ? 0 : prev + 1
       );
-    }, 3000);
+    }, heroSlideSpeed);
 
     return () => clearInterval(timer);
-  }, [heroImages.length]);
+  }, [heroImages.length, heroSlideSpeed]);
     useEffect(() => {
     heroImages.forEach((src) => {
       if (!src) return;
@@ -5540,6 +5549,31 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
       })),
     });
   }
+  function editHeroSlides() {
+  const current = (data.club?.heroSlides || []).join(" | ");
+
+  const next = prompt(
+    "Edit hero slider image URLs or paths. Separate each image with |",
+    current
+  );
+
+  if (next === null) return;
+
+  const slides = next
+    .split("|")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      heroSlides: slides,
+    },
+  });
+
+  alert("Hero slider images updated.");
+}
 
   return (
     <>
@@ -5622,6 +5656,56 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
               </span>
             </div>
           </div>
+          <div className="card cols-12">
+  <h2>Homepage Hero Slider</h2>
+  <div className="muted" style={{ marginBottom: 12 }}>
+    Upload hero slider images shown on the homepage.
+  </div>
+
+  <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <label className="btn">
+      Upload Hero Slide
+      <input
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+
+          try {
+            const uploaded = await uploadImageToStorage(file, "hero-slides");
+
+            commit({
+              ...data,
+              club: {
+                ...(data.club || {}),
+                heroSlides: [
+                  ...((data.club?.heroSlides || []).filter(Boolean)),
+                  uploaded.url,
+                ],
+              },
+            });
+
+            e.target.value = "";
+          } catch (err) {
+            console.error(err);
+            alert("Failed to upload hero slide.");
+          }
+        }}
+      />
+    </label>
+
+    <span className="badge">
+      <span className="dot" />
+      {(data.club?.heroSlides || []).length} custom slide(s)
+    </span>
+  </div>
+
+  <div className="muted" style={{ marginTop: 12 }}>
+    Uploaded images will be added directly to the homepage hero slider.
+  </div>
+</div>
 
           <div className="card cols-12">
             <h2>Quick Admin Actions</h2>
