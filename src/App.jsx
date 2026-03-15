@@ -263,6 +263,7 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
     points: 0,
     for: 0,
     against: 0,
+    highestBreak: 0,
   }));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -279,6 +280,12 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
         const b = byId.get(m.p2);
         if (!a || !b) return;
         if (participantIds && (!participantIds.has(m.p1) || !participantIds.has(m.p2))) return;
+
+        const b1 = Number(m.break1 || 0);
+        const b2 = Number(m.break2 || 0);
+
+        if (Number.isFinite(b1) && b1 > a.highestBreak) a.highestBreak = b1;
+        if (Number.isFinite(b2) && b2 > b.highestBreak) b.highestBreak = b2;
 
         const s1 = Number(m.score1);
         const s2 = Number(m.score2);
@@ -322,36 +329,6 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
     const dx = x.for - x.against;
     const dy = y.for - y.against;
     return (y.points - x.points) || (dy - dx) || (y.wins - x.wins) || x.name.localeCompare(y.name);
-  });
-}
-
-function normalizedClubUpiId(raw) {
-  const value = String(raw || "").trim();
-  if (!value || /yomsoji/i.test(value)) return "Q526263817@ybl";
-  return value;
-}
-
-function upiDeepLink({ pa, pn, am, tn }) {
-  const params = new URLSearchParams();
-  if (pa) params.set("pa", pa);
-  if (pn) params.set("pn", pn);
-  if (am) params.set("am", String(am));
-  params.set("cu", "INR");
-  if (tn) params.set("tn", tn);
-  return `upi://pay?${params.toString()}`;
-}
-
-function qrUrl(data, size = 240) {
-  const enc = encodeURIComponent(data);
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${enc}`;
-}
-
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
   });
 }
 
@@ -560,15 +537,17 @@ function generateRoundRobin(playerIds) {
       const p2 = arr[n - 1 - i];
       if (p1 !== BYE && p2 !== BYE) {
         matches.push({
-          id: uid(),
-          round: r + 1,
-          p1,
-          p2,
-          score1: "",
-          score2: "",
-          status: "scheduled",
-          updatedAt: Date.now(),
-        });
+  id: uid(),
+  round: r + 1,
+  p1,
+  p2,
+  score1: "",
+  score2: "",
+  break1: "",
+  break2: "",
+  status: "scheduled",
+  updatedAt: Date.now(),
+});
       }
     }
     const fixed = arr[0];
@@ -625,6 +604,8 @@ function generateKnockout(playerIds) {
       result: "",
       status: "scheduled",
       bestOf: 3,
+      break1: "",
+break2: "",
       updatedAt: Date.now(),
     });
 
@@ -669,6 +650,8 @@ function generateKnockout(playerIds) {
         result: "",
         status: "scheduled",
         bestOf: isFinal ? 5 : 3,
+        break1: "",
+break2: "",
         updatedAt: Date.now(),
       });
 
@@ -696,6 +679,7 @@ function calcLeaderboard(players, tournament) {
     points: 0,
     for: 0,
     against: 0,
+    highestBreak: 0,
   }));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -707,6 +691,12 @@ function calcLeaderboard(players, tournament) {
 
     const s1 = Number(m.score1);
     const s2 = Number(m.score2);
+    const b1 = Number(m.break1 || 0);
+    const b2 = Number(m.break2 || 0);
+
+    if (Number.isFinite(b1) && b1 > a.highestBreak) a.highestBreak = b1;
+    if (Number.isFinite(b2) && b2 > b.highestBreak) b.highestBreak = b2;
+
     if (!Number.isFinite(s1) || !Number.isFinite(s2)) return;
 
     a.played++;
@@ -1198,9 +1188,22 @@ useEffect(() => {
     <div className="infoLabel">Snooker Rank</div>
     <div className="infoValue">
       {(() => {
-        const idx = snookerBoard.findIndex((r) => r.id === selectedPlayer.id);
-        return idx >= 0 ? `#${idx + 1}` : "—";
-      })()}
+  let wins = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    if (tournamentGameKey(t.game) !== "snooker") return;
+
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
+      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
+    });
+  });
+
+  return wins;
+})()}
+
     </div>
   </div>
 
@@ -1218,9 +1221,22 @@ useEffect(() => {
     <div className="infoLabel">Snooker Wins</div>
     <div className="infoValue">
       {(() => {
-        const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
-        return row ? row.wins : 0;
-      })()}
+  let wins = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    if (tournamentGameKey(t.game) !== "snooker") return;
+
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
+      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
+    });
+  });
+
+  return wins;
+})()}
+
     </div>
   </div>
 
@@ -1228,16 +1244,50 @@ useEffect(() => {
     <div className="infoLabel">Snooker Losses</div>
     <div className="infoValue">
       {(() => {
-        const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
-        return row ? row.losses : 0;
-      })()}
+  let losses = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    if (tournamentGameKey(t.game) !== "snooker") return;
+
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id && Number(m.score1) < Number(m.score2)) losses++;
+      if (m.p2 === selectedPlayer.id && Number(m.score2) < Number(m.score1)) losses++;
+    });
+  });
+
+  return losses;
+})()}
+
     </div>
   </div>
 
   <div className="card cols-4">
     <div className="infoLabel">Best Break</div>
     <div className="infoValue">
-      {selectedPlayer.bestBreak || 0}
+      {(() => {
+  let best = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id) {
+        const b = Number(m.break1 || 0);
+        if (Number.isFinite(b) && b > best) best = b;
+      }
+
+      if (m.p2 === selectedPlayer.id) {
+        const b = Number(m.break2 || 0);
+        if (Number.isFinite(b) && b > best) best = b;
+      }
+    });
+  });
+
+  return best;
+})()}
+
     </div>
   </div>
 
@@ -1550,7 +1600,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
-        <Link className="pill" to="/tv">TV</Link>
+        {admin ? <Link className="pill" to="/tv">TV</Link> : null}
         {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
         <button className="btn primary" onClick={onToggleAdmin}>
@@ -1836,6 +1886,28 @@ function Offers({ data, admin, commit }) {
       </div>
     </>
   );
+}
+function normalizedClubUpiId(value) {
+  return String(value || "").trim();
+}
+
+function upiDeepLink({ pa = "", pn = "", am = "", tn = "" }) {
+  const params = new URLSearchParams();
+
+  if (pa) params.set("pa", pa);
+  if (pn) params.set("pn", pn);
+  if (am !== "" && am !== null && am !== undefined) {
+    params.set("am", String(am));
+  }
+  if (tn) params.set("tn", tn);
+  params.set("cu", "INR");
+
+  return `upi://pay?${params.toString()}`;
+}
+
+function qrUrl(text, size = 280) {
+  const safeText = encodeURIComponent(String(text || ""));
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${safeText}`;
 }
 function BookTable({ data, admin, commit, startPayment }) {
   const [bookingType, setBookingType] = useState("nonmember");
@@ -3144,10 +3216,23 @@ function Players({ data, admin, commit, activeTournament }) {
         <div className="card cols-4">
           <div className="infoLabel">Snooker Wins</div>
           <div className="infoValue">
-            {(() => {
-              const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
-              return row ? row.wins : 0;
-            })()}
+           {(() => {
+  let wins = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    if (tournamentGameKey(t.game) !== "snooker") return;
+
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
+      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
+    });
+  });
+
+  return wins;
+})()}
+
           </div>
         </div>
 
@@ -3155,16 +3240,50 @@ function Players({ data, admin, commit, activeTournament }) {
           <div className="infoLabel">Snooker Losses</div>
           <div className="infoValue">
             {(() => {
-              const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
-              return row ? row.losses : 0;
-            })()}
+  let losses = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    if (tournamentGameKey(t.game) !== "snooker") return;
+
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id && Number(m.score1) < Number(m.score2)) losses++;
+      if (m.p2 === selectedPlayer.id && Number(m.score2) < Number(m.score1)) losses++;
+    });
+  });
+
+  return losses;
+})()}
+
           </div>
         </div>
 
         <div className="card cols-4">
           <div className="infoLabel">Best Break</div>
           <div className="infoValue">
-            {selectedPlayer.bestBreak || 0}
+            {(() => {
+  let best = 0;
+
+  (data.tournaments || []).forEach((t) => {
+    (t.matches || []).forEach((m) => {
+      if (m.status !== "done") return;
+
+      if (m.p1 === selectedPlayer.id) {
+        const b = Number(m.break1 || 0);
+        if (Number.isFinite(b) && b > best) best = b;
+      }
+
+      if (m.p2 === selectedPlayer.id) {
+        const b = Number(m.break2 || 0);
+        if (Number.isFinite(b) && b > best) best = b;
+      }
+    });
+  });
+
+  return best;
+})()}
+
           </div>
         </div>
 
@@ -3743,8 +3862,9 @@ function updateMatchStatus(matchId, status) {
 <td>{r.losses}</td>
 <td>{r.points}</td>
 {tournamentGameKey(selectedTournament.game) === "snooker" ? (
-  <td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
+  <td>{r.highestBreak || 0}</td>
 ) : null}
+
                           </tr>
                         ))}
                       </tbody>
@@ -3774,6 +3894,8 @@ function updateMatchStatus(matchId, status) {
                           <th>Match</th>
                           <th>{isKnockout ? "Winner" : "Score 1"}</th>
                           <th>{isKnockout ? "Result" : "Score 2"}</th>
+                          <th>Break 1</th>
+<th>Break 2</th>
                           <th>Status</th>
                           <th>Action</th>
                         </tr>
@@ -3846,6 +3968,39 @@ function updateMatchStatus(matchId, status) {
       style={{ width: 80 }}
     />
   )}
+</td><td>
+  <input
+    type="text"
+    inputMode="numeric"
+    placeholder="0"
+    value={m.break1 || ""}
+    onChange={(e) =>
+      updateMatchField(
+        m.id,
+        "break1",
+        e.target.value.replace(/[^0-9]/g, "")
+      )
+    }
+    disabled={!admin}
+    style={{ width: 80 }}
+  />
+</td>
+<td>
+  <input
+    type="text"
+    inputMode="numeric"
+    placeholder="0"
+    value={m.break2 || ""}
+    onChange={(e) =>
+      updateMatchField(
+        m.id,
+        "break2",
+        e.target.value.replace(/[^0-9]/g, "")
+      )
+    }
+    disabled={!admin}
+    style={{ width: 80 }}
+  />
 </td>
                             <td>
                               <span className="badge">
@@ -4019,8 +4174,9 @@ function LeaderboardAll({ data, onOpenPlayer }) {
 <td>{r.losses}</td>
 <td>{r.points}</td>
 {selectedGameKey === "snooker" ? (
-  <td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
+  <td>{r.highestBreak || 0}</td>
 ) : null}
+
                       </tr>
                     ))}
                   </tbody>
@@ -4069,7 +4225,8 @@ function LeaderboardAll({ data, onOpenPlayer }) {
 <td>{r.wins}</td>
 <td>{r.losses}</td>
 <td>{r.points}</td>
-<td>{players.find((p) => p.id === r.id)?.bestBreak || 0}</td>
+<td>{r.highestBreak || 0}</td>
+
             </tr>
           ))}
         </tbody>
