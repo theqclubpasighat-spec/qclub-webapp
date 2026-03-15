@@ -1743,9 +1743,13 @@ transition: "background-image 0.25s ease-in-out",
     Membership
   </Link>
 
-  <Link className="btn neonGreen refHeroActionBtn" to="/offer">
-    The Q Lounge
-  </Link>
+  <Link
+  className="btn neonGreen refHeroActionBtn"
+  to="/offer"
+  style={{ padding: "10px 18px", fontSize: "0.9rem" }}
+>
+  The Q Lounge
+</Link>
 </div>
 
   <div className="row" style={{ gap: 8 }}>
