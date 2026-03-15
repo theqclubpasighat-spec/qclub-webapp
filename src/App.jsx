@@ -421,6 +421,77 @@ function defaultData() {
       { id: uid(), title: "Air Hockey", price: "₹50 / game", details: "Fast rounds — winner stays!" },
       { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
     ],
+    menuCatalog: {
+  mocktails: {
+    title: "Mocktails",
+    image: "/menu/mocktails.png",
+    items: [
+      {
+        id: "mojito",
+        name: "Virgin Mojito",
+        description: "Minty chilled mocktail",
+        price: 99,
+        image: "/menu/mocktails.png"
+      },
+      {
+        id: "blue_lagoon",
+        name: "Blue Lagoon",
+        description: "Refreshing citrus mocktail",
+        price: 99,
+        image: "/menu/mocktails.png"
+      }
+    ]
+  },
+
+  momos: {
+    title: "Momos",
+    image: "/menu/momo.png",
+    items: [
+      {
+        id: "chicken_momo",
+        name: "Chicken Momos",
+        description: "Steamed or fried",
+        price: 120,
+        image: "/menu/momo.png"
+      },
+      {
+        id: "pork_momo",
+        name: "Pork Momos",
+        description: "Steamed or fried",
+        price: 130,
+        image: "/menu/momo.png"
+      }
+    ]
+  },
+
+  sausages: {
+    title: "Sausages",
+    image: "/menu/Grilled Sausage.png",
+    items: [
+      {
+        id: "grilled_sausage",
+        name: "Grilled Sausage",
+        description: "Juicy grilled sausage",
+        price: 120,
+        image: "/menu/Grilled Sausage.png"
+      }
+    ]
+  },
+
+  chicken: {
+    title: "Chicken",
+    image: "/menu/roasted Chicken wings.png",
+    items: [
+      {
+        id: "roasted_wings",
+        name: "Roasted Chicken Wings",
+        description: "Smoky roasted wings",
+        price: 220,
+        image: "/menu/roasted Chicken wings.png"
+      }
+    ]
+  }
+},
     photos: [],
     players: [
       { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "", games: ["snooker", "pool"] },
@@ -1082,7 +1153,17 @@ useEffect(() => {
             />
           }
         />
-        <Route path="/offer" element={<Offers data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/offer"
+  element={
+    <Offers
+      data={data}
+      admin={admin}
+      commit={commit}
+      startPayment={startPayment}
+    />
+  }
+/>
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
@@ -1904,100 +1985,449 @@ transition: "background-image 0.25s ease-in-out",
   );
 }
 
-function Offers({ data, admin, commit }) {
-  function addOffer() {
-    const title = prompt("Offer title:");
-    if (!title) return;
-    const price = prompt("Offer price / rate:", "");
-    const details = prompt("Offer details:", "");
+function Offers({ data, admin, commit, startPayment }) {
+  const menu = data.menuCatalog || {};
+  const categories = Object.keys(menu);
+  const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
+  const [cart, setCart] = React.useState({});
+  const [showCheckout, setShowCheckout] = React.useState(false);
+  const [customerName, setCustomerName] = React.useState("");
+const [customerPhone, setCustomerPhone] = React.useState("");
 
-    commit({
-      ...data,
-      offers: [
-        ...(data.offers || []),
-        { id: uid(), title: title.trim(), price: (price || "").trim(), details: (details || "").trim() },
-      ],
-    });
-  }
+  React.useEffect(() => {
+    if (!activeCategory && categories.length) {
+      setActiveCategory(categories[0]);
+    }
+  }, [activeCategory, categories]);
 
-  function editOffer(id) {
-    const current = (data.offers || []).find((x) => x.id === id);
-    if (!current) return;
+  const category = menu[activeCategory] || {};
+  const items = category.items || [];
+  const cartItems = Object.keys(cart).filter((id) => cart[id] > 0);
 
-    const title = prompt("Edit title:", current.title);
-    if (title === null) return;
-    const price = prompt("Edit price / rate:", current.price || "");
-    if (price === null) return;
-    const details = prompt("Edit details:", current.details || "");
-    if (details === null) return;
+const cartTotal = cartItems.reduce((sum, id) => {
+  const found = Object.values(menu)
+    .flatMap((cat) => cat.items || [])
+    .find((x) => x.id === id);
 
-    commit({
-      ...data,
-      offers: (data.offers || []).map((x) =>
-        x.id === id ? { ...x, title: title.trim(), price: price.trim(), details: details.trim() } : x
+  if (!found) return sum;
+
+  return sum + found.price * cart[id];
+}, 0);
+
+  function updateItem(itemId, field, value) {
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      items: nextMenu[activeCategory].items.map((item) =>
+        item.id === itemId ? { ...item, [field]: field === "price" ? Number(value) : value } : item
       ),
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
     });
   }
 
-  function deleteOffer(id) {
-    if (!confirm("Delete this item?")) return;
+  function addItem() {
+    const name = prompt("Item name:");
+    if (!name) return;
+
+    const description = prompt("Item description:", "") || "";
+    const price = Number(prompt("Item price:", "0") || 0);
+    const image = prompt("Item image path:", category.image || "") || category.image || "";
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      items: [
+        ...nextMenu[activeCategory].items,
+        {
+          id: `item_${Date.now()}`,
+          name,
+          description,
+          price,
+          image,
+        },
+      ],
+    };
+
     commit({
       ...data,
-      offers: (data.offers || []).filter((x) => x.id !== id),
+      menuCatalog: nextMenu,
+    });
+  }
+function addToCart(item) {
+  setCart((prev) => ({
+    ...prev,
+    [item.id]: (prev[item.id] || 0) + 1,
+  }));
+}
+function removeFromCart(item) {
+  setCart((prev) => ({
+    ...prev,
+    [item.id]: Math.max((prev[item.id] || 0) - 1, 0),
+  }));
+}
+function itemQty(item) {
+  return cart[item.id] || 0;
+}
+  function deleteItem(itemId) {
+    const ok = confirm("Delete this item?");
+    if (!ok) return;
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      items: nextMenu[activeCategory].items.filter((item) => item.id !== itemId),
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
+  }
+  async function uploadItemImage(itemId, file) {
+  if (!admin) return alert("Admin only");
+  if (!file) return;
+
+  try {
+    const uploaded = await uploadImageToStorage(file, "menu-items");
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      items: nextMenu[activeCategory].items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              image: uploaded.url,
+              imagePath: uploaded.path,
+            }
+          : item
+      ),
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Failed to upload image.");
+  }
+}
+
+async function uploadCategoryImage(file) {
+  if (!admin) return alert("Admin only");
+  if (!file) return;
+
+  try {
+    const uploaded = await uploadImageToStorage(file, "menu-categories");
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      image: uploaded.url,
+      imagePath: uploaded.path,
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Failed to upload category image.");
+  }
+}
+
+  function editCategoryTitle() {
+    const title = prompt("Category title:", category.title || "");
+    if (!title) return;
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      title,
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
+  }
+
+  function editCategoryImage() {
+    const image = prompt("Category image path:", category.image || "");
+    if (!image) return;
+
+    const nextMenu = { ...menu };
+    nextMenu[activeCategory] = {
+      ...nextMenu[activeCategory],
+      image,
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
     });
   }
 
   return (
-    <>
-      <PageShell
-        title="What We Offer"
-        subtitle="Games, refreshment and premium club experiences"
-        right={admin ? <button className="btn primary" onClick={addOffer}>+ Add Item</button> : null}
+    <div className="container">
+      <div className="sectionTitle">
+        <span className="dot" />
+        <span>The Q Lounge Menu</span>
+      </div>
+
+      <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
+
+      <p className="muted" style={{ marginBottom: 20 }}>
+        Browse by category and manage menu items from admin mode.
+      </p>
+      {!admin && (
+  <div className="card" style={{ marginBottom: 20 }}>
+    <h3 style={{ marginTop: 0 }}>Your Cart</h3>
+
+    {cartItems.length === 0 ? (
+      <div className="muted">Cart is empty.</div>
+    ) : (
+      <>
+        <div style={{ display: "grid", gap: 8 }}>
+          {cartItems.map((id) => {
+            const found = Object.values(menu)
+              .flatMap((cat) => cat.items || [])
+              .find((x) => x.id === id);
+
+            if (!found) return null;
+
+            return (
+              <div
+                key={id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12
+                }}
+              >
+                <span>
+                  {found.name} × {cart[id]}
+                </span>
+                <strong>₹{found.price * cart[id]}</strong>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
+          Total: ₹{cartTotal}
+        </div>
+
+        <button
+  className="btn"
+  type="button"
+  style={{ marginTop: 12 }}
+  onClick={() => setShowCheckout((v) => !v)}
+>
+  {showCheckout ? "Hide Cart" : "View Cart"}
+</button>
+{showCheckout && (
+  <div className="card" style={{ marginTop: 14 }}>
+    <h3 style={{ marginTop: 0 }}>Checkout</h3>
+
+    <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+      
+      <input
+  className="input"
+  placeholder="Your Name"
+  value={customerName}
+  onChange={(e) => setCustomerName(e.target.value)}
+/>
+
+      <input
+  className="input"
+  placeholder="Mobile Number"
+  value={customerPhone}
+  onChange={(e) => setCustomerPhone(e.target.value)}
+/>
+
+      <button
+  className="btn"
+  onClick={() => {
+    if (!customerName) {
+      alert("Enter your name");
+      return;
+    }
+
+    if (!customerPhone) {
+      alert("Enter mobile number");
+      return;
+    }
+
+    startPayment(cartTotal, customerPhone);
+  }}
+>
+  Pay ₹{cartTotal}
+</button>
+
+    </div>
+  </div>
+)}
+      </>
+    )}
+  </div>
+)}
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        {categories.map((cat) => (
+          <button
+  key={cat}
+  type="button"
+  onClick={() => setActiveCategory(cat)}
+  style={{
+    padding: "10px 14px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,.12)",
+    background: activeCategory === cat ? "rgba(16,185,129,.18)" : "rgba(255,255,255,.04)",
+    color: activeCategory === cat ? "#d7fff1" : "#eaf0ff",
+    fontWeight: 700,
+    cursor: "pointer"
+  }}
+>
+  {menu[cat].title}
+</button>
+        ))}
+      </div>
+
+      {admin && activeCategory && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+          <button className="btn" type="button" onClick={addItem}>
+            + Add Item
+          </button>
+          <button className="btn secondary" type="button" onClick={editCategoryTitle}>
+            Edit Category Name
+          </button>
+          <label className="btn secondary" style={{ cursor: "pointer" }}>
+  Upload Category Image
+  <input
+    type="file"
+    accept="image/*"
+    style={{ display: "none" }}
+    onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
+  />
+</label>
+        </div>
+      )}
+
+      {category.image && (
+        <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
+          <img
+            src={category.image}
+            alt={category.title || "Menu category"}
+            style={{
+              width: "100%",
+              maxHeight: "280px",
+              objectFit: "cover",
+              display: "block"
+            }}
+          />
+          <div style={{ padding: 16 }}>
+            <h2 style={{ margin: 0 }}>{category.title}</h2>
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 18
+        }}
+      >
+        {items.map((item) => (
+          <div key={item.id} className="card">
+            <img
+              src={item.image}
+              alt={item.name}
+              style={{
+                width: "100%",
+                height: "170px",
+                objectFit: "cover",
+                borderRadius: "12px",
+                marginBottom: "12px"
+              }}
+            />
+
+            <h3 style={{ margin: "4px 0 8px" }}>{item.name}</h3>
+
+            <div className="muted" style={{ marginBottom: 10 }}>
+              {item.description}
+            </div>
+
+            <div style={{ fontWeight: 800, fontSize: "1.1rem", marginBottom: 12 }}>
+              ₹{item.price}
+            </div>
+
+            {admin ? (
+  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <button className="btn secondary" type="button"
+      onClick={() => {
+        const value = prompt("Edit item name:", item.name);
+        if (value !== null && value !== "") updateItem(item.id, "name", value);
+      }}>
+      Edit Name
+    </button>
+
+    <button className="btn secondary" type="button"
+      onClick={() => {
+        const value = prompt("Edit description:", item.description || "");
+        if (value !== null) updateItem(item.id, "description", value);
+      }}>
+      Edit Details
+    </button>
+
+    <button className="btn secondary" type="button"
+      onClick={() => {
+        const value = prompt("Edit price:", item.price);
+        if (value !== null && value !== "") updateItem(item.id, "price", value);
+      }}>
+      Edit Price
+    </button>
+
+    <label className="btn secondary" style={{ cursor: "pointer" }}>
+      Upload Image
+      <input
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => uploadItemImage(item.id, e.target.files?.[0])}
       />
+    </label>
 
-      <div className="container">
-                  <div className="grid offerGrid">
-          {(data.offers || []).map((item) => (
-            <div className="card cols-4 offerCard" key={item.id}>
-  <div className="offerCardTop">
-    <div className="offerCardHead">
-      <h2 className="offerCardTitle">{item.title}</h2>
+    <button className="btn" type="button" onClick={() => deleteItem(item.id)}>
+      Delete
+    </button>
+  </div>
+) : (
+  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <button className="btn secondary" onClick={() => removeFromCart(item)}>
+      −
+    </button>
 
-      {!offerPriceLines(item.price).length ? (
-        <div className="badge">
-          <span className="dot" />
-          Ask at counter
-        </div>
-      ) : null}
+    <div style={{ fontWeight: 800, minWidth: 24, textAlign: "center" }}>
+      {itemQty(item)}
     </div>
 
-    {admin ? (
-      <div className="row offerAdminBtns">
-        <button className="btn" onClick={() => editOffer(item.id)}>Edit</button>
-        <button className="btn danger" onClick={() => deleteOffer(item.id)}>Delete</button>
-      </div>
-    ) : null}
+    <button className="btn" onClick={() => addToCart(item)}>
+      + Add
+    </button>
   </div>
-
-  {offerPriceLines(item.price).length > 0 ? (
-    <div className="offerLineList">
-      {offerPriceLines(item.price).map((line) => (
-        <div key={line} className="offerLinePill">
-          <span className="dot" />
-          <span>{line}</span>
-        </div>
-      ))}
+)}
+          </div>
+        ))}
+      </div>
     </div>
-  ) : null}
-
-  <div className="offerDetailsText">
-    {item.details || "Available at the club."}
-  </div>
-</div>
-          ))}
-        </div>
-      </div>
-    </>
   );
 }
 function normalizedClubUpiId(value) {
