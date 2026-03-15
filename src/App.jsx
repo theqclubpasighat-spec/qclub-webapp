@@ -562,6 +562,7 @@ function mergeWithDefaults(remote) {
     announcements: Array.isArray(src.announcements) && src.announcements.length ? src.announcements : base.announcements,
     memberships: Array.isArray(src.memberships) && src.memberships.length ? src.memberships : base.memberships,
     offers: Array.isArray(src.offers) && src.offers.length ? src.offers : base.offers,
+    menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
     photos: Array.isArray(src.photos) ? src.photos : base.photos,
     players: Array.isArray(src.players) && src.players.length ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) })) : base.players,
     tournaments: Array.isArray(src.tournaments) && src.tournaments.length ? src.tournaments : base.tournaments,
@@ -2264,9 +2265,31 @@ async function uploadCategoryImage(file) {
       alert("Enter mobile number");
       return;
     }
+    localStorage.setItem("qclub_payment_context", "food");
+localStorage.setItem("qclub_payment_name", customerName.trim());
+localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
+localStorage.setItem("qclub_food_cart", JSON.stringify(
+  cartItems.map((id) => {
+    const found = Object.values(menu)
+      .flatMap((cat) => cat.items || [])
+      .find((x) => x.id === id);
+
+    return found
+      ? {
+          id: found.id,
+          name: found.name,
+          qty: cart[id],
+          price: found.price,
+          lineTotal: found.price * cart[id],
+        }
+      : null;
+  }).filter(Boolean)
+));
+localStorage.setItem("qclub_food_total", String(cartTotal));
 
     startPayment(cartTotal, customerPhone);
   }}
+
 >
   Pay ₹{cartTotal}
 </button>
@@ -6273,6 +6296,11 @@ function PaymentStatus() {
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState("checking");
+  const paymentContext = localStorage.getItem("qclub_payment_context");
+const foodCart = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
+const foodTotal = localStorage.getItem("qclub_food_total") || "0";
+const paymentMobile = localStorage.getItem("qclub_payment_mobile") || "";
+const paymentName = localStorage.getItem("qclub_payment_name") || "";
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -6345,31 +6373,67 @@ function PaymentStatus() {
   const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
 
   return (
-    <>
-      <h2>🎱 Table Booked Successfully</h2>
-      <p>
-        Your table booking at <strong>The Q Club</strong> is confirmed.
-      </p>
-      <p className="muted">Have a great game.</p>
+  <>
+    {paymentContext === "food" ? (
+      <>
+        <h2>Order Placed Successfully</h2>
 
-      <div className="card" style={{ marginTop: 14 }}>
-        <div><b>Name:</b> {savedName || "—"}</div>
-        <div><b>Mobile:</b> {savedMobile || "—"}</div>
-        <div><b>Table:</b> {table || "—"}</div>
-        <div><b>Date:</b> {bookingDate || "—"}</div>
-        <div><b>Time Slot:</b> {bookingSlot || "—"}</div>
-      </div>
+        <div className="card" style={{ marginTop: 14 }}>
+          <div><b>Name:</b> {paymentName}</div>
+          <div><b>Mobile:</b> {paymentMobile}</div>
 
-      <div className="row" style={{ marginTop: 16 }}>
-        <button className="btn primary" onClick={() => navigate("/book")}>
-          Book Another Table
-        </button>
-        <button className="btn" onClick={() => navigate("/")}>
-          Home
-        </button>
-      </div>
-    </>
-  );
+          <div style={{ marginTop: 12 }}><b>Items:</b></div>
+
+          {foodCart.map((item) => (
+            <div key={item.id} style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>{item.name} × {item.qty}</span>
+              <span>₹{item.lineTotal}</span>
+            </div>
+          ))}
+
+          <div style={{ marginTop: 10, fontWeight: 700 }}>
+            Total Paid: ₹{foodTotal}
+          </div>
+        </div>
+
+        <div className="row" style={{ marginTop: 16 }}>
+          <button className="btn primary" onClick={() => navigate("/offer")}>
+            Order More
+          </button>
+          <button className="btn" onClick={() => navigate("/")}>
+            Home
+          </button>
+        </div>
+      </>
+    ) : (
+      <>
+        <h2>Table Booked Successfully</h2>
+
+        <p>
+          Your table booking at <strong>The Q Club</strong> is confirmed.
+        </p>
+        <p className="muted">Have a great game.</p>
+
+        <div className="card" style={{ marginTop: 14 }}>
+          <div><b>Name:</b> {savedName || "—"}</div>
+          <div><b>Mobile:</b> {savedMobile || "—"}</div>
+          <div><b>Table:</b> {table || "—"}</div>
+          <div><b>Date:</b> {bookingDate || "—"}</div>
+          <div><b>Time Slot:</b> {bookingSlot || "—"}</div>
+        </div>
+
+        <div className="row" style={{ marginTop: 16 }}>
+          <button className="btn primary" onClick={() => navigate("/book")}>
+            Book Another Table
+          </button>
+          <button className="btn" onClick={() => navigate("/")}>
+            Home
+          </button>
+        </div>
+      </>
+    )}
+  </>
+);
 })()}
 
         {status === "failed" && (
