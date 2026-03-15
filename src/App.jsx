@@ -281,21 +281,48 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
         if (!a || !b) return;
         if (participantIds && (!participantIds.has(m.p1) || !participantIds.has(m.p2))) return;
 
-        const b1 = Number(m.break1 || 0);
+                const b1 = Number(m.break1 || 0);
         const b2 = Number(m.break2 || 0);
 
         if (Number.isFinite(b1) && b1 > a.highestBreak) a.highestBreak = b1;
         if (Number.isFinite(b2) && b2 > b.highestBreak) b.highestBreak = b2;
-
-        const s1 = Number(m.score1);
-        const s2 = Number(m.score2);
-        if (!Number.isFinite(s1) || !Number.isFinite(s2)) return;
 
         touched.add(m.p1);
         touched.add(m.p2);
 
         a.matches++;
         b.matches++;
+
+        if (t?.format === "knockout") {
+          if (m.winner === m.p1) {
+            a.wins++;
+            b.losses++;
+            a.points += t.pointsWin ?? 1;
+            b.points += t.pointsLoss ?? 0;
+          } else if (m.winner === m.p2) {
+            b.wins++;
+            a.losses++;
+            b.points += t.pointsWin ?? 1;
+            a.points += t.pointsLoss ?? 0;
+          } else {
+            a.matches--;
+            b.matches--;
+            touched.delete(m.p1);
+            touched.delete(m.p2);
+          }
+          return;
+        }
+
+        const s1 = Number(m.score1);
+        const s2 = Number(m.score2);
+        if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
+          a.matches--;
+          b.matches--;
+          touched.delete(m.p1);
+          touched.delete(m.p2);
+          return;
+        }
+
         a.for += s1;
         a.against += s2;
         b.for += s2;
@@ -325,10 +352,13 @@ function calcAutoRankingBoard(players, tournaments, gameKey) {
       });
     });
 
-  return rows.sort((x, y) => {
-    const dx = x.for - x.against;
-    const dy = y.for - y.against;
-    return (y.points - x.points) || (dy - dx) || (y.wins - x.wins) || x.name.localeCompare(y.name);
+    return rows.sort((x, y) => {
+    return (
+      (y.points - x.points) ||
+      (y.wins - x.wins) ||
+      (y.highestBreak - x.highestBreak) ||
+      x.name.localeCompare(y.name)
+    );
   });
 }
 
@@ -689,18 +719,41 @@ function calcLeaderboard(players, tournament) {
     const b = byId.get(m.p2);
     if (!a || !b) return;
 
-    const s1 = Number(m.score1);
-    const s2 = Number(m.score2);
-    const b1 = Number(m.break1 || 0);
+        const b1 = Number(m.break1 || 0);
     const b2 = Number(m.break2 || 0);
 
     if (Number.isFinite(b1) && b1 > a.highestBreak) a.highestBreak = b1;
     if (Number.isFinite(b2) && b2 > b.highestBreak) b.highestBreak = b2;
 
-    if (!Number.isFinite(s1) || !Number.isFinite(s2)) return;
-
     a.played++;
     b.played++;
+
+    if (tournament?.format === "knockout") {
+      if (m.winner === m.p1) {
+        a.wins++;
+        b.losses++;
+        a.points += tournament.pointsWin ?? 1;
+        b.points += tournament.pointsLoss ?? 0;
+      } else if (m.winner === m.p2) {
+        b.wins++;
+        a.losses++;
+        b.points += tournament.pointsWin ?? 1;
+        a.points += tournament.pointsLoss ?? 0;
+      } else {
+        a.played--;
+        b.played--;
+      }
+      return;
+    }
+
+    const s1 = Number(m.score1);
+    const s2 = Number(m.score2);
+    if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
+      a.played--;
+      b.played--;
+      return;
+    }
+
     a.for += s1;
     a.against += s2;
     b.for += s2;
@@ -724,10 +777,13 @@ function calcLeaderboard(players, tournament) {
     }
   });
 
-  return rows.sort((x, y) => {
-    const dx = x.for - x.against;
-    const dy = y.for - y.against;
-    return (y.points - x.points) || (dy - dx) || (y.wins - x.wins) || x.name.localeCompare(y.name);
+    return rows.sort((x, y) => {
+    return (
+      (y.points - x.points) ||
+      (y.wins - x.wins) ||
+      (y.highestBreak - x.highestBreak) ||
+      x.name.localeCompare(y.name)
+    );
   });
 }
 
@@ -1184,28 +1240,7 @@ useEffect(() => {
 
             
               <div className="grid" style={{ marginTop: 16 }}>
-  <div className="card cols-6">
-    <div className="infoLabel">Snooker Rank</div>
-    <div className="infoValue">
-      {(() => {
-  let wins = 0;
-
-  (data.tournaments || []).forEach((t) => {
-    if (tournamentGameKey(t.game) !== "snooker") return;
-
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
-      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
-    });
-  });
-
-  return wins;
-})()}
-
-    </div>
-  </div>
+  
 
   <div className="card cols-6">
     <div className="infoLabel">Pool Rank</div>
@@ -1217,79 +1252,35 @@ useEffect(() => {
     </div>
   </div>
 
-  <div className="card cols-4">
-    <div className="infoLabel">Snooker Wins</div>
-    <div className="infoValue">
-      {(() => {
-  let wins = 0;
+          <div className="card cols-4">
+          <div className="infoLabel">Snooker Wins</div>
+          <div className="infoValue">
+            {(() => {
+              const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+              return row ? row.wins : 0;
+            })()}
+          </div>
+        </div>
 
-  (data.tournaments || []).forEach((t) => {
-    if (tournamentGameKey(t.game) !== "snooker") return;
+          <div className="card cols-4">
+          <div className="infoLabel">Snooker Losses</div>
+          <div className="infoValue">
+            {(() => {
+              const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+              return row ? row.losses : 0;
+            })()}
+          </div>
+        </div>
 
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
-      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
-    });
-  });
-
-  return wins;
-})()}
-
-    </div>
-  </div>
-
-  <div className="card cols-4">
-    <div className="infoLabel">Snooker Losses</div>
-    <div className="infoValue">
-      {(() => {
-  let losses = 0;
-
-  (data.tournaments || []).forEach((t) => {
-    if (tournamentGameKey(t.game) !== "snooker") return;
-
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id && Number(m.score1) < Number(m.score2)) losses++;
-      if (m.p2 === selectedPlayer.id && Number(m.score2) < Number(m.score1)) losses++;
-    });
-  });
-
-  return losses;
-})()}
-
-    </div>
-  </div>
-
-  <div className="card cols-4">
-    <div className="infoLabel">Best Break</div>
-    <div className="infoValue">
-      {(() => {
-  let best = 0;
-
-  (data.tournaments || []).forEach((t) => {
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id) {
-        const b = Number(m.break1 || 0);
-        if (Number.isFinite(b) && b > best) best = b;
-      }
-
-      if (m.p2 === selectedPlayer.id) {
-        const b = Number(m.break2 || 0);
-        if (Number.isFinite(b) && b > best) best = b;
-      }
-    });
-  });
-
-  return best;
-})()}
-
-    </div>
-  </div>
+          <div className="card cols-4">
+          <div className="infoLabel">Best Break</div>
+          <div className="infoValue">
+            {(() => {
+              const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+              return row ? row.highestBreak || 0 : 0;
+            })()}
+          </div>
+        </div>
 
   <div className="card cols-6">
     <div className="infoLabel">Pool Wins</div>
@@ -3214,50 +3205,24 @@ function Players({ data, admin, commit, activeTournament }) {
         </div>
 
         <div className="card cols-4">
-          <div className="infoLabel">Snooker Wins</div>
-          <div className="infoValue">
-           {(() => {
-  let wins = 0;
-
-  (data.tournaments || []).forEach((t) => {
-    if (tournamentGameKey(t.game) !== "snooker") return;
-
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id && Number(m.score1) > Number(m.score2)) wins++;
-      if (m.p2 === selectedPlayer.id && Number(m.score2) > Number(m.score1)) wins++;
-    });
-  });
-
-  return wins;
-})()}
-
-          </div>
-        </div>
+  <div className="infoLabel">Snooker Wins</div>
+  <div className="infoValue">
+    {(() => {
+      const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+      return row ? row.wins : 0;
+    })()}
+  </div>
+</div>
 
         <div className="card cols-4">
-          <div className="infoLabel">Snooker Losses</div>
-          <div className="infoValue">
-            {(() => {
-  let losses = 0;
-
-  (data.tournaments || []).forEach((t) => {
-    if (tournamentGameKey(t.game) !== "snooker") return;
-
-    (t.matches || []).forEach((m) => {
-      if (m.status !== "done") return;
-
-      if (m.p1 === selectedPlayer.id && Number(m.score1) < Number(m.score2)) losses++;
-      if (m.p2 === selectedPlayer.id && Number(m.score2) < Number(m.score1)) losses++;
-    });
-  });
-
-  return losses;
-})()}
-
-          </div>
-        </div>
+  <div className="infoLabel">Snooker Losses</div>
+  <div className="infoValue">
+    {(() => {
+      const row = snookerBoard.find((r) => r.id === selectedPlayer.id);
+      return row ? row.losses : 0;
+    })()}
+  </div>
+</div>
 
         <div className="card cols-4">
           <div className="infoLabel">Best Break</div>
