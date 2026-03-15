@@ -1208,7 +1208,7 @@ useEffect(() => {
         <Route path="/terms" element={<StaticPage title="Terms & Conditions"><TermsContent /></StaticPage>} />
         <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
-        <Route path="/admin/orders" element={<FoodOrdersAdmin data={data} admin={admin} />} />
+        <Route path="/admin/orders" element={<FoodOrdersAdmin data={data} admin={admin} commit={commit} />} />
         <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -6309,7 +6309,7 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     </>
   );
 }
-function FoodOrdersAdmin({ data, admin }) {
+function FoodOrdersAdmin({ data, admin, commit }) {
   if (!admin) {
     return (
       <div className="container">
