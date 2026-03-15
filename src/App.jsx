@@ -1990,7 +1990,21 @@ function Offers({ data, admin, commit, startPayment }) {
   const menu = data.menuCatalog || {};
   const categories = Object.keys(menu);
   const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
-  const [cart, setCart] = React.useState({});
+  const [cart, setCart] = React.useState(() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
+    if (!Array.isArray(saved)) return {};
+
+    return saved.reduce((acc, item) => {
+      if (item && item.id) {
+        acc[item.id] = Number(item.qty) || 0;
+      }
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+});
   const [showCheckout, setShowCheckout] = React.useState(false);
   const [customerName, setCustomerName] = React.useState("");
 const [customerPhone, setCustomerPhone] = React.useState("");
