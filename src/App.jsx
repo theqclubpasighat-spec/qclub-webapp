@@ -6506,6 +6506,10 @@ function PaymentStatus({ data, commit }) {
             ) : paymentContext === "food" ? (
               <>
                 <h2>Order Placed Successfully</h2>
+                <div style={{ marginTop: 10, marginBottom: 14 }}>
+  <div><b>Order No:</b> {`QC-${String(order_id || "").slice(-6)}`}</div>
+  <div><b>Time:</b> {new Date().toLocaleString()}</div>
+</div>
 
                 <div className="card" style={{ marginTop: 14 }}>
                   <div><b>Name:</b> {paymentName || "—"}</div>
