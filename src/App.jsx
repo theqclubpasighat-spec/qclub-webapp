@@ -6401,8 +6401,8 @@ function PaymentStatus({ data, commit }) {
 
     fetch(`/api/get-order-status?order_id=${order_id}`)
       .then((res) => res.json())
-      .then((data) => {
-  if (data.order_status === "PAID") {
+      .then((orderData) => {
+  if (orderData.order_status === "PAID") {
 
     if (paymentContext === "food" && !orderSaved) {
 
