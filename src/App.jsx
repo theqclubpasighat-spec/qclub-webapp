@@ -1584,10 +1584,9 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <div className="spacer" />
 
         <Link className="pill" to="/">Home</Link>
-        <Link className="pill" to="/book">Book Table</Link>
-        <Link className="pill" to="/membership">Membership</Link>
+        
         <Link className="pill" to="/live">Live Matches</Link>
-        <Link className="pill" to="/offer">What We Offer</Link>
+        
         <Link className="pill" to="/photos">Photos</Link>
         <Link className="pill" to="/players">Players</Link>
         <Link className="pill" to="/tournaments">Tournaments</Link>
@@ -1736,13 +1735,18 @@ transition: "background-image 0.25s ease-in-out",
       >
         <div className="refHeroTopBar">
   <div className="refHeroActionRow">
-    <Link className="btn neonGreen refHeroActionBtn" to="/book">
-      Book Table
-    </Link>
-    <Link className="btn neonGreen refHeroActionBtn" to="/membership">
-      Membership
-    </Link>
-  </div>
+  <Link className="btn neonGreen refHeroActionBtn" to="/book">
+    Book Table
+  </Link>
+
+  <Link className="btn neonGreen refHeroActionBtn" to="/membership">
+    Membership
+  </Link>
+
+  <Link className="btn neonGreen refHeroActionBtn" to="/offer">
+    The Q Lounge
+  </Link>
+</div>
 
   <div className="row" style={{ gap: 8 }}>
     <button
@@ -5705,6 +5709,59 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
   <div className="muted" style={{ marginTop: 12 }}>
     Uploaded images will be added directly to the homepage hero slider.
   </div>
+
+  {(data.club?.heroSlides || []).length > 0 ? (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 12,
+        marginTop: 16,
+      }}
+    >
+      {(data.club?.heroSlides || []).map((src, idx) => (
+        <div
+          key={`${src}-${idx}`}
+          className="card"
+          style={{ margin: 0, padding: 10 }}
+        >
+          <img
+            src={src}
+            alt={`Hero Slide ${idx + 1}`}
+            style={{
+              width: "100%",
+              height: 120,
+              objectFit: "cover",
+              borderRadius: 12,
+              display: "block",
+              marginBottom: 10,
+            }}
+          />
+
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <span className="muted">Slide {idx + 1}</span>
+
+            <button
+              className="btn danger"
+              onClick={() => {
+                if (!confirm("Delete this hero slide?")) return;
+
+                commit({
+                  ...data,
+                  club: {
+                    ...(data.club || {}),
+                    heroSlides: (data.club?.heroSlides || []).filter((_, i) => i !== idx),
+                  },
+                });
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : null}
 </div>
 
           <div className="card cols-12">
