@@ -6322,7 +6322,16 @@ function FoodOrdersAdmin({ data, admin }) {
   }
 
   const orders = Array.isArray(data.foodOrders) ? [...data.foodOrders].reverse() : [];
+function updateOrderStatus(id, newStatus) {
+  const updated = (data.foodOrders || []).map((o) =>
+    o.id === id ? { ...o, status: newStatus } : o
+  );
 
+  commit({
+    ...data,
+    foodOrders: updated,
+  });
+}
   return (
     <div className="container">
       <div className="sectionTitle">
@@ -6347,6 +6356,19 @@ function FoodOrdersAdmin({ data, admin }) {
                   <div><b>Name:</b> {order.name || "—"}</div>
                   <div><b>Mobile:</b> {order.mobile || "—"}</div>
                   <div><b>Status:</b> {order.status || "Paid"}</div>
+                  <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+  <button className="btn" onClick={() => updateOrderStatus(order.id, "Preparing")}>
+    Preparing
+  </button>
+
+  <button className="btn" onClick={() => updateOrderStatus(order.id, "Ready")}>
+    Ready
+  </button>
+
+  <button className="btn" onClick={() => updateOrderStatus(order.id, "Delivered")}>
+    Delivered
+  </button>
+</div>
                 </div>
 
                 <div style={{ textAlign: "right" }}>
@@ -6407,7 +6429,7 @@ function PaymentStatus({ data, commit }) {
     if (paymentContext === "food" && !orderSaved) {
 
       const newOrder = {
-        id: Date.now(),
+        id: `QC-${String(Date.now()).slice(-6)}`,
         name: paymentName,
         mobile: paymentMobile,
         items: foodCart,
