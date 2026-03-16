@@ -1225,7 +1225,7 @@ useEffect(() => {
         <Route path="*" element={<NotFound />} />
       </Routes>
 
-      <FooterLinks />
+      <FooterLinks data={data} admin={admin} commit={commit} />
             {selectedPlayer ? (
         <div
           onClick={closePlayerModal}
@@ -1418,7 +1418,7 @@ useEffect(() => {
   );
 }
 
-function FooterLinks() {
+function FooterLinks({ data, admin, commit }) {
   return (
     <footer className="siteFooter">
       <div className="container">
@@ -1426,20 +1426,105 @@ function FooterLinks() {
           <div>
             <div className="siteFooterBrand">The Q Club</div>
             <div className="muted">
-              Premium indoor gaming lounge at GTC, Pasighat.
-            </div>
-            <div className="muted" style={{ marginTop: 10 }}>
-              Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee.
-            </div>
+  {data.club?.footerAbout || "Premium indoor gaming lounge at GTC, Pasighat."}
+</div>
+<div className="muted" style={{ marginTop: 10 }}>
+  {data.club?.footerDescription || "Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee."}
+</div>
+
+{admin && (
+  <div style={{ marginTop: 12 }}>
+    <button
+      className="btn"
+      type="button"
+      onClick={() => {
+        const footerAbout = prompt(
+          "Footer About text:",
+          data.club?.footerAbout || "Premium indoor gaming lounge at GTC, Pasighat."
+        );
+        if (!footerAbout) return;
+
+        const footerDescription = prompt(
+          "Footer Description text:",
+          data.club?.footerDescription || "Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee."
+        );
+        if (!footerDescription) return;
+
+        commit({
+          ...data,
+          club: {
+            ...data.club,
+            footerAbout,
+            footerDescription,
+          },
+        });
+      }}
+    >
+      Edit Footer
+    </button>
+  </div>
+)}
           </div>
 
           <div className="siteFooterLinks">
-            <Link to="/about">About Us</Link>
-            <Link to="/contact">Contact Us</Link>
-            <Link to="/terms">Terms & Conditions</Link>
-            <Link to="/refund">Refund Policy</Link>
-            <Link to="/privacy">Privacy Policy</Link>
-          </div>
+            <Link to="/about">{data.club?.footerAboutLabel || "About Us"}</Link>
+<Link to="/contact">{data.club?.footerContactLabel || "Contact Us"}</Link>
+<Link to="/terms">{data.club?.footerTermsLabel || "Terms & Conditions"}</Link>
+<Link to="/refund">{data.club?.footerRefundLabel || "Refund Policy"}</Link>
+<Link to="/privacy">{data.club?.footerPrivacyLabel || "Privacy Policy"}</Link>
+          </div>{admin && (
+  <div style={{ marginTop: 12 }}>
+    <button
+      className="btn"
+      type="button"
+      onClick={() => {
+        const footerAboutLabel = prompt(
+          "About label:",
+          data.club?.footerAboutLabel || "About Us"
+        );
+        if (!footerAboutLabel) return;
+
+        const footerContactLabel = prompt(
+          "Contact label:",
+          data.club?.footerContactLabel || "Contact Us"
+        );
+        if (!footerContactLabel) return;
+
+        const footerTermsLabel = prompt(
+          "Terms label:",
+          data.club?.footerTermsLabel || "Terms & Conditions"
+        );
+        if (!footerTermsLabel) return;
+
+        const footerRefundLabel = prompt(
+          "Refund label:",
+          data.club?.footerRefundLabel || "Refund Policy"
+        );
+        if (!footerRefundLabel) return;
+
+        const footerPrivacyLabel = prompt(
+          "Privacy label:",
+          data.club?.footerPrivacyLabel || "Privacy Policy"
+        );
+        if (!footerPrivacyLabel) return;
+
+        commit({
+          ...data,
+          club: {
+            ...data.club,
+            footerAboutLabel,
+            footerContactLabel,
+            footerTermsLabel,
+            footerRefundLabel,
+            footerPrivacyLabel,
+          },
+        });
+      }}
+    >
+      Edit Footer Links
+    </button>
+  </div>
+)}
         </div>
       </div>
     </footer>
@@ -1900,11 +1985,60 @@ transition: "background-image 0.25s ease-in-out",
           <div className="refHeroSubtitle">
             {data.club?.tagline2 ||
               "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
-          </div>
+          </div>{admin && (
+  <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
+    <button
+      className="btn"
+      type="button"
+      onClick={() => {
+        const name = prompt("Club title:", data.club?.name || "");
+        if (!name) return;
+
+        const tagline2 = prompt(
+          "Hero subtitle:",
+          data.club?.tagline2 ||
+            "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"
+        );
+        if (!tagline2) return;
+
+        commit({
+          ...data,
+          club: {
+            ...data.club,
+            name,
+            tagline2,
+          },
+        });
+      }}
+    >
+      Edit Hero
+    </button>
+    <input
+  type="text"
+  placeholder="Paste YouTube livestream link"
+  value={data.club?.liveStreamUrl || ""}
+  onChange={(e) =>
+    commit({
+      ...data,
+      club: {
+        ...data.club,
+        liveStreamUrl: e.target.value,
+      },
+    })
+  }
+  style={{
+    padding: "6px 10px",
+    borderRadius: 6,
+    border: "1px solid #444",
+    minWidth: 280,
+  }}
+/>
+  </div>
+)}
         </div>
       </section>
 
-      <LiveMatchesHeroCard />
+      <LiveMatchesHeroCard data={data} />
 
       <section className="refInfoGrid">
         <div className="refGlassCard">
@@ -5039,7 +5173,7 @@ function HallOfFame({ data, admin, commit }) {
 
 
 
-function LiveMatchesHeroCard() {
+function LiveMatchesHeroCard({ data }) {
   const [summary, setSummary] = useState({ total: 0, live: 0, singles: 0, doubles: 0 });
 
   useEffect(() => {
@@ -5118,6 +5252,15 @@ function LiveMatchesHeroCard() {
           >
             {hasLive ? "🔴 LIVE MATCHES NOW" : "Open Live Matches"}
           </Link>
+          <a
+  href={data.club?.liveStreamUrl || "#"}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="btn"
+  style={{ marginLeft: 10 }}
+>
+  📺 Watch it Live
+</a>
         </div>
       </div>
     </section>
@@ -6550,12 +6693,18 @@ const displayTime = new Date().toLocaleString();
                   <div style={{ marginTop: 10, fontWeight: 700 }}>
                     Total Paid: ₹{foodTotal}
                   </div>
+                  <p className="muted" style={{ marginTop: 12 }}>
+  Please give us up to 15 minutes to prepare your order. Please collect your order from the counter when called.
+</p>
                 </div>
 
                 <div className="row" style={{ marginTop: 16 }}>
                   <button className="btn primary" onClick={() => navigate("/offer")}>
                     Order More
                   </button>
+                  <button className="btn" onClick={downloadFoodReceiptPdf}>
+  Download PDF
+</button>
                   <button className="btn" onClick={() => navigate("/")}>
                     Home
                   </button>
