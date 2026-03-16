@@ -6411,6 +6411,10 @@ function PaymentStatus({ data, commit }) {
   const foodTotal = localStorage.getItem("qclub_food_total") || "0";
   const paymentMobile = localStorage.getItem("qclub_payment_mobile") || "";
   const paymentName = localStorage.getItem("qclub_payment_name") || "";
+  const params = new URLSearchParams(location.search);
+const orderIdFromUrl = params.get("order_id") || "";
+const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
+const displayTime = new Date().toLocaleString();
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -6507,8 +6511,8 @@ function PaymentStatus({ data, commit }) {
               <>
                 <h2>Order Placed Successfully</h2>
                 <div style={{ marginTop: 10, marginBottom: 14 }}>
-  <div><b>Order No:</b> {`QC-${String(order_id || "").slice(-6)}`}</div>
-  <div><b>Time:</b> {new Date().toLocaleString()}</div>
+  <div><b>Order No:</b> {displayOrderNo}</div>
+  <div><b>Time:</b> {displayTime}</div>
 </div>
 
                 <div className="card" style={{ marginTop: 14 }}>
