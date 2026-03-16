@@ -500,6 +500,7 @@ function defaultData() {
       { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "", games: ["snooker", "pool"] },
     ],
     foodOrders: [],
+    archivedFoodOrders: [],
     tournaments: [
       {
         id: uid(),
@@ -569,6 +570,7 @@ players: Array.isArray(src.players)
   ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) }))
   : base.players,
 foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
+archivedFoodOrders: Array.isArray(src.archivedFoodOrders) ? src.archivedFoodOrders : base.archivedFoodOrders,
 tournaments: Array.isArray(src.tournaments) ? src.tournaments : base.tournaments,
     booking: {
       ...base.booking,
@@ -6477,14 +6479,41 @@ function FoodOrdersAdmin({ data, admin, commit }) {
   }
 
   const orders = Array.isArray(data.foodOrders) ? [...data.foodOrders].reverse() : [];
-function updateOrderStatus(id, newStatus) {
+const archivedOrders = Array.isArray(data.archivedFoodOrders)
+  ? [...data.archivedFoodOrders].reverse()
+  : [];
+  function updateOrderStatus(id, newStatus) {
   const updated = (data.foodOrders || []).map((o) =>
     o.id === id ? { ...o, status: newStatus } : o
   );
+  function archiveFoodOrder(orderId) {
+  const order = (data.foodOrders || []).find(o => o.id === orderId);
+  if (!order) return;
+
+  const updatedOrders = (data.foodOrders || []).filter(o => o.id !== orderId);
+
+  commit({
+    ...data,
+    foodOrders: updatedOrders,
+    archivedFoodOrders: [...(data.archivedFoodOrders || []), order]
+  });
+}
 
   commit({
     ...data,
     foodOrders: updated,
+  });
+}
+function restoreFoodOrder(orderId) {
+  const order = (data.archivedFoodOrders || []).find(o => o.id === orderId);
+  if (!order) return;
+
+  const updatedArchived = (data.archivedFoodOrders || []).filter(o => o.id !== orderId);
+
+  commit({
+    ...data,
+    foodOrders: [...(data.foodOrders || []), order],
+    archivedFoodOrders: updatedArchived
   });
 }
   return (
@@ -6511,18 +6540,40 @@ function updateOrderStatus(id, newStatus) {
                   <div><b>Name:</b> {order.name || "—"}</div>
                   <div><b>Mobile:</b> {order.mobile || "—"}</div>
                   <div><b>Status:</b> {order.status || "Paid"}</div>
-                  <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-  <button className="btn" onClick={() => updateOrderStatus(order.id, "Preparing")}>
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+  <button
+    className="btn"
+    style={{ background: "#facc15", color: "#111", borderColor: "#facc15" }}
+    onClick={() => updateOrderStatus(order.id, "Preparing")}
+  >
     Preparing
   </button>
 
-  <button className="btn" onClick={() => updateOrderStatus(order.id, "Ready")}>
+  <button
+    className="btn"
+    style={{ background: "#22c55e", color: "#fff", borderColor: "#22c55e" }}
+    onClick={() => updateOrderStatus(order.id, "Ready")}
+  >
     Ready
   </button>
 
-  <button className="btn" onClick={() => updateOrderStatus(order.id, "Delivered")}>
+  <button
+    className="btn"
+    style={{ background: "#a855f7", color: "#fff", borderColor: "#a855f7" }}
+    onClick={() => updateOrderStatus(order.id, "Delivered")}
+  >
     Delivered
   </button>
+
+  {order.status === "Delivered" && (
+    <button
+      className="btn"
+      style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }}
+      onClick={() => archiveFoodOrder(order.id)}
+    >
+      Archive
+    </button>
+  )}
 </div>
                 </div>
 
@@ -6551,7 +6602,58 @@ function updateOrderStatus(id, newStatus) {
             </div>
           ))}
         </div>
-      )}
+      )}<div style={{ marginTop: 28 }}>
+  <h2 style={{ marginBottom: 14 }}>Archived Orders</h2>
+
+  {archivedOrders.length === 0 ? (
+    <div className="card">
+      <p className="muted">No archived orders yet.</p>
+    </div>
+  ) : (
+    <div style={{ display: "grid", gap: 16 }}>
+      {archivedOrders.map((order) => (
+        <div key={order.id} className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <h3 style={{ margin: "0 0 8px" }}>Order #{order.id}</h3>
+              <div><b>Name:</b> {order.name || "—"}</div>
+              <div><b>Mobile:</b> {order.mobile || "—"}</div>
+              <div><b>Status:</b> {order.status || "Delivered"}</div>
+            </div>
+
+            <div style={{ textAlign: "right" }}>
+              <div><b>Total:</b> ₹{order.total || 0}</div>
+              <div className="muted" style={{ marginTop: 6 }}>
+                {order.time ? new Date(order.time).toLocaleString() : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <b>Items:</b>
+            <div style={{ marginTop: 8 }}>
+              {(order.items || []).map((item, idx) => (
+                <div
+                  key={`${order.id}-${idx}`}
+                  style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+                >
+                  <span>{item.name} × {item.qty}</span>
+                  <span>₹{item.lineTotal}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" onClick={() => restoreFoodOrder(order.id)}>
+              Restore
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
     </div>
   );
 }
