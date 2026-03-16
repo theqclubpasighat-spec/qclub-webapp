@@ -6593,6 +6593,65 @@ const displayTime = new Date().toLocaleString();
     </div>
   );
 }
+function downloadFoodReceiptPdf() {
+  const params = new URLSearchParams(location.search);
+  const orderIdFromUrl = params.get("order_id") || "";
+  const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
+  const nowText = new Date().toLocaleString();
+
+  const itemsHtml = foodCart.length
+    ? foodCart
+        .map(
+          (item) => `
+            <tr>
+              <td style="padding:8px 0;border-bottom:1px solid #ddd;">${item.name} × ${item.qty}</td>
+              <td style="padding:8px 0;border-bottom:1px solid #ddd;text-align:right;">₹${item.lineTotal}</td>
+            </tr>
+          `
+        )
+        .join("")
+    : `<tr><td colspan="2" style="padding:8px 0;">No items found.</td></tr>`;
+
+  const html = `
+    <html>
+      <head>
+        <title>${displayOrderNo} Receipt</title>
+      </head>
+      <body style="font-family:Arial,sans-serif;padding:24px;color:#111;">
+        <h2 style="margin:0 0 12px;">The Q Club Pasighat</h2>
+        <div style="margin-bottom:8px;"><b>Order No:</b> ${displayOrderNo}</div>
+        <div style="margin-bottom:8px;"><b>Time:</b> ${nowText}</div>
+        <div style="margin-bottom:8px;"><b>Name:</b> ${paymentName || "-"}</div>
+        <div style="margin-bottom:16px;"><b>Mobile:</b> ${paymentMobile || "-"}</div>
+
+        <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding-bottom:8px;border-bottom:2px solid #111;">Item</th>
+              <th style="text-align:right;padding-bottom:8px;border-bottom:2px solid #111;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+
+        <div style="margin-top:18px;font-size:18px;font-weight:700;">
+          Total Paid: ₹${foodTotal}
+        </div>
+      </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+}
 function NotFound() {
   return (
     <>
