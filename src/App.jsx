@@ -560,14 +560,16 @@ function mergeWithDefaults(remote) {
       ...(src.admin || {}),
       pin: pickText(src?.admin?.pin, base.admin.pin),
     },
-    announcements: Array.isArray(src.announcements) && src.announcements.length ? src.announcements : base.announcements,
-    memberships: Array.isArray(src.memberships) && src.memberships.length ? src.memberships : base.memberships,
-    offers: Array.isArray(src.offers) && src.offers.length ? src.offers : base.offers,
-    menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
-    photos: Array.isArray(src.photos) ? src.photos : base.photos,
-    players: Array.isArray(src.players) && src.players.length ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) })) : base.players,
-    foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
-    tournaments: Array.isArray(src.tournaments) && src.tournaments.length ? src.tournaments : base.tournaments,
+    announcements: Array.isArray(src.announcements) ? src.announcements : base.announcements,
+memberships: Array.isArray(src.memberships) ? src.memberships : base.memberships,
+offers: Array.isArray(src.offers) ? src.offers : base.offers,
+menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
+photos: Array.isArray(src.photos) ? src.photos : base.photos,
+players: Array.isArray(src.players)
+  ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) }))
+  : base.players,
+foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
+tournaments: Array.isArray(src.tournaments) ? src.tournaments : base.tournaments,
     booking: {
       ...base.booking,
       ...(src.booking || {}),
@@ -576,6 +578,7 @@ function mergeWithDefaults(remote) {
       lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
     },
         hallOfFame: Array.isArray(src.hallOfFame) ? src.hallOfFame : base.hallOfFame,
+        mediaLibrary: Array.isArray(src.mediaLibrary) ? src.mediaLibrary : base.mediaLibrary,
   };
 }
 function stripHeavyMediaForCloud(src) {
@@ -610,11 +613,17 @@ function isMeaningfulState(obj) {
 
 function loadData() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw =
+      localStorage.getItem("qclub_v5_data") ||
+      localStorage.getItem("qclub_v3_data") ||
+      localStorage.getItem("qclub_v2_data");
+
     if (!raw) return defaultData();
+
     const parsed = JSON.parse(raw);
     return mergeWithDefaults(parsed);
-  } catch {
+  } catch (e) {
+    console.warn("Failed to load saved data:", e);
     return defaultData();
   }
 }
@@ -900,7 +909,7 @@ function playPing() {
 
 export default function App() {
 
-  const [data, setData] = useState(defaultData());
+  const [data, setData] = useState(loadData());
   const [cloudStatus, setCloudStatus] = useState(
     isCloudEnabled() ? "syncing" : "local"
   );
@@ -1001,7 +1010,7 @@ function closePlayerModal() {
 
   writeState(cloudSafe)
     .then(() => {
-      setCloudStatus("synced");
+      setCloudStatus("offline");
     })
     .catch((err) => {
       console.error("Cloud sync error:", err);
