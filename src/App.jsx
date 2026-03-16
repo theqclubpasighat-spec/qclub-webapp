@@ -1000,6 +1000,9 @@ function closePlayerModal() {
 
   setData(safeNext);
   saveData(safeNext);
+  try {
+  localStorage.setItem("qclub_state_backup", JSON.stringify(safeNext));
+} catch (e) {}
 
   if (!isCloudEnabled()) return;
   if (!hasHydratedFromCloud) return;
