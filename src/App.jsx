@@ -6588,7 +6588,7 @@ const displayTime = new Date().toLocaleString();
     if (paymentContext === "food" && !orderSaved) {
 
       const newOrder = {
-        id: `QC-${String(Date.now()).slice(-6)}`,
+        id: displayOrderNo,
         name: paymentName,
         mobile: paymentMobile,
         items: foodCart,
