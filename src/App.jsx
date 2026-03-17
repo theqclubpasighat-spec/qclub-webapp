@@ -137,12 +137,19 @@ function bookingTimeSlots(selectedDate = todayIso()) {
 function bookingAmountFor(table, bookingType) {
   if (!table) return 0;
 
-  if (bookingType !== "member")
+  // Non-member → normal price
+  if (bookingType !== "member") {
     return Math.max(0, safeNum(table.pricePerHour, 0));
+  }
 
-  if (table.id === "snk12") return 300;
-  if (table.id === "mini10" || table.id === "pool9") return 200;
+  // Member pricing based on table name
+  const label = (table.label || "").toLowerCase();
 
+  if (label.includes("12") || label.includes("12x6")) return 300;
+  if (label.includes("mini") || label.includes("10x5")) return 200;
+  if (label.includes("pool")) return 200;
+
+  // fallback
   return Math.max(0, safeNum(table.pricePerHour, 0));
 }
 
@@ -2664,50 +2671,74 @@ function BookTable({ data, admin, commit, startPayment }) {
   const qr = qrUrl(upiLink, 280);
 
   function submitBooking() {
-    if (!name.trim()) return alert("Please enter name");
-    if (!mobile.trim()) return alert("Please enter mobile number");
-    if (!selectedTable) return alert("Please select table");
-    if (!bookingDate) return alert("Please select date");
-    if (bookingDate < todayIso()) return alert("Past dates are not allowed");
-    if (!timeSlot) return alert("Please select a time slot");
-
-    const req = {
-      id: uid(),
-      name: name.trim(),
-      mobile: mobile.trim(),
-      memberId: bookingType === "member" ? memberId.trim() : "",
-      bookingType: bookingType === "member" ? "member" : "nonmember",
-      itemId: selectedTable.id,
-      itemLabel: selectedTable.label,
-      bookingDate,
-      timeSlot,
-      note: note.trim(),
-      amount,
-      status: bookingType === "member" ? "pending_member_verification" : "pending",
-      createdAt: Date.now(),
-    };
-
-    if (hasBookingConflict(data.booking?.requests || [], req)) {
-      return alert("This slot is already booked / pending for this table.");
-    }
-
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        tables: tables,
-        requests: [req, ...(data.booking?.requests || [])],
-      },
-    });
-
-    setSubmittedId(req.id);
-    setName("");
-    setMobile("");
-    setMemberId("");
-    setNote("");
-    alert("Booking request submitted. Please complete payment / verification.");
+  if (!name.trim()) {
+    alert("Please enter name");
+    return false;
   }
 
+  if (!mobile.trim()) {
+    alert("Please enter mobile number");
+    return false;
+  }
+
+  if (!selectedTable) {
+    alert("Please select table");
+    return false;
+  }
+
+  if (!bookingDate) {
+    alert("Please select date");
+    return false;
+  }
+
+  if (bookingDate < todayIso()) {
+    alert("Past dates are not allowed");
+    return false;
+  }
+
+  if (!timeSlot) {
+    alert("Please select a time slot");
+    return false;
+  }
+
+  const req = {
+    id: uid(),
+    name: name.trim(),
+    mobile: mobile.trim(),
+    memberId: bookingType === "member" ? memberId.trim() : "",
+    bookingType: bookingType === "member" ? "member" : "nonmember",
+    itemId: selectedTable.id,
+    itemLabel: selectedTable.label,
+    bookingDate,
+    timeSlot,
+    note: note.trim(),
+    amount,
+    status: bookingType === "member" ? "pending_member_verification" : "pending",
+    createdAt: Date.now(),
+  };
+
+  if (hasBookingConflict(data.booking?.requests || [], req)) {
+    alert("This slot is already booked / pending for this table.");
+    return false;
+  }
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables: tables,
+      requests: [req, ...(data.booking?.requests || [])],
+    },
+  });
+
+  setSubmittedId(req.id);
+  setName("");
+  setMobile("");
+  setMemberId("");
+  setNote("");
+  alert("Booking request submitted. Please complete payment / verification.");
+  return true;
+}
   function approveRequest(id) {
     if (!admin) return alert("Admin only");
 
@@ -2837,10 +2868,13 @@ function BookTable({ data, admin, commit, startPayment }) {
                   onChange={(e) => setItemId(e.target.value)}
                 >
                   {tables.map((t) => (
-                    <option value={t.id} key={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
+  <option value={t.id} key={t.id}>
+    {`${t.label.split("₹")[0].trim()} – ₹${bookingAmountFor(
+      t,
+      bookingType === "member" ? "member" : "nonmember"
+    )} / hour`}
+  </option>
+))}
                 </select>
               </div>
 
@@ -2909,8 +2943,9 @@ localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
 localStorage.setItem("qclub_booking_date", bookingDate || "");
 localStorage.setItem("qclub_booking_slot", timeSlot || "");
 
-  submitBooking();
-  startPayment(amount, mobile.trim());
+  const ok = submitBooking();
+if (!ok) return;
+startPayment(amount, mobile.trim());
 }}
   type="button"
 >
