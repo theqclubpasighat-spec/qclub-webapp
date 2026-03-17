@@ -1223,10 +1223,7 @@ useEffect(() => {
         <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
         <Route path="/admin/orders" element={<FoodOrdersAdmin data={data} admin={admin} commit={commit} />} />
-        <Route
-  path="/admin/orders-archive"
-  element={<FoodOrdersArchive data={data} admin={admin} commit={commit} />}
-/>
+        
         <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -1911,49 +1908,34 @@ const heroImages =
       <section
         className="refHero"
         style={{
-          backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.40), rgba(7,10,18,.78)),
-            radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
-            radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
-            url("${heroImage}")`,
-            backgroundSize: "cover",
-backgroundPosition: "center",
-backgroundRepeat: "no-repeat",
-transition: "background-image 0.25s ease-in-out",
-        }}
+  backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.34), rgba(7,10,18,.72)),
+    radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
+    radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
+    url("${heroImage}")`,
+  backgroundSize: "contain",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+  backgroundColor: "#050814",
+  transition: "background-image 0.25s ease-in-out",
+}}
       >
         <div className="refHeroTopBar">
-  <div
-  className="refHeroActionRow"
-  style={{
-    display: "flex",
-    gap: 12,
-    flexWrap: "nowrap",
-    alignItems: "center",
-  }}
+  <div className="refHeroActionRow">
+  <Link className="btn neonGreen refHeroActionBtn" to="/book">
+  Book Table
+</Link>
+
+  <Link className="btn neonGreen refHeroActionBtn" to="/membership">
+  Membership
+</Link>
+
+  <Link
+  className="btn neonGreen refHeroActionBtn"
+  to="/offer"
+  style={{ padding: "10px 14px", fontSize: "0.88rem", whiteSpace: "nowrap" }}
 >
-  <Link
-    className="btn neonGreen refHeroActionBtn"
-    to="/book"
-    style={{ padding: "10px 16px", fontSize: "0.95rem", whiteSpace: "nowrap" }}
-  >
-    Book Table
-  </Link>
-
-  <Link
-    className="btn neonGreen refHeroActionBtn"
-    to="/membership"
-    style={{ padding: "10px 16px", fontSize: "0.95rem", whiteSpace: "nowrap" }}
-  >
-    Membership
-  </Link>
-
-  <Link
-    className="btn neonGreen refHeroActionBtn"
-    to="/offer"
-    style={{ padding: "10px 14px", fontSize: "0.88rem", whiteSpace: "nowrap" }}
-  >
-    The Q Lounge
-  </Link>
+  The Q Lounge
+</Link>
 </div>
 
   <div className="row" style={{ gap: 8 }}>
