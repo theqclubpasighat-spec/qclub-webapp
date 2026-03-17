@@ -1029,7 +1029,21 @@ function closePlayerModal() {
       setCloudStatus("error");
     });
 }
+function updateData(path, value) {
+  const keys = path.split(".");
+  const next = JSON.parse(JSON.stringify(data));
 
+  let ref = next;
+
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!ref[keys[i]]) ref[keys[i]] = {};
+    ref = ref[keys[i]];
+  }
+
+  ref[keys[keys.length - 1]] = value;
+
+  commit(next);
+}
   function toggleAdmin() {
   if (admin === true) {
     setAdmin(false);
@@ -2387,7 +2401,7 @@ async function uploadCategoryImage(file) {
       <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
 
       <p className="muted" style={{ marginBottom: 20 }}>
-        Browse by category and manage menu items from admin mode.
+        Browse by Category  
       </p>
       {!admin && (
   <div className="card" style={{ marginBottom: 20 }}>
@@ -2797,6 +2811,82 @@ function BookTable({ data, admin, commit, startPayment }) {
   alert("Booking request submitted. Please complete payment / verification.");
   return true;
 }
+function addBookingTable() {
+  if (!admin) return alert("Admin only");
+
+  const label = prompt("Table / Game name:", "New Table");
+  if (!label) return;
+
+  const price = prompt("Hourly rate:", "0");
+  if (price === null) return;
+
+  const nextTable = {
+    id: `tbl_${Date.now()}`,
+    label: label.trim(),
+    pricePerHour: safeNum(price, 0),
+  };
+
+  const nextTables = [...tables, nextTable];
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables: nextTables,
+    },
+  });
+
+  setItemId(nextTable.id);
+}
+function editBookingTable(tableId) {
+  if (!admin) return alert("Admin only");
+
+  const current = tables.find((t) => t.id === tableId);
+  if (!current) return;
+
+  const label = prompt("Edit table / game name:", current.label || "");
+  if (!label) return;
+
+  const price = prompt("Edit hourly rate:", String(current.pricePerHour ?? 0));
+  if (price === null) return;
+
+  const nextTables = tables.map((t) =>
+    t.id === tableId
+      ? { ...t, label: label.trim(), pricePerHour: safeNum(price, 0) }
+      : t
+  );
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables: nextTables,
+    },
+  });
+}
+
+function deleteBookingTable(tableId) {
+  if (!admin) return alert("Admin only");
+
+  const current = tables.find((t) => t.id === tableId);
+  if (!current) return;
+
+  if (!confirm(`Delete "${current.label}"?`)) return;
+
+  const nextTables = tables.filter((t) => t.id !== tableId);
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables: nextTables,
+    },
+  });
+
+  if (itemId === tableId) {
+    setItemId(nextTables[0]?.id || "");
+  }
+}
   function approveRequest(id) {
     if (!admin) return alert("Admin only");
 
@@ -2870,6 +2960,33 @@ function BookTable({ data, admin, commit, startPayment }) {
         <div className="grid">
           <div className="card cols-7">
             <h2>Booking Form</h2>
+            {admin && (
+  <div className="row" style={{ marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
+    <button className="btn" type="button" onClick={addBookingTable}>
+      + Add Table
+    </button>
+
+    {selectedTable ? (
+      <>
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => editBookingTable(selectedTable.id)}
+        >
+          Edit Selected Table
+        </button>
+
+        <button
+          className="btn danger"
+          type="button"
+          onClick={() => deleteBookingTable(selectedTable.id)}
+        >
+          Delete Selected Table
+        </button>
+      </>
+    ) : null}
+  </div>
+)}
 
             <div className="row" style={{ marginBottom: 12 }}>
               <button
@@ -6281,18 +6398,11 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
   }
   function editHeroSlides() {
   const current = (data.club?.heroSlides || []).join(" | ");
+  const next = prompt("Edit hero slides (separate by |):", current);
 
-  const next = prompt(
-    "Edit hero slider image URLs or paths. Separate each image with |",
-    current
-  );
+  if (!next) return;
 
-  if (next === null) return;
-
-  const slides = next
-    .split("|")
-    .map((x) => x.trim())
-    .filter(Boolean);
+  const slides = next.split("|").map((x) => x.trim()).filter(Boolean);
 
   commit({
     ...data,
@@ -6301,8 +6411,6 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
       heroSlides: slides,
     },
   });
-
-  alert("Hero slider images updated.");
 }
 
   return (
@@ -6425,6 +6533,9 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
         }}
       />
     </label>
+    <button className="btn" onClick={editHeroSlides}>
+  Edit Hero Slides
+</button>
 
     <span className="badge">
       <span className="dot" />
