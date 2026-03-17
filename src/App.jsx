@@ -2216,6 +2216,34 @@ const cartTotal = cartItems.reduce((sum, id) => {
       menuCatalog: nextMenu,
     });
   }
+  function addCategory() {
+  const keyInput = prompt("New category key (example: momos2 or beverages):", "");
+  if (!keyInput) return;
+
+  const key = keyInput.trim().toLowerCase().replace(/\s+/g, "_");
+  if (!key) return;
+
+  if (menu[key]) {
+    alert("This category key already exists.");
+    return;
+  }
+
+  const title = prompt("Category title:", keyInput.trim()) || keyInput.trim();
+
+  const nextMenu = { ...menu };
+  nextMenu[key] = {
+    title,
+    image: "",
+    items: [],
+  };
+
+  commit({
+    ...data,
+    menuCatalog: nextMenu,
+  });
+
+  setActiveCategory(key);
+}
 function addToCart(item) {
   setCart((prev) => ({
     ...prev,
@@ -2332,6 +2360,22 @@ async function uploadCategoryImage(file) {
       menuCatalog: nextMenu,
     });
   }
+  function deleteActiveCategory() {
+  if (!activeCategory) return;
+  if (!confirm(`Delete category "${category.title || activeCategory}"?`)) return;
+
+  const nextMenu = { ...menu };
+  delete nextMenu[activeCategory];
+
+  const nextCategories = Object.keys(nextMenu);
+
+  commit({
+    ...data,
+    menuCatalog: nextMenu,
+  });
+
+  setActiveCategory(nextCategories[0] || "");
+}
 
   return (
     <div className="container">
@@ -2481,25 +2525,39 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
         ))}
       </div>
 
-      {admin && activeCategory && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-          <button className="btn" type="button" onClick={addItem}>
-            + Add Item
-          </button>
-          <button className="btn secondary" type="button" onClick={editCategoryTitle}>
-            Edit Category Name
-          </button>
-          <label className="btn secondary" style={{ cursor: "pointer" }}>
-  Upload Category Image
-  <input
-    type="file"
-    accept="image/*"
-    style={{ display: "none" }}
-    onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
-  />
-</label>
-        </div>
-      )}
+      {admin && (
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+    <button className="btn" type="button" onClick={addCategory}>
+      + Add Category
+    </button>
+
+    {activeCategory && (
+      <>
+        <button className="btn" type="button" onClick={addItem}>
+          + Add Item
+        </button>
+
+        <button className="btn secondary" type="button" onClick={editCategoryTitle}>
+          Edit Category Name
+        </button>
+
+        <button className="btn danger" type="button" onClick={deleteActiveCategory}>
+          Delete Category
+        </button>
+
+        <label className="btn secondary" style={{ cursor: "pointer" }}>
+          Upload Category Image
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
+          />
+        </label>
+      </>
+    )}
+  </div>
+)}
 
       {category.image && (
         <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
