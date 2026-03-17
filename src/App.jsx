@@ -2605,7 +2605,7 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
               alt={item.name}
               style={{
                 width: "100%",
-                height: "170px",
+                height: "110px",
                 objectFit: "cover",
                 borderRadius: "12px",
                 marginBottom: "12px"
