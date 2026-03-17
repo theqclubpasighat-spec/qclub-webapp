@@ -1249,11 +1249,12 @@ border-radius:0;
   justify-content: space-between;
 }
 
-.refHeroTop{
+.refHeroTopBar{
   display:flex;
   justify-content:space-between;
   align-items:flex-start;
-  gap:16px;
+  gap:18px;
+  flex-wrap:wrap;
 }
 
 .refBrandTitle{
@@ -1429,32 +1430,62 @@ border-radius:0;
 
 @media (max-width: 700px){
   .refBrandTitle{
-    font-size: 26px;
+    font-size:26px;
   }
 
   .refBrandSub{
-    font-size: 15px;
+    font-size:15px;
   }
 
   .refHero{
-    min-height: 560px;
+    min-height:560px;
+    padding:18px;
+    border-radius:22px;
+    background-size:contain !important;
+    background-position:center top !important;
+    background-repeat:no-repeat !important;
   }
 
-  .refHeroOverlay{
-    min-height: 560px;
-    padding: 18px;
+  .refHeroTopBar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:12px;
   }
 
-  .refTopBtn{
-    min-width: auto;
+  .refHeroActionRow{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:10px;
+    width:100%;
+  }
+
+  .refHeroActionBtn{
+    width:100%;
+    min-width:0;
+    padding:10px 8px;
+    font-size:13px;
+    text-align:center;
+    white-space:nowrap;
+    border-radius:18px;
+  }
+
+  .refHeroTitle{
+    font-size:38px;
+    line-height:1.02;
+  }
+
+  .refHeroSubtitle{
+    font-size:16px;
+    line-height:1.6;
+    max-width:100%;
   }
 
   .refTournamentTitle{
-    font-size: 32px;
+    font-size:32px;
   }
 
   .refTierPrice{
-    font-size: 28px;
+    font-size:28px;
   }
 }
 /* =========================
@@ -1468,16 +1499,17 @@ border-radius:0;
 
 .refHero{
   position:relative;
-  min-height:420px;
+  min-height:520px;
   border-radius:28px;
   overflow:hidden;
-  background-size:cover;
-  background-position:center;
   border:1px solid rgba(255,255,255,.10);
   box-shadow:0 28px 70px rgba(0,0,0,.42);
   padding:22px;
   display:flex;
   flex-direction:column;
+  background-size:contain;
+  background-position:center top;
+  background-repeat:no-repeat;
 }
 
 .refHero::before{

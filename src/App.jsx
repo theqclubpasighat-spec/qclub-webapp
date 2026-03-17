@@ -1927,19 +1927,19 @@ const heroImages =
   return (
     <div className="container refHome">
       <section
-        className="refHero"
-        style={{
-  backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.34), rgba(7,10,18,.72)),
-    radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
-    radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
-    url("${heroImage}")`,
-  backgroundSize: "contain",
-  backgroundPosition: "center center",
-  backgroundRepeat: "no-repeat",
-  backgroundColor: "#050814",
-  transition: "background-image 0.25s ease-in-out",
-}}
-      >
+  className="refHero"
+  style={{
+    backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.30), rgba(7,10,18,.68)),
+      radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
+      radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
+      url("${heroImage}")`,
+    backgroundSize: "contain",
+    backgroundPosition: "center top",
+    backgroundRepeat: "no-repeat",
+    backgroundColor: "#050814",
+    transition: "background-image 0.25s ease-in-out",
+  }}
+>
         <div className="refHeroTopBar">
   <div className="refHeroActionRow">
   <Link className="btn neonGreen refHeroActionBtn" to="/book">
@@ -1953,7 +1953,7 @@ const heroImages =
   <Link
   className="btn neonGreen refHeroActionBtn"
   to="/offer"
-  style={{ padding: "10px 14px", fontSize: "0.88rem", whiteSpace: "nowrap" }}
+  
 >
   The Q Lounge
 </Link>
