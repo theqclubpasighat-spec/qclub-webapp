@@ -2594,7 +2594,7 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 280px))",
           gap: 18
         }}
       >
@@ -2606,7 +2606,8 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
               style={{
                 width: "100%",
                 height: "110px",
-                objectFit: "cover",
+                objectFit: "contain",
+                backgroundColor: "rgba(255,255,255,0.03)",
                 borderRadius: "12px",
                 marginBottom: "12px"
               }}
