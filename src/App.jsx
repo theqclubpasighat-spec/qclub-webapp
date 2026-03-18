@@ -2692,12 +2692,26 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
               }}
             />
 
-            <h3 style={{ margin: "2px 0 6px", fontSize: "1.05rem" }}>{item.name}</h3>
+           <div
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 4
+  }}
+>
+  <h3 style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.15 }}>{item.name}</h3>
 
-            <div
+  <div style={{ fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
+    ₹{item.price}
+  </div>
+</div>
+
+<div
   className="muted"
   style={{
-    marginBottom: 6,
+    marginBottom: 8,
     fontSize: "0.9rem",
     lineHeight: "1.2em",
     height: "2.4em",
@@ -2706,10 +2720,6 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
 >
   {item.description}
 </div>
-
-            <div style={{ fontWeight: 800, fontSize: "1.05rem", marginBottom: 10 }}>
-              ₹{item.price}
-            </div>
 
             {admin ? (
   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
