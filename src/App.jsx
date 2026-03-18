@@ -2432,6 +2432,9 @@ async function uploadCategoryImage(file) {
       <p className="muted" style={{ marginBottom: 20 }}>
         Browse by Category  
       </p>
+      <div className="swipeHint">
+  ← Swipe to browse categories →
+</div>
       {!admin && (
   <div className="card" style={{ marginBottom: 20 }}>
     <h3 style={{ marginTop: 0 }}>Your Cart</h3>
@@ -2505,7 +2508,7 @@ async function uploadCategoryImage(file) {
   style={{ marginTop: 12 }}
   onClick={() => setShowCheckout((v) => !v)}
 >
-  {showCheckout ? "Hide Cart" : "View Cart"}
+  {showCheckout ? "Hide Cart" : "Proceed to Payment "}
 </button>
 {showCheckout && (
   <div className="card" style={{ marginTop: 14 }}>
