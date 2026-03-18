@@ -2436,14 +2436,15 @@ async function uploadCategoryImage(file) {
       </div>
 
       <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
-      <div className="offersStickyBar"></div>
+      <div className="offersStickyBar">
+  <p className="muted" style={{ marginBottom: 20 }}>
+    Browse by Category
+  </p>
 
-      <p className="muted" style={{ marginBottom: 20 }}>
-        Browse by Category  
-      </p>
-      <div className="swipeHint">
-  ← Swipe to browse categories →
-</div>
+  <div className="swipeHint">
+    ← Swipe to browse categories →
+  </div>
+  </div>
       {!admin && (
   <div className="card" style={{ marginBottom: 20 }}>
     <h3 style={{ marginTop: 0 }}>Your Cart</h3>
@@ -2454,52 +2455,62 @@ async function uploadCategoryImage(file) {
       <>
         <div style={{ display: "grid", gap: 8 }}>
           {cartItems.map((id) => {
-            const found = Object.values(menu)
-              .flatMap((cat) => cat.items || [])
-              .find((x) => x.id === id);
+  const found = Object.values(menu)
+    .flatMap((cat) => cat.items || [])
+    .find((x) => x.id === id);
 
-            if (!found) return null;
+  if (!found) return null;
 
-            return (
-  <div
-    key={id}
-    style={{
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 12
-    }}
-  >
-    <div style={{ minWidth: 0 }}>
-      <div>{found.name}</div>
+  return (
+    <div
+  key={id}
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "6px 0"
+  }}
+>
+    
+      <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0
+  }}
+>
+  <div style={{ minWidth: 0 }}>
+    <div>{found.name}</div>
+  </div>
 
-      <div className="row" style={{ gap: 8, marginTop: 6 }}>
-        <button
-          className="btn secondary"
-          type="button"
-          onClick={() => removeFromCart(found)}
-        >
-          −
-        </button>
+  <div className="row" style={{ gap: 6 }}>
+    <button
+      className="btn secondary"
+      type="button"
+      onClick={() => removeFromCart(found)}
+    >
+      −
+    </button>
 
-        <div style={{ fontWeight: 800, minWidth: 20, textAlign: "center" }}>
-          {cart[id]}
-        </div>
-
-        <button
-          className="btn secondary"
-          type="button"
-          onClick={() => addToCart(found)}
-        >
-          +
-        </button>
-      </div>
+    <div style={{ fontWeight: 800, minWidth: 18, textAlign: "center" }}>
+      {cart[id]}
     </div>
 
-    <strong>₹{found.price * cart[id]}</strong>
+    <button
+      className="btn secondary"
+      type="button"
+      onClick={() => addToCart(found)}
+    >
+      +
+    </button>
   </div>
-);
-          })}
+</div>
+      <strong>₹{found.price * cart[id]}</strong>
+    </div>
+  );
+})}
         </div>
 
         <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
