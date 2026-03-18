@@ -1958,3 +1958,14 @@ border-radius:0;
   margin-bottom: 12px;
   letter-spacing: 0.5px;
 }
+.offersStickyBar {
+  position: sticky;
+  top: 64px;
+  z-index: 20;
+  background: linear-gradient(180deg, rgba(7,10,18,0.98), rgba(7,10,18,0.92));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding-top: 6px;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}

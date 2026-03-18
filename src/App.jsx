@@ -2147,8 +2147,16 @@ const heroImages =
 function Offers({ data, admin, commit, startPayment }) {
   const menu = data.menuCatalog || {};
   const categories = Object.keys(menu);
-  const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
-  const [cart, setCart] = React.useState(() => {
+const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
+
+React.useEffect(() => {
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}, [activeCategory]);
+
+const [cart, setCart] = React.useState(() => {
   try {
     const saved = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
     if (!Array.isArray(saved)) return {};
@@ -2428,6 +2436,7 @@ async function uploadCategoryImage(file) {
       </div>
 
       <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
+      <div className="offersStickyBar"></div>
 
       <p className="muted" style={{ marginBottom: 20 }}>
         Browse by Category  
