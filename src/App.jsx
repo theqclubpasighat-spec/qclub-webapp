@@ -2498,59 +2498,71 @@ function Offers({ data, admin, commit, startPayment }) {
 
                   return (
                     <div
-                      key={id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "6px 0"
-                      }}
-                    >
+  key={id}
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    padding: "3px 0"
+  }}
+>
                       <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          minWidth: 0,
-                          flex: 1
-                        }}
-                      >
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+    flex: 1
+  }}
+>
                         <div
-                          style={{
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis"
-                          }}
-                        >
-                          {found.name}
-                        </div>
+  style={{
+    fontWeight: 600,
+    fontSize: "0.95rem",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: "140px"
+  }}
+>
+  {found.name}
+</div>
 
-                        <div className="row" style={{ gap: 6 }}>
+                        <div className="row" style={{ gap: 4 }}>
                           <button
-                            className="btn secondary"
-                            type="button"
-                            onClick={() => removeFromCart(found)}
-                          >
-                            −
-                          </button>
+  className="btn secondary"
+  type="button"
+  onClick={() => removeFromCart(found)}
+  style={{ minWidth: 32, height: 32, padding: "0 10px" }}
+>
+  −
+</button>
 
-                          <div style={{ fontWeight: 800, minWidth: 18, textAlign: "center" }}>
-                            {cart[id]}
-                          </div>
+                          <div style={{ fontWeight: 800, minWidth: 16, textAlign: "center", fontSize: "0.95rem" }}>
+  {cart[id]}
+</div>
 
                           <button
-                            className="btn secondary"
-                            type="button"
-                            onClick={() => addToCart(found)}
-                          >
-                            +
-                          </button>
+  className="btn secondary"
+  type="button"
+  onClick={() => addToCart(found)}
+  style={{ minWidth: 32, height: 32, padding: "0 10px" }}
+>
+  +
+</button>
                         </div>
                       </div>
 
-                      <strong>₹{found.price * cart[id]}</strong>
+                      <strong
+  style={{
+    minWidth: 70,
+    textAlign: "right",
+    fontSize: "0.95rem"
+  }}
+>
+  ₹{found.price * cart[id]}
+</strong>
                     </div>
                   );
                 })}
