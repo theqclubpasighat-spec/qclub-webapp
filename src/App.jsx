@@ -2166,12 +2166,34 @@ function Offers({ data, admin, commit, startPayment }) {
   const [showCheckout, setShowCheckout] = React.useState(false);
   const [customerName, setCustomerName] = React.useState("");
 const [customerPhone, setCustomerPhone] = React.useState("");
+const touchStartX = React.useRef(null);
+const touchEndX = React.useRef(null);
 
   React.useEffect(() => {
     if (!activeCategory && categories.length) {
       setActiveCategory(categories[0]);
     }
   }, [activeCategory, categories]);
+  function handleCategorySwipe() {
+  if (!categories.length) return;
+  if (touchStartX.current === null || touchEndX.current === null) return;
+
+  const deltaX = touchStartX.current - touchEndX.current;
+
+  if (Math.abs(deltaX) < 50) return;
+
+  const currentIndex = categories.indexOf(activeCategory);
+  if (currentIndex === -1) return;
+
+  if (deltaX > 0 && currentIndex < categories.length - 1) {
+    setActiveCategory(categories[currentIndex + 1]);
+  } else if (deltaX < 0 && currentIndex > 0) {
+    setActiveCategory(categories[currentIndex - 1]);
+  }
+
+  touchStartX.current = null;
+  touchEndX.current = null;
+}
 
   const category = menu[activeCategory] || {};
   const items = category.items || [];
@@ -2272,6 +2294,13 @@ function removeFromCart(item) {
 }
 function itemQty(item) {
   return cart[item.id] || 0;
+}
+function emptyCart() {
+  const ok = confirm("Are you sure you want to empty the cart?");
+  if (!ok) return;
+
+  setCart({});
+  setShowCheckout(false);
 }
   function deleteItem(itemId) {
     const ok = confirm("Delete this item?");
@@ -2420,26 +2449,55 @@ async function uploadCategoryImage(file) {
             if (!found) return null;
 
             return (
-              <div
-                key={id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12
-                }}
-              >
-                <span>
-                  {found.name} × {cart[id]}
-                </span>
-                <strong>₹{found.price * cart[id]}</strong>
-              </div>
-            );
+  <div
+    key={id}
+    style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12
+    }}
+  >
+    <div style={{ minWidth: 0 }}>
+      <div>{found.name}</div>
+
+      <div className="row" style={{ gap: 8, marginTop: 6 }}>
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => removeFromCart(found)}
+        >
+          −
+        </button>
+
+        <div style={{ fontWeight: 800, minWidth: 20, textAlign: "center" }}>
+          {cart[id]}
+        </div>
+
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => addToCart(found)}
+        >
+          +
+        </button>
+      </div>
+    </div>
+
+    <strong>₹{found.price * cart[id]}</strong>
+  </div>
+);
           })}
         </div>
 
         <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
           Total: ₹{cartTotal}
         </div>
+        <div style={{ marginTop: 10 }}>
+  <button className="btn danger" type="button" onClick={emptyCart}>
+    Empty Cart
+  </button>
+</div>
 
         <button
   className="btn"
@@ -2592,14 +2650,21 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
       )}
 
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: window.innerWidth < 700
-  ? "repeat(2, 1fr)"
-  : "repeat(auto-fit, minmax(220px, 280px))",
-          gap: 18
-        }}
-      >
+  onTouchStart={(e) => {
+    touchStartX.current = e.changedTouches[0].screenX;
+  }}
+  onTouchEnd={(e) => {
+    touchEndX.current = e.changedTouches[0].screenX;
+    handleCategorySwipe();
+  }}
+  style={{
+    display: "grid",
+    gridTemplateColumns: window.innerWidth < 700
+      ? "repeat(2, 1fr)"
+      : "repeat(auto-fit, minmax(220px, 280px))",
+    gap: 18
+  }}
+>
         {items.map((item) => (
           <div key={item.id} className="card" style={{ padding: 14 }}>
             <img
@@ -2617,9 +2682,18 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
 
             <h3 style={{ margin: "2px 0 6px", fontSize: "1.05rem" }}>{item.name}</h3>
 
-            <div className="muted" style={{ marginBottom: 8, fontSize: "0.98rem" }}>
-              {item.description}
-            </div>
+            <div
+  className="muted"
+  style={{
+    marginBottom: 6,
+    fontSize: "0.9rem",
+    lineHeight: "1.2em",
+    height: "2.4em",
+    overflow: "hidden"
+  }}
+>
+  {item.description}
+</div>
 
             <div style={{ fontWeight: 800, fontSize: "1.05rem", marginBottom: 10 }}>
               ₹{item.price}
