@@ -2147,82 +2147,86 @@ const heroImages =
 function Offers({ data, admin, commit, startPayment }) {
   const menu = data.menuCatalog || {};
   const categories = Object.keys(menu);
-const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
+  const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
 
-React.useEffect(() => {
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
+  React.useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }, [activeCategory]);
+
+  const [cart, setCart] = React.useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
+      if (!Array.isArray(saved)) return {};
+
+      return saved.reduce((acc, item) => {
+        if (item && item.id) {
+          acc[item.id] = Number(item.qty) || 0;
+        }
+        return acc;
+      }, {});
+    } catch {
+      return {};
+    }
   });
-}, [activeCategory]);
 
-const [cart, setCart] = React.useState(() => {
-  try {
-    const saved = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
-    if (!Array.isArray(saved)) return {};
-
-    return saved.reduce((acc, item) => {
-      if (item && item.id) {
-        acc[item.id] = Number(item.qty) || 0;
-      }
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
-});
   const [showCheckout, setShowCheckout] = React.useState(false);
   const [customerName, setCustomerName] = React.useState("");
-const [customerPhone, setCustomerPhone] = React.useState("");
-const touchStartX = React.useRef(null);
-const touchEndX = React.useRef(null);
+  const [customerPhone, setCustomerPhone] = React.useState("");
+  const touchStartX = React.useRef(null);
+  const touchEndX = React.useRef(null);
 
   React.useEffect(() => {
     if (!activeCategory && categories.length) {
       setActiveCategory(categories[0]);
     }
   }, [activeCategory, categories]);
+
   function handleCategorySwipe() {
-  if (!categories.length) return;
-  if (touchStartX.current === null || touchEndX.current === null) return;
+    if (!categories.length) return;
+    if (touchStartX.current === null || touchEndX.current === null) return;
 
-  const deltaX = touchStartX.current - touchEndX.current;
+    const deltaX = touchStartX.current - touchEndX.current;
 
-  if (Math.abs(deltaX) < 50) return;
+    if (Math.abs(deltaX) < 50) return;
 
-  const currentIndex = categories.indexOf(activeCategory);
-  if (currentIndex === -1) return;
+    const currentIndex = categories.indexOf(activeCategory);
+    if (currentIndex === -1) return;
 
-  if (deltaX > 0 && currentIndex < categories.length - 1) {
-    setActiveCategory(categories[currentIndex + 1]);
-  } else if (deltaX < 0 && currentIndex > 0) {
-    setActiveCategory(categories[currentIndex - 1]);
+    if (deltaX > 0 && currentIndex < categories.length - 1) {
+      setActiveCategory(categories[currentIndex + 1]);
+    } else if (deltaX < 0 && currentIndex > 0) {
+      setActiveCategory(categories[currentIndex - 1]);
+    }
+
+    touchStartX.current = null;
+    touchEndX.current = null;
   }
-
-  touchStartX.current = null;
-  touchEndX.current = null;
-}
 
   const category = menu[activeCategory] || {};
   const items = category.items || [];
   const cartItems = Object.keys(cart).filter((id) => cart[id] > 0);
 
-const cartTotal = cartItems.reduce((sum, id) => {
-  const found = Object.values(menu)
-    .flatMap((cat) => cat.items || [])
-    .find((x) => x.id === id);
+  const cartTotal = cartItems.reduce((sum, id) => {
+    const found = Object.values(menu)
+      .flatMap((cat) => cat.items || [])
+      .find((x) => x.id === id);
 
-  if (!found) return sum;
+    if (!found) return sum;
 
-  return sum + found.price * cart[id];
-}, 0);
+    return sum + found.price * cart[id];
+  }, 0);
 
   function updateItem(itemId, field, value) {
     const nextMenu = { ...menu };
     nextMenu[activeCategory] = {
       ...nextMenu[activeCategory],
       items: nextMenu[activeCategory].items.map((item) =>
-        item.id === itemId ? { ...item, [field]: field === "price" ? Number(value) : value } : item
+        item.id === itemId
+          ? { ...item, [field]: field === "price" ? Number(value) : value }
+          : item
       ),
     };
 
@@ -2260,56 +2264,62 @@ const cartTotal = cartItems.reduce((sum, id) => {
       menuCatalog: nextMenu,
     });
   }
+
   function addCategory() {
-  const keyInput = prompt("New category key (example: momos2 or beverages):", "");
-  if (!keyInput) return;
+    const keyInput = prompt("New category key (example: momos2 or beverages):", "");
+    if (!keyInput) return;
 
-  const key = keyInput.trim().toLowerCase().replace(/\s+/g, "_");
-  if (!key) return;
+    const key = keyInput.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!key) return;
 
-  if (menu[key]) {
-    alert("This category key already exists.");
-    return;
+    if (menu[key]) {
+      alert("This category key already exists.");
+      return;
+    }
+
+    const title = prompt("Category title:", keyInput.trim()) || keyInput.trim();
+
+    const nextMenu = { ...menu };
+    nextMenu[key] = {
+      title,
+      image: "",
+      items: [],
+    };
+
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
+
+    setActiveCategory(key);
   }
 
-  const title = prompt("Category title:", keyInput.trim()) || keyInput.trim();
+  function addToCart(item) {
+    setCart((prev) => ({
+      ...prev,
+      [item.id]: (prev[item.id] || 0) + 1,
+    }));
+  }
 
-  const nextMenu = { ...menu };
-  nextMenu[key] = {
-    title,
-    image: "",
-    items: [],
-  };
+  function removeFromCart(item) {
+    setCart((prev) => ({
+      ...prev,
+      [item.id]: Math.max((prev[item.id] || 0) - 1, 0),
+    }));
+  }
 
-  commit({
-    ...data,
-    menuCatalog: nextMenu,
-  });
+  function itemQty(item) {
+    return cart[item.id] || 0;
+  }
 
-  setActiveCategory(key);
-}
-function addToCart(item) {
-  setCart((prev) => ({
-    ...prev,
-    [item.id]: (prev[item.id] || 0) + 1,
-  }));
-}
-function removeFromCart(item) {
-  setCart((prev) => ({
-    ...prev,
-    [item.id]: Math.max((prev[item.id] || 0) - 1, 0),
-  }));
-}
-function itemQty(item) {
-  return cart[item.id] || 0;
-}
-function emptyCart() {
-  const ok = confirm("Are you sure you want to empty the cart?");
-  if (!ok) return;
+  function emptyCart() {
+    const ok = confirm("Are you sure you want to empty the cart?");
+    if (!ok) return;
 
-  setCart({});
-  setShowCheckout(false);
-}
+    setCart({});
+    setShowCheckout(false);
+  }
+
   function deleteItem(itemId) {
     const ok = confirm("Delete this item?");
     if (!ok) return;
@@ -2325,60 +2335,61 @@ function emptyCart() {
       menuCatalog: nextMenu,
     });
   }
+
   async function uploadItemImage(itemId, file) {
-  if (!admin) return alert("Admin only");
-  if (!file) return;
+    if (!admin) return alert("Admin only");
+    if (!file) return;
 
-  try {
-    const uploaded = await uploadImageToStorage(file, "menu-items");
+    try {
+      const uploaded = await uploadImageToStorage(file, "menu-items");
 
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      items: nextMenu[activeCategory].items.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              image: uploaded.url,
-              imagePath: uploaded.path,
-            }
-          : item
-      ),
-    };
+      const nextMenu = { ...menu };
+      nextMenu[activeCategory] = {
+        ...nextMenu[activeCategory],
+        items: nextMenu[activeCategory].items.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                image: uploaded.url,
+                imagePath: uploaded.path,
+              }
+            : item
+        ),
+      };
 
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  } catch (err) {
-    console.error(err);
-    alert("Failed to upload image.");
+      commit({
+        ...data,
+        menuCatalog: nextMenu,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload image.");
+    }
   }
-}
 
-async function uploadCategoryImage(file) {
-  if (!admin) return alert("Admin only");
-  if (!file) return;
+  async function uploadCategoryImage(file) {
+    if (!admin) return alert("Admin only");
+    if (!file) return;
 
-  try {
-    const uploaded = await uploadImageToStorage(file, "menu-categories");
+    try {
+      const uploaded = await uploadImageToStorage(file, "menu-categories");
 
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      image: uploaded.url,
-      imagePath: uploaded.path,
-    };
+      const nextMenu = { ...menu };
+      nextMenu[activeCategory] = {
+        ...nextMenu[activeCategory],
+        image: uploaded.url,
+        imagePath: uploaded.path,
+      };
 
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  } catch (err) {
-    console.error(err);
-    alert("Failed to upload category image.");
+      commit({
+        ...data,
+        menuCatalog: nextMenu,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload category image.");
+    }
   }
-}
 
   function editCategoryTitle() {
     const title = prompt("Category title:", category.title || "");
@@ -2411,22 +2422,23 @@ async function uploadCategoryImage(file) {
       menuCatalog: nextMenu,
     });
   }
+
   function deleteActiveCategory() {
-  if (!activeCategory) return;
-  if (!confirm(`Delete category "${category.title || activeCategory}"?`)) return;
+    if (!activeCategory) return;
+    if (!confirm(`Delete category "${category.title || activeCategory}"?`)) return;
 
-  const nextMenu = { ...menu };
-  delete nextMenu[activeCategory];
+    const nextMenu = { ...menu };
+    delete nextMenu[activeCategory];
 
-  const nextCategories = Object.keys(nextMenu);
+    const nextCategories = Object.keys(nextMenu);
 
-  commit({
-    ...data,
-    menuCatalog: nextMenu,
-  });
+    commit({
+      ...data,
+      menuCatalog: nextMenu,
+    });
 
-  setActiveCategory(nextCategories[0] || "");
-}
+    setActiveCategory(nextCategories[0] || "");
+  }
 
   return (
     <div className="container">
@@ -2436,223 +2448,238 @@ async function uploadCategoryImage(file) {
       </div>
 
       <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
+
       <div className="offersStickyBar">
-  <p className="muted" style={{ marginBottom: 20 }}>
-    Browse by Category
-  </p>
+        <p className="muted" style={{ marginBottom: 20 }}>
+          Browse by Category
+        </p>
 
-  <div className="swipeHint">
-    ← Swipe to browse categories →
-  </div>
-  </div>
-      {!admin && (
-  <div className="card" style={{ marginBottom: 20 }}>
-    <h3 style={{ marginTop: 0 }}>Your Cart</h3>
-
-    {cartItems.length === 0 ? (
-      <div className="muted">Cart is empty.</div>
-    ) : (
-      <>
-        <div style={{ display: "grid", gap: 8 }}>
-          {cartItems.map((id) => {
-  const found = Object.values(menu)
-    .flatMap((cat) => cat.items || [])
-    .find((x) => x.id === id);
-
-  if (!found) return null;
-
-  return (
-    <div
-  key={id}
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    padding: "6px 0"
-  }}
->
-    
-      <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minWidth: 0
-  }}
->
-  <div style={{ minWidth: 0 }}>
-    <div>{found.name}</div>
-  </div>
-
-  <div className="row" style={{ gap: 6 }}>
-    <button
-      className="btn secondary"
-      type="button"
-      onClick={() => removeFromCart(found)}
-    >
-      −
-    </button>
-
-    <div style={{ fontWeight: 800, minWidth: 18, textAlign: "center" }}>
-      {cart[id]}
-    </div>
-
-    <button
-      className="btn secondary"
-      type="button"
-      onClick={() => addToCart(found)}
-    >
-      +
-    </button>
-  </div>
-</div>
-      <strong>₹{found.price * cart[id]}</strong>
-    </div>
-  );
-})}
+        <div className="swipeHint">
+          ← Swipe to browse categories →
         </div>
 
-        <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
-          Total: ₹{cartTotal}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setActiveCategory(cat)}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "999px",
+                border: "1px solid rgba(255,255,255,.12)",
+                background: activeCategory === cat ? "rgba(16,185,129,.18)" : "rgba(255,255,255,.04)",
+                color: activeCategory === cat ? "#d7fff1" : "#eaf0ff",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+            >
+              {menu[cat].title}
+            </button>
+          ))}
         </div>
-        <div style={{ marginTop: 10 }}>
-  <button className="btn danger" type="button" onClick={emptyCart}>
-    Empty Cart
-  </button>
-</div>
-
-        <button
-  className="btn"
-  type="button"
-  style={{ marginTop: 12 }}
-  onClick={() => setShowCheckout((v) => !v)}
->
-  {showCheckout ? "Hide Cart" : "Proceed to Payment "}
-</button>
-{showCheckout && (
-  <div className="card" style={{ marginTop: 14 }}>
-    <h3 style={{ marginTop: 0 }}>Checkout</h3>
-
-    <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-      
-      <input
-  className="input"
-  placeholder="Your Name"
-  value={customerName}
-  onChange={(e) => setCustomerName(e.target.value)}
-/>
-
-      <input
-  className="input"
-  placeholder="Mobile Number"
-  value={customerPhone}
-  onChange={(e) => setCustomerPhone(e.target.value)}
-/>
-
-      <button
-  className="btn"
-  onClick={() => {
-    if (!customerName) {
-      alert("Enter your name");
-      return;
-    }
-
-    if (!customerPhone) {
-      alert("Enter mobile number");
-      return;
-    }
-    localStorage.setItem("qclub_payment_context", "food");
-localStorage.setItem("qclub_payment_name", customerName.trim());
-localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
-localStorage.setItem("qclub_food_cart", JSON.stringify(
-  cartItems.map((id) => {
-    const found = Object.values(menu)
-      .flatMap((cat) => cat.items || [])
-      .find((x) => x.id === id);
-
-    return found
-      ? {
-          id: found.id,
-          name: found.name,
-          qty: cart[id],
-          price: found.price,
-          lineTotal: found.price * cart[id],
-        }
-      : null;
-  }).filter(Boolean)
-));
-localStorage.setItem("qclub_food_total", String(cartTotal));
-
-    startPayment(cartTotal, customerPhone);
-  }}
-
->
-  Pay ₹{cartTotal}
-</button>
-
-    </div>
-  </div>
-)}
-      </>
-    )}
-  </div>
-)}
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        {categories.map((cat) => (
-          <button
-  key={cat}
-  type="button"
-  onClick={() => setActiveCategory(cat)}
-  style={{
-    padding: "10px 14px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,.12)",
-    background: activeCategory === cat ? "rgba(16,185,129,.18)" : "rgba(255,255,255,.04)",
-    color: activeCategory === cat ? "#d7fff1" : "#eaf0ff",
-    fontWeight: 700,
-    cursor: "pointer"
-  }}
->
-  {menu[cat].title}
-</button>
-        ))}
       </div>
 
+      {!admin && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h3 style={{ marginTop: 0 }}>Your Cart</h3>
+
+          {cartItems.length === 0 ? (
+            <div className="muted">Cart is empty.</div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gap: 8 }}>
+                {cartItems.map((id) => {
+                  const found = Object.values(menu)
+                    .flatMap((cat) => cat.items || [])
+                    .find((x) => x.id === id);
+
+                  if (!found) return null;
+
+                  return (
+                    <div
+                      key={id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "6px 0"
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          minWidth: 0,
+                          flex: 1
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis"
+                          }}
+                        >
+                          {found.name}
+                        </div>
+
+                        <div className="row" style={{ gap: 6 }}>
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => removeFromCart(found)}
+                          >
+                            −
+                          </button>
+
+                          <div style={{ fontWeight: 800, minWidth: 18, textAlign: "center" }}>
+                            {cart[id]}
+                          </div>
+
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => addToCart(found)}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      <strong>₹{found.price * cart[id]}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
+                Total: ₹{cartTotal}
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <button className="btn danger" type="button" onClick={emptyCart}>
+                  Empty Cart
+                </button>
+              </div>
+
+              <button
+                className="btn"
+                type="button"
+                style={{ marginTop: 12 }}
+                onClick={() => setShowCheckout((v) => !v)}
+              >
+                {showCheckout ? "Hide Cart" : "Proceed to Payment"}
+              </button>
+
+              {showCheckout && (
+                <div className="card" style={{ marginTop: 14 }}>
+                  <h3 style={{ marginTop: 0 }}>Checkout</h3>
+
+                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                    <input
+                      className="input"
+                      placeholder="Your Name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
+
+                    <input
+                      className="input"
+                      placeholder="Mobile Number"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        if (!customerName) {
+                          alert("Enter your name");
+                          return;
+                        }
+
+                        if (!customerPhone) {
+                          alert("Enter mobile number");
+                          return;
+                        }
+
+                        localStorage.setItem("qclub_payment_context", "food");
+                        localStorage.setItem("qclub_payment_name", customerName.trim());
+                        localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
+                        localStorage.setItem(
+                          "qclub_food_cart",
+                          JSON.stringify(
+                            cartItems
+                              .map((id) => {
+                                const found = Object.values(menu)
+                                  .flatMap((cat) => cat.items || [])
+                                  .find((x) => x.id === id);
+
+                                return found
+                                  ? {
+                                      id: found.id,
+                                      name: found.name,
+                                      qty: cart[id],
+                                      price: found.price,
+                                      lineTotal: found.price * cart[id],
+                                    }
+                                  : null;
+                              })
+                              .filter(Boolean)
+                          )
+                        );
+                        localStorage.setItem("qclub_food_total", String(cartTotal));
+
+                        startPayment(cartTotal, customerPhone);
+                      }}
+                    >
+                      Pay ₹{cartTotal}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {admin && (
-  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-    <button className="btn" type="button" onClick={addCategory}>
-      + Add Category
-    </button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+          <button className="btn" type="button" onClick={addCategory}>
+            + Add Category
+          </button>
 
-    {activeCategory && (
-      <>
-        <button className="btn" type="button" onClick={addItem}>
-          + Add Item
-        </button>
+          {activeCategory && (
+            <>
+              <button className="btn" type="button" onClick={addItem}>
+                + Add Item
+              </button>
 
-        <button className="btn secondary" type="button" onClick={editCategoryTitle}>
-          Edit Category Name
-        </button>
+              <button className="btn secondary" type="button" onClick={editCategoryTitle}>
+                Edit Category Name
+              </button>
 
-        <button className="btn danger" type="button" onClick={deleteActiveCategory}>
-          Delete Category
-        </button>
+              <button className="btn danger" type="button" onClick={deleteActiveCategory}>
+                Delete Category
+              </button>
 
-        <label className="btn secondary" style={{ cursor: "pointer" }}>
-          Upload Category Image
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
-          />
-        </label>
-      </>
-    )}
-  </div>
-)}
+              <label className="btn secondary" style={{ cursor: "pointer" }}>
+                Upload Category Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
+                />
+              </label>
+            </>
+          )}
+        </div>
+      )}
 
       {category.image && (
         <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
@@ -2673,21 +2700,21 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
       )}
 
       <div
-  onTouchStart={(e) => {
-    touchStartX.current = e.changedTouches[0].screenX;
-  }}
-  onTouchEnd={(e) => {
-    touchEndX.current = e.changedTouches[0].screenX;
-    handleCategorySwipe();
-  }}
-  style={{
-    display: "grid",
-    gridTemplateColumns: window.innerWidth < 700
-      ? "repeat(2, 1fr)"
-      : "repeat(auto-fit, minmax(220px, 280px))",
-    gap: 18
-  }}
->
+        onTouchStart={(e) => {
+          touchStartX.current = e.changedTouches[0].screenX;
+        }}
+        onTouchEnd={(e) => {
+          touchEndX.current = e.changedTouches[0].screenX;
+          handleCategorySwipe();
+        }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: window.innerWidth < 700
+            ? "repeat(2, 1fr)"
+            : "repeat(auto-fit, minmax(220px, 280px))",
+          gap: 18
+        }}
+      >
         {items.map((item) => (
           <div key={item.id} className="card" style={{ padding: 14 }}>
             <img
@@ -2703,90 +2730,99 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
               }}
             />
 
-           <div
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 10,
-    marginBottom: 4
-  }}
->
-  <h3 style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.15 }}>{item.name}</h3>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: 4
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.15 }}>{item.name}</h3>
 
-  <div style={{ fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
-    ₹{item.price}
-  </div>
-</div>
+              <div style={{ fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
+                ₹{item.price}
+              </div>
+            </div>
 
-<div
-  className="muted"
-  style={{
-    marginBottom: 8,
-    fontSize: "0.9rem",
-    lineHeight: "1.2em",
-    height: "2.4em",
-    overflow: "hidden"
-  }}
->
-  {item.description}
-</div>
+            <div
+              className="muted"
+              style={{
+                marginBottom: 8,
+                fontSize: "0.9rem",
+                lineHeight: "1.2em",
+                height: "2.4em",
+                overflow: "hidden"
+              }}
+            >
+              {item.description}
+            </div>
 
             {admin ? (
-  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-    <button className="btn secondary" type="button"
-      onClick={() => {
-        const value = prompt("Edit item name:", item.name);
-        if (value !== null && value !== "") updateItem(item.id, "name", value);
-      }}>
-      Edit Name
-    </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => {
+                    const value = prompt("Edit item name:", item.name);
+                    if (value !== null && value !== "") updateItem(item.id, "name", value);
+                  }}
+                >
+                  Edit Name
+                </button>
 
-    <button className="btn secondary" type="button"
-      onClick={() => {
-        const value = prompt("Edit description:", item.description || "");
-        if (value !== null) updateItem(item.id, "description", value);
-      }}>
-      Edit Details
-    </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => {
+                    const value = prompt("Edit description:", item.description || "");
+                    if (value !== null) updateItem(item.id, "description", value);
+                  }}
+                >
+                  Edit Details
+                </button>
 
-    <button className="btn secondary" type="button"
-      onClick={() => {
-        const value = prompt("Edit price:", item.price);
-        if (value !== null && value !== "") updateItem(item.id, "price", value);
-      }}>
-      Edit Price
-    </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => {
+                    const value = prompt("Edit price:", item.price);
+                    if (value !== null && value !== "") updateItem(item.id, "price", value);
+                  }}
+                >
+                  Edit Price
+                </button>
 
-    <label className="btn secondary" style={{ cursor: "pointer" }}>
-      Upload Image
-      <input
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={(e) => uploadItemImage(item.id, e.target.files?.[0])}
-      />
-    </label>
+                <label className="btn secondary" style={{ cursor: "pointer" }}>
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => uploadItemImage(item.id, e.target.files?.[0])}
+                  />
+                </label>
 
-    <button className="btn" type="button" onClick={() => deleteItem(item.id)}>
-      Delete
-    </button>
-  </div>
-) : (
-  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-    <button className="btn secondary" onClick={() => removeFromCart(item)}>
-      −
-    </button>
+                <button className="btn" type="button" onClick={() => deleteItem(item.id)}>
+                  Delete
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn secondary" onClick={() => removeFromCart(item)}>
+                  −
+                </button>
 
-    <div style={{ fontWeight: 800, minWidth: 24, textAlign: "center" }}>
-      {itemQty(item)}
-    </div>
+                <div style={{ fontWeight: 800, minWidth: 24, textAlign: "center" }}>
+                  {itemQty(item)}
+                </div>
 
-    <button className="btn" onClick={() => addToCart(item)}>
-      + Add
-    </button>
-  </div>
-)}
+                <button className="btn" onClick={() => addToCart(item)}>
+                  + Add
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
