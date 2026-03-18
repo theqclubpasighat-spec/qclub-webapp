@@ -2599,7 +2599,7 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
         }}
       >
         {items.map((item) => (
-          <div key={item.id} className="card">
+          <div key={item.id} className="card" style={{ padding: 14 }}>
             <img
               src={item.image}
               alt={item.name}
@@ -2613,13 +2613,13 @@ localStorage.setItem("qclub_food_total", String(cartTotal));
               }}
             />
 
-            <h3 style={{ margin: "4px 0 8px" }}>{item.name}</h3>
+            <h3 style={{ margin: "2px 0 6px", fontSize: "1.05rem" }}>{item.name}</h3>
 
-            <div className="muted" style={{ marginBottom: 10 }}>
+            <div className="muted" style={{ marginBottom: 8, fontSize: "0.98rem" }}>
               {item.description}
             </div>
 
-            <div style={{ fontWeight: 800, fontSize: "1.1rem", marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: "1.05rem", marginBottom: 10 }}>
               ₹{item.price}
             </div>
 
