@@ -1849,6 +1849,57 @@ function Home({ data, admin, commit, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2]
     .filter(Boolean)
     .join(" / ");
+    function addAnnouncement() {
+  if (!admin) return;
+
+  const text = prompt("Announcement text:", "");
+  if (!text) return;
+
+  const link = prompt("Announcement link (example: /offer or /fixtures):", "") || "";
+
+  commit({
+    ...data,
+    announcements: [
+      ...(data.announcements || []),
+      {
+        id: `ann_${Date.now()}`,
+        text: text.trim(),
+        link: link.trim(),
+      },
+    ],
+  });
+}
+
+function editAnnouncement(id) {
+  if (!admin) return;
+
+  const current = (data.announcements || []).find((a) => a.id === id);
+  if (!current) return;
+
+  const text = prompt("Edit announcement text:", current.text || "");
+  if (!text) return;
+
+  const link = prompt("Edit announcement link:", current.link || "") || "";
+
+  commit({
+    ...data,
+    announcements: (data.announcements || []).map((a) =>
+      a.id === id
+        ? { ...a, text: text.trim(), link: link.trim() }
+        : a
+    ),
+  });
+}
+
+function deleteAnnouncement(id) {
+  if (!admin) return;
+  if (!confirm("Delete this announcement?")) return;
+
+  commit({
+    ...data,
+    announcements: (data.announcements || []).filter((a) => a.id !== id),
+  });
+}
 
     const fallbackHeroImages = [
   "/home/snooker.jpg",
@@ -2048,18 +2099,61 @@ const heroImages =
       </section>
 
       <LiveMatchesHeroCard data={data} />
-
       <section className="refInfoGrid">
-        <div className="refGlassCard">
-          <div className="refInfoLabel">Location</div>
-          <div className="refInfoValue">GTC Pasighat</div>
-        </div>
+  <div className="refGlassCard" style={{ gridColumn: "1 / -1", overflow: "hidden" }}>
+    <div className="refInfoLabel" style={{ marginBottom: 10 }}>Announcements</div>
 
-        <div className="refGlassCard">
-          <div className="refInfoLabel">Contact</div>
-          <div className="refInfoValue">{phone || "—"}</div>
-        </div>
-      </section>
+    <div className="announceTicker">
+      <div className="announceTickerTrack">
+        {(data.announcements || []).length > 0
+          ? [...(data.announcements || []), ...(data.announcements || [])].map((a, idx) => (
+              <a
+  key={`${a.id || idx}-${idx}`}
+  className="announceTickerItem"
+  href={a.link || "#"}
+  onClick={(e) => {
+    if (!a.link) e.preventDefault();
+  }}
+>
+  {a.text}
+</a>
+            ))
+          : (
+              <span className="announceTickerItem">No announcements yet.</span>
+            )}
+      </div>
+    </div>
+  </div>
+  {admin && (
+  <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+    <button className="btn" type="button" onClick={addAnnouncement}>
+      + Add Announcement
+    </button>
+
+    {(data.announcements || []).map((a) => (
+      <div key={a.id} className="row" style={{ gap: 6 }}>
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => editAnnouncement(a.id)}
+        >
+          Edit
+        </button>
+
+        <button
+          className="btn danger"
+          type="button"
+          onClick={() => deleteAnnouncement(a.id)}
+        >
+          Delete
+        </button>
+      </div>
+    ))}
+  </div>
+)}
+</section>
+
+      
 
       <section className="refTournamentCard">
         <div className="refTournamentContent">

@@ -1969,3 +1969,37 @@ border-radius:0;
   padding-bottom: 6px;
   margin-bottom: 12px;
 }
+.announceTicker{
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.announceTickerTrack{
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  width: max-content;
+  animation: qclubTickerMove 24s linear infinite;
+}
+
+.announceTickerItem{
+  white-space: nowrap;
+  font-weight: 700;
+  color: rgba(234,240,255,.95);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.announceTickerItem:hover{
+  color: #7ef2c2;
+}
+
+@keyframes qclubTickerMove{
+  from{
+    transform: translateX(0);
+  }
+  to{
+    transform: translateX(-50%);
+  }
+}
