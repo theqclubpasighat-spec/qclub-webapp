@@ -392,6 +392,16 @@ function defaultData() {
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
+    membersPage: [
+  {
+    id: "member_1",
+    name: "Founding Member",
+    tier: "Gold",
+    joinedOn: "2026-01-01",
+    note: "One of the first members of The Q Club.",
+    photo: "",
+  },
+],
     memberships: [
       {
         id: uid(),
@@ -1159,6 +1169,7 @@ useEffect(() => {
 
       <Routes>
         <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route path="/members" element={<MembersPage data={data} admin={admin} commit={commit} />} />
         <Route
   path="/book"
   element={
@@ -1764,9 +1775,8 @@ function PrivacyContent() {
 
       <h3>Media Usage</h3>
       <p>
-        Photos and videos taken inside the club may be used on social media,
-        promotional materials, and website content. If you do not wish to appear
-        in promotional content, please inform the staff.
+        Photos and videos taken inside the club and on Membership pages may be used on social media,
+        promotional materials, and website content. 
       </p>
     </>
   );
@@ -1794,6 +1804,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/live">Live Matches</Link>
         
         <Link className="pill" to="/photos">Photos</Link>
+        <Link className="pill" to="/members">Members</Link>
         <Link className="pill" to="/players">Players</Link>
         <Link className="pill" to="/tournaments">Tournaments</Link>
         <Link className="pill" to="/fixtures">Fixtures</Link>
@@ -2234,6 +2245,199 @@ const heroImages =
 ))}
         </div>
       </section>
+    </div>
+  );
+}
+function MembersPage({ data, admin, commit }) {
+  const members = Array.isArray(data.membersPage) ? data.membersPage : [];
+  function addMember() {
+  if (!admin) return;
+
+  const name = prompt("Member name:", "");
+  if (!name) return;
+
+  const tier = prompt("Membership tier:", "Gold") || "";
+  const joinedOn = prompt("Joined date (YYYY-MM-DD):", new Date().toISOString().slice(0, 10)) || "";
+  const note = prompt("Short note:", "") || "";
+
+  commit({
+    ...data,
+    membersPage: [
+      ...(data.membersPage || []),
+      {
+        id: `member_${Date.now()}`,
+        name: name.trim(),
+        tier: tier.trim(),
+        joinedOn: joinedOn.trim(),
+        note: note.trim(),
+        photo: "",
+      },
+    ],
+  });
+}
+
+function editMember(id) {
+  if (!admin) return;
+
+  const current = (data.membersPage || []).find((m) => m.id === id);
+  if (!current) return;
+
+  const name = prompt("Edit member name:", current.name || "");
+  if (!name) return;
+
+  const tier = prompt("Edit membership tier:", current.tier || "") || "";
+  const joinedOn = prompt("Edit joined date:", current.joinedOn || "") || "";
+  const note = prompt("Edit short note:", current.note || "") || "";
+
+  commit({
+    ...data,
+    membersPage: (data.membersPage || []).map((m) =>
+      m.id === id
+        ? {
+            ...m,
+            name: name.trim(),
+            tier: tier.trim(),
+            joinedOn: joinedOn.trim(),
+            note: note.trim(),
+          }
+        : m
+    ),
+  });
+}
+
+function deleteMember(id) {
+  if (!admin) return;
+  if (!confirm("Delete this member?")) return;
+
+  commit({
+    ...data,
+    membersPage: (data.membersPage || []).filter((m) => m.id !== id),
+  });
+}
+async function uploadMemberPhoto(memberId, file) {
+  if (!admin) return alert("Admin only");
+  if (!file) return;
+
+  try {
+    const uploaded = await uploadImageToStorage(file, "members");
+
+    commit({
+      ...data,
+      membersPage: (data.membersPage || []).map((m) =>
+        m.id === memberId
+          ? {
+              ...m,
+              photo: uploaded.url,
+              photoPath: uploaded.path,
+            }
+          : m
+      ),
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Failed to upload member photo.");
+  }
+}
+
+  return (
+    <div className="container">
+      <div className="sectionTitle">
+        <span className="dot" />
+        <span>Members</span>
+      </div>
+
+      <h1 style={{ marginBottom: 18 }}>The Q Club Members</h1>
+
+      <p className="muted" style={{ marginBottom: 20 }}>
+        Meet the valued members of The Q Club community.
+      </p>
+      {admin && (
+  <div className="row" style={{ marginBottom: 18, gap: 8, flexWrap: "wrap" }}>
+    <button className="btn" type="button" onClick={addMember}>
+      + Add Member
+    </button>
+  </div>
+)}
+
+      {members.length === 0 ? (
+        <div className="card">
+          <div className="muted">No members added yet.</div>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 18
+          }}
+        >
+          {members.map((member) => (
+            <div key={member.id} className="card">
+              <div
+  style={{
+    width: "100%",
+    height: 220,
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.04)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    marginBottom: 14
+  }}
+>
+  {member.photo ? (
+    <img
+      src={member.photo}
+      alt={member.name}
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "contain",
+        background: "rgba(255,255,255,0.03)"
+      }}
+    />
+  ) : (
+    <div className="muted">No Photo</div>
+  )}
+</div>
+
+              <h3 style={{ margin: "0 0 8px" }}>{member.name}</h3>
+
+              <div className="muted" style={{ marginBottom: 8 }}>
+                Tier: {member.tier || "—"}
+              </div>
+
+              <div className="muted" style={{ marginBottom: 8 }}>
+                Joined: {member.joinedOn || "—"}
+              </div>
+
+              <div>{member.note || "—"}</div>
+              {admin && (
+  <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+    <label className="btn secondary" style={{ cursor: "pointer" }}>
+      Upload Photo
+      <input
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => uploadMemberPhoto(member.id, e.target.files?.[0])}
+      />
+    </label>
+
+    <button className="btn secondary" type="button" onClick={() => editMember(member.id)}>
+      Edit
+    </button>
+
+    <button className="btn danger" type="button" onClick={() => deleteMember(member.id)}>
+      Delete
+    </button>
+  </div>
+)}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2969,6 +3173,7 @@ function BookTable({ data, admin, commit, startPayment }) {
   const [submittedId, setSubmittedId] = useState("");
 
   const tables = data.booking?.tables || [];
+  const memberOptions = Array.isArray(data.membersPage) ? data.membersPage : [];
   const selectedTable = tables.find((t) => t.id === itemId) || tables[0] || null;
   const slots = bookingTimeSlots(bookingDate);
   const amount = bookingAmountFor(selectedTable, bookingType === "member" ? "member" : "nonmember");
@@ -3024,22 +3229,45 @@ function BookTable({ data, admin, commit, startPayment }) {
     alert("Please select a time slot");
     return false;
   }
-
   const req = {
-    id: uid(),
-    name: name.trim(),
-    mobile: mobile.trim(),
-    memberId: bookingType === "member" ? memberId.trim() : "",
-    bookingType: bookingType === "member" ? "member" : "nonmember",
-    itemId: selectedTable.id,
-    itemLabel: selectedTable.label,
-    bookingDate,
-    timeSlot,
-    note: note.trim(),
-    amount,
-    status: bookingType === "member" ? "pending_member_verification" : "pending",
-    createdAt: Date.now(),
-  };
+  id: uid(),
+  name: name.trim(),
+  mobile: mobile.trim(),
+  memberId: bookingType === "member" ? name.trim() : "",
+  bookingType: bookingType === "member" ? "member" : "nonmember",
+  itemId: selectedTable.id,
+  itemLabel: selectedTable.label,
+  bookingDate,
+  timeSlot,
+  note: note.trim(),
+  amount,
+  status: "pending",
+  createdAt: Date.now(),
+};
+
+  <div className="cols-6">
+  <label className="lbl">{bookingType === "member" ? "Member Name" : "Name"}</label>
+
+  {bookingType === "member" ? (
+    <select
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+    >
+      <option value="">Select member</option>
+      {memberOptions.map((m) => (
+        <option key={m.id} value={m.name}>
+          {m.name}
+        </option>
+      ))}
+    </select>
+  ) : (
+    <input
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+      placeholder="Enter name"
+    />
+  )}
+</div>
 
   if (hasBookingConflict(data.booking?.requests || [], req)) {
     alert("This slot is already booked / pending for this table.");
@@ -3260,13 +3488,28 @@ function deleteBookingTable(tableId) {
 
             <div className="grid">
               <div className="cols-6">
-                <label className="lbl">Name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter name"
-                />
-              </div>
+  <label className="lbl">{bookingType === "member" ? "Member Name" : "Name"}</label>
+
+  {bookingType === "member" ? (
+    <select
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+    >
+      <option value="">Select member</option>
+      {memberOptions.map((m) => (
+        <option key={m.id} value={m.name}>
+          {m.name}
+        </option>
+      ))}
+    </select>
+  ) : (
+    <input
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+      placeholder="Enter name"
+    />
+  )}
+</div>
 
               <div className="cols-6">
                 <label className="lbl">Mobile Number</label>
@@ -3354,25 +3597,12 @@ function deleteBookingTable(tableId) {
               <button
   className="btn primary"
   onClick={() => {
-  if (!name || name.trim() === "") {
-    alert("Please enter your name");
-    return;
-  }
-
-  if (!mobile || mobile.trim().length < 10) {
-    alert("Please enter a valid mobile number");
-    return;
-  }
-  localStorage.setItem("qclub_payment_context", "booking");
-localStorage.setItem("qclub_payment_name", name.trim());
-localStorage.setItem("qclub_payment_mobile", mobile.trim());
-localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
-localStorage.setItem("qclub_booking_date", bookingDate || "");
-localStorage.setItem("qclub_booking_slot", timeSlot || "");
+  console.log("Submit clicked");
 
   const ok = submitBooking();
-if (!ok) return;
-startPayment(amount, mobile.trim());
+  if (!ok) return;
+
+  startPayment(amount, mobile.trim());
 }}
   type="button"
 >
