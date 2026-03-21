@@ -402,6 +402,18 @@ function defaultData() {
     photo: "",
   },
 ],
+memberRegistry: [
+  {
+    id: "m_1",
+    name: "Wilson Pilot Yomso",
+    mobile: "9774219051",
+    tier: "Gold",
+    joinedOn: "2026-03-01",
+    validUntil: "2026-04-01",
+    status: "active",
+    notes: "Founding Member"
+  }
+],
     memberships: [
       {
         id: uid(),
@@ -579,6 +591,7 @@ function mergeWithDefaults(remote) {
       pin: pickText(src?.admin?.pin, base.admin.pin),
     },
     announcements: Array.isArray(src.announcements) ? src.announcements : base.announcements,
+    memberRegistry: Array.isArray(src.memberRegistry) ? src.memberRegistry : base.memberRegistry,
 memberships: Array.isArray(src.memberships) ? src.memberships : base.memberships,
 offers: Array.isArray(src.offers) ? src.offers : base.offers,
 menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
@@ -1170,6 +1183,7 @@ useEffect(() => {
       <Routes>
         <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/members" element={<MembersPage data={data} admin={admin} commit={commit} />} />
+        <Route path="/member-registry" element={<MemberRegistryPage data={data} admin={admin} commit={commit} />} />
         <Route
   path="/book"
   element={
@@ -1811,6 +1825,7 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
         {admin ? <Link className="pill" to="/tv">TV</Link> : null}
+        {admin ? <Link className="pill" to="/member-registry">Member Registry</Link> : null}
         {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
         <button className="btn primary" onClick={onToggleAdmin}>
@@ -2439,6 +2454,190 @@ async function uploadMemberPhoto(memberId, file) {
         </div>
       )}
     </div>
+  );
+}
+function MemberRegistryPage({ data, admin, commit }) {
+  if (!admin) {
+    return (
+      <>
+        <PageShell title="Member Registry" subtitle="Admin only" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Admin access required.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const registry = Array.isArray(data.memberRegistry) ? data.memberRegistry : [];
+
+  function addRegistryMember() {
+    const name = prompt("Member name:", "");
+    if (!name) return;
+
+    const mobile = prompt("Mobile number:", "") || "";
+    const tier = prompt("Tier:", "Gold") || "";
+    const joinedOn =
+      prompt("Joined date (YYYY-MM-DD):", new Date().toISOString().slice(0, 10)) || "";
+    const validUntil =
+      prompt("Valid until (YYYY-MM-DD):", new Date().toISOString().slice(0, 10)) || "";
+    const status = prompt("Status (active/expired/pending):", "active") || "active";
+    const notes = prompt("Notes:", "") || "";
+
+    commit({
+      ...data,
+      memberRegistry: [
+        ...(data.memberRegistry || []),
+        {
+          id: `reg_${Date.now()}`,
+          name: name.trim(),
+          mobile: mobile.trim(),
+          tier: tier.trim(),
+          joinedOn: joinedOn.trim(),
+          validUntil: validUntil.trim(),
+          status: status.trim().toLowerCase(),
+          notes: notes.trim(),
+        },
+      ],
+    });
+  }
+
+  function editRegistryMember(id) {
+    const current = (data.memberRegistry || []).find((m) => m.id === id);
+    if (!current) return;
+
+    const name = prompt("Edit member name:", current.name || "");
+    if (!name) return;
+
+    const mobile = prompt("Edit mobile number:", current.mobile || "") || "";
+    const tier = prompt("Edit tier:", current.tier || "") || "";
+    const joinedOn = prompt("Edit joined date:", current.joinedOn || "") || "";
+    const validUntil = prompt("Edit valid until:", current.validUntil || "") || "";
+    const status = prompt("Edit status (active/expired/pending):", current.status || "active") || "active";
+    const notes = prompt("Edit notes:", current.notes || "") || "";
+
+    commit({
+      ...data,
+      memberRegistry: (data.memberRegistry || []).map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              name: name.trim(),
+              mobile: mobile.trim(),
+              tier: tier.trim(),
+              joinedOn: joinedOn.trim(),
+              validUntil: validUntil.trim(),
+              status: status.trim().toLowerCase(),
+              notes: notes.trim(),
+            }
+          : m
+      ),
+    });
+  }
+
+  function deleteRegistryMember(id) {
+    if (!confirm("Delete this registry member?")) return;
+
+    commit({
+      ...data,
+      memberRegistry: (data.memberRegistry || []).filter((m) => m.id !== id),
+    });
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Private Member Registry"
+        subtitle="Admin-only member records"
+        right={
+          <button className="btn primary" type="button" onClick={addRegistryMember}>
+            + Add Member
+          </button>
+        }
+      />
+
+      <div className="container">
+        {registry.length === 0 ? (
+          <div className="card">
+            <div className="muted">No private member records yet.</div>
+          </div>
+        ) : (
+          <div className="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Mobile</th>
+                  <th>Tier</th>
+                  <th>Joined</th>
+                  <th>Valid Until</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                  <th>Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {registry.map((m) => (
+                  <tr key={m.id}>
+                    <td><b>{m.name}</b></td>
+                    <td>{m.mobile || "—"}</td>
+                    <td>{m.tier || "—"}</td>
+                    <td>{m.joinedOn || "—"}</td>
+                    <td>{m.validUntil || "—"}</td>
+                    <td>
+  {(() => {
+    const today = todayIso();
+    const expiry = m.validUntil || "";
+
+    let label = "—";
+    let color = "#999";
+
+    if (m.status !== "active") {
+      label = m.status;
+      color = "#ff4d4d";
+    } else if (expiry < today) {
+      label = "Expired";
+      color = "#ff4d4d";
+    } else {
+      const diff =
+        (new Date(expiry) - new Date(today)) / (1000 * 60 * 60 * 24);
+
+      if (diff <= 3) {
+        label = "Expiring Soon";
+        color = "#ffcc00";
+      } else {
+        label = "Active";
+        color = "#22c55e";
+      }
+    }
+
+    return (
+      <span style={{ color, fontWeight: 700 }}>
+        {label}
+      </span>
+    );
+  })()}
+</td>
+                    <td>{m.notes || "—"}</td>
+                    <td>
+                      <div className="row">
+                        <button className="btn" type="button" onClick={() => editRegistryMember(m.id)}>
+                          Edit
+                        </button>
+                        <button className="btn danger" type="button" onClick={() => deleteRegistryMember(m.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -3173,7 +3372,15 @@ function BookTable({ data, admin, commit, startPayment }) {
   const [submittedId, setSubmittedId] = useState("");
 
   const tables = data.booking?.tables || [];
-  const memberOptions = Array.isArray(data.membersPage) ? data.membersPage : [];
+  const today = todayIso();
+
+const memberOptions = Array.isArray(data.memberRegistry)
+  ? data.memberRegistry.filter((m) => {
+      const statusOk = String(m.status || "").toLowerCase() === "active";
+      const dateOk = !m.validUntil || String(m.validUntil) >= today;
+      return statusOk && dateOk;
+    })
+  : [];
   const selectedTable = tables.find((t) => t.id === itemId) || tables[0] || null;
   const slots = bookingTimeSlots(bookingDate);
   const amount = bookingAmountFor(selectedTable, bookingType === "member" ? "member" : "nonmember");
@@ -3200,10 +3407,19 @@ function BookTable({ data, admin, commit, startPayment }) {
   const qr = qrUrl(upiLink, 280);
 
   function submitBooking() {
+  if (bookingType === "non-member") {
   if (!name.trim()) {
     alert("Please enter name");
     return false;
   }
+}
+
+if (bookingType === "member") {
+  if (!name.trim() || name === "Select member") {
+    alert("Please select a member");
+    return false;
+  }
+}
 
   if (!mobile.trim()) {
     alert("Please enter mobile number");
@@ -3229,6 +3445,14 @@ function BookTable({ data, admin, commit, startPayment }) {
     alert("Please select a time slot");
     return false;
   }
+  if (bookingType === "member") {
+  const selectedMember = memberOptions.find((m) => m.name === name.trim());
+
+  if (!selectedMember) {
+    alert("Please select an active member from the dropdown");
+    return false;
+  }
+}
   const req = {
   id: uid(),
   name: name.trim(),
@@ -3520,16 +3744,7 @@ function deleteBookingTable(tableId) {
                 />
               </div>
 
-              {bookingType === "member" ? (
-                <div className="cols-6">
-                  <label className="lbl">Membership ID / Reference</label>
-                  <input
-                    value={memberId}
-                    onChange={(e) => setMemberId(e.target.value)}
-                    placeholder="Enter member ID"
-                  />
-                </div>
-              ) : null}
+              
 
               <div className="cols-6">
                 <label className="lbl">Table / Game</label>
@@ -4041,8 +4256,7 @@ localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
   setShowMembershipPopup(false);
 
   try {
-    submitMembershipApplication();
-
+    
     await startPayment(
       selectedTier ? safeNum(selectedTier.price, 0) : 0,
       mobile.trim()
@@ -7445,6 +7659,72 @@ const displayTime = new Date().toLocaleString();
 
       setOrderSaved(true);
     }
+    // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
+if (paymentContext === "membership") {
+  const name = localStorage.getItem("qclub_payment_name") || "";
+  const mobile = localStorage.getItem("qclub_payment_mobile") || "";
+  const tier = localStorage.getItem("qclub_membership_tier") || "Member";
+
+  const today = todayIso();
+
+  // default validity: 30 days (you can upgrade later per plan)
+  const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  const existing = (data.memberRegistry || []).find(
+    (m) => m.mobile === mobile
+  );
+
+  let nextRegistry;
+
+  if (existing) {
+    // RENEW
+    nextRegistry = (data.memberRegistry || []).map((m) =>
+      m.mobile === mobile
+        ? {
+            ...m,
+            validUntil,
+            status: "active",
+            tier,
+          }
+        : m
+    );
+  } else {
+    // NEW MEMBER
+    nextRegistry = [
+      ...(data.memberRegistry || []),
+      {
+        id: `reg_${Date.now()}`,
+        name,
+        mobile,
+        tier,
+        joinedOn: today,
+        validUntil,
+        status: "active",
+        notes: "Auto-created after payment",
+      },
+    ];
+  }
+
+  // ALSO UPDATE PUBLIC MEMBERS PAGE
+  const nextMembersPage = [
+    ...(data.membersPage || []),
+    {
+      id: `mem_${Date.now()}`,
+      name,
+      tier,
+      joinedOn: today,
+      note: "Member",
+    },
+  ];
+
+  commit({
+    ...data,
+    memberRegistry: nextRegistry,
+    membersPage: nextMembersPage,
+  });
+}
 
     setStatus("success");
 
