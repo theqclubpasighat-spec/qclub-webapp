@@ -3893,7 +3893,22 @@ function deleteBookingTable(tableId) {
               <button
   className="btn primary"
   onClick={() => {
-  console.log("Submit clicked");
+  if (!name || name.trim() === "") {
+    alert("Please enter your name");
+    return;
+  }
+
+  if (!mobile || mobile.trim().length < 10) {
+    alert("Please enter a valid mobile number");
+    return;
+  }
+
+  localStorage.setItem("qclub_payment_context", "booking");
+  localStorage.setItem("qclub_payment_name", name.trim());
+  localStorage.setItem("qclub_payment_mobile", mobile.trim());
+  localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
+  localStorage.setItem("qclub_booking_date", bookingDate || "");
+  localStorage.setItem("qclub_booking_slot", timeSlot || "");
 
   const ok = submitBooking();
   if (!ok) return;
