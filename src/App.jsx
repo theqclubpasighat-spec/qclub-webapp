@@ -387,6 +387,7 @@ function defaultData() {
   videoUrl: "",
   heroSlides: [],
   heroSpeed: 3500,
+  tickerSpeed: 28,
 },
     admin: {
   mainPin: "1234",
@@ -581,7 +582,8 @@ function mergeWithDefaults(remote) {
       upiId: pickText(src?.club?.upiId, base.club.upiId),
       upiName: pickText(src?.club?.upiName, base.club.upiName),
         heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
-      contact: {
+      tickerSpeed: safeNum(src?.club?.tickerSpeed, base.club.tickerSpeed),
+        contact: {
         ...base.club.contact,
         ...((src.club || {}).contact || {}),
         phone1: pickText(src?.club?.contact?.phone1, base.club.contact.phone1),
@@ -2194,7 +2196,12 @@ const heroImages =
     <div className="refInfoLabel" style={{ marginBottom: 10 }}>Announcements</div>
 
     <div className="announceTicker">
-      <div className="announceTickerTrack">
+      <div
+  className="announceTickerTrack"
+  style={{
+    animationDuration: `${data.club?.tickerSpeed || 28}s`,
+  }}
+>
         {(data.announcements || []).length > 0
           ? [...(data.announcements || []), ...(data.announcements || [])].map((a, idx) => (
               <a
@@ -2219,6 +2226,39 @@ const heroImages =
     <button className="btn" type="button" onClick={addAnnouncement}>
       + Add Announcement
     </button>
+    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+  <span className="muted">Ticker Speed</span>
+  <input
+    type="number"
+    min="10"
+    max="120"
+    step="1"
+    value={data.club?.tickerSpeed || 28}
+    onChange={(e) =>
+      commit({
+        ...data,
+        club: {
+          ...data.club,
+          tickerSpeed: safeNum(e.target.value, 28),
+        },
+      })
+    }
+    style={{
+      width: 90,
+      padding: "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(255,255,255,.12)",
+      background: "rgba(255,255,255,.04)",
+      color: "#eaf0ff",
+    }}
+  />
+</div>
+    <div
+  className="announceTickerTrack"
+  style={{
+    animationDuration: `${data.club?.tickerSpeed || 28}s`,
+  }}
+></div>
 
     {(data.announcements || []).map((a) => (
       <div key={a.id} className="row" style={{ gap: 6 }}>
