@@ -388,7 +388,10 @@ function defaultData() {
   heroSlides: [],
   heroSpeed: 3500,
 },
-    admin: { pin: "1234" },
+    admin: {
+  mainPin: "1234",
+  staffPin: "5678",
+},
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
@@ -947,7 +950,9 @@ export default function App() {
   );
   const [hasHydratedFromCloud, setHasHydratedFromCloud] = useState(false);
 
-  const [admin, setAdmin] = useState(false);
+  const [adminRole, setAdminRole] = useState("");
+  const admin = adminRole === "main";
+const staffAdmin = adminRole === "staff";
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -1068,34 +1073,71 @@ function updateData(path, value) {
   commit(next);
 }
   function toggleAdmin() {
-  if (admin === true) {
-    setAdmin(false);
+  if (adminRole) {
+    setAdminRole("");
     return;
   }
 
   const pin = prompt("Enter Admin PIN");
+  if (!pin) return;
 
-  if (pin === data.admin?.pin) {
-    setAdmin(true);
-  } else {
-    alert("Wrong PIN");
+  if (pin === data.admin?.mainPin) {
+    setAdminRole("main");
+    return;
   }
+
+  if (pin === data.admin?.staffPin) {
+    setAdminRole("staff");
+    return;
+  }
+
+  alert("Wrong PIN");
 }
 
   function changePin() {
-    if (!admin) return alert("Admin only");
+  if (!admin) return;
 
-    const p = prompt("New Admin PIN:");
+  const mode = prompt(
+    "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN",
+    "2"
+  );
 
-    if (!p) return;
+  if (!mode) return;
 
-    commit({
-      ...data,
-      admin: { ...data.admin, pin: p },
-    });
-
-    alert("PIN updated.");
+  if (mode !== "1" && mode !== "2") {
+    alert("Invalid choice");
+    return;
   }
+
+  const current =
+    mode === "1" ? data.admin?.mainPin || "" : data.admin?.staffPin || "";
+
+  const oldPin = prompt(
+    mode === "1" ? "Enter current Main Admin PIN" : "Enter current Staff PIN"
+  );
+  if (oldPin === null) return;
+
+  if (oldPin !== current) {
+    alert("Current PIN is incorrect");
+    return;
+  }
+
+  const nextPin = prompt(
+    mode === "1" ? "Enter new Main Admin PIN" : "Enter new Staff PIN"
+  );
+  if (!nextPin) return;
+
+  commit({
+    ...data,
+    admin: {
+      ...(data.admin || {}),
+      mainPin: mode === "1" ? nextPin : data.admin?.mainPin || "1234",
+      staffPin: mode === "2" ? nextPin : data.admin?.staffPin || "5678",
+    },
+  });
+
+  alert(mode === "1" ? "Main Admin PIN updated" : "Staff PIN updated");
+}
 
   function resetAll() {
     if (!admin) return;
@@ -1172,13 +1214,14 @@ useEffect(() => {
   return (
     <>
       <TopNav
-        club={data.club}
-        admin={admin}
-        onToggleAdmin={toggleAdmin}
-        onChangePin={changePin}
-        onReset={resetAll}
-        cloudStatus={cloudStatus}
-      />
+  club={data.club}
+  admin={admin}
+  staffAdmin={staffAdmin}
+  onToggleAdmin={toggleAdmin}
+  onChangePin={changePin}
+  onReset={resetAll}
+  cloudStatus={cloudStatus}
+/>
 
       <Routes>
         <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
@@ -1268,7 +1311,14 @@ useEffect(() => {
         <Route path="/terms" element={<StaticPage title="Terms & Conditions"><TermsContent /></StaticPage>} />
         <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
-        <Route path="/admin/orders" element={<FoodOrdersAdmin data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/admin/orders"
+  element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
+/>
+<Route
+  path="/admin/orders-archive"
+  element={<FoodOrdersArchive data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
+/>
         
         <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
         <Route path="*" element={<NotFound />} />
@@ -1800,12 +1850,27 @@ function BottomPadding() {
   return <div style={{ height: 28 }} />;
 }
 
-function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
+function TopNav({ club, admin, staffAdmin, onToggleAdmin, onChangePin, onReset }) {
   return (
     <div className="nav">
       <div className="nav-inner">
         <div className="brand">
-          <div className="title">{club?.name || "The Q CLUB"}</div>
+          <div
+  className="title"
+  onDoubleClick={onToggleAdmin} // desktop
+  onTouchStart={(e) => {
+    e.currentTarget.pressTimer = setTimeout(() => {
+      onToggleAdmin();
+    }, 800); // hold for 0.8 sec
+  }}
+  onTouchEnd={(e) => {
+    clearTimeout(e.currentTarget.pressTimer);
+  }}
+  title="The Q Club"
+  style={{ cursor: "pointer" }}
+>
+  {club?.name || "The Q CLUB"}
+</div>
           <div className="sub">
             {club?.location || "Pasighat"} • {club?.tagline || "Play. Chill. Compete."}
           </div>
@@ -1824,20 +1889,23 @@ function TopNav({ club, admin, onToggleAdmin, onChangePin, onReset }) {
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
-        {admin ? <Link className="pill" to="/tv">TV</Link> : null}
-        {admin ? <Link className="pill" to="/member-registry">Member Registry</Link> : null}
-        {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
+        {(admin || staffAdmin) ? <Link className="pill" to="/tv">TV</Link> : null}
 
-        <button className="btn primary" onClick={onToggleAdmin}>
-          {admin ? "Admin: ON" : "Admin Login"}
-        </button>
+{(admin || staffAdmin) ? <Link className="pill" to="/admin/orders">Orders</Link> : null}
 
-        {admin && (
-          <>
-            <button className="btn" onClick={onChangePin}>Change PIN</button>
-            <button className="btn danger" onClick={onReset}>Reset</button>
-          </>
-        )}
+{admin ? <Link className="pill" to="/member-registry">Member Registry</Link> : null}
+
+{admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
+
+       {admin && (
+  <>
+    <button className="btn primary" onClick={onToggleAdmin}>
+      Admin: ON
+    </button>
+    <button className="btn" onClick={onChangePin}>Change PIN</button>
+    <button className="btn danger" onClick={onReset}>Reset</button>
+  </>
+)}
       </div>
     </div>
   );
@@ -7352,8 +7420,8 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     </>
   );
 }
-function FoodOrdersAdmin({ data, admin, commit }) {
-  if (!admin) {
+function FoodOrdersAdmin({ data, admin, staffAdmin, commit }) {
+  if (!(admin || staffAdmin)) {
     return (
       <div className="container">
         <div className="card" style={{ maxWidth: 700, margin: "40px auto" }}>
@@ -7514,8 +7582,8 @@ function FoodOrdersAdmin({ data, admin, commit }) {
     </div>
   );
 }
-function FoodOrdersArchive({ data, admin, commit }) {
-  if (!admin) {
+function FoodOrdersArchive({ data, admin, staffAdmin, commit }) {
+  if (!(admin || staffAdmin)) {
     return (
       <div className="container">
         <div className="card" style={{ maxWidth: 700, margin: "40px auto" }}>
@@ -7719,11 +7787,21 @@ if (paymentContext === "membership") {
     },
   ];
 
-  commit({
-    ...data,
-    memberRegistry: nextRegistry,
-    membersPage: nextMembersPage,
-  });
+  const membershipAnnouncement = {
+  id: uid(),
+  text: `${name} joins as the latest Q Club member !`,
+  createdAt: Date.now(),
+};
+
+commit({
+  ...data,
+  memberRegistry: nextRegistry,
+  membersPage: nextMembersPage,
+  announcements: [
+    membershipAnnouncement,
+    ...(data.announcements || []),
+  ].slice(0, 20),
+});
 }
 
     setStatus("success");
