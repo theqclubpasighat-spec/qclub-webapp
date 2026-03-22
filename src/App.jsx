@@ -589,10 +589,11 @@ function mergeWithDefaults(remote) {
       },
     },
     admin: {
-      ...base.admin,
-      ...(src.admin || {}),
-      pin: pickText(src?.admin?.pin, base.admin.pin),
-    },
+  ...base.admin,
+  ...(src.admin || {}),
+  mainPin: pickText(src?.admin?.mainPin, base.admin.mainPin),
+  staffPin: pickText(src?.admin?.staffPin, base.admin.staffPin),
+},
     announcements: Array.isArray(src.announcements) ? src.announcements : base.announcements,
     memberRegistry: Array.isArray(src.memberRegistry) ? src.memberRegistry : base.memberRegistry,
 memberships: Array.isArray(src.memberships) ? src.memberships : base.memberships,
@@ -966,14 +967,9 @@ function closePlayerModal() {
   setSelectedPlayer(null);
 }
 
-  function openPlayerById(playerId) {
-    const found = (data.players || []).find((p) => p.id === playerId);
-    if (found) setSelectedPlayer(found);
-  }
+  
 
-  function closePlayerModal() {
-    setSelectedPlayer(null);
-  }
+  
     const activeTournament = useMemo(() => {
     const list = data.tournaments || [];
     const flagged = list.find((t) => t.isCurrent);
@@ -1143,9 +1139,9 @@ function updateData(path, value) {
     if (!admin) return;
     if (!confirm("Reset ALL Q CLUB data to default?")) return;
     const d = defaultData();
-    commit(d);
-    setAdmin(false);
-    navigate("/");
+commit(d);
+setAdminRole("");
+navigate("/");
   }
 
   useEffect(() => {
@@ -3166,7 +3162,7 @@ function Offers({ data, admin, commit, startPayment }) {
 
                     <input
                       className="input"
-                      placeholder="Mobile Number"
+                      placeholder="Whatsapp Number"
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                     />
@@ -3180,7 +3176,7 @@ function Offers({ data, admin, commit, startPayment }) {
                         }
 
                         if (!customerPhone) {
-                          alert("Enter mobile number");
+                          alert("Enter Whatsapp number");
                           return;
                         }
 
@@ -3432,7 +3428,7 @@ function BookTable({ data, admin, commit, startPayment }) {
   const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
-  const [memberId, setMemberId] = useState("");
+  
   const [itemId, setItemId] = useState(data.booking?.tables?.[0]?.id || "");
   const [bookingDate, setBookingDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState("");
@@ -3537,29 +3533,7 @@ if (bookingType === "member") {
   createdAt: Date.now(),
 };
 
-  <div className="cols-6">
-  <label className="lbl">{bookingType === "member" ? "Member Name" : "Name"}</label>
-
-  {bookingType === "member" ? (
-    <select
-      value={name}
-      onChange={(e) => setName(e.target.value)}
-    >
-      <option value="">Select member</option>
-      {memberOptions.map((m) => (
-        <option key={m.id} value={m.name}>
-          {m.name}
-        </option>
-      ))}
-    </select>
-  ) : (
-    <input
-      value={name}
-      onChange={(e) => setName(e.target.value)}
-      placeholder="Enter name"
-    />
-  )}
-</div>
+  
 
   if (hasBookingConflict(data.booking?.requests || [], req)) {
     alert("This slot is already booked / pending for this table.");
@@ -3591,7 +3565,7 @@ commit({
   setSubmittedId(req.id);
   setName("");
   setMobile("");
-  setMemberId("");
+  
   setNote("");
   alert("Booking request submitted. Please complete payment / verification.");
   return true;
@@ -3817,7 +3791,7 @@ function deleteBookingTable(tableId) {
 </div>
 
               <div className="cols-6">
-                <label className="lbl">Mobile Number</label>
+                <label className="lbl">Whatsapp Number</label>
                 <input
                   value={mobile}
                   onChange={(e) => setMobile(e.target.value)}
@@ -4124,43 +4098,7 @@ function Membership({ data, admin, commit, startPayment }) {
     }
   }
 
-  function submitMembershipApplication() {
-    if (!selectedTier) return alert("Please select a membership tier");
-    if (!applicantName.trim()) return alert("Please enter name");
-    if (!mobile.trim()) return alert("Please enter mobile number");
-
-    const req = {
-      id: uid(),
-      name: applicantName.trim(),
-      mobile: mobile.trim(),
-      memberId: memberRef.trim(),
-      tshirtSize,
-      bookingType: "member",
-      itemId: `membership-${selectedTier.id}`,
-      itemLabel: `${selectedTier.tier} Membership`,
-      bookingDate: todayIso(),
-      timeSlot: "membership",
-      note: `Membership Application • ${selectedTier.tier}`,
-      amount: safeNum(selectedTier.price, 0),
-      status: "pending_member_verification",
-      createdAt: Date.now(),
-    };
-
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        requests: [req, ...(data.booking?.requests || [])],
-      },
-    });
-
-    setSubmittedId(req.id);
-    setApplicantName("");
-    setMobile("");
-    setMemberRef("");
-    
-  }
-
+  
   const upiId = normalizedClubUpiId(data.club?.upiId);
   const upiName = data.club?.upiName || data.club?.name || "The Q Club";
   const upiLink = upiDeepLink({
@@ -4287,11 +4225,11 @@ function Membership({ data, admin, commit, startPayment }) {
           </div>
 
           <div className="cols-6">
-            <label className="lbl">Mobile Number</label>
+            <label className="lbl">Whatsapp Number</label>
             <input
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              placeholder="Enter mobile number"
+              placeholder="Enter Whatsapp number"
             />
           </div>
 
