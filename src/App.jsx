@@ -818,6 +818,59 @@ break2: "",
 
   return matches;
 }
+function generateKnockoutForTournamentNow(data, commit, tournamentId) {
+  const tournaments = data.tournaments || [];
+  const tournament = tournaments.find((t) => t.id === tournamentId);
+
+  if (!tournament) {
+    alert("Tournament not found.");
+    return;
+  }
+
+  const participantIds = Array.isArray(tournament.participantIds)
+    ? tournament.participantIds.filter(Boolean)
+    : [];
+
+  if (participantIds.length < 2) {
+    alert("Need at least 2 registered players to generate knockout fixtures.");
+    return;
+  }
+
+  const hasExistingMatches = Array.isArray(tournament.matches) && tournament.matches.length > 0;
+
+  if (hasExistingMatches) {
+    const ok = confirm("Knockout fixtures already exist. Overwrite them?");
+    if (!ok) return;
+  }
+
+  const matches = generateKnockout(participantIds);
+
+  const fixtureAnnouncement = {
+    id: uid(),
+    text: `Knockout fixtures generated for ${tournament.name || "current tournament"} !`,
+    link: "/fixtures",
+    createdAt: Date.now(),
+  };
+
+  commit({
+    ...data,
+    tournaments: tournaments.map((t) =>
+      t.id === tournamentId
+        ? {
+            ...t,
+            format: "knockout",
+            matches,
+          }
+        : t
+    ),
+    announcements: [
+      fixtureAnnouncement,
+      ...(data.announcements || []),
+    ].slice(0, 20),
+  });
+
+  alert("Knockout fixtures generated successfully.");
+}
 /* ---------------------------
    Leaderboard calc (per tournament)
 ---------------------------- */
@@ -1247,6 +1300,18 @@ useEffect(() => {
     />
   }
 />
+<Route
+  path="/tournament-register"
+  element={
+    <TournamentRegister
+      data={data}
+      admin={admin}
+      commit={commit}
+      startPayment={startPayment}
+      activeTournament={activeTournament}
+    />
+  }
+/>
                 <Route
           path="/live"
           element={
@@ -1300,6 +1365,9 @@ useEffect(() => {
       data={data}
       activeTournament={activeTournament}
       players={playersForTournament(activeTournament, data.players || [])}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
     />
   }
 />
@@ -2298,11 +2366,25 @@ const heroImages =
             {isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
           </div>
 
-          <div style={{ marginTop: 18 }}>
-            <Link className="btn neonGreen refViewBtn" to={`/fixtures?game=${isSnookerTournament ? "snooker" : "pool"}`}>
-              View Fixtures
-            </Link>
-          </div>
+          <div style={{ marginTop: 18, display: "flex", gap: 12, flexWrap: "wrap" }}>
+  <Link
+    className="btn neonGreen refViewBtn"
+    to={`/fixtures?game=${isSnookerTournament ? "snooker" : "pool"}`}
+  >
+    View Fixtures
+  </Link>
+
+  <Link
+    className="btn primary"
+    to="/tournament-register"
+    style={{
+      animation: "pulseGlow 1.2s infinite",
+      fontWeight: 800,
+    }}
+  >
+    Register Now
+  </Link>
+</div>
         </div>
 
         <div className="refTournamentVisual">
@@ -4364,6 +4446,204 @@ localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
 
           
         </div>
+      </div>
+    </>
+  );
+}
+function TournamentRegister({ data, admin, commit, startPayment, activeTournament }) {
+  const navigate = useNavigate();
+
+  const [playerName, setPlayerName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [playerId, setPlayerId] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const players = data.players || [];
+  const currentTournament = activeTournament || null;
+
+  const registrationFee = safeNum(currentTournament?.registrationFee, 99);
+
+  function beginRegistration() {
+    if (!currentTournament) {
+      alert("No active tournament found.");
+      return;
+    }
+
+    if (!playerName.trim()) {
+      alert("Please enter player name");
+      return;
+    }
+
+    if (!mobile.trim()) {
+      alert("Please enter mobile number");
+      return;
+    }
+
+    localStorage.setItem("qclub_payment_context", "tournament");
+    localStorage.setItem("qclub_payment_name", playerName.trim());
+    localStorage.setItem("qclub_payment_mobile", mobile.trim());
+    localStorage.setItem("qclub_tournament_id", currentTournament.id || "");
+    localStorage.setItem("qclub_tournament_name", currentTournament.name || "");
+    localStorage.setItem("qclub_tournament_fee", String(registrationFee));
+    localStorage.setItem("qclub_tournament_player_id", playerId || "");
+
+    startPayment(registrationFee, mobile.trim());
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Tournament Registration"
+        subtitle={currentTournament ? currentTournament.name : "Current tournament"}
+      />
+
+      <div className="container">
+        {!currentTournament ? (
+          <div className="card">
+            <div className="muted">No active tournament available right now.</div>
+          </div>
+        ) : (
+          <div className="grid">
+            <div className="card cols-7">
+              <h2 style={{ marginTop: 0 }}>{currentTournament.name}</h2>
+              <div
+  className="row"
+  style={{ marginTop: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}
+>
+  <div className="muted">Tournament Fee: ₹{registrationFee}</div>
+
+  {admin ? (
+    <button
+      className="btn"
+      type="button"
+      onClick={() => {
+        const nextFee = prompt(
+          "Enter registration fee",
+          String(registrationFee)
+        );
+        if (nextFee === null) return;
+
+        commit({
+          ...data,
+          tournaments: (data.tournaments || []).map((t) =>
+            t.id === currentTournament.id
+              ? {
+                  ...t,
+                  registrationFee: safeNum(nextFee, registrationFee),
+                }
+              : t
+          ),
+        });
+      }}
+    >
+      Edit Fee
+    </button>
+  ) : null}
+</div>
+              <div className="muted" style={{ marginTop: 8 }}>
+                Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={() => setShowForm((v) => !v)}
+                >
+                  {showForm ? "Hide Registration Form" : "Register Now"}
+                </button>
+              </div>
+
+              {showForm ? (
+                <div className="grid" style={{ marginTop: 18 }}>
+                  <div className="cols-6">
+                    <label className="lbl">Select Existing Player (optional)</label>
+                    <select
+                      value={playerId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setPlayerId(nextId);
+                        const found = players.find((p) => p.id === nextId);
+                        if (found) {
+                          setPlayerName(found.name || "");
+                        }
+                      }}
+                    >
+                      <option value="">New / manual entry</option>
+                      {players.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="cols-6">
+                    <label className="lbl">Player Name</label>
+                    <input
+                      value={playerName}
+                      onChange={(e) => setPlayerName(e.target.value)}
+                      placeholder="Enter player name"
+                    />
+                  </div>
+
+                  <div className="cols-6">
+                    <label className="lbl">Whatsapp Number</label>
+                    <input
+                      value={mobile}
+                      onChange={(e) => setMobile(e.target.value)}
+                      placeholder="Enter mobile number"
+                    />
+                  </div>
+
+                  <div className="cols-12" style={{ marginTop: 8 }}>
+                    <button
+                      className="btn neonGreen"
+                      type="button"
+                      onClick={beginRegistration}
+                    >
+                      Pay ₹{registrationFee} and Register
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="card cols-5">
+              <h2 style={{ marginTop: 0 }}>Current Tournament</h2>
+              <div className="badge" style={{ marginTop: 8 }}>
+                <span className="dot" />
+                {currentTournament.month || "This Month"}
+              </div>
+
+              <div className="muted" style={{ marginTop: 14 }}>
+                Game: {tournamentGameKey(currentTournament.game) === "pool" ? "Pool" : "Snooker"}
+              </div>
+
+              <div className="muted" style={{ marginTop: 10 }}>
+                Registered Players: {(currentTournament.participantIds || []).length}
+              </div>
+
+              <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
+  {admin ? (
+    <button
+      className="btn primary"
+      type="button"
+      onClick={() =>
+        generateKnockoutForTournamentNow(data, commit, currentTournament.id)
+      }
+    >
+      Generate Knockout Now
+    </button>
+  ) : null}
+
+  <button className="btn" type="button" onClick={() => navigate("/")}>
+    Back Home
+  </button>
+</div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -6856,7 +7136,7 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
 }
 
 
-function TVMode({ data, activeTournament, players }) {
+function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
   const matches = activeTournament?.matches || [];
   const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
 
@@ -7009,6 +7289,52 @@ function TVMode({ data, activeTournament, players }) {
       <PageShell title="TV Display" subtitle="Live tournament fixtures" />
 
       <div className="container">
+        {(data.announcements || []).length > 0 && (
+  <div
+    style={{
+      overflow: "hidden",
+      whiteSpace: "nowrap",
+      marginBottom: 16,
+      border: "1px solid rgba(255,255,255,.1)",
+      borderRadius: 12,
+      background: "rgba(0,0,0,.4)",
+    }}
+  >
+    <div
+      className="announceTickerTrack"
+      style={{
+        animationDuration: `${data.club?.tickerSpeed || 40}s`,
+        fontSize: "22px",
+        fontWeight: 700,
+        padding: "12px 0",
+      }}
+    >
+      {(data.announcements || []).map((a) => (
+        <span key={a.id} style={{ marginRight: 40 }}>
+          {a.text}
+        </span>
+      ))}
+    </div>
+  </div>
+)}
+{(admin || staffAdmin) && activeTournament ? (
+  <div style={{ marginBottom: 14 }}>
+    <button
+      className="btn primary"
+      style={{
+        fontSize: "18px",
+        padding: "12px 18px",
+        fontWeight: 800,
+      }}
+      onClick={() =>
+        generateKnockoutForTournamentNow(data, commit, activeTournament.id)
+      }
+    >
+      Generate Knockout Fixtures (Live)
+    </button>
+  </div>
+) : null}
+
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
             <div>
@@ -7735,6 +8061,71 @@ const displayTime = new Date().toLocaleString();
     }
     // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
 if (paymentContext === "membership" && !orderSaved) {
+  if (paymentContext === "tournament" && !orderSaved) {
+  const tournamentId = localStorage.getItem("qclub_tournament_id") || "";
+  const tournamentName = localStorage.getItem("qclub_tournament_name") || "";
+  const name = localStorage.getItem("qclub_payment_name") || "";
+  const mobile = localStorage.getItem("qclub_payment_mobile") || "";
+  const existingPlayerId = localStorage.getItem("qclub_tournament_player_id") || "";
+
+  if (tournamentId && name.trim()) {
+    let nextPlayers = [...(data.players || [])];
+    let finalPlayerId = existingPlayerId;
+
+    if (!finalPlayerId) {
+      const existingPlayer = nextPlayers.find(
+        (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+      );
+
+      if (existingPlayer) {
+        finalPlayerId = existingPlayer.id;
+      } else {
+        const newPlayer = {
+          id: `pl_${Date.now()}`,
+          name: name.trim(),
+          mobile: mobile.trim(),
+          city: "Pasighat",
+          createdAt: Date.now(),
+        };
+        nextPlayers = [...nextPlayers, newPlayer];
+        finalPlayerId = newPlayer.id;
+      }
+    }
+
+    const nextTournaments = (data.tournaments || []).map((t) => {
+      if (t.id !== tournamentId) return t;
+
+      const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
+      const nextIds = currentIds.includes(finalPlayerId)
+        ? currentIds
+        : [...currentIds, finalPlayerId];
+
+      return {
+        ...t,
+        participantIds: nextIds,
+      };
+    });
+
+    const tournamentAnnouncement = {
+      id: uid(),
+      text: `${name.trim()} registered for ${tournamentName || "the current tournament"} !`,
+      link: "/tournament-register",
+      createdAt: Date.now(),
+    };
+
+    commit({
+      ...data,
+      players: nextPlayers,
+      tournaments: nextTournaments,
+      announcements: [
+        tournamentAnnouncement,
+        ...(data.announcements || []),
+      ].slice(0, 20),
+    });
+
+    setOrderSaved(true);
+  }
+}
   const name = localStorage.getItem("qclub_payment_name") || "";
   const mobile = localStorage.getItem("qclub_payment_mobile") || "";
   const tier = localStorage.getItem("qclub_membership_tier") || "Member";
@@ -7833,6 +8224,8 @@ setOrderSaved(true);
   const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
   const tier = localStorage.getItem("qclub_membership_tier") || "";
   const tshirtSize = localStorage.getItem("qclub_tshirt_size") || "";
+  const tournamentName = localStorage.getItem("qclub_tournament_name") || "Current Tournament";
+const tournamentFee = localStorage.getItem("qclub_tournament_fee") || "";
   function downloadFoodReceiptPdf() {
   const params = new URLSearchParams(location.search);
   const orderIdFromUrl = params.get("order_id") || "";
@@ -7975,9 +8368,36 @@ setOrderSaved(true);
                   </button>
                 </div>
               </>
-            ) : (
-              <>
-                <h2>Table Booked Successfully</h2>
+            ) : paymentContext === "tournament" ? (
+  <>
+    <h2>Thank You for Registering 🏆</h2>
+
+    <p>
+      Thank you for registering for <strong>{tournamentName}</strong>.
+    </p>
+
+    <div className="card" style={{ marginTop: 12 }}>
+      <div><b>Name:</b> {savedName || "—"}</div>
+      <div><b>Mobile:</b> {savedMobile || "—"}</div>
+      <div><b>Registration Fee:</b> ₹{tournamentFee}</div>
+    </div>
+
+    <p style={{ marginTop: 14 }}>
+      Tournament will begin at <strong>6:00 PM sharp</strong>. Fixtures will be generated shortly after registration closes.
+    </p>
+
+    <div className="row" style={{ marginTop: 16 }}>
+      <button className="btn primary" onClick={() => navigate("/")}>
+        Go Home
+      </button>
+      <button className="btn" onClick={() => navigate("/fixtures")}>
+        View Fixtures
+      </button>
+    </div>
+  </>
+) : (
+  <>
+    <h2>Table Booked Successfully</h2>
 
                 <p>
                   Your table booking at <strong>The Q Club</strong> is confirmed.
