@@ -3566,14 +3566,27 @@ if (bookingType === "member") {
     return false;
   }
 
-  commit({
-    ...data,
-    booking: {
-      ...(data.booking || {}),
-      tables: tables,
-      requests: [req, ...(data.booking?.requests || [])],
-    },
-  });
+  const bookingAnnouncement = {
+  id: uid(),
+  text: `${selectedTable.label} booked by ${name.trim()} for ${
+    bookingDate === todayIso() ? "today" : bookingDate
+  } at ${timeSlot}.`,
+  link: "/book",
+  createdAt: Date.now(),
+};
+
+commit({
+  ...data,
+  booking: {
+    ...(data.booking || {}),
+    tables,
+    requests: [req, ...(data.booking?.requests || [])],
+  },
+  announcements: [
+    bookingAnnouncement,
+    ...(data.announcements || []),
+  ].slice(0, 20),
+});
 
   setSubmittedId(req.id);
   setName("");
@@ -7728,7 +7741,7 @@ const displayTime = new Date().toLocaleString();
       setOrderSaved(true);
     }
     // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
-if (paymentContext === "membership") {
+if (paymentContext === "membership" && !orderSaved) {
   const name = localStorage.getItem("qclub_payment_name") || "";
   const mobile = localStorage.getItem("qclub_payment_mobile") || "";
   const tier = localStorage.getItem("qclub_membership_tier") || "Member";
@@ -7803,6 +7816,7 @@ commit({
   ].slice(0, 20),
 });
 }
+setOrderSaved(true);
 
     setStatus("success");
 
