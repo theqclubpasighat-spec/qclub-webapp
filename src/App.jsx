@@ -2355,7 +2355,7 @@ const heroImages =
 
       <section className="refTournamentCard">
         <div className="refTournamentContent">
-          <div className="refTournamentKicker">Current Tournament</div>
+          <div className="refTournamentKicker">Featured Tournament</div>
           <div className="refTournamentName">
             {activeTournament?.name || "Q Club Tournament"}
           </div>
@@ -2385,6 +2385,9 @@ const heroImages =
     Register Now
   </Link>
 </div>
+<Link className="btn" to="/tournaments">
+  More Tournaments
+</Link>
         </div>
 
         <div className="refTournamentVisual">
@@ -4452,6 +4455,7 @@ localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
 }
 function TournamentRegister({ data, admin, commit, startPayment, activeTournament }) {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [playerName, setPlayerName] = useState("");
   const [mobile, setMobile] = useState("");
@@ -4459,7 +4463,11 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
   const [showForm, setShowForm] = useState(false);
 
   const players = data.players || [];
-  const currentTournament = activeTournament || null;
+  const tournamentIdFromUrl = new URLSearchParams(location.search).get("id") || "";
+  const currentTournament =
+  (data.tournaments || []).find((t) => t.id === tournamentIdFromUrl) ||
+  activeTournament ||
+  null;
 
   const registrationFee = safeNum(currentTournament?.registrationFee, 99);
 
@@ -5386,13 +5394,20 @@ function Tournaments({ data, admin, commit }) {
                 Game: {tournamentGameKey(t.game) === "pool" ? "Pool" : "Snooker"}
               </div>
 
-              {admin ? (
-  <div style={{ marginTop: 12 }}>
-    <Link className="btn primary" to="/fixtures">
+              <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+  <Link
+    className="btn primary"
+    to={`/tournament-register?id=${t.id}`}
+  >
+    Register Now
+  </Link>
+
+  {admin ? (
+    <Link className="btn" to="/fixtures">
       Manage Fixtures
     </Link>
-  </div>
-) : null}
+  ) : null}
+</div>
 
             </div>
 
@@ -7291,26 +7306,27 @@ function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) 
       <div className="container">
         {(data.announcements || []).length > 0 && (
   <div
-    style={{
-      overflow: "hidden",
-      whiteSpace: "nowrap",
-      marginBottom: 16,
-      border: "1px solid rgba(255,255,255,.1)",
-      borderRadius: 12,
-      background: "rgba(0,0,0,.4)",
-    }}
+   style={{
+  overflow: "hidden",
+  whiteSpace: "nowrap",
+  marginBottom: 16,
+  borderRadius: 12,
+  background: "rgba(0,0,0,0.65)",
+  padding: "6px 12px",
+}}
   >
     <div
       className="announceTickerTrack"
       style={{
-        animationDuration: `${data.club?.tickerSpeed || 40}s`,
-        fontSize: "22px",
-        fontWeight: 700,
-        padding: "12px 0",
-      }}
+  animationDuration: `${data.club?.tickerSpeed || 40}s`,
+  fontSize: "32px",            // BIG text for TV
+  fontWeight: 800,
+  padding: "18px 0",
+  letterSpacing: "0.5px",
+}}
     >
       {(data.announcements || []).map((a) => (
-        <span key={a.id} style={{ marginRight: 40 }}>
+        <span key={a.id} style={{ marginRight: 80 }}>
           {a.text}
         </span>
       ))}
@@ -7318,21 +7334,39 @@ function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) 
   </div>
 )}
 {(admin || staffAdmin) && activeTournament ? (
-  <div style={{ marginBottom: 14 }}>
-    <button
-      className="btn primary"
+  (!Array.isArray(activeTournament.matches) || activeTournament.matches.length === 0) ? (
+    <div style={{ marginBottom: 14 }}>
+      <button
+        className="btn primary"
+        style={{
+          fontSize: "18px",
+          padding: "12px 18px",
+          fontWeight: 800,
+        }}
+        onClick={() =>
+          generateKnockoutForTournamentNow(data, commit, activeTournament.id)
+        }
+      >
+        Generate Knockout Fixtures (Live)
+      </button>
+    </div>
+  ) : (
+    <div
       style={{
-        fontSize: "18px",
-        padding: "12px 18px",
-        fontWeight: 800,
+        marginBottom: 14,
+        padding: "10px 16px",
+        borderRadius: 12,
+        display: "inline-block",
+        background: "rgba(56, 211, 159, 0.15)",
+        border: "1px solid rgba(56, 211, 159, 0.4)",
+        fontWeight: 700,
+        fontSize: "16px",
+        color: "#38d39f",
       }}
-      onClick={() =>
-        generateKnockoutForTournamentNow(data, commit, activeTournament.id)
-      }
     >
-      Generate Knockout Fixtures (Live)
-    </button>
-  </div>
+      ✅ Fixtures Generated
+    </div>
+  )
 ) : null}
 
         <div className="card">
