@@ -2366,10 +2366,11 @@ const heroImages =
             {isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
           </div>
 
-          <div style={{ marginTop: 18, display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
   <Link
     className="btn neonGreen refViewBtn"
     to={`/fixtures?game=${isSnookerTournament ? "snooker" : "pool"}`}
+    style={{ flex: "1 1 180px", minWidth: 0 }}
   >
     View Fixtures
   </Link>
@@ -2380,14 +2381,30 @@ const heroImages =
     style={{
       animation: "pulseGlow 1.2s infinite",
       fontWeight: 800,
+      flex: "1 1 180px",
+      minWidth: 0,
+      textAlign: "center",
     }}
   >
     Register Now
   </Link>
-</div>
-<Link className="btn" to="/tournaments">
-  More Tournaments
+
+  <Link
+  className="btn primary"
+  to="/tournaments"
+  style={{
+    flex: "1 1 180px",
+    minWidth: 0,
+    textAlign: "center",
+    fontWeight: 700,
+    background: "linear-gradient(90deg, #00ffcc, #00bfff)",
+    boxShadow: "0 0 12px rgba(0,255,200,0.6)",
+    animation: "pulseGlow 1.5s infinite",
+  }}
+>
+  Explore Tournaments
 </Link>
+</div>
         </div>
 
         <div className="refTournamentVisual">
@@ -4470,6 +4487,9 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
   null;
 
   const registrationFee = safeNum(currentTournament?.registrationFee, 99);
+  const registeredPlayers = (currentTournament?.participantIds || [])
+  .map((id) => players.find((p) => p.id === id))
+  .filter(Boolean);
 
   function beginRegistration() {
     if (!currentTournament) {
@@ -4631,6 +4651,26 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
               <div className="muted" style={{ marginTop: 10 }}>
                 Registered Players: {(currentTournament.participantIds || []).length}
               </div>
+              <div id="registered-players" style={{ marginTop: 14 }}>
+  <div style={{ fontWeight: 700, marginBottom: 8 }}>Registered Players</div>
+
+  {registeredPlayers.length > 0 ? (
+    <div style={{ display: "grid", gap: 8 }}>
+      {registeredPlayers.map((p, idx) => (
+        <div
+          key={p.id || idx}
+          className="badge"
+          style={{ justifyContent: "flex-start", padding: "10px 12px" }}
+        >
+          <span className="dot" />
+          {p.name}
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div className="muted">No registrations yet.</div>
+  )}
+</div>
 
               <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
   {admin ? (
@@ -5400,6 +5440,13 @@ function Tournaments({ data, admin, commit }) {
     to={`/tournament-register?id=${t.id}`}
   >
     Register Now
+  </Link>
+
+  <Link
+    className="btn"
+    to={`/tournament-register?id=${t.id}#registered-players`}
+  >
+    Registered Players
   </Link>
 
   {admin ? (
@@ -8141,11 +8188,11 @@ if (paymentContext === "membership" && !orderSaved) {
     });
 
     const tournamentAnnouncement = {
-      id: uid(),
-      text: `${name.trim()} registered for ${tournamentName || "the current tournament"} !`,
-      link: "/tournament-register",
-      createdAt: Date.now(),
-    };
+  id: uid(),
+  text: `${name.trim()} registered for ${tournamentName || "the current tournament"} ! Register now`,
+  link: `/tournament-register?id=${tournamentId}`,
+  createdAt: Date.now(),
+};
 
     commit({
       ...data,
