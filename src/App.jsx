@@ -2368,12 +2368,11 @@ const heroImages =
 
           <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
   <Link
-    className="btn neonGreen refViewBtn"
-    to={`/fixtures?game=${isSnookerTournament ? "snooker" : "pool"}`}
-    style={{ flex: "1 1 180px", minWidth: 0 }}
-  >
-    View Fixtures
-  </Link>
+  className="btn neonGreen refViewBtn"
+  to={`/fixtures?id=${activeTournament?.id || ""}`}
+>
+  View Fixtures
+</Link>
 
   <Link
     className="btn primary"
@@ -2481,20 +2480,31 @@ function MembersPage({ data, admin, commit }) {
   const joinedOn = prompt("Joined date (YYYY-MM-DD):", new Date().toISOString().slice(0, 10)) || "";
   const note = prompt("Short note:", "") || "";
 
-  commit({
-    ...data,
-    membersPage: [
-      ...(data.membersPage || []),
-      {
-        id: `member_${Date.now()}`,
-        name: name.trim(),
-        tier: tier.trim(),
-        joinedOn: joinedOn.trim(),
-        note: note.trim(),
-        photo: "",
-      },
-    ],
-  });
+  const manualMemberAnnouncement = {
+  id: uid(),
+  text: `${name.trim()} joins as the latest Q Club member !`,
+  link: "/members",
+  createdAt: Date.now(),
+};
+
+commit({
+  ...data,
+  membersPage: [
+    ...(data.membersPage || []),
+    {
+      id: `member_${Date.now()}`,
+      name: name.trim(),
+      tier: tier.trim(),
+      joinedOn: joinedOn.trim(),
+      note: note.trim(),
+      photo: "",
+    },
+  ],
+  announcements: [
+    manualMemberAnnouncement,
+    ...(data.announcements || []),
+  ].slice(0, 20),
+});
 }
 
 function editMember(id) {
@@ -3580,13 +3590,33 @@ function BookTable({ data, admin, commit, startPayment }) {
   const tables = data.booking?.tables || [];
   const today = todayIso();
 
-const memberOptions = Array.isArray(data.memberRegistry)
+const registryMembers = Array.isArray(data.memberRegistry)
   ? data.memberRegistry.filter((m) => {
       const statusOk = String(m.status || "").toLowerCase() === "active";
       const dateOk = !m.validUntil || String(m.validUntil) >= today;
       return statusOk && dateOk;
     })
   : [];
+
+const membersPageEntries = Array.isArray(data.membersPage)
+  ? data.membersPage.map((m) => ({
+      id: `memberpage_${m.id}`,
+      name: m.name || "",
+      tier: m.tier || "",
+      joinedOn: m.joinedOn || "",
+      status: "active",
+    }))
+  : [];
+
+const memberOptions = [...registryMembers, ...membersPageEntries].filter(
+  (m, idx, arr) =>
+    String(m.name || "").trim() &&
+    arr.findIndex(
+      (x) =>
+        String(x.name || "").trim().toLowerCase() ===
+        String(m.name || "").trim().toLowerCase()
+    ) === idx
+);
   const selectedTable = tables.find((t) => t.id === itemId) || tables[0] || null;
   const slots = bookingTimeSlots(bookingDate);
   const amount = bookingAmountFor(selectedTable, bookingType === "member" ? "member" : "nonmember");
@@ -4480,6 +4510,28 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
   const [showForm, setShowForm] = useState(false);
 
   const players = data.players || [];
+  const memberPagePlayers = (data.membersPage || []).map((m) => ({
+  id: `memberpage_${m.id}`,
+  name: m.name || "",
+}));
+
+const registryPlayers = (data.memberRegistry || []).map((m) => ({
+  id: `registry_${m.id}`,
+  name: m.name || "",
+}));
+
+const existingSelectablePlayers = [
+  ...players.map((p) => ({ id: p.id, name: p.name || "" })),
+  ...memberPagePlayers,
+  ...registryPlayers,
+].filter((p) => p.name.trim());
+
+const uniqueSelectablePlayers = existingSelectablePlayers.filter(
+  (p, idx, arr) =>
+    arr.findIndex(
+      (x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase()
+    ) === idx
+);
   const tournamentIdFromUrl = new URLSearchParams(location.search).get("id") || "";
   const currentTournament =
   (data.tournaments || []).find((t) => t.id === tournamentIdFromUrl) ||
@@ -4490,6 +4542,70 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
   const registeredPlayers = (currentTournament?.participantIds || [])
   .map((id) => players.find((p) => p.id === id))
   .filter(Boolean);
+  function addRegisteredPlayerManually() {
+  if (!admin) return;
+
+  if (!currentTournament) {
+    alert("No tournament selected.");
+    return;
+  }
+
+  const name = prompt("Enter player name:");
+  if (!name) return;
+
+  const mobile = prompt("Enter mobile number (optional):", "") || "";
+
+  let nextPlayers = [...(data.players || [])];
+
+  let existing = nextPlayers.find(
+    (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+  );
+
+  let finalPlayerId = existing?.id || "";
+
+  if (!finalPlayerId) {
+    const newPlayer = {
+      id: `pl_${Date.now()}`,
+      name: name.trim(),
+      mobile: mobile.trim(),
+      city: "Pasighat",
+      createdAt: Date.now(),
+    };
+    nextPlayers = [...nextPlayers, newPlayer];
+    finalPlayerId = newPlayer.id;
+  }
+
+  const nextTournaments = (data.tournaments || []).map((t) => {
+    if (t.id !== currentTournament.id) return t;
+
+    const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
+    const nextIds = currentIds.includes(finalPlayerId)
+      ? currentIds
+      : [...currentIds, finalPlayerId];
+
+    return {
+      ...t,
+      participantIds: nextIds,
+    };
+  });
+
+  const manualTournamentAnnouncement = {
+  id: uid(),
+  text: `${name.trim()} registered for ${currentTournament.name || "the tournament"} ! Register now`,
+  link: `/tournament-register?id=${currentTournament.id}`,
+  createdAt: Date.now(),
+};
+
+commit({
+  ...data,
+  players: nextPlayers,
+  tournaments: nextTournaments,
+  announcements: [
+    manualTournamentAnnouncement,
+    ...(data.announcements || []),
+  ].slice(0, 20),
+});
+}
 
   function beginRegistration() {
     if (!currentTournament) {
@@ -4598,11 +4714,11 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
                       }}
                     >
                       <option value="">New / manual entry</option>
-                      {players.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
+                      {uniqueSelectablePlayers.map((p) => (
+  <option key={p.id} value={p.id}>
+    {p.name}
+  </option>
+))}
                     </select>
                   </div>
 
@@ -4652,7 +4768,29 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
                 Registered Players: {(currentTournament.participantIds || []).length}
               </div>
               <div id="registered-players" style={{ marginTop: 14 }}>
-  <div style={{ fontWeight: 700, marginBottom: 8 }}>Registered Players</div>
+  <div
+  style={{
+    fontWeight: 700,
+    marginBottom: 8,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  }}
+>
+  <span>Registered Players</span>
+
+  {admin ? (
+    <button
+      className="btn"
+      type="button"
+      onClick={addRegisteredPlayerManually}
+    >
+      + Add Player
+    </button>
+  ) : null}
+</div>
 
   {registeredPlayers.length > 0 ? (
     <div style={{ display: "grid", gap: 8 }}>
@@ -5470,26 +5608,17 @@ function Fixtures({ data, admin, commit, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   
   const location = useLocation();
-const queryGame = new URLSearchParams(location.search).get("game");
+const params = new URLSearchParams(location.search);
+const queryTournamentId = params.get("id") || "";
   const players = data.players || [];
   const [selectedTournamentId, setSelectedTournamentId] = useState(() => {
-  if (queryGame) {
-    const matched = tournaments.find(
-      (t) => String(t.game || "").toLowerCase() === queryGame.toLowerCase()
-    );
-    if (matched) return matched.id;
-  }
+  if (queryTournamentId) return queryTournamentId;
   return tournaments[0]?.id || "";
 });
 useEffect(() => {
-  if (!queryGame) return;
-  const matched = tournaments.find(
-    (t) => String(t.game || "").toLowerCase() === queryGame.toLowerCase()
-  );
-  if (matched && matched.id !== selectedTournamentId) {
-    setSelectedTournamentId(matched.id);
-  }
-}, [queryGame, tournaments, selectedTournamentId]);
+  if (!queryTournamentId) return;
+  setSelectedTournamentId((prev) => prev || queryTournamentId);
+}, [queryTournamentId]);
 
   useEffect(() => {
     if (!selectedTournamentId && tournaments[0]?.id) {
@@ -5895,10 +6024,10 @@ function updateMatchStatus(matchId, status) {
                 </div>
 
                 {!selectedTournament.matches?.length ? (
-                  <div className="muted" style={{ marginTop: 12 }}>
-                    No fixtures yet. Generate fixtures first.
-                  </div>
-                ) : (
+  <div className="muted" style={{ marginTop: 12 }}>
+    Fixture will be generated after registration closes.
+  </div>
+) : (
                   <div style={{ marginTop: 12 }}>
                     <table>
                       <thead>
@@ -7200,6 +7329,18 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
 
 function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
   const matches = activeTournament?.matches || [];
+  const [showFixtureBanner, setShowFixtureBanner] = useState(false);
+  useEffect(() => {
+  if (matches.length > 0) {
+    setShowFixtureBanner(true);
+
+    const t = setTimeout(() => {
+      setShowFixtureBanner(false);
+    }, 6000); // show for 6 seconds
+
+    return () => clearTimeout(t);
+  }
+}, [matches.length]);
   const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
 
   const highestBreakPlayer = isSnooker
@@ -7397,23 +7538,26 @@ function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) 
         Generate Knockout Fixtures (Live)
       </button>
     </div>
-  ) : (
+  ) : showFixtureBanner ? (
     <div
       style={{
-        marginBottom: 14,
-        padding: "10px 16px",
-        borderRadius: 12,
+        marginBottom: 16,
+        padding: "14px 22px",
+        borderRadius: 14,
         display: "inline-block",
-        background: "rgba(56, 211, 159, 0.15)",
-        border: "1px solid rgba(56, 211, 159, 0.4)",
-        fontWeight: 700,
-        fontSize: "16px",
-        color: "#38d39f",
+        background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
+        border: "1px solid rgba(56, 211, 159, 0.45)",
+        fontWeight: 800,
+        fontSize: "22px",
+        color: "#7fffd4",
+        boxShadow: "0 0 18px rgba(56,211,159,.28)",
+        animation: "pulseGlow 1.4s infinite",
+        letterSpacing: "0.3px",
       }}
     >
-      ✅ Fixtures Generated
+      🎯 Knockout Fixtures Generated
     </div>
-  )
+  ) : null
 ) : null}
 
         <div className="card">
