@@ -102,11 +102,12 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function bookingTimeSlots(selectedDate = todayIso()) {
+function bookingTimeSlots(selectedDate = todayIso(), blockedSlotValues = []) {
   const slots = [];
   const today = todayIso();
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const blockedSet = new Set((blockedSlotValues || []).filter(Boolean));
 
   for (let hour = 11; hour <= 22; hour += 1) {
     const next = hour + 1;
@@ -115,6 +116,7 @@ function bookingTimeSlots(selectedDate = todayIso()) {
 
     const slotStartMinutes = hour * 60;
     const slotEndMinutes = next * 60;
+    const value = `${start}-${end}`;
 
     const isPastToday =
       selectedDate === today && currentMinutes >= slotEndMinutes;
@@ -124,10 +126,13 @@ function bookingTimeSlots(selectedDate = todayIso()) {
       currentMinutes >= slotStartMinutes &&
       currentMinutes < slotEndMinutes;
 
+    const isBlocked = blockedSet.has(value);
+
     slots.push({
-      value: `${start}-${end}`,
+      value,
       label: `${start} to ${end}`,
-      disabled: isPastToday || isRunningNow,
+      disabled: isPastToday || isRunningNow || isBlocked,
+      blocked: isBlocked,
     });
   }
 
@@ -660,14 +665,15 @@ memberRegistry: [
       },
     ],
     booking: {
-      tables: [
-        { id: "snk12", label: "Snooker Table 12x6 — ₹400 / hour", pricePerHour: 400 },
-        { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
-        { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
-      ],
-      requests: [],
-      lastSeenRequestAt: 0,
-    },
+  tables: [
+    { id: "snk12", label: "Snooker Table 12x6 — ₹400 / hour", pricePerHour: 400 },
+    { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
+    { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
+  ],
+  requests: [],
+  blockedSlots: [],
+  lastSeenRequestAt: 0,
+},
         hallOfFame: [],
     mediaLibrary: [],
   };
@@ -720,12 +726,13 @@ foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
 archivedFoodOrders: Array.isArray(src.archivedFoodOrders) ? src.archivedFoodOrders : base.archivedFoodOrders,
 tournaments: Array.isArray(src.tournaments) ? src.tournaments : base.tournaments,
     booking: {
-      ...base.booking,
-      ...(src.booking || {}),
-      tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
-      requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
-      lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
-    },
+  ...base.booking,
+  ...(src.booking || {}),
+  tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
+  requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
+  blockedSlots: Array.isArray(src?.booking?.blockedSlots) ? src.booking.blockedSlots : base.booking.blockedSlots,
+  lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
+},
         hallOfFame: Array.isArray(src.hallOfFame) ? src.hallOfFame : base.hallOfFame,
         mediaLibrary: Array.isArray(src.mediaLibrary) ? src.mediaLibrary : base.mediaLibrary,
   };
@@ -3699,8 +3706,21 @@ const memberOptions = [...registryMembers, ...membersPageEntries].filter(
     ) === idx
 );
   const selectedTable = tables.find((t) => t.id === itemId) || tables[0] || null;
-  const slots = bookingTimeSlots(bookingDate);
-  const amount = bookingAmountFor(selectedTable, bookingType === "member" ? "member" : "nonmember");
+
+const blockedEntries = (data.booking?.blockedSlots || []).filter(
+  (x) =>
+    x &&
+    x.itemId === selectedTable?.id &&
+    x.bookingDate === bookingDate
+);
+
+const blockedSlotValues = blockedEntries.map((x) => x.timeSlot);
+const slots = bookingTimeSlots(bookingDate, blockedSlotValues);
+
+const amount = bookingAmountFor(
+  selectedTable,
+  bookingType === "member" ? "member" : "nonmember"
+);
 
   useEffect(() => {
     const firstAvailable = slots.find((s) => !s.disabled)?.value || "";
@@ -3899,6 +3919,91 @@ function deleteBookingTable(tableId) {
     setItemId(nextTables[0]?.id || "");
   }
 }
+function blockSelectedSlot() {
+  if (!admin) return alert("Admin only");
+  if (!selectedTable) return alert("Please select a table first.");
+  if (!bookingDate) return alert("Please select a booking date first.");
+  if (!timeSlot) return alert("Please select a time slot first.");
+
+  const alreadyBlocked = (data.booking?.blockedSlots || []).some(
+    (x) =>
+      x.itemId === selectedTable.id &&
+      x.bookingDate === bookingDate &&
+      x.timeSlot === timeSlot
+  );
+
+  if (alreadyBlocked) {
+    alert("This slot is already blocked.");
+    return;
+  }
+
+  const reason =
+    prompt(
+      "Reason for blocking this slot?",
+      "Blocked for tournament / reserve"
+    ) || "Blocked for tournament / reserve";
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables,
+      requests: data.booking?.requests || [],
+      blockedSlots: [
+        {
+          id: uid(),
+          itemId: selectedTable.id,
+          itemLabel: selectedTable.label,
+          bookingDate,
+          timeSlot,
+          reason: reason.trim(),
+          createdAt: Date.now(),
+        },
+        ...(data.booking?.blockedSlots || []),
+      ],
+    },
+  });
+
+  alert("Slot blocked successfully.");
+}
+
+function unblockSelectedSlot(slotValue = timeSlot) {
+  if (!admin) return alert("Admin only");
+  if (!selectedTable) return alert("Please select a table first.");
+  if (!bookingDate) return alert("Please select a booking date first.");
+  if (!slotValue) return alert("Please select a time slot first.");
+
+  const exists = (data.booking?.blockedSlots || []).some(
+    (x) =>
+      x.itemId === selectedTable.id &&
+      x.bookingDate === bookingDate &&
+      x.timeSlot === slotValue
+  );
+
+  if (!exists) {
+    alert("This slot is not blocked.");
+    return;
+  }
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables,
+      requests: data.booking?.requests || [],
+      blockedSlots: (data.booking?.blockedSlots || []).filter(
+        (x) =>
+          !(
+            x.itemId === selectedTable.id &&
+            x.bookingDate === bookingDate &&
+            x.timeSlot === slotValue
+          )
+      ),
+    },
+  });
+
+  alert("Slot unblocked successfully.");
+}
   function approveRequest(id) {
     if (!admin) return alert("Admin only");
 
@@ -3994,6 +4099,22 @@ function deleteBookingTable(tableId) {
           onClick={() => deleteBookingTable(selectedTable.id)}
         >
           Delete Selected Table
+        </button>
+
+        <button
+          className="btn warn"
+          type="button"
+          onClick={blockSelectedSlot}
+        >
+          Block Selected Slot
+        </button>
+
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => unblockSelectedSlot()}
+        >
+          Unblock Selected Slot
         </button>
       </>
     ) : null}
@@ -4100,13 +4221,47 @@ function deleteBookingTable(tableId) {
               </div>
 
               <div className="cols-12">
-                <label className="lbl">Note (optional)</label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Special note"
-                />
-              </div>
+  {admin && selectedTable ? (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 12,
+        border: "1px solid rgba(255,255,255,.10)",
+        borderRadius: 14,
+        background: "rgba(255,255,255,.03)",
+      }}
+    >
+      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+        Blocked Slots for {selectedTable.label.split("₹")[0].trim()} on {bookingDate}
+      </div>
+
+      {blockedEntries.length === 0 ? (
+        <div className="muted">No blocked slots for this date.</div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {blockedEntries.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className="btn secondary"
+              onClick={() => unblockSelectedSlot(entry.timeSlot)}
+              title={entry.reason || "Blocked slot"}
+            >
+              {entry.timeSlot} ×
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null}
+
+  <label className="lbl">Note (optional)</label>
+  <textarea
+    value={note}
+    onChange={(e) => setNote(e.target.value)}
+    placeholder="Special note"
+  />
+</div>
             </div>
 
             <div className="hr" />
