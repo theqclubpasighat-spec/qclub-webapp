@@ -388,6 +388,117 @@ function defaultData() {
   heroSlides: [],
   heroSpeed: 3500,
   tickerSpeed: 28,
+  aboutTitle: "About The Q Club",
+  aboutContent: `The Q Club is a premium indoor gaming lounge in Pasighat offering cue sports and leisure experiences in a comfortable, modern setting.
+
+We provide Snooker, American Pool, Mini Snooker, Air Hockey, Foosball, refreshments, and relaxation facilities for members and visitors.
+
+## Business Nature
+The Q Club operates as a recreational indoor sports and leisure lounge.
+
+## Our Mission
+Our goal is to create a safe, premium, and welcoming environment that promotes sportsmanship, recreation, and healthy competition.
+
+## Club Facilities
+- Professional Snooker Tables
+- American Pool Table
+- Mini Snooker Table
+- Air Hockey Table
+- Foosball Table
+- Tea & Coffee Vending
+- Massage Chair
+
+## Community Events
+The Q Club may organise friendly tournaments, league nights, and special club events for members and guests.`,
+  contactTitle: "Contact Us",
+  contactContent: `If you have any questions about bookings, memberships, tournaments, or club rules, feel free to reach out.
+
+The Q Club
+GTC, Pasighat
+Arunachal Pradesh, India
+
+## Phone / WhatsApp
+7005212774
+7085221922
+
+## Operating Hours
+Open Daily: 11:00 AM – 10:00 PM (subject to holidays or tournament schedules)
+
+## Visit Us For
+- Snooker
+- Pool
+- Air Hockey
+- Foosball
+- Massage Chair
+- Tea & Coffee
+- Monthly Club Events`,
+  termsTitle: "Terms & Conditions",
+  termsContent: `By entering The Q Club or using our services, you agree to the following terms.
+
+## 1. Club Rules
+- No smoking inside the main club area.
+- No alcohol allowed inside the premises.
+- Spitting is strictly prohibited.
+- Misconduct or damage to property may result in immediate removal from the club.
+
+## 2. Membership
+- Membership is monthly and non-transferable.
+- Membership privileges reset daily at 00:00 hours.
+- Member access to game tables is subject to availability.
+
+## 3. Complimentary Session Guidelines
+Complimentary play sessions, where applicable, may be offered at the discretion of the club and subject to availability.
+- Pool: up to 15 minutes
+- Mini Snooker: up to 20 minutes
+- Snooker Table: up to 30 minutes
+Unless specified otherwise, such sessions are generally available from 11:00 AM to 5:00 PM.
+
+## 4. Liability
+The Q Club is not responsible for loss of personal belongings within the premises.
+
+## 5. Management Rights
+The management reserves the right to refuse entry, modify prices, update membership benefits, and change club rules without prior notice.`,
+  refundTitle: "Refund Policy",
+  refundContent: `At The Q Club, we strive to ensure a smooth and fair experience for all customers.
+
+## Membership
+Membership fees are generally non-refundable once activated.
+
+## Table Bookings
+If advance bookings are introduced in the future, cancellations made at least 2 hours before booking time may be eligible for rescheduling. Missed bookings may not be refundable.
+
+## Technical Issues
+If a game cannot be completed due to equipment malfunction, staff may offer replacement play time or a complimentary session at the discretion of management.
+
+## Refund Review
+If a payment is made in error or a technical issue occurs during payment processing, customers may contact The Q Club for review. Refunds, if applicable, may be processed within 5–7 working days.`,
+  privacyTitle: "Privacy Policy",
+  privacyContent: `The Q Club respects your privacy.
+
+## Information We Collect
+We may collect basic information such as name, phone number, membership details, and tournament participation records.
+
+## How We Use This Information
+Your information is used for membership verification, tournament records, leaderboard rankings, and communication about club events.
+
+## Data Protection
+We do not sell or share your personal data with third parties.
+
+## Payment Information
+Payment transactions are processed through authorized payment gateway providers. The Q Club does not store card or payment details on its servers.
+
+## Media Usage
+Photos and videos taken inside the club and on Membership pages may be used on social media, promotional materials, and website content.`,
+  tournamentDisclaimerTitle: "Tournament Legal Disclaimer",
+  tournamentDisclaimerContent: `The Q Club may organise recreational skill-based tournaments in games such as Snooker, Pool, Air Hockey, Foosball, and similar sporting or leisure activities. Any registration fee collected for such tournaments is charged towards participation, event organisation, table usage, administration, logistics, officiating, refreshments, and related club services.
+
+Prize money, trophies, gifts, or other rewards for tournament winners may be funded from player registration fees, sponsorship support, promotional budgets, or contributions made by the club management. Such tournaments are intended as skill-based recreational competitions and not as gambling or wagering activities conducted by the club.
+
+The Club does not organise, facilitate, or profit from any private wagering or side betting that individuals may independently engage in amongst themselves. Any such private act is not part of the Club’s official services, tournament structure, or business model.
+
+The Club charges only for lawful use of its premises, facilities, event organisation, and related services, and does not take any commission or percentage from private bets, if any, between individuals.
+
+By participating in any tournament at The Q Club, players acknowledge that tournament formats, rules, prize structures, schedules, and eligibility conditions may be fixed, revised, or interpreted by the management in the interest of smooth event conduct. Management reserves the right to refuse entry, disqualify participants for misconduct, and amend tournament rules or schedules when reasonably required.`,
 },
     admin: {
   mainPin: "1234",
@@ -1372,11 +1483,11 @@ useEffect(() => {
   }
 />
         <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
-        <Route path="/about" element={<StaticPage title="About The Q Club"><AboutContent data={data} /></StaticPage>} />
-        <Route path="/contact" element={<StaticPage title="Contact Us"><ContactContent data={data} /></StaticPage>} />
-        <Route path="/terms" element={<StaticPage title="Terms & Conditions"><TermsContent /></StaticPage>} />
-        <Route path="/refund" element={<StaticPage title="Refund Policy"><RefundContent /></StaticPage>} />
-        <Route path="/privacy" element={<StaticPage title="Privacy Policy"><PrivacyContent /></StaticPage>} />
+        <Route path="/about" element={<StaticPage title={data.club?.aboutTitle || "About The Q Club"}><AboutContent data={data} admin={admin} commit={commit} /></StaticPage>} />
+        <Route path="/contact" element={<StaticPage title={data.club?.contactTitle || "Contact Us"}><ContactContent data={data} admin={admin} commit={commit} /></StaticPage>} />
+        <Route path="/terms" element={<StaticPage title={data.club?.termsTitle || "Terms & Conditions"}><TermsContent data={data} admin={admin} commit={commit} /></StaticPage>} />
+        <Route path="/refund" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent data={data} admin={admin} commit={commit} /></StaticPage>} />
+        <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route
   path="/admin/orders"
   element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
@@ -1706,208 +1817,177 @@ function StaticPage({ title, children }) {
   );
 }
 
-function AboutContent({ data }) {
+function renderEditableContent(content) {
+  const blocks = String(content || "")
+    .split(/\n\s*\n/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  return blocks.map((block, idx) => {
+    const lines = block.split("\n").map((x) => x.trim()).filter(Boolean);
+    if (!lines.length) return null;
+
+    if (lines[0].startsWith("## ")) {
+      const heading = lines[0].replace(/^##\s+/, "");
+      const rest = lines.slice(1);
+      const listItems = rest.filter((line) => line.startsWith("- "));
+      const textLines = rest.filter((line) => !line.startsWith("- "));
+
+      return (
+        <div key={idx}>
+          <h3>{heading}</h3>
+          {textLines.length ? <p>{textLines.join(" ")}</p> : null}
+          {listItems.length ? (
+            <ul>
+              {listItems.map((item, itemIdx) => (
+                <li key={itemIdx}>{item.replace(/^-\s+/, "")}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      );
+    }
+
+    const listItems = lines.filter((line) => line.startsWith("- "));
+    const textLines = lines.filter((line) => !line.startsWith("- "));
+
+    return (
+      <div key={idx}>
+        {textLines.length ? (
+          <p>
+            {textLines.map((line, lineIdx) => (
+              <React.Fragment key={lineIdx}>
+                {lineIdx > 0 ? <br /> : null}
+                {line}
+              </React.Fragment>
+            ))}
+          </p>
+        ) : null}
+        {listItems.length ? (
+          <ul>
+            {listItems.map((item, itemIdx) => (
+              <li key={itemIdx}>{item.replace(/^-\s+/, "")}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    );
+  });
+}
+
+function editStaticPage(admin, data, commit, titleKey, contentKey, fallbackTitle, fallbackContent) {
+  if (!admin) return;
+
+  const nextTitle = prompt("Page title:", data.club?.[titleKey] || fallbackTitle);
+  if (nextTitle === null) return;
+
+  const nextContent = prompt(
+    "Page content. Use blank lines between paragraphs, ## for headings, and - for bullet points.",
+    data.club?.[contentKey] || fallbackContent
+  );
+  if (nextContent === null) return;
+
+  commit({
+    ...data,
+    club: {
+      ...data.club,
+      [titleKey]: nextTitle.trim() || fallbackTitle,
+      [contentKey]: nextContent.trim() || fallbackContent,
+    },
+  });
+}
+
+function AboutContent({ data, admin, commit }) {
+  const fallbackTitle = "About The Q Club";
+  const fallbackContent = defaultData().club.aboutContent;
+  const content = data.club?.aboutContent || fallbackContent;
+
   return (
     <>
-      <p>
-        <b>The Q Club</b> is a recreational indoor gaming lounge located in{" "}
-        <b>{data.club?.location || "Pasighat"}</b>, offering cue sports and leisure
-        activities in a comfortable and welcoming environment.
-      </p>
-
-      <p>
-        The club provides facilities for enthusiasts and casual players to enjoy games
-        such as Snooker, American Pool, Mini Snooker, Air Hockey and Foosball.
-      </p>
-
-      <p>
-        In addition to gaming, The Q Club also offers relaxation and refreshment
-        facilities including a massage chair and tea & coffee vending services.
-      </p>
-
-      <h3>Business Nature</h3>
-      <p>
-        The Q Club operates as a <b>recreational indoor sports lounge</b> offering
-        access to cue sports tables and leisure facilities.
-      </p>
-
-      <h3>Our Mission</h3>
-      <p>
-        Our goal is to provide a premium and safe recreational environment for players
-        of all skill levels while encouraging healthy competition and sportsmanship.
-      </p>
-
-      <h3>Club Facilities</h3>
-      <ul>
-        <li>Professional Snooker Tables</li>
-        <li>American Pool Table</li>
-        <li>Mini Snooker Table</li>
-        <li>Air Hockey Table</li>
-        <li>Foosball Table</li>
-        <li>Tea & Coffee Vending</li>
-        <li>Massage Chair</li>
-      </ul>
-
-      <h3>Community Events</h3>
-      <p>
-        The Q Club may organize friendly tournaments and club events for members and
-        visitors to encourage participation and enjoyment of cue sports.
-      </p>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "aboutTitle", "aboutContent", fallbackTitle, fallbackContent)}>
+            Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
     </>
   );
 }
 
-function ContactContent({ data }) {
-  const phone1 = data.club?.contact?.phone1 || "7005068497";
-  const phone2 = data.club?.contact?.phone2 || "7085221922";
+function ContactContent({ data, admin, commit }) {
+  const fallbackTitle = "Contact Us";
+  const fallbackContent = defaultData().club.contactContent;
+  const content = data.club?.contactContent || fallbackContent;
 
   return (
     <>
-      <p>
-        If you have any questions about bookings, memberships, tournaments, or club
-        rules, feel free to reach out.
-      </p>
-
-      <p>
-        <b>The Q Club</b><br />
-        GTC, {data.club?.location || "Pasighat"}<br />
-        Arunachal Pradesh, India
-      </p>
-
-      <h3>Phone / WhatsApp</h3>
-      <p>
-        {phone1}
-        <br />
-        {phone2}
-      </p>
-
-      <h3>Operating Hours</h3>
-      <p>Open Daily: 11:00 AM – 10:00 PM (subject to holidays or tournament schedules)</p>
-
-      <h3>Visit Us For</h3>
-      <ul>
-        <li>Snooker</li>
-        <li>Pool</li>
-        <li>Air Hockey</li>
-        <li>Foosball</li>
-        <li>Massage Chair</li>
-        <li>Tea & Coffee</li>
-        <li>Monthly Club Events</li>
-      </ul>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "contactTitle", "contactContent", fallbackTitle, fallbackContent)}>
+            Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
     </>
   );
 }
 
-function TermsContent() {
+function TermsContent({ data, admin, commit }) {
+  const fallbackTitle = "Terms & Conditions";
+  const fallbackContent = defaultData().club.termsContent;
+  const content = data.club?.termsContent || fallbackContent;
+
   return (
     <>
-      <p>
-        By entering The Q Club or using our services, you agree to the following terms.
-      </p>
-
-      <h3>1. Club Rules</h3>
-      <ul>
-        <li>No smoking inside the main club area.</li>
-        <li>No alcohol allowed inside the premises.</li>
-        <li>Spitting is strictly prohibited.</li>
-        <li>Misconduct or damage to property may result in immediate removal from the club.</li>
-      </ul>
-
-      <h3>2. Membership</h3>
-      <ul>
-        <li>Membership is monthly and non-transferable.</li>
-        <li>Membership privileges reset daily at 00:00 hours.</li>
-        <li>Member access to game tables is subject to availability.</li>
-      </ul>
-
-      <h3>3. Complimentary Session Guidelines</h3>
-      <p>
-        Complimentary play sessions, where applicable, may be offered at the discretion
-        of the club and subject to availability.
-      </p>
-      <ul>
-        <li>Pool: up to 15 minutes</li>
-        <li>Mini Snooker: up to 20 minutes</li>
-        <li>Snooker Table: up to 30 minutes</li>
-      </ul>
-      <p>Unless specified otherwise, such sessions are generally available from 11:00 AM to 5:00 PM.</p>
-
-      <h3>4. Liability</h3>
-      <p>The Q Club is not responsible for loss of personal belongings within the premises.</p>
-
-      <h3>5. Management Rights</h3>
-      <p>
-        The management reserves the right to refuse entry, modify prices, update
-        membership benefits, and change club rules without prior notice.
-      </p>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "termsTitle", "termsContent", fallbackTitle, fallbackContent)}>
+            Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
     </>
   );
 }
 
-function RefundContent() {
+function RefundContent({ data, admin, commit }) {
+  const fallbackTitle = "Refund Policy";
+  const fallbackContent = defaultData().club.refundContent;
+  const content = data.club?.refundContent || fallbackContent;
+
   return (
     <>
-      <p>
-        At The Q Club, we strive to ensure a smooth and fair experience for all customers.
-      </p>
-
-      <h3>Membership</h3>
-      <p>Membership fees are generally non-refundable once activated.</p>
-
-      <h3>Table Bookings</h3>
-      <p>
-        If advance bookings are introduced in the future, cancellations made at least
-        2 hours before booking time may be eligible for rescheduling. Missed bookings
-        may not be refundable.
-      </p>
-
-      <h3>Technical Issues</h3>
-      <p>
-        If a game cannot be completed due to equipment malfunction, staff may offer
-        replacement play time or a complimentary session at the discretion of management.
-      </p>
-
-      <h3>Refund Review</h3>
-      <p>
-        If a payment is made in error or a technical issue occurs during payment
-        processing, customers may contact The Q Club for review. Refunds, if applicable,
-        may be processed within 5–7 working days.
-      </p>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "refundTitle", "refundContent", fallbackTitle, fallbackContent)}>
+            Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
     </>
   );
 }
 
-function PrivacyContent() {
+function PrivacyContent({ data, admin, commit }) {
+  const fallbackTitle = "Privacy Policy";
+  const fallbackContent = defaultData().club.privacyContent;
+  const content = data.club?.privacyContent || fallbackContent;
+
   return (
     <>
-      <p>The Q Club respects your privacy.</p>
-
-      <h3>Information We Collect</h3>
-      <p>
-        We may collect basic information such as name, phone number, membership
-        details, and tournament participation records.
-      </p>
-
-      <h3>How We Use This Information</h3>
-      <p>
-        Your information is used for membership verification, tournament records,
-        leaderboard rankings, and communication about club events.
-      </p>
-
-      <h3>Data Protection</h3>
-      <p>We do not sell or share your personal data with third parties.</p>
-
-      <h3>Payment Information</h3>
-      <p>
-        Payment transactions are processed through authorized payment gateway providers.
-        The Q Club does not store card or payment details on its servers.
-      </p>
-
-      <h3>Media Usage</h3>
-      <p>
-        Photos and videos taken inside the club and on Membership pages may be used on social media,
-        promotional materials, and website content. 
-      </p>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "privacyTitle", "privacyContent", fallbackTitle, fallbackContent)}>
+            Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
     </>
   );
 }
@@ -2110,6 +2190,8 @@ const heroImages =
   }, [heroImages]);
   const isSnookerTournament = tournamentGameKey(activeTournament?.game) === "snooker";
   const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
+  const disclaimerTitle = data.club?.tournamentDisclaimerTitle || "Tournament Legal Disclaimer";
+  const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData().club.tournamentDisclaimerContent;
 
   const clubGallery = [
     { id: "snooker", url: "/home/snooker.jpg", caption: "Snooker" },
@@ -2118,22 +2200,6 @@ const heroImages =
   ];
 
   const memberships = (data.memberships || []).slice(0, 3);
-
-  const features =
-  data.club?.homeFeatures || [
-    "2xPremium Snooker Tables",
-    "American Pool Table",
-    "Mini Snooker Table",
-    "Monthly Tournaments",
-    "Air Hockey & Foosball",
-    "Massage Chair",
-    "Tea & Coffee Vending Machines",
-    "Members Privileges",
-    "Smoking Room",
-    "Separate Toilets",
-    "Mocktails",
-    "Food and Snacks",
-  ];
 
   return (
     <div className="container refHome">
@@ -2258,7 +2324,6 @@ const heroImages =
         </div>
       </section>
 
-      <LiveMatchesHeroCard data={data} />
       <section className="refInfoGrid">
   <div className="refGlassCard" style={{ gridColumn: "1 / -1", overflow: "hidden" }}>
     <div className="refInfoLabel" style={{ marginBottom: 10 }}>Announcements</div>
@@ -2374,6 +2439,15 @@ const heroImages =
   View Fixtures
 </Link>
 
+  <a
+    href={data.club?.liveStreamUrl || "#"}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="btn"
+  >
+    📺 Watch it Live
+  </a>
+
   <Link
     className="btn primary"
     to="/tournament-register"
@@ -2414,55 +2488,23 @@ const heroImages =
         </div>
       </section>
 
-      
+      <section className="card" style={{ marginTop: 18 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div className="refTournamentKicker">{disclaimerTitle}</div>
+            <div className="muted" style={{ marginTop: 10 }}>
+              {renderEditableContent(disclaimerContent)}
+            </div>
+          </div>
 
-            <section className="refWhyCard">
-
-  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-    <h2 className="refSectionTitle">Why Q Club?</h2>
-
-    {admin && (
-      <button
-  className="btn"
-  onClick={() => {
-    const current = features.join(" | ");
-    const next = prompt(
-      "Edit Why Q Club items. Separate each item with |",
-      current
-    );
-
-    if (next === null) return;
-
-    const cleaned = next
-      .split("|")
-      .map((x) => x.trim())
-      .filter(Boolean);
-
-    if (!cleaned.length) {
-      alert("Please enter at least one item.");
-      return;
-    }
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        homeFeatures: cleaned,
-      }
-    });
-  }}
->
-  Edit
-</button>
-    )}
-  </div>
-
-        <div className="refFeatureGrid">
-          {features.map((item, idx) => (
-  <div className="refFeatureItem" key={`${item}-${idx}`}>
-    {item}
-  </div>
-))}
+          {admin ? (
+            <button
+              className="btn"
+              onClick={() => editStaticPage(admin, data, commit, "tournamentDisclaimerTitle", "tournamentDisclaimerContent", "Tournament Legal Disclaimer", defaultData().club.tournamentDisclaimerContent)}
+            >
+              Edit Disclaimer
+            </button>
+          ) : null}
         </div>
       </section>
     </div>
@@ -6607,101 +6649,6 @@ function HallOfFame({ data, admin, commit }) {
 
 
 
-
-
-function LiveMatchesHeroCard({ data }) {
-  const [summary, setSummary] = useState({ total: 0, live: 0, singles: 0, doubles: 0 });
-
-  useEffect(() => {
-    if (!supabaseReady || !supabase) return;
-
-    let alive = true;
-
-    const loadSummary = async () => {
-      const { data: rows, error } = await supabase
-        .from("live_matches")
-        .select("id, match_type, status");
-      if (!alive || error) return;
-      const list = rows || [];
-      setSummary({
-        total: list.length,
-        live: list.filter((x) => x.status === "live").length,
-        singles: list.filter((x) => x.match_type === "singles").length,
-        doubles: list.filter((x) => x.match_type === "doubles").length,
-      });
-    };
-
-    loadSummary();
-
-    const channel = supabase
-      .channel("live-matches-hero-summary")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "live_matches" },
-        () => loadSummary()
-      )
-      .subscribe();
-
-    return () => {
-      alive = false;
-      try { supabase.removeChannel(channel); } catch {}
-    };
-  }, []);
-
-  const hasLive = summary.live > 0;
-
-  return (
-    <section
-      className="card"
-      style={{
-        marginTop: 18,
-        border: hasLive ? "1px solid rgba(255,80,80,.45)" : undefined,
-        boxShadow: hasLive ? "0 0 0 1px rgba(255,80,80,.12), 0 18px 50px rgba(255,80,80,.10)" : undefined,
-      }}
-    >
-      <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <div>
-          <div className="badge" style={{ marginBottom: 8 }}>
-            <span className={hasLive ? "dot red" : "dot warn"} />
-            {hasLive ? "LIVE NOW" : "TODAY'S MATCHUPS"}
-          </div>
-          <h2 style={{ margin: 0 }}>Live Matches</h2>
-          <div className="muted" style={{ marginTop: 8 }}>
-            {hasLive
-              ? `${summary.live} live match${summary.live > 1 ? "es" : ""} running now`
-              : "Follow today's snooker and pool singles / doubles matches"}
-          </div>
-        </div>
-
-        <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-          <span className="badge"><span className="dot" />Total: {summary.total}</span>
-          <span className="badge"><span className="dot" />Singles: {summary.singles}</span>
-          <span className="badge"><span className="dot" />Doubles: {summary.doubles}</span>
-          <Link
-            to="/live"
-            className="btn primary"
-            style={{
-              minWidth: 180,
-              textAlign: "center",
-              animation: hasLive ? "pulseGlow 1.2s infinite" : "none",
-            }}
-          >
-            {hasLive ? "🔴 LIVE MATCHES NOW" : "Open Live Matches"}
-          </Link>
-          <a
-  href={data.club?.liveStreamUrl || "#"}
-  target="_blank"
-  rel="noopener noreferrer"
-  className="btn"
-  style={{ marginLeft: 10 }}
->
-  📺 Watch it Live
-</a>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 
 function LiveMatches({ data, admin, onOpenPlayer }) {
