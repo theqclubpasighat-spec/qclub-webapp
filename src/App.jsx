@@ -393,6 +393,7 @@ function defaultData() {
   heroSlides: [],
   heroSpeed: 3500,
   tickerSpeed: 28,
+  tvCustomSlides: [],
   aboutTitle: "About The Q Club",
   aboutContent: `The Q Club is a premium indoor gaming lounge in Pasighat offering cue sports and leisure experiences in a comfortable, modern setting.
 
@@ -700,6 +701,7 @@ function mergeWithDefaults(remote) {
       upiName: pickText(src?.club?.upiName, base.club.upiName),
         heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
       tickerSpeed: safeNum(src?.club?.tickerSpeed, base.club.tickerSpeed),
+      tvCustomSlides: Array.isArray(src?.club?.tvCustomSlides) ? src.club.tvCustomSlides : base.club.tvCustomSlides,
         contact: {
         ...base.club.contact,
         ...((src.club || {}).contact || {}),
@@ -7542,19 +7544,57 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
 
 function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
   const matches = activeTournament?.matches || [];
-  const [showFixtureBanner, setShowFixtureBanner] = useState(false);
+  const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
+
+  const [tvMode, setTvMode] = useState("showcase"); // showcase | fixtures | auto
+const [slideIndex, setSlideIndex] = useState(0);
+const [fixturePage, setFixturePage] = useState(0);
+const [autoPhase, setAutoPhase] = useState("showcase"); // showcase | fixtures
+const [showFixtureBanner, setShowFixtureBanner] = useState(false);
+const tvSlideFileInputRef = useRef(null);
+
+const [fixtureRevealStage, setFixtureRevealStage] = useState("idle"); 
+// idle | closed | generating | locked | ready | done
+
+const [hasPlayedFixtureReveal, setHasPlayedFixtureReveal] = useState(false);
+
   useEffect(() => {
   if (matches.length > 0) {
     setShowFixtureBanner(true);
-
     const t = setTimeout(() => {
       setShowFixtureBanner(false);
-    }, 6000); // show for 6 seconds
-
+    }, 6000);
     return () => clearTimeout(t);
   }
 }, [matches.length]);
-  const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
+
+useEffect(() => {
+  if (!matches.length) {
+    setFixtureRevealStage("idle");
+    setHasPlayedFixtureReveal(false);
+    return;
+  }
+
+  if (hasPlayedFixtureReveal) return;
+
+  setFixtureRevealStage("closed");
+
+  const t1 = setTimeout(() => setFixtureRevealStage("generating"), 2200);
+  const t2 = setTimeout(() => setFixtureRevealStage("locked"), 5200);
+  const t3 = setTimeout(() => setFixtureRevealStage("ready"), 7600);
+  const t4 = setTimeout(() => {
+    setFixtureRevealStage("done");
+    setHasPlayedFixtureReveal(true);
+    setTvMode("fixtures");
+  }, 9800);
+
+  return () => {
+    clearTimeout(t1);
+    clearTimeout(t2);
+    clearTimeout(t3);
+    clearTimeout(t4);
+  };
+}, [matches.length, hasPlayedFixtureReveal]);
 
   const highestBreakPlayer = isSnooker
     ? (players || []).slice().sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
@@ -7579,215 +7619,575 @@ function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) 
     return playerById(id)?.photo || "";
   }
 
-  function statusDotClass(status) {
-    return status === "done" ? "dot" : status === "live" ? "dot warn" : "dot";
-  }
-
   function scoreText(m) {
     const s1 = m?.score1 === "" || m?.score1 == null ? "-" : m.score1;
     const s2 = m?.score2 === "" || m?.score2 == null ? "-" : m.score2;
     return `${s1} : ${s2}`;
   }
 
-  const renderMatchCards = (list) => {
-    if (!list.length) return <div className="muted">No matches available.</div>;
+  function chunkItems(arr, size) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  }
+
+  const fixturePages = chunkItems(nextMatches.length ? nextMatches : doneMatches, 4);
+  const currentFixturePage = fixturePages[fixturePage] || [];
+
+  useEffect(() => {
+    const slidesExist = true;
+    if (!slidesExist) return;
+
+    const t = setInterval(() => {
+      setSlideIndex((prev) => prev + 1);
+    }, 7000);
+
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (fixturePages.length <= 1) return;
+
+    const shouldRotateFixtures =
+      tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
+
+    if (!shouldRotateFixtures) return;
+
+    const t = setInterval(() => {
+      setFixturePage((prev) => (prev + 1) % fixturePages.length);
+    }, 10000);
+
+    return () => clearInterval(t);
+  }, [fixturePages.length, tvMode, autoPhase]);
+
+  useEffect(() => {
+    if (tvMode !== "auto") return;
+
+    setAutoPhase("showcase");
+
+    const t = setInterval(() => {
+      setAutoPhase((prev) => {
+        if (prev === "showcase") {
+          return matches.length ? "fixtures" : "showcase";
+        }
+        return "showcase";
+      });
+    }, 15000);
+
+    return () => clearInterval(t);
+  }, [tvMode, matches.length]);
+
+  const heroSlides = (data.club?.heroSlides || []).filter(Boolean).map((url, idx) => ({
+    id: `hero_${idx}`,
+    kind: "image",
+    title: idx === 0 ? "Welcome to The Q Club" : "Premium Gaming Lounge",
+    subtitle:
+      idx === 0
+        ? "Snooker • Pool • Air Hockey • Foosball • Tea • Coffee • Lounge"
+        : "The coolest place in the oldest town.",
+    image: url,
+  }));
+
+  const gallerySlides = (data.photos || [])
+    .map((p, idx) => ({
+      id: p.id || `gallery_${idx}`,
+      kind: "image",
+      title: p.title || "Club Gallery",
+      subtitle: p.caption || "Moments from The Q Club",
+      image: p.url || p.dataUrl || "",
+    }))
+    .filter((x) => x.image)
+    .slice(0, 8);
+
+  const memberSlides = (players || [])
+    .filter((p) => p.photo)
+    .map((p) => ({
+      id: `player_${p.id}`,
+      kind: "image",
+      title: p.name || "Member Spotlight",
+      subtitle: p.city ? `${p.city} • Q Club Player` : "Q Club Player",
+      image: p.photo,
+    }))
+    .slice(0, 8);
+
+  const hallOfFameSlides = (data.hallOfFame || [])
+    .filter((h) => h.photo)
+    .map((h) => ({
+      id: `hof_${h.id}`,
+      kind: "image",
+      title: h.title || h.name || "Hall of Fame",
+      subtitle: h.note || h.category || "Club Highlight",
+      image: h.photo,
+    }))
+    .slice(0, 6);
+
+  const textSlides = [
+  {
+    id: "amenities",
+    kind: "text",
+    title: "Club Amenities",
+    subtitle: "2 Full-size 12x6 Snooker Tables • Mini Snooker • American Pool • Air Hockey • Foosball • Massage Chair",
+  },
+  {
+    id: "beverages",
+    kind: "text",
+    title: "Food & Beverage",
+    subtitle: "Tea • Coffee • Mocktails • Momos • Sausages • Chicken • More at The Q Club",
+  },
+  {
+    id: "memberships",
+    kind: "text",
+    title: "Membership Open",
+    subtitle: "Join Bronze • Silver • Gold • Platinum for member perks and special rates",
+  },
+  {
+    id: "booking",
+    kind: "text",
+    title: "Book Your Table",
+    subtitle: "Scan and book at theqclubpasighat.com",
+  },
+  {
+    id: "tournament",
+    kind: "text",
+    title: activeTournament ? tournamentDisplay(activeTournament) : "Monthly Club Tournaments",
+    subtitle: activeTournament?.registrationNote || "Skill-based club tournaments, fixtures, rankings, and more.",
+  },
+];
+
+const customSlides = (data.club?.tvCustomSlides || []).map((s, idx) => ({
+  id: s.id || `custom_${idx}`,
+  kind: s.kind || "text",
+  title: s.title || "Showcase Slide",
+  subtitle: s.subtitle || "",
+  image: s.image || "",
+  isCustom: true,
+}));
+
+const editableSlides = [...textSlides, ...customSlides];
+
+  const showcaseSlides = [
+  ...heroSlides,
+  ...editableSlides,
+  ...memberSlides,
+  ...gallerySlides,
+  ...hallOfFameSlides,
+];
+
+  const safeSlides = showcaseSlides.length
+    ? showcaseSlides
+    : [
+        {
+          id: "fallback",
+          kind: "text",
+          title: "Welcome to The Q Club",
+          subtitle: "Premium gaming lounge • Snooker • Pool • Air Hockey • Lounge",
+        },
+      ];
+
+  const activeSlide = safeSlides[slideIndex % safeSlides.length];
+  const canEditTvSlides = admin || staffAdmin;
+  function triggerTvSlideImagePicker() {
+  if (!canEditTvSlides) return;
+  if (!tvSlideFileInputRef.current) return;
+  tvSlideFileInputRef.current.value = "";
+  tvSlideFileInputRef.current.click();
+}
+
+function handleTvSlideImageFileChange(e) {
+  if (!canEditTvSlides) return;
+
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result || "");
+    if (!dataUrl) return;
+
+    const title = prompt("Slide title:", "The Q Club Showcase");
+    if (title === null) return;
+
+    const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
+    if (subtitle === null) return;
+
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        tvCustomSlides: [
+          ...(data.club?.tvCustomSlides || []),
+          {
+            id: uid(),
+            kind: "image",
+            title: title.trim(),
+            subtitle: subtitle.trim(),
+            image: dataUrl,
+          },
+        ],
+      },
+    });
+  };
+
+  reader.readAsDataURL(file);
+}
+
+function moveCurrentTvSlide(direction) {
+  if (!canEditTvSlides) return;
+  if (!activeSlide?.isCustom) {
+    alert("Only custom TV slides can be reordered.");
+    return;
+  }
+
+  const slides = [...(data.club?.tvCustomSlides || [])];
+  const idx = slides.findIndex((s) => s.id === activeSlide.id);
+  if (idx === -1) return;
+
+  const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= slides.length) return;
+
+  const temp = slides[idx];
+  slides[idx] = slides[targetIdx];
+  slides[targetIdx] = temp;
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      tvCustomSlides: slides,
+    },
+  });
+}
+
+function addCustomTvSlide() {
+  if (!canEditTvSlides) return;
+
+  const title = prompt("Slide title:", "Welcome to The Q Club");
+  if (title === null) return;
+
+  const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
+  if (subtitle === null) return;
+
+  const image = prompt("Optional image URL / data URL:", "");
+  if (image === null) return;
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      tvCustomSlides: [
+        ...(data.club?.tvCustomSlides || []),
+        {
+          id: uid(),
+          kind: image.trim() ? "image" : "text",
+          title: title.trim(),
+          subtitle: subtitle.trim(),
+          image: image.trim(),
+        },
+      ],
+    },
+  });
+}
+
+function editCurrentTvSlide() {
+  if (!canEditTvSlides) return;
+  if (!activeSlide?.isCustom) {
+    alert("Only custom TV slides are editable. Built-in slides are automatic.");
+    return;
+  }
+
+  const current = (data.club?.tvCustomSlides || []).find((s) => s.id === activeSlide.id);
+  if (!current) return;
+
+  const title = prompt("Edit slide title:", current.title || "");
+  if (title === null) return;
+
+  const subtitle = prompt("Edit slide subtitle:", current.subtitle || "");
+  if (subtitle === null) return;
+
+  const image = prompt("Edit image URL / data URL:", current.image || "");
+  if (image === null) return;
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      tvCustomSlides: (data.club?.tvCustomSlides || []).map((s) =>
+        s.id === current.id
+          ? {
+              ...s,
+              title: title.trim(),
+              subtitle: subtitle.trim(),
+              image: image.trim(),
+              kind: image.trim() ? "image" : "text",
+            }
+          : s
+      ),
+    },
+  });
+}
+
+function deleteCurrentTvSlide() {
+  if (!canEditTvSlides) return;
+  if (!activeSlide?.isCustom) {
+    alert("Only custom TV slides can be deleted.");
+    return;
+  }
+  if (!confirm("Delete this custom TV slide?")) return;
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      tvCustomSlides: (data.club?.tvCustomSlides || []).filter(
+        (s) => s.id !== activeSlide.id
+      ),
+    },
+  });
+}
+
+  const showFixtureView =
+    tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
+
+  function renderSlide(slide) {
+    const bgImage = slide?.image || "";
 
     return (
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 16,
-          marginTop: 14,
+          position: "relative",
+          minHeight: "64vh",
+          borderRadius: 24,
+          overflow: "hidden",
+          background: bgImage
+            ? `linear-gradient(180deg, rgba(4,8,18,.20), rgba(4,8,18,.80)), url(${bgImage}) center/cover no-repeat`
+            : "linear-gradient(135deg, rgba(8,12,24,.98), rgba(18,31,58,.98))",
+          border: "1px solid rgba(255,255,255,.08)",
+          boxShadow: "0 20px 60px rgba(0,0,0,.35)",
+          display: "flex",
+          alignItems: "flex-end",
         }}
       >
-        {list.map((m) => (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,.08) 0%, rgba(0,0,0,.30) 45%, rgba(0,0,0,.78) 100%)",
+          }}
+        />
+
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            width: "100%",
+            padding: "28px",
+            display: "grid",
+            gap: 12,
+          }}
+        >
           <div
-            key={m.id}
-            className="card"
             style={{
-              margin: 0,
-              padding: 18,
-              borderRadius: 18,
-              background: "linear-gradient(180deg, rgba(13,20,36,.96), rgba(8,12,24,.96))",
+              display: "inline-flex",
+              width: "fit-content",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 14px",
+              borderRadius: 999,
+              background: "rgba(255,255,255,.10)",
+              border: "1px solid rgba(255,255,255,.14)",
+              fontWeight: 800,
+              fontSize: 14,
             }}
           >
-            <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
-              <span className="badge">
-                <span className="dot" />
-                Round {m.round}
-              </span>
-              <span className="badge">
-                <span className={statusDotClass(m.status)} />
-                {m.status || "scheduled"}
-              </span>
-            </div>
+            <span className="dot" />
+            Showcase Mode
+          </div>
 
+          <div
+            style={{
+              fontSize: "clamp(34px, 5vw, 68px)",
+              fontWeight: 900,
+              lineHeight: 1.02,
+              maxWidth: 980,
+              textShadow: "0 4px 24px rgba(0,0,0,.35)",
+            }}
+          >
+            {slide?.title}
+          </div>
+
+          <div
+            style={{
+              fontSize: "clamp(16px, 2vw, 28px)",
+              lineHeight: 1.35,
+              color: "rgba(255,255,255,.88)",
+              maxWidth: 960,
+            }}
+          >
+            {slide?.subtitle}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              marginTop: 8,
+            }}
+          >
+            {safeSlides.slice(0, Math.min(safeSlides.length, 10)).map((s, idx) => (
+              <span
+                key={s.id}
+                style={{
+                  width: idx === (slideIndex % safeSlides.length) ? 28 : 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background:
+                    idx === (slideIndex % safeSlides.length)
+                      ? "rgba(255,255,255,.95)"
+                      : "rgba(255,255,255,.30)",
+                  transition: "all .25s ease",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFixtureCard(m) {
+    const p1 = playerById(m.p1);
+    const p2 = playerById(m.p2);
+
+    return (
+      <div
+        key={m.id}
+        style={{
+          borderRadius: 22,
+          padding: 20,
+          background: "linear-gradient(180deg, rgba(14,22,38,.96), rgba(8,12,22,.96))",
+          border: "1px solid rgba(255,255,255,.08)",
+          boxShadow: "0 12px 34px rgba(0,0,0,.22)",
+        }}
+      >
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 16, gap: 8 }}>
+          <span className="badge">
+            <span className="dot" />
+            Round {m.round || 1}
+          </span>
+          <span className="badge">
+            <span className={m.status === "live" ? "dot warn" : "dot"} />
+            {m.status === "done" ? "Completed" : m.status === "live" ? "Live" : "Upcoming"}
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gap: 16 }}>
+          {[
+            { p: p1, name: playerName(m.p1), score: m?.score1 === "" || m?.score1 == null ? "-" : m.score1 },
+            { p: p2, name: playerName(m.p2), score: m?.score2 === "" || m?.score2 == null ? "-" : m.score2 },
+          ].map((row, idx) => (
             <div
+              key={idx}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                gap: 12,
+                gridTemplateColumns: "72px 1fr auto",
+                gap: 14,
                 alignItems: "center",
               }}
             >
-              {[m.p1, m.p2].map((pid, idx) => {
-                const photo = playerPhoto(pid);
-                const name = playerName(pid);
-                return (
-                  <div
-                    key={pid || idx}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 10,
-                      textAlign: "center",
-                    }}
-                  >
-                    {photo ? (
-                      <img
-                        src={photo}
-                        alt={name}
-                        style={{
-                          width: 96,
-                          height: 96,
-                          objectFit: "cover",
-                          borderRadius: 18,
-                          border: "1px solid rgba(255,255,255,.12)",
-                          background: "rgba(255,255,255,.05)",
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: 96,
-                          height: 96,
-                          borderRadius: 18,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 34,
-                          fontWeight: 900,
-                          background: "rgba(255,255,255,.08)",
-                          border: "1px solid rgba(255,255,255,.12)",
-                        }}
-                      >
-                        {String(name || "?").slice(0, 1).toUpperCase()}
-                      </div>
-                    )}
-
-                    <div style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.15 }}>{name}</div>
-                  </div>
-                );
-              })}
+              {row.p?.photo ? (
+                <img
+                  src={row.p.photo}
+                  alt={row.name}
+                  style={{
+                    width: 72,
+                    height: 72,
+                    objectFit: "cover",
+                    borderRadius: 16,
+                    border: "1px solid rgba(255,255,255,.12)",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 900,
+                    fontSize: 30,
+                    background: "rgba(255,255,255,.08)",
+                    border: "1px solid rgba(255,255,255,.12)",
+                  }}
+                >
+                  {String(row.name || "?").slice(0, 1).toUpperCase()}
+                </div>
+              )}
 
               <div
                 style={{
-                  minWidth: 90,
-                  textAlign: "center",
-                  fontSize: 28,
-                  fontWeight: 900,
-                  letterSpacing: 1,
+                  fontSize: "clamp(18px, 2vw, 28px)",
+                  fontWeight: 800,
+                  lineHeight: 1.1,
+                  minWidth: 0,
                 }}
               >
-                {scoreText(m)}
+                {row.name}
+              </div>
+
+              <div
+                style={{
+                  minWidth: 54,
+                  textAlign: "center",
+                  fontSize: "clamp(22px, 3vw, 40px)",
+                  fontWeight: 900,
+                }}
+              >
+                {row.score}
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     );
-  };
+  }
 
-  return (
-    <>
-      <PageShell title="TV Display" subtitle="Live tournament fixtures" />
+  function renderFixtureView() {
+    const focusMatch = nextMatches[0] || doneMatches[0] || null;
 
-      <div className="container">
-        {(data.announcements || []).length > 0 && (
-  <div
-   style={{
-  overflow: "hidden",
-  whiteSpace: "nowrap",
-  marginBottom: 16,
-  borderRadius: 12,
-  background: "rgba(0,0,0,0.65)",
-  padding: "6px 12px",
-}}
-  >
-    <div
-      className="announceTickerTrack"
-      style={{
-  animationDuration: `${data.club?.tickerSpeed || 40}s`,
-  fontSize: "32px",            // BIG text for TV
-  fontWeight: 800,
-  padding: "18px 0",
-  letterSpacing: "0.5px",
-}}
-    >
-      {(data.announcements || []).map((a) => (
-        <span key={a.id} style={{ marginRight: 80 }}>
-          {a.text}
-        </span>
-      ))}
-    </div>
-  </div>
-)}
-{(admin || staffAdmin) && activeTournament ? (
-  (!Array.isArray(activeTournament.matches) || activeTournament.matches.length === 0) ? (
-    <div style={{ marginBottom: 14 }}>
-      <button
-        className="btn primary"
-        style={{
-          fontSize: "18px",
-          padding: "12px 18px",
-          fontWeight: 800,
-        }}
-        onClick={() =>
-          generateKnockoutForTournamentNow(data, commit, activeTournament.id)
-        }
-      >
-        Generate Knockout Fixtures (Live)
-      </button>
-    </div>
-  ) : showFixtureBanner ? (
-    <div
-      style={{
-        marginBottom: 16,
-        padding: "14px 22px",
-        borderRadius: 14,
-        display: "inline-block",
-        background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
-        border: "1px solid rgba(56, 211, 159, 0.45)",
-        fontWeight: 800,
-        fontSize: "22px",
-        color: "#7fffd4",
-        boxShadow: "0 0 18px rgba(56,211,159,.28)",
-        animation: "pulseGlow 1.4s infinite",
-        letterSpacing: "0.3px",
-      }}
-    >
-      🎯 Knockout Fixtures Generated
-    </div>
-  ) : null
-) : null}
-
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+    return (
+      <div style={{ display: "grid", gap: 18 }}>
+        <div
+          style={{
+            borderRadius: 24,
+            padding: 24,
+            background: "linear-gradient(135deg, rgba(7,13,24,.98), rgba(15,28,52,.98))",
+            border: "1px solid rgba(255,255,255,.08)",
+            boxShadow: "0 20px 60px rgba(0,0,0,.28)",
+          }}
+        >
+          <div className="row" style={{ justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
-              <h2 style={{ marginBottom: 6 }}>
-                {activeTournament ? tournamentDisplay(activeTournament) : "No active tournament"}
-              </h2>
-              <div className="muted">
-                {isSnooker ? "Snooker TV Mode" : "Pool TV Mode"}
+              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 6 }}>
+                Fixture Broadcast
+              </div>
+              <div style={{ fontSize: "clamp(26px, 4vw, 48px)", fontWeight: 900, lineHeight: 1.05 }}>
+                {activeTournament ? tournamentDisplay(activeTournament) : "No Active Tournament"}
+              </div>
+              <div className="muted" style={{ marginTop: 8, fontSize: 16 }}>
+                {focusMatch
+                  ? `Showing ${nextMatches.length ? "upcoming/live" : "completed"} fixtures`
+                  : "No fixtures available yet"}
               </div>
             </div>
 
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
               <span className="badge">
                 <span className="dot" />
-                Total Matches: {matches.length}
+                Total: {matches.length}
               </span>
               <span className="badge">
                 <span className="dot warn" />
@@ -7795,98 +8195,528 @@ function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) 
               </span>
               <span className="badge">
                 <span className="dot" />
-                Completed: {doneMatches.length}
+                Done: {doneMatches.length}
               </span>
-              {isSnooker ? (
+              {fixturePages.length > 1 ? (
                 <span className="badge">
                   <span className="dot" />
-                  Highest Break: {highestBreakPlayer ? `${highestBreakPlayer.name} – ${highestBreakPlayer.bestBreak || 0}` : "—"}
+                  Page {fixturePage + 1} / {fixturePages.length}
                 </span>
               ) : null}
             </div>
           </div>
+        </div>
 
-          {leaderboard.length ? (
-            <div style={{ marginTop: 16 }}>
-              <h3 style={{ marginBottom: 10 }}>Top Players</h3>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                {leaderboard.slice(0, 4).map((row, idx) => {
-                  const p = playerById(row.id);
-                  return (
-                    <div
-                      key={row.id}
-                      className="card"
-                      style={{
-                        margin: 0,
-                        padding: 14,
-                        borderRadius: 16,
-                        background: "linear-gradient(180deg, rgba(16,24,42,.94), rgba(9,13,24,.94))",
-                      }}
-                    >
-                      <div className="row" style={{ gap: 12, alignItems: "center" }}>
-                        {p?.photo ? (
-                          <img
-                            src={p.photo}
-                            alt={row.name}
-                            style={{
-                              width: 56,
-                              height: 56,
-                              objectFit: "cover",
-                              borderRadius: 14,
-                              border: "1px solid rgba(255,255,255,.12)",
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: 56,
-                              height: 56,
-                              borderRadius: 14,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontWeight: 900,
-                              fontSize: 22,
-                              background: "rgba(255,255,255,.08)",
-                              border: "1px solid rgba(255,255,255,.12)",
-                            }}
-                          >
-                            {String(row.name || "?").slice(0, 1).toUpperCase()}
-                          </div>
-                        )}
+        {focusMatch ? (
+          <div
+            style={{
+              borderRadius: 24,
+              padding: 22,
+              background: "linear-gradient(180deg, rgba(12,19,34,.96), rgba(8,12,22,.96))",
+              border: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
+            <div style={{ fontSize: 14, opacity: 0.82, marginBottom: 10 }}>
+              {focusMatch.status === "live" ? "Now Playing" : "Next Featured Match"}
+            </div>
 
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, opacity: 0.8 }}>#{idx + 1}</div>
-                          <div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{row.name}</div>
-                          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                            {row.points} pts • {row.wins} wins
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "clamp(24px, 3vw, 44px)", fontWeight: 900 }}>
+                  {playerName(focusMatch.p1)}
+                </div>
+              </div>
+
+              <div style={{ fontSize: "clamp(28px, 4vw, 56px)", fontWeight: 900 }}>
+                {scoreText(focusMatch)}
+              </div>
+
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "clamp(24px, 3vw, 44px)", fontWeight: 900 }}>
+                  {playerName(focusMatch.p2)}
+                </div>
               </div>
             </div>
-          ) : null}
+          </div>
+        ) : (
+          <div className="card">
+            <div className="muted">Fixtures will appear here once generated.</div>
+          </div>
+        )}
 
-          <div style={{ marginTop: 18 }}>
-            <h3 style={{ marginBottom: 6 }}>Upcoming / Live</h3>
-            {renderMatchCards(nextMatches)}
+        {currentFixturePage.length ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: 16,
+            }}
+          >
+            {currentFixturePage.map(renderFixtureCard)}
+          </div>
+        ) : null}
+
+        {leaderboard.length ? (
+          <div
+            style={{
+              borderRadius: 22,
+              padding: 18,
+              background: "rgba(255,255,255,.04)",
+              border: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 12 }}>Top Players</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {leaderboard.slice(0, 4).map((row, idx) => (
+                <div
+                  key={row.id}
+                  style={{
+                    borderRadius: 16,
+                    padding: 14,
+                    background: "rgba(255,255,255,.04)",
+                    border: "1px solid rgba(255,255,255,.06)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>#{idx + 1}</div>
+                  <div style={{ fontWeight: 800, fontSize: 18 }}>{row.name}</div>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    {row.points} pts • {row.wins} wins
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  
+function renderFixtureReveal() {
+  if (fixtureRevealStage === "idle" || fixtureRevealStage === "done") return null;
+
+  const stageMap = {
+    closed: {
+      title: "Tournament Registration Closed",
+      subtitle: activeTournament?.registrationNote || "Preparing the official fixture board.",
+      glow: "rgba(255, 204, 102, 0.28)",
+    },
+    generating: {
+      title: "Generating Fixtures…",
+      subtitle: "Shuffling players and preparing match cards.",
+      glow: "rgba(0, 191, 255, 0.28)",
+    },
+    locked: {
+      title: "Players Locked In",
+      subtitle: "Finalizing rounds and arranging pairings.",
+      glow: "rgba(140, 180, 255, 0.28)",
+    },
+    ready: {
+      title: "Fixtures Ready",
+      subtitle: "Broadcast starting now.",
+      glow: "rgba(56, 211, 159, 0.30)",
+    },
+  };
+
+  const current = stageMap[fixtureRevealStage];
+  const previewPlayers = (players || []).slice(0, 8);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        minHeight: "64vh",
+        borderRadius: 24,
+        overflow: "hidden",
+        background: "radial-gradient(circle at top, rgba(24,42,76,.95), rgba(7,12,22,.98) 60%)",
+        border: "1px solid rgba(255,255,255,.08)",
+        boxShadow: "0 20px 60px rgba(0,0,0,.35)",
+        padding: 28,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(circle at center, ${current.glow}, transparent 55%)`,
+          pointerEvents: "none",
+        }}
+      />
+
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "grid",
+          gap: 18,
+          alignContent: "center",
+          minHeight: "58vh",
+        }}
+      >
+        <div
+          style={{
+            display: "inline-flex",
+            width: "fit-content",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 14px",
+            borderRadius: 999,
+            background: "rgba(255,255,255,.10)",
+            border: "1px solid rgba(255,255,255,.14)",
+            fontWeight: 800,
+            fontSize: 14,
+          }}
+        >
+          <span className="dot warn" />
+          Tournament Broadcast
+        </div>
+
+        <div
+          style={{
+            fontSize: "clamp(34px, 5vw, 68px)",
+            fontWeight: 900,
+            lineHeight: 1.02,
+            textShadow: "0 4px 24px rgba(0,0,0,.35)",
+          }}
+        >
+          {current.title}
+        </div>
+
+        <div
+          style={{
+            fontSize: "clamp(16px, 2vw, 26px)",
+            lineHeight: 1.35,
+            color: "rgba(255,255,255,.88)",
+            maxWidth: 920,
+          }}
+        >
+          {current.subtitle}
+        </div>
+
+        {fixtureRevealStage === "generating" ? (
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+            {["Round 1", "Semi Finals", "Final", "Broadcast Sync"].map((label, idx) => (
+              <div
+                key={label}
+                style={{
+                  padding: "12px 18px",
+                  borderRadius: 16,
+                  background: "rgba(255,255,255,.06)",
+                  border: "1px solid rgba(255,255,255,.10)",
+                  fontWeight: 800,
+                  opacity: 0.65 + idx * 0.1,
+                }}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {(fixtureRevealStage === "locked" || fixtureRevealStage === "ready") && previewPlayers.length ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 12,
+              marginTop: 8,
+            }}
+          >
+            {previewPlayers.map((p, idx) => (
+              <div
+                key={p.id || idx}
+                style={{
+                  borderRadius: 18,
+                  padding: 14,
+                  background: "rgba(255,255,255,.05)",
+                  border: "1px solid rgba(255,255,255,.10)",
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 12, opacity: 0.72 }}>
+                  Player {idx + 1}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {p.photo ? (
+                    <img
+                      src={p.photo}
+                      alt={p.name}
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        objectFit: "cover",
+                        border: "1px solid rgba(255,255,255,.12)",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(255,255,255,.08)",
+                        fontWeight: 900,
+                        fontSize: 22,
+                      }}
+                    >
+                      {String(p.name || "?").slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+
+                  <div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>
+                    {p.name || "Player"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+          {["closed", "generating", "locked", "ready"].map((stage, idx) => {
+            const active =
+              ["closed", "generating", "locked", "ready"].indexOf(fixtureRevealStage) >= idx;
+
+            return (
+              <span
+                key={stage}
+                style={{
+                  width: active ? 40 : 14,
+                  height: 14,
+                  borderRadius: 999,
+                  background: active ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.22)",
+                  transition: "all .25s ease",
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+  return (
+    <>
+      <PageShell title="TV Display" subtitle="Club showcase and fixture broadcast" />
+
+      <div className="container">
+        <input
+  ref={tvSlideFileInputRef}
+  type="file"
+  accept="image/*"
+  style={{ display: "none" }}
+  onChange={handleTvSlideImageFileChange}
+/>
+        {(data.announcements || []).length > 0 && (
+          <div
+            style={{
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              marginBottom: 16,
+              borderRadius: 14,
+              background: "rgba(0,0,0,0.68)",
+              padding: "8px 14px",
+              border: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
+            <div
+              className="announceTickerTrack"
+              style={{
+                animationDuration: `${data.club?.tickerSpeed || 40}s`,
+                fontSize: "clamp(18px, 2vw, 30px)",
+                fontWeight: 800,
+                padding: "14px 0",
+                letterSpacing: "0.4px",
+              }}
+            >
+              {(data.announcements || []).map((a) => (
+                <span key={a.id} style={{ marginRight: 80 }}>
+                  {a.text}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(admin || staffAdmin) && activeTournament ? (
+          (!Array.isArray(activeTournament.matches) || activeTournament.matches.length === 0) ? (
+            <div style={{ marginBottom: 14 }}>
+              <button
+                className="btn primary"
+                style={{
+                  fontSize: "18px",
+                  padding: "12px 18px",
+                  fontWeight: 800,
+                }}
+                onClick={() =>
+                  generateKnockoutForTournamentNow(data, commit, activeTournament.id)
+                }
+              >
+                Generate Knockout Fixtures (Live)
+              </button>
+            </div>
+          ) : showFixtureBanner ? (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: "14px 22px",
+                borderRadius: 14,
+                display: "inline-block",
+                background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
+                border: "1px solid rgba(56, 211, 159, 0.45)",
+                fontWeight: 800,
+                fontSize: "22px",
+                color: "#7fffd4",
+                boxShadow: "0 0 18px rgba(56,211,159,.28)",
+                animation: "pulseGlow 1.4s infinite",
+                letterSpacing: "0.3px",
+              }}
+            >
+              🎯 Knockout Fixtures Generated
+            </div>
+          ) : null
+        ) : null}
+
+        <div className="card">
+          <div
+            className="row"
+            style={{
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 16,
+              flexWrap: "wrap",
+              marginBottom: 16,
+            }}
+          >
+            <div>
+              <h2 style={{ marginBottom: 6 }}>
+                {activeTournament ? tournamentDisplay(activeTournament) : "The Q Club TV Mode"}
+              </h2>
+              <div className="muted">
+  {tvMode === "showcase"
+    ? `Showcase Mode${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
+    : tvMode === "fixtures"
+    ? "Fixture Broadcast"
+    : `Auto Mode • ${autoPhase === "fixtures" ? "Showing Fixtures" : "Showing Showcase"}`}
+</div>
+            </div>
+
+            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+  <button
+    type="button"
+    className={tvMode === "showcase" ? "btn primary" : "btn secondary"}
+    onClick={() => setTvMode("showcase")}
+  >
+    Showcase Mode
+  </button>
+
+  <button
+    type="button"
+    className={tvMode === "fixtures" ? "btn primary" : "btn secondary"}
+    onClick={() => setTvMode("fixtures")}
+  >
+    Fixture Broadcast
+  </button>
+
+  <button
+    type="button"
+    className={tvMode === "auto" ? "btn primary" : "btn secondary"}
+    onClick={() => setTvMode("auto")}
+  >
+    Auto Mode
+  </button>
+
+  {(admin || staffAdmin) && tvMode === "showcase" ? (
+    <>
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={addCustomTvSlide}
+      >
+        + Add Slide
+      </button>
+
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={triggerTvSlideImagePicker}
+      >
+        Upload Slide Image
+      </button>
+
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={editCurrentTvSlide}
+      >
+        Edit Current Slide
+      </button>
+
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={() => moveCurrentTvSlide("up")}
+      >
+        Move Up
+      </button>
+
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={() => moveCurrentTvSlide("down")}
+      >
+        Move Down
+      </button>
+
+      <button
+        type="button"
+        className="btn danger"
+        onClick={deleteCurrentTvSlide}
+      >
+        Delete Current Slide
+      </button>
+    </>
+  ) : null}
+
+  {(admin || staffAdmin) && matches.length ? (
+    <button
+      type="button"
+      className="btn secondary"
+      onClick={() => {
+        setHasPlayedFixtureReveal(false);
+        setFixtureRevealStage("closed");
+      }}
+    >
+      Replay Reveal
+    </button>
+  ) : null}
+</div>
           </div>
 
-          {doneMatches.length ? (
-            <div style={{ marginTop: 22 }}>
-              <h3 style={{ marginBottom: 6 }}>Completed Matches</h3>
-              {renderMatchCards(doneMatches)}
-            </div>
-          ) : null}
+          {fixtureRevealStage !== "idle" && fixtureRevealStage !== "done"
+  ? renderFixtureReveal()
+  : showFixtureView
+  ? renderFixtureView()
+  : renderSlide(activeSlide)}
         </div>
       </div>
     </>
