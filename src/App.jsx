@@ -5611,7 +5611,7 @@ function Fixtures({ data, admin, commit, onOpenPlayer }) {
 const params = new URLSearchParams(location.search);
 const queryTournamentId = params.get("id") || "";
   const players = data.players || [];
-  const [selectedTournamentId, setSelectedTournamentId] = useState(() => {
+   const [selectedTournamentId, setSelectedTournamentId] = useState(() => {
   if (queryTournamentId) return queryTournamentId;
   return tournaments[0]?.id || "";
 });
@@ -5634,6 +5634,9 @@ const isKnockout = selectedTournament?.format === "knockout";
 const eligiblePlayers = selectedTournament
     ? getEligiblePlayersForTournament(players, selectedTournament)
     : [];
+    const tournamentPlayers = (selectedTournament?.participantIds || [])
+  .map((id) => players.find((p) => p.id === id))
+  .filter(Boolean);
 
   function toggleParticipant(playerId) {
     if (!admin || !selectedTournament) return;
@@ -5657,13 +5660,7 @@ const eligiblePlayers = selectedTournament
     if (!admin) return alert("Admin only");
     if (!selectedTournament) return alert("Select a tournament first");
 
-    const pool =
-      (selectedTournament.participantIds || []).length > 0
-        ? players.filter((p) =>
-            (selectedTournament.participantIds || []).includes(p.id)
-          )
-        : eligiblePlayers;
-
+    const pool = tournamentPlayers;
     if (pool.length < 2) {
       return alert("Need at least 2 players to generate fixtures.");
     }
@@ -5811,12 +5808,12 @@ const eligiblePlayers = selectedTournament
   }
 
   function playerName(id) {
-    return players.find((p) => p.id === id)?.name || "Unknown Player";
-  }
+  return tournamentPlayers.find((p) => p.id === id)?.name || "Unknown Player";
+}
 
-  const standings = selectedTournament
-    ? calcLeaderboard(playersForTournament(selectedTournament, players), selectedTournament)
-    : [];
+ const standings = selectedTournament
+  ? calcLeaderboard(tournamentPlayers, selectedTournament)
+  : [];
 function updateMatchStatus(matchId, status) {
 
   commit({
@@ -5891,10 +5888,10 @@ function updateMatchStatus(matchId, status) {
                 </div>
 
                 <div style={{ marginTop: 14 }}>
-                  {eligiblePlayers.length === 0 ? (
-                    <div className="muted">No eligible players found.</div>
-                  ) : (
-                    eligiblePlayers.map((p) => {
+                  {tournamentPlayers.length === 0 ? (
+  <div className="muted">No players registered yet.</div>
+) : (
+  tournamentPlayers.map((p) => {
                       const checked = (selectedTournament.participantIds || []).includes(p.id);
                       return (
                         <label
@@ -6229,8 +6226,8 @@ function LeaderboardAll({ data, onOpenPlayer }) {
   : "snooker";
 
   const standings = selectedTournament
-    ? calcLeaderboard(playersForTournament(selectedTournament, players), selectedTournament)
-    : [];
+  ? calcLeaderboard(tournamentPlayers, selectedTournament)
+  : [];
 
   const snookerBoard = useMemo(
     () => calcAutoRankingBoard(players, tournaments, "snooker"),
