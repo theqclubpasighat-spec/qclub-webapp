@@ -1488,6 +1488,7 @@ useEffect(() => {
         <Route path="/terms" element={<StaticPage title={data.club?.termsTitle || "Terms & Conditions"}><TermsContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route path="/refund" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent data={data} admin={admin} commit={commit} /></StaticPage>} />
+        <Route path="/tournament-legal" element={<StaticPage title={data.club?.tournamentDisclaimerTitle || "Tournament Legal Notice"}><TournamentLegalContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route
   path="/admin/orders"
   element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
@@ -1984,6 +1985,38 @@ function PrivacyContent({ data, admin, commit }) {
         <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
           <button className="btn" onClick={() => editStaticPage(admin, data, commit, "privacyTitle", "privacyContent", fallbackTitle, fallbackContent)}>
             Edit Page
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
+    </>
+  );
+}
+
+function TournamentLegalContent({ data, admin, commit }) {
+  const fallbackTitle = "Tournament Legal Notice";
+  const fallbackContent = defaultData().club.tournamentDisclaimerContent;
+  const content = data.club?.tournamentDisclaimerContent || fallbackContent;
+
+  return (
+    <>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button
+            className="btn"
+            onClick={() =>
+              editStaticPage(
+                admin,
+                data,
+                commit,
+                "tournamentDisclaimerTitle",
+                "tournamentDisclaimerContent",
+                fallbackTitle,
+                fallbackContent
+              )
+            }
+          >
+            Edit Notice
           </button>
         </div>
       ) : null}
@@ -2489,22 +2522,28 @@ const heroImages =
       </section>
 
       <section className="card" style={{ marginTop: 18 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div className="refTournamentKicker">{disclaimerTitle}</div>
             <div className="muted" style={{ marginTop: 10 }}>
-              {renderEditableContent(disclaimerContent)}
+              Read the full tournament legal notice before registering or participating.
             </div>
           </div>
 
-          {admin ? (
-            <button
-              className="btn"
-              onClick={() => editStaticPage(admin, data, commit, "tournamentDisclaimerTitle", "tournamentDisclaimerContent", "Tournament Legal Disclaimer", defaultData().club.tournamentDisclaimerContent)}
-            >
-              Edit Disclaimer
-            </button>
-          ) : null}
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <Link className="btn secondary" to="/tournament-legal">
+              View Legal Notice
+            </Link>
+
+            {admin ? (
+              <button
+                className="btn"
+                onClick={() => editStaticPage(admin, data, commit, "tournamentDisclaimerTitle", "tournamentDisclaimerContent", "Tournament Legal Notice", defaultData().club.tournamentDisclaimerContent)}
+              >
+                Edit Notice
+              </button>
+            ) : null}
+          </div>
         </div>
       </section>
     </div>
@@ -4581,6 +4620,9 @@ const uniqueSelectablePlayers = existingSelectablePlayers.filter(
   null;
 
   const registrationFee = safeNum(currentTournament?.registrationFee, 99);
+  const registrationNote =
+  currentTournament?.registrationNote ||
+  "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.";
   const registeredPlayers = (currentTournament?.participantIds || [])
   .map((id) => players.find((p) => p.id === id))
   .filter(Boolean);
@@ -4726,9 +4768,48 @@ commit({
     </button>
   ) : null}
 </div>
-              <div className="muted" style={{ marginTop: 8 }}>
-                Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.
-              </div>
+              <div
+  className="row"
+  style={{
+    marginTop: 8,
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+    flexWrap: "wrap",
+  }}
+>
+  <div className="muted" style={{ flex: 1, minWidth: 220, whiteSpace: "pre-line" }}>
+    {registrationNote}
+  </div>
+
+  {admin ? (
+    <button
+      className="btn"
+      type="button"
+      onClick={() => {
+        const nextNote = prompt(
+          "Edit tournament description / timing note",
+          registrationNote
+        );
+        if (nextNote === null) return;
+
+        commit({
+          ...data,
+          tournaments: (data.tournaments || []).map((t) =>
+            t.id === currentTournament.id
+              ? {
+                  ...t,
+                  registrationNote: nextNote.trim(),
+                }
+              : t
+          ),
+        });
+      }}
+    >
+      Edit Details
+    </button>
+  ) : null}
+</div>
 
               <div style={{ marginTop: 18 }}>
                 <button
@@ -5509,21 +5590,28 @@ function Tournaments({ data, admin, commit }) {
     const game = prompt("Game type (snooker/pool):", "Pool");
     if (!game) return;
 
-    commit({
-      ...data,
-      tournaments: [
-        ...tournaments,
-        {
-  id: uid(),
-  name: name.trim(),
-  month: month.trim(),
-  game: tournamentGameKey(game),
-  format: "round_robin",
-  participantIds: [],
-  matches: [],
-}
-      ],
-    });
+    const registrationNote = prompt(
+  "Tournament description / timing note:",
+  "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
+);
+if (registrationNote === null) return;
+
+commit({
+  ...data,
+  tournaments: [
+    ...tournaments,
+    {
+      id: uid(),
+      name: name.trim(),
+      month: month.trim(),
+      game: tournamentGameKey(game),
+      format: "round_robin",
+      registrationNote: registrationNote.trim(),
+      participantIds: [],
+      matches: [],
+    }
+  ],
+});
   }
 
   function deleteTournament(id) {
@@ -5543,19 +5631,30 @@ function Tournaments({ data, admin, commit }) {
     if (!t) return;
 
     const name = prompt("Edit name:", t.name || "");
-    if (name === null) return;
+if (name === null) return;
 
-    const month = prompt("Edit month:", t.month || "");
-    if (month === null) return;
+const month = prompt("Edit month:", t.month || "");
+if (month === null) return;
 
-    commit({
-      ...data,
-      tournaments: tournaments.map((x) =>
-        x.id === id
-          ? { ...x, name: name.trim(), month: month.trim() }
-          : x
-      ),
-    });
+const registrationNote = prompt(
+  "Edit tournament description / timing note:",
+  t.registrationNote || "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
+);
+if (registrationNote === null) return;
+
+commit({
+  ...data,
+  tournaments: tournaments.map((x) =>
+    x.id === id
+      ? {
+          ...x,
+          name: name.trim(),
+          month: month.trim(),
+          registrationNote: registrationNote.trim(),
+        }
+      : x
+  ),
+});
   }
 
   return (
@@ -5611,10 +5710,22 @@ function Tournaments({ data, admin, commit }) {
               </div>
 
               <div className="muted" style={{marginTop:10}}>
-                Game: {tournamentGameKey(t.game) === "pool" ? "Pool" : "Snooker"}
-              </div>
+  Game: {tournamentGameKey(t.game) === "pool" ? "Pool" : "Snooker"}
+</div>
 
-              <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+<div
+  className="muted"
+  style={{
+    marginTop: 8,
+    whiteSpace: "pre-line",
+    lineHeight: 1.5,
+  }}
+>
+  {t.registrationNote ||
+    "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."}
+</div>
+
+<div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
   <Link
     className="btn primary"
     to={`/tournament-register?id=${t.id}`}
@@ -6263,13 +6374,16 @@ function LeaderboardAll({ data, onOpenPlayer }) {
 
   const selectedTournament =
     tournaments.find((t) => t.id === selectedTournamentId) || null;
-    const selectedGameKey = selectedTournament
-  ? tournamentGameKey(selectedTournament.game)
-  : "snooker";
+  const selectedGameKey = selectedTournament
+    ? tournamentGameKey(selectedTournament.game)
+    : "snooker";
+  const tournamentPlayers = selectedTournament
+    ? playersForTournament(selectedTournament, players)
+    : [];
 
   const standings = selectedTournament
-  ? calcLeaderboard(tournamentPlayers, selectedTournament)
-  : [];
+    ? calcLeaderboard(tournamentPlayers, selectedTournament)
+    : [];
 
   const snookerBoard = useMemo(
     () => calcAutoRankingBoard(players, tournaments, "snooker"),
