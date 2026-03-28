@@ -496,7 +496,49 @@ Payment transactions are processed through authorized payment gateway providers.
 
 ## Media Usage
 Photos and videos taken inside the club and on Membership pages may be used on social media, promotional materials, and website content.`,
-  tournamentDisclaimerTitle: "Tournament Legal Disclaimer",
+    handicapTitle: "Handicap & Classification",
+  handicapContent: `## Player Groups
+- Group A: strongest and most advanced players
+- Group B: competitive regular players
+- Group C: developing, casual, or beginner players
+
+## 6-Red Handicap Table
+- A vs A = 0
+- B vs B = 0
+- C vs C = 0
+- A vs B = 6 points to B
+- B vs C = 6 points to C
+- A vs C = 12 points to C
+
+## Initial Classification
+Players shall be placed into Group A, B or C by the Tournament Committee based on:
+- match results
+- scoring ability
+- tactical understanding
+- performance under pressure
+- years of playing / experience
+
+## Promotion Review
+A player may normally be reviewed for promotion only after:
+- 15 recorded frames, and
+- completion of the current tournament cycle,
+whichever is later.
+
+## Demotion Review
+A player may normally be reviewed for demotion only after:
+- 20 recorded frames, and
+- completion of the current tournament cycle,
+whichever is later.
+
+## Role of Experience
+Years of playing / experience shall be treated as a relevant supporting factor, but current playing standard and recorded results shall carry greater weight.
+
+## Committee
+Classification, handicap, promotion and demotion decisions shall be made by the Tournament Committee based on recorded data and observed standard.
+
+## Mid-Tournament Stability
+No player should ordinarily be promoted or demoted during an ongoing tournament. Changes should normally take effect only after the tournament ends.`,
+tournamentDisclaimerTitle: "Tournament Legal Disclaimer",
   tournamentDisclaimerContent: `The Q Club may organise recreational skill-based tournaments in games such as Snooker, Pool, Air Hockey, Foosball, and similar sporting or leisure activities. Any registration fee collected for such tournaments is charged towards participation, event organisation, table usage, administration, logistics, officiating, refreshments, and related club services.
 
 Prize money, trophies, gifts, or other rewards for tournament winners may be funded from player registration fees, sponsorship support, promotional budgets, or contributions made by the club management. Such tournaments are intended as skill-based recreational competitions and not as gambling or wagering activities conducted by the club.
@@ -645,11 +687,59 @@ memberRegistry: [
 },
     photos: [],
     players: [
-      { id: uid(), name: "Wilson", city: "Pasighat", photo: "", bio: "", games: ["snooker", "pool"] },
-      { id: uid(), name: "Riku", city: "Pasighat", photo: "", bio: "", games: ["snooker"] },
-      { id: uid(), name: "Tani", city: "Aalo", photo: "", bio: "", games: ["pool"] },
-      { id: uid(), name: "Bikash", city: "Roing", photo: "", bio: "", games: ["snooker", "pool"] },
-    ],
+  {
+    id: uid(),
+    name: "Wilson",
+    city: "Pasighat",
+    photo: "",
+    bio: "",
+    games: ["snooker", "pool"],
+    group: "B",
+    yearsPlaying: "3",
+    reviewStatus: "Stable",
+    lastReviewDate: "",
+    committeeNotes: "",
+  },
+  {
+    id: uid(),
+    name: "Riku",
+    city: "Pasighat",
+    photo: "",
+    bio: "",
+    games: ["snooker"],
+    group: "C",
+    yearsPlaying: "1",
+    reviewStatus: "Stable",
+    lastReviewDate: "",
+    committeeNotes: "",
+  },
+  {
+    id: uid(),
+    name: "Tani",
+    city: "Aalo",
+    photo: "",
+    bio: "",
+    games: ["pool"],
+    group: "C",
+    yearsPlaying: "1",
+    reviewStatus: "Stable",
+    lastReviewDate: "",
+    committeeNotes: "",
+  },
+  {
+    id: uid(),
+    name: "Bikash",
+    city: "Roing",
+    photo: "",
+    bio: "",
+    games: ["snooker", "pool"],
+    group: "B",
+    yearsPlaying: "2",
+    reviewStatus: "Stable",
+    lastReviewDate: "",
+    committeeNotes: "",
+  },
+],
     foodOrders: [],
     archivedFoodOrders: [],
     tournaments: [
@@ -700,6 +790,8 @@ function mergeWithDefaults(remote) {
       tagline: pickText(src?.club?.tagline, base.club.tagline),
       upiId: pickText(src?.club?.upiId, base.club.upiId),
       upiName: pickText(src?.club?.upiName, base.club.upiName),
+            handicapTitle: pickText(src?.club?.handicapTitle, base.club.handicapTitle),
+      handicapContent: pickText(src?.club?.handicapContent, base.club.handicapContent),
         heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
       tickerSpeed: safeNum(src?.club?.tickerSpeed, base.club.tickerSpeed),
       tvCustomSlides: Array.isArray(src?.club?.tvCustomSlides) ? src.club.tvCustomSlides : base.club.tvCustomSlides,
@@ -725,7 +817,20 @@ offers: Array.isArray(src.offers) ? src.offers : base.offers,
 menuCatalog: src.menuCatalog && typeof src.menuCatalog === "object" ? src.menuCatalog : base.menuCatalog,
 photos: Array.isArray(src.photos) ? src.photos : base.photos,
 players: Array.isArray(src.players)
-  ? src.players.map((p) => ({ ...p, games: normalizePlayerGames(p?.games) }))
+  ? src.players.map((p) => ({
+      ...p,
+      games: normalizePlayerGames(p?.games),
+      group: ["A", "B", "C"].includes(String(p?.group || "").toUpperCase())
+        ? String(p.group).toUpperCase()
+        : "C",
+      yearsPlaying:
+        p?.yearsPlaying !== undefined && p?.yearsPlaying !== null
+          ? String(p.yearsPlaying)
+          : "",
+      reviewStatus: String(p?.reviewStatus || "Stable"),
+      lastReviewDate: String(p?.lastReviewDate || ""),
+      committeeNotes: String(p?.committeeNotes || ""),
+    }))
   : base.players,
 foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
 archivedFoodOrders: Array.isArray(src.archivedFoodOrders) ? src.archivedFoodOrders : base.archivedFoodOrders,
@@ -1548,6 +1653,14 @@ useEffect(() => {
 />
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route
+  path="/handicap"
+  element={
+    <StaticPage title={data.club?.handicapTitle || "Handicap & Classification"}>
+      <HandicapContent data={data} admin={admin} commit={commit} />
+    </StaticPage>
+  }
+/>
         <Route path="/tournaments" element={<Tournaments data={data} admin={admin} commit={commit} />} />
         <Route
   path="/fixtures"
@@ -2126,6 +2239,37 @@ function TournamentLegalContent({ data, admin, commit }) {
     </>
   );
 }
+function HandicapContent({ data, admin, commit }) {
+  const fallbackTitle = "Handicap & Classification";
+  const fallbackContent = defaultData().club.handicapContent;
+  const content = data.club?.handicapContent || fallbackContent;
+
+  return (
+    <>
+      {admin ? (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+          <button
+            className="btn"
+            onClick={() =>
+              editStaticPage(
+                admin,
+                data,
+                commit,
+                "handicapTitle",
+                "handicapContent",
+                fallbackTitle,
+                fallbackContent
+              )
+            }
+          >
+            Edit Rules
+          </button>
+        </div>
+      ) : null}
+      {renderEditableContent(content)}
+    </>
+  );
+}
 
 function BottomPadding() {
   return <div style={{ height: 28 }} />;
@@ -2165,8 +2309,9 @@ function TopNav({ club, admin, staffAdmin, onToggleAdmin, onChangePin, onReset }
         
         <Link className="pill" to="/photos">Photos</Link>
         <Link className="pill" to="/members">Members</Link>
-        <Link className="pill" to="/players">Players</Link>
-        <Link className="pill" to="/tournaments">Tournaments</Link>
+<Link className="pill" to="/players">Players</Link>
+<Link className="pill" to="/handicap">Handicap</Link>
+<Link className="pill" to="/tournaments">Tournaments</Link>
         <Link className="pill" to="/fixtures">Fixtures</Link>
         <Link className="pill" to="/leaderboard">Leaderboards</Link>
         <Link className="pill" to="/halloffame">Hall of Fame</Link>
@@ -2640,52 +2785,81 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
   </div>
 </div>
 
-          <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
   <Link
     className="btn primary"
     to="/tournaments"
     style={{
-      flex: "1 1 180px",
+      width: "100%",
       minWidth: 0,
       textAlign: "center",
-      fontWeight: 700,
-      background: "linear-gradient(90deg, #00ffcc, #00bfff)",
-      boxShadow: "0 0 12px rgba(0,255,200,0.6)",
+      fontWeight: 800,
+      fontSize: "1.02rem",
+      padding: "16px 18px",
+      borderRadius: 20,
+      background: "linear-gradient(90deg, #11f0c8, #1bbcff)",
+      boxShadow: "0 0 18px rgba(20, 220, 210, 0.45)",
       animation: "pulseGlow 1.5s infinite",
     }}
   >
     Explore Tournaments
   </Link>
 
-  <Link
-    className="btn primary"
-    to="/tournaments"
+  <div
     style={{
-      animation: "pulseGlow 1.2s infinite",
-      fontWeight: 800,
-      flex: "1 1 180px",
-      minWidth: 0,
-      textAlign: "center",
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12,
     }}
   >
-    Register Now
-  </Link>
+    <Link
+      className="btn primary"
+      to={`/tournament-register?id=${displayedFeaturedTournament?.id || ""}`}
+      style={{
+        minWidth: 0,
+        textAlign: "center",
+        justifyContent: "center",
+        fontWeight: 900,
+        fontSize: "1rem",
+        padding: "15px 14px",
+        borderRadius: 18,
+        color: "#fff6f2",
+        border: "1px solid rgba(255,120,80,.35)",
+        background:
+          "linear-gradient(135deg, #ff7a18 0%, #ff3d00 45%, #b31217 100%)",
+        boxShadow:
+          "0 10px 24px rgba(255,70,20,.30), 0 0 16px rgba(255,90,40,.22), inset 0 1px 0 rgba(255,255,255,.18)",
+      }}
+    >
+      🔥 Register Now
+    </Link>
 
-  <a
-    href={data.club?.liveStreamUrl || "#"}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="btn"
-  >
-    📺 Watch it Live
-  </a>
-
-  <Link
-    className="btn neonGreen refViewBtn"
-    to={`/fixtures?id=${displayedFeaturedTournament?.id || ""}`}
-  >
-    View Fixtures
-  </Link>
+    <a
+      href={data.club?.liveStreamUrl || "#"}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="btn"
+      style={{
+        minWidth: 0,
+        textAlign: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: "1rem",
+        padding: "15px 14px",
+        borderRadius: 18,
+        color: "#eef3ff",
+        border: "1px solid rgba(255,255,255,.14)",
+        background:
+          "linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.03))",
+        boxShadow:
+          "0 8px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.08)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+      }}
+    >
+      📺 Watch Live
+    </a>
+  </div>
 </div>
         </div>
 
@@ -5485,33 +5659,46 @@ function Players({ data, admin, commit, activeTournament }) {
     players.find((p) => p.id === selectedPlayerId) || null;
 
   function addPlayer() {
-    if (!admin) return alert("Admin only");
+  if (!admin) return alert("Admin only");
 
-    const name = prompt("Player name:");
-    if (!name) return;
+  const name = prompt("Player name:");
+  if (!name) return;
 
-    const city = prompt("City:", "Pasighat");
-    if (city === null) return;
+  const city = prompt("City:", "Pasighat");
+  if (city === null) return;
 
-    const gamesRaw = prompt("Games (snooker,pool)", "snooker");
-    if (gamesRaw === null) return;
+  const gamesRaw = prompt("Games (snooker,pool)", "snooker");
+  if (gamesRaw === null) return;
 
-    commit({
-      ...data,
-      players: [
-        ...(data.players || []),
-        {
-          id: uid(),
-          name: name.trim(),
-          city: city.trim(),
-          photo: "",
-          bio: "",
-          games: normalizePlayerGames(gamesRaw),
-        },
-      ],
-    });
-  }
+  const groupRaw = prompt("Group (A, B, or C):", "C");
+  if (groupRaw === null) return;
+  const group = ["A", "B", "C"].includes(String(groupRaw).trim().toUpperCase())
+    ? String(groupRaw).trim().toUpperCase()
+    : "C";
 
+  const yearsPlaying = prompt("Years Playing:", "0");
+  if (yearsPlaying === null) return;
+
+  commit({
+    ...data,
+    players: [
+      ...(data.players || []),
+      {
+        id: uid(),
+        name: name.trim(),
+        city: city.trim(),
+        photo: "",
+        bio: "",
+        games: normalizePlayerGames(gamesRaw),
+        group,
+        yearsPlaying: String(yearsPlaying).trim(),
+        reviewStatus: "Stable",
+        lastReviewDate: "",
+        committeeNotes: "",
+      },
+    ],
+  });
+}
   async function uploadPlayerPhoto(id, file) {
     if (!admin) return alert("Admin only");
     if (!file) return;
@@ -5534,42 +5721,76 @@ function Players({ data, admin, commit, activeTournament }) {
   }
 
   function editPlayer(id) {
-    if (!admin) return alert("Admin only");
+  if (!admin) return alert("Admin only");
 
-    const current = (data.players || []).find((p) => p.id === id);
-    if (!current) return;
+  const current = (data.players || []).find((p) => p.id === id);
+  if (!current) return;
 
-    const name = prompt("Edit name:", current.name || "");
-    if (name === null) return;
+  const name = prompt("Edit name:", current.name || "");
+  if (name === null) return;
 
-    const city = prompt("Edit city:", current.city || "");
-    if (city === null) return;
+  const city = prompt("Edit city:", current.city || "");
+  if (city === null) return;
 
-    const bio = prompt("Edit bio:", current.bio || "");
-    if (bio === null) return;
+  const bio = prompt("Edit bio:", current.bio || "");
+  if (bio === null) return;
 
-    const gamesRaw = prompt(
-      "Edit games (snooker,pool)",
-      normalizePlayerGames(current.games).join(",")
-    );
-    if (gamesRaw === null) return;
+  const gamesRaw = prompt(
+    "Edit games (snooker,pool)",
+    normalizePlayerGames(current.games).join(",")
+  );
+  if (gamesRaw === null) return;
 
-    commit({
-      ...data,
-      players: (data.players || []).map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              name: name.trim(),
-              city: city.trim(),
-              bio: bio.trim(),
-              games: normalizePlayerGames(gamesRaw),
-            }
-          : p
-      ),
-    });
-  }
+  const groupRaw = prompt("Edit group (A, B, or C):", current.group || "C");
+  if (groupRaw === null) return;
+  const group = ["A", "B", "C"].includes(String(groupRaw).trim().toUpperCase())
+    ? String(groupRaw).trim().toUpperCase()
+    : "C";
 
+  const yearsPlaying = prompt(
+    "Edit years playing:",
+    current.yearsPlaying !== undefined ? String(current.yearsPlaying) : ""
+  );
+  if (yearsPlaying === null) return;
+
+  const reviewStatus = prompt(
+    "Edit review status:",
+    current.reviewStatus || "Stable"
+  );
+  if (reviewStatus === null) return;
+
+  const lastReviewDate = prompt(
+    "Edit last review date (YYYY-MM-DD):",
+    current.lastReviewDate || ""
+  );
+  if (lastReviewDate === null) return;
+
+  const committeeNotes = prompt(
+    "Edit committee notes:",
+    current.committeeNotes || ""
+  );
+  if (committeeNotes === null) return;
+
+  commit({
+    ...data,
+    players: (data.players || []).map((p) =>
+      p.id === id
+        ? {
+            ...p,
+            name: name.trim(),
+            city: city.trim(),
+            bio: bio.trim(),
+            games: normalizePlayerGames(gamesRaw),
+            group,
+            yearsPlaying: String(yearsPlaying).trim(),
+            reviewStatus: String(reviewStatus).trim() || "Stable",
+            lastReviewDate: String(lastReviewDate).trim(),
+            committeeNotes: String(committeeNotes).trim(),
+          }
+        : p
+    ),
+  });
+}
   async function deletePlayer(id) {
     if (!admin) return alert("Admin only");
     if (!confirm("Delete this player?")) return;
@@ -5639,12 +5860,13 @@ function Players({ data, admin, commit, activeTournament }) {
           <table>
             <thead>
               <tr>
-                <th>Player</th>
-                <th>City</th>
-                <th>Games</th>
-                <th>Rank</th>
-                {admin ? <th>Admin</th> : null}
-              </tr>
+  <th>Player</th>
+  <th>City</th>
+  <th>Games</th>
+  <th>Group</th>
+  <th>Rank</th>
+  {admin ? <th>Admin</th> : null}
+</tr>
             </thead>
             <tbody>
               {visiblePlayers.map((player) => (
@@ -5667,8 +5889,14 @@ function Players({ data, admin, commit, activeTournament }) {
                     </button>
                   </td>
                   <td>{player.city || "—"}</td>
-                  <td>{playerGamesLabel(player)}</td>
-                  <td>{getRank(player.id)}</td>
+<td>{playerGamesLabel(player)}</td>
+<td>
+  <span className="badge">
+    <span className="dot" />
+    {player.group || "C"}
+  </span>
+</td>
+<td>{getRank(player.id)}</td>
                   {admin ? (
                     <td>
                       <div className="row">
@@ -5812,6 +6040,34 @@ function Players({ data, admin, commit, activeTournament }) {
           {selectedPlayer.bio || "No bio added yet."}
         </div>
       </div>
+      <div className="grid" style={{ marginTop: 16 }}>
+  <div className="card cols-6">
+    <div className="infoLabel">Current Group</div>
+    <div className="infoValue">{selectedPlayer.group || "C"}</div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Years Playing</div>
+    <div className="infoValue">{selectedPlayer.yearsPlaying || "—"}</div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Review Status</div>
+    <div className="infoValue">{selectedPlayer.reviewStatus || "Stable"}</div>
+  </div>
+
+  <div className="card cols-6">
+    <div className="infoLabel">Last Review Date</div>
+    <div className="infoValue">{selectedPlayer.lastReviewDate || "—"}</div>
+  </div>
+
+  <div className="card cols-12">
+    <div className="infoLabel">Committee Notes</div>
+    <div className="muted" style={{ marginTop: 6 }}>
+      {selectedPlayer.committeeNotes || "No committee notes yet."}
+    </div>
+  </div>
+</div>
 
       
         <div className="card cols-6">
@@ -6298,6 +6554,9 @@ const eligiblePlayers = selectedTournament
   function playerName(id) {
   return tournamentPlayers.find((p) => p.id === id)?.name || "Unknown Player";
 }
+function playerGroup(id) {
+  return tournamentPlayers.find((p) => p.id === id)?.group || "C";
+}
 
  const standings = selectedTournament
   ? calcLeaderboard(tournamentPlayers, selectedTournament)
@@ -6462,14 +6721,15 @@ function updateMatchStatus(matchId, status) {
                     <table>
                       <thead>
                         <tr>
-                          <th>#</th>
-<th>Player</th>
-<th>P</th>
-<th>W</th>
-<th>L</th>
-<th>Pts</th>
-{tournamentGameKey(selectedTournament.game) === "snooker" ? <th>Highest Break</th> : null}
-                        </tr>
+  <th>#</th>
+  <th>Player</th>
+  <th>Group</th>
+  <th>P</th>
+  <th>W</th>
+  <th>L</th>
+  <th>Pts</th>
+  {tournamentGameKey(selectedTournament.game) === "snooker" ? <th>Highest Break</th> : null}
+</tr>
                       </thead>
                       <tbody>
                         {standings.map((r, i) => (
@@ -6482,6 +6742,12 @@ function updateMatchStatus(matchId, status) {
     style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
   >
     {r.name}
+  </span>
+</td>
+<td>
+  <span className="badge">
+    <span className="dot" />
+    {playerGroup(r.id)}
   </span>
 </td>
 <td>{r.played}</td>
@@ -6540,6 +6806,10 @@ function updateMatchStatus(matchId, status) {
   >
     {playerName(m.p1)}
   </span>
+  <span className="badge" style={{ marginLeft: 8, marginRight: 8 }}>
+    <span className="dot" />
+    {playerGroup(m.p1)}
+  </span>
   {" "}vs{" "}
   <span
     className="player-link"
@@ -6547,6 +6817,10 @@ function updateMatchStatus(matchId, status) {
     style={{ textDecoration: "underline", cursor: "pointer" }}
   >
     {playerName(m.p2)}
+  </span>
+  <span className="badge" style={{ marginLeft: 8 }}>
+    <span className="dot" />
+    {playerGroup(m.p2)}
   </span>
 </>
                             </td>
@@ -6729,6 +7003,9 @@ function LeaderboardAll({ data, onOpenPlayer }) {
     () => calcAutoRankingBoard(players, tournaments, "pool"),
     [players, tournaments]
   );
+  function playerGroup(id) {
+  return players.find((p) => p.id === id)?.group || "C";
+}
 
   return (
     <>
@@ -6775,15 +7052,16 @@ function LeaderboardAll({ data, onOpenPlayer }) {
                 <table>
                   <thead>
                     <tr>
-                      <th>#</th>
-<th>Player</th>
-<th>City</th>
-<th>P</th>
-<th>W</th>
-<th>L</th>
-<th>Pts</th>
-{selectedGameKey === "snooker" ? <th>Highest Break</th> : null}
-                    </tr>
+  <th>#</th>
+  <th>Player</th>
+  <th>Group</th>
+  <th>City</th>
+  <th>P</th>
+  <th>W</th>
+  <th>L</th>
+  <th>Pts</th>
+  {selectedGameKey === "snooker" ? <th>Highest Break</th> : null}
+</tr>
                   </thead>
                   <tbody>
                     {standings.map((r, i) => (
@@ -6796,6 +7074,12 @@ function LeaderboardAll({ data, onOpenPlayer }) {
     style={{ textDecoration: "underline", cursor: "pointer" }}
   >
     {r.name}
+  </span>
+</td>
+<td>
+  <span className="badge">
+    <span className="dot" />
+    {playerGroup(r.id)}
   </span>
 </td>
 <td>{r.city || "—"}</td>
@@ -6829,14 +7113,15 @@ function LeaderboardAll({ data, onOpenPlayer }) {
       <table>
         <thead>
           <tr>
-            <th>#</th>
-<th>Player</th>
-<th>P</th>
-<th>W</th>
-<th>L</th>
-<th>Pts</th>
-<th>Highest Break</th>
-          </tr>
+  <th>#</th>
+  <th>Player</th>
+  <th>Group</th>
+  <th>P</th>
+  <th>W</th>
+  <th>L</th>
+  <th>Pts</th>
+  <th>Highest Break</th>
+</tr>
         </thead>
         <tbody>
           {snookerBoard.map((r, i) => (
@@ -6849,6 +7134,12 @@ function LeaderboardAll({ data, onOpenPlayer }) {
     style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
   >
     {r.name}
+  </span>
+</td>
+<td>
+  <span className="badge">
+    <span className="dot" />
+    {playerGroup(r.id)}
   </span>
 </td>
 <td>{r.matches}</td>
@@ -6879,13 +7170,14 @@ function LeaderboardAll({ data, onOpenPlayer }) {
       <table>
         <thead>
           <tr>
-            <th>#</th>
-<th>Player</th>
-<th>P</th>
-<th>W</th>
-<th>L</th>
-<th>Pts</th>
-          </tr>
+  <th>#</th>
+  <th>Player</th>
+  <th>Group</th>
+  <th>P</th>
+  <th>W</th>
+  <th>L</th>
+  <th>Pts</th>
+</tr>
         </thead>
         <tbody>
           {poolBoard.map((r, i) => (
@@ -6898,6 +7190,12 @@ function LeaderboardAll({ data, onOpenPlayer }) {
     style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
   >
     {r.name}
+  </span>
+</td>
+<td>
+  <span className="badge">
+    <span className="dot" />
+    {playerGroup(r.id)}
   </span>
 </td>
 <td>{r.matches}</td>
