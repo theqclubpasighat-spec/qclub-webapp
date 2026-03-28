@@ -241,6 +241,33 @@ function tournamentGameKey(game) {
   if (value.includes("pool")) return "pool";
 
   return "snooker";
+  function handicapFromGroups(group1, group2, game = "snooker") {
+  const gameKey = tournamentGameKey(game);
+
+  if (gameKey !== "snooker") {
+    return { handicap1: 0, handicap2: 0 };
+  }
+
+  const g1 = String(group1 || "C").toUpperCase();
+  const g2 = String(group2 || "C").toUpperCase();
+
+  const rank = { A: 3, B: 2, C: 1 };
+  const r1 = rank[g1] || 1;
+  const r2 = rank[g2] || 1;
+
+  if (r1 === r2) {
+    return { handicap1: 0, handicap2: 0 };
+  }
+
+  const diff = Math.abs(r1 - r2);
+  const points = diff === 1 ? 6 : 12;
+
+  if (r1 > r2) {
+    return { handicap1: 0, handicap2: points };
+  }
+
+  return { handicap1: points, handicap2: 0 };
+}
 }
 function getPlayersForGame(players, gameKey) {
   return (players || []).filter((p) => normalizePlayerGames(p?.games).includes(gameKey));
@@ -907,11 +934,14 @@ function saveData(data) {
 /* ---------------------------
    Round robin fixtures
 ---------------------------- */
-function generateRoundRobin(playerIds) {
+function generateRoundRobin(playerIds, allPlayers = []) {
   const ids = [...playerIds];
   const BYE = "BYE";
   if (ids.length < 2) return [];
   if (ids.length % 2 === 1) ids.push(BYE);
+
+  const getPlayerGroup = (id) =>
+    (allPlayers || []).find((p) => p.id === id)?.group || "C";
 
   const n = ids.length;
   const rounds = n - 1;
@@ -925,17 +955,25 @@ function generateRoundRobin(playerIds) {
       const p2 = arr[n - 1 - i];
       if (p1 !== BYE && p2 !== BYE) {
         matches.push({
-  id: uid(),
-  round: r + 1,
-  p1,
-  p2,
-  score1: "",
-  score2: "",
-  break1: "",
-  break2: "",
-  status: "scheduled",
-  updatedAt: Date.now(),
-});
+          id: uid(),
+          round: r + 1,
+          p1,
+          p2,
+          p1Group: getPlayerGroup(p1),
+p2Group: getPlayerGroup(p2),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
+          score1: "",
+          score2: "",
+          break1: "",
+          break2: "",
+          winner: "",
+          margin: "",
+          notes: "",
+          enteredBy: "",
+          verifiedBy: "",
+          status: "scheduled",
+          updatedAt: Date.now(),
+        });
       }
     }
     const fixed = arr[0];
@@ -945,9 +983,12 @@ function generateRoundRobin(playerIds) {
   }
   return matches;
 }
-function generateKnockout(playerIds) {
+function generateKnockout(playerIds, allPlayers = []) {
   const ids = [...playerIds].filter(Boolean);
   if (ids.length < 2) return [];
+
+  const getPlayerGroup = (id) =>
+    (allPlayers || []).find((p) => p.id === id)?.group || "C";
 
   function nextPowerOfTwo(n) {
     let p = 1;
@@ -965,13 +1006,9 @@ function generateKnockout(playerIds) {
   const bracketSize = nextPowerOfTwo(shuffled.length);
   const byes = bracketSize - shuffled.length;
 
-  // Players getting a bye straight into Round 2
   const byePlayers = shuffled.slice(0, byes);
-
-  // Players who must play Round 1
   const round1Players = shuffled.slice(byes);
 
-  // Round 1
   const round1WinnerSlots = [];
   for (let i = 0; i < round1Players.length; i += 2) {
     const p1 = round1Players[i];
@@ -986,21 +1023,27 @@ function generateKnockout(playerIds) {
       matchNo: matchNumber,
       p1,
       p2,
+      p1Group: getPlayerGroup(p1),
+p2Group: getPlayerGroup(p2),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
       score1: "",
       score2: "",
       winner: "",
       result: "",
+      margin: "",
       status: "scheduled",
       bestOf: 3,
       break1: "",
-break2: "",
+      break2: "",
+      notes: "",
+      enteredBy: "",
+      verifiedBy: "",
       updatedAt: Date.now(),
     });
 
     round1WinnerSlots.push(`WINNER_R1_M${matchNumber}`);
   }
 
-  // Round 2 starts with bye players + winners of Round 1
   let currentRoundPlayers = [...byePlayers, ...round1WinnerSlots];
   let roundNumber = 2;
 
@@ -1032,14 +1075,25 @@ break2: "",
         matchNo: matchNumber,
         p1,
         p2,
+        p1Group: String(p1).startsWith("WINNER_") ? "" : getPlayerGroup(p1),
+p2Group: String(p2).startsWith("WINNER_") ? "" : getPlayerGroup(p2),
+...(
+  String(p1).startsWith("WINNER_") || String(p2).startsWith("WINNER_")
+    ? { handicap1: 0, handicap2: 0 }
+    : handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker")
+),
         score1: "",
         score2: "",
         winner: "",
         result: "",
+        margin: "",
         status: "scheduled",
         bestOf: isFinal ? 5 : 3,
         break1: "",
-break2: "",
+        break2: "",
+        notes: "",
+        enteredBy: "",
+        verifiedBy: "",
         updatedAt: Date.now(),
       });
 
@@ -1077,7 +1131,7 @@ function generateKnockoutForTournamentNow(data, commit, tournamentId) {
     if (!ok) return;
   }
 
-  const matches = generateKnockout(participantIds);
+  const matches = generateKnockout(participantIds, data.players || []);
 
   const fixtureAnnouncement = {
     id: uid(),
@@ -6498,6 +6552,8 @@ useEffect(() => {
   tournaments.find((t) => t.id === selectedTournamentId) || null;
 
 const isKnockout = selectedTournament?.format === "knockout";
+const isSnookerTournament =
+  tournamentGameKey(selectedTournament?.game) === "snooker";
 
 const eligiblePlayers = selectedTournament
     ? getEligiblePlayersForTournament(players, selectedTournament)
@@ -6537,8 +6593,8 @@ const eligiblePlayers = selectedTournament
 
     const matches =
   format === "knockout"
-    ? generateKnockout(pool.map((p) => p.id))
-    : generateRoundRobin(pool.map((p) => p.id));
+    ? generateKnockout(pool.map((p) => p.id), players)
+    : generateRoundRobin(pool.map((p) => p.id), players);
 
     commit({
       ...data,
@@ -6607,8 +6663,31 @@ const eligiblePlayers = selectedTournament
     }
 
     if (changed) {
-      next.updatedAt = Date.now();
-    }
+  const nextP1Group =
+    String(next.p1).startsWith("WINNER_")
+      ? ""
+      : playerGroup(next.p1);
+
+  const nextP2Group =
+    String(next.p2).startsWith("WINNER_")
+      ? ""
+      : playerGroup(next.p2);
+
+  const nextHandicap =
+    isSnookerTournament &&
+    next.p1 &&
+    next.p2 &&
+    !String(next.p1).startsWith("WINNER_") &&
+    !String(next.p2).startsWith("WINNER_")
+      ? handicapFromGroups(nextP1Group, nextP2Group, "snooker")
+      : { handicap1: 0, handicap2: 0 };
+
+  next.p1Group = nextP1Group;
+  next.p2Group = nextP2Group;
+  next.handicap1 = nextHandicap.handicap1;
+  next.handicap2 = nextHandicap.handicap2;
+  next.updatedAt = Date.now();
+}
 
     return next;
   });
@@ -6680,6 +6759,11 @@ const eligiblePlayers = selectedTournament
 }
 function playerGroup(id) {
   return tournamentPlayers.find((p) => p.id === id)?.group || "C";
+}
+function handicapLabel(m) {
+  const h1 = Number(m.handicap1 || 0);
+  const h2 = Number(m.handicap2 || 0);
+  return `${h1} - ${h2}`;
 }
 
  const standings = selectedTournament
@@ -6907,21 +6991,25 @@ function updateMatchStatus(matchId, status) {
                     <table>
                       <thead>
                         <tr>
-                          <th>Round</th>
-                          <th>Match</th>
-                          <th>{isKnockout ? "Winner" : "Score 1"}</th>
-                          <th>{isKnockout ? "Result" : "Score 2"}</th>
-                          <th>Break 1</th>
-<th>Break 2</th>
-                          <th>Status</th>
-                          <th>Action</th>
-                        </tr>
+  <th>Round</th>
+  <th>Match</th>
+  {isSnookerTournament ? <th>Groups</th> : null}
+  {isSnookerTournament ? <th>Handicap</th> : null}
+  <th>{isKnockout ? "Winner" : "Score 1"}</th>
+  <th>{isKnockout ? "Result" : "Score 2"}</th>
+  <th>Break 1</th>
+  <th>Break 2</th>
+  <th>Notes</th>
+  <th>Status</th>
+  <th>Action</th>
+</tr>
                       </thead>
                       <tbody>
                         {(selectedTournament.matches || []).map((m) => (
                           <tr key={m.id}>
                             <td>{m.round}</td>
                             <td>
+                            
                               <>
   <span
     className="player-link"
@@ -6948,7 +7036,62 @@ function updateMatchStatus(matchId, status) {
   </span>
 </>
                             </td>
+                            {isSnookerTournament ? (
+
                             <td>
+  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <span className="badge">
+      <span className="dot" />
+      {m.p1Group || playerGroup(m.p1) || "C"}
+    </span>
+    <span className="badge">
+      <span className="dot" />
+      {m.p2Group || playerGroup(m.p2) || "C"}
+    </span>
+  </div>
+</td>
+                            ) : null}
+                            {isSnookerTournament ? (
+
+<td>
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <input
+      type="text"
+      inputMode="numeric"
+      value={m.handicap1 ?? 0}
+      onChange={(e) =>
+        updateMatchField(
+          m.id,
+          "handicap1",
+          e.target.value.replace(/[^0-9]/g, "")
+        )
+      }
+      disabled={!admin}
+      style={{ width: 60 }}
+    />
+    <span className="muted">-</span>
+    <input
+      type="text"
+      inputMode="numeric"
+      value={m.handicap2 ?? 0}
+      onChange={(e) =>
+        updateMatchField(
+          m.id,
+          "handicap2",
+          e.target.value.replace(/[^0-9]/g, "")
+        )
+      }
+      disabled={!admin}
+      style={{ width: 60 }}
+    />
+  </div>
+  <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+    {handicapLabel(m)}
+  </div>
+</td>
+                            ) : null}
+
+<td>
   {!isKnockout ? (
     <input
       value={m.score1}
@@ -7027,8 +7170,20 @@ function updateMatchStatus(matchId, status) {
     style={{ width: 80 }}
   />
 </td>
-                            <td>
-                              <span className="badge">
+
+<td>
+  <input
+    type="text"
+    value={m.notes || ""}
+    onChange={(e) => updateMatchField(m.id, "notes", e.target.value)}
+    disabled={!admin}
+    placeholder="Notes"
+    style={{ width: 120 }}
+  />
+</td>
+
+<td>
+  <span className="badge">
                                 <span
                                   className={m.status === "done" ? "dot" : "dot warn"}
                                 />
