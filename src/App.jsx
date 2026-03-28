@@ -496,7 +496,10 @@ Payment transactions are processed through authorized payment gateway providers.
 
 ## Media Usage
 Photos and videos taken inside the club and on Membership pages may be used on social media, promotional materials, and website content.`,
-    handicapTitle: "Handicap & Classification",
+      balancedFormatTitle: "Q Club Balanced Match Format",
+  balancedFormatSubtitle: "Structured for fair play, balanced competition, and a stronger tournament experience.",
+  balancedFormatDescription: "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
+handicapTitle: "Handicap & Classification",
   handicapContent: `## Player Groups
 - Group A: strongest and most advanced players
 - Group B: competitive regular players
@@ -790,6 +793,9 @@ function mergeWithDefaults(remote) {
       tagline: pickText(src?.club?.tagline, base.club.tagline),
       upiId: pickText(src?.club?.upiId, base.club.upiId),
       upiName: pickText(src?.club?.upiName, base.club.upiName),
+            balancedFormatTitle: pickText(src?.club?.balancedFormatTitle, base.club.balancedFormatTitle),
+      balancedFormatSubtitle: pickText(src?.club?.balancedFormatSubtitle, base.club.balancedFormatSubtitle),
+      balancedFormatDescription: pickText(src?.club?.balancedFormatDescription, base.club.balancedFormatDescription),
             handicapTitle: pickText(src?.club?.handicapTitle, base.club.handicapTitle),
       handicapContent: pickText(src?.club?.handicapContent, base.club.handicapContent),
         heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
@@ -5132,6 +5138,12 @@ const uniqueSelectablePlayers = existingSelectablePlayers.filter(
   const registrationNote =
   currentTournament?.registrationNote ||
   "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.";
+    const balancedFormatTitle =
+    data.club?.balancedFormatTitle || "Q Club Balanced Match Format";
+  const balancedFormatSubtitle =
+    data.club?.balancedFormatSubtitle || "Structured for fair play, balanced competition, and a stronger tournament experience.";
+  const balancedFormatDescription =
+    data.club?.balancedFormatDescription || "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.";
   const registeredPlayers = (currentTournament?.participantIds || [])
   .map((id) => players.find((p) => p.id === id))
   .filter(Boolean);
@@ -5250,31 +5262,73 @@ commit({
   <div className="muted">Tournament Fee: ₹{registrationFee}</div>
 
   {admin ? (
-    <button
-      className="btn"
-      type="button"
-      onClick={() => {
-        const nextFee = prompt(
-          "Enter registration fee",
-          String(registrationFee)
-        );
-        if (nextFee === null) return;
+    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+      <button
+        className="btn"
+        type="button"
+        onClick={() => {
+          const nextFee = prompt(
+            "Enter registration fee",
+            String(registrationFee)
+          );
+          if (nextFee === null) return;
 
-        commit({
-          ...data,
-          tournaments: (data.tournaments || []).map((t) =>
-            t.id === currentTournament.id
-              ? {
-                  ...t,
-                  registrationFee: safeNum(nextFee, registrationFee),
-                }
-              : t
-          ),
-        });
-      }}
-    >
-      Edit Fee
-    </button>
+          commit({
+            ...data,
+            tournaments: (data.tournaments || []).map((t) =>
+              t.id === currentTournament.id
+                ? {
+                    ...t,
+                    registrationFee: safeNum(nextFee, registrationFee),
+                  }
+                : t
+            ),
+          });
+        }}
+      >
+        Edit Fee
+      </button>
+
+      <button
+        className="btn secondary"
+        type="button"
+        onClick={() => {
+          const nextTitle = prompt(
+            "Balanced format title:",
+            data.club?.balancedFormatTitle || "Q Club Balanced Match Format"
+          );
+          if (nextTitle === null) return;
+
+          const nextSubtitle = prompt(
+            "Balanced format subtitle:",
+            data.club?.balancedFormatSubtitle || "Structured for fair play, balanced competition, and a stronger tournament experience."
+          );
+          if (nextSubtitle === null) return;
+
+          const nextDescription = prompt(
+            "Balanced format description:",
+            data.club?.balancedFormatDescription || "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards."
+          );
+          if (nextDescription === null) return;
+
+          commit({
+            ...data,
+            club: {
+              ...data.club,
+              balancedFormatTitle: nextTitle.trim() || "Q Club Balanced Match Format",
+              balancedFormatSubtitle:
+                nextSubtitle.trim() ||
+                "Structured for fair play, balanced competition, and a stronger tournament experience.",
+              balancedFormatDescription:
+                nextDescription.trim() ||
+                "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
+            },
+          });
+        }}
+      >
+        Edit Format
+      </button>
+    </div>
   ) : null}
 </div>
               <div
@@ -5287,9 +5341,79 @@ commit({
     flexWrap: "wrap",
   }}
 >
-  <div className="muted" style={{ flex: 1, minWidth: 220, whiteSpace: "pre-line" }}>
+  <div
+  className="card"
+  style={{
+    marginTop: 14,
+    border: "1px solid rgba(255,255,255,.10)",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))",
+    boxShadow: "0 12px 30px rgba(0,0,0,.18)",
+  }}
+>
+  <div
+    style={{
+      fontSize: "0.82rem",
+      fontWeight: 800,
+      letterSpacing: ".08em",
+      textTransform: "uppercase",
+      color: "#f6c445",
+      marginBottom: 8,
+    }}
+  >
+    Tournament Format
+  </div>
+
+  <div
+    style={{
+      fontSize: "1.1rem",
+      fontWeight: 900,
+      color: "#eef3ff",
+      marginBottom: 6,
+    }}
+  >
+    {balancedFormatTitle}
+  </div>
+
+  <div
+    className="muted"
+    style={{
+      fontWeight: 700,
+      color: "rgba(234,240,255,.86)",
+      marginBottom: 10,
+      lineHeight: 1.45,
+    }}
+  >
+    {balancedFormatSubtitle}
+  </div>
+
+  <div
+    className="muted"
+    style={{
+      lineHeight: 1.55,
+      whiteSpace: "pre-line",
+    }}
+  >
+    {balancedFormatDescription}
+  </div>
+
+  <div
+    className="muted"
+    style={{
+      marginTop: 12,
+      whiteSpace: "pre-line",
+      lineHeight: 1.5,
+    }}
+  >
     {registrationNote}
   </div>
+
+  <div style={{ marginTop: 12 }}>
+    <Link className="btn secondary" to="/handicap">
+      View Handicap & Classification
+    </Link>
+  </div>
+</div>
 
   {admin ? (
     <button
