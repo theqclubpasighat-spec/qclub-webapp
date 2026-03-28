@@ -241,34 +241,8 @@ function tournamentGameKey(game) {
   if (value.includes("pool")) return "pool";
 
   return "snooker";
-  function handicapFromGroups(group1, group2, game = "snooker") {
-  const gameKey = tournamentGameKey(game);
-
-  if (gameKey !== "snooker") {
-    return { handicap1: 0, handicap2: 0 };
-  }
-
-  const g1 = String(group1 || "C").toUpperCase();
-  const g2 = String(group2 || "C").toUpperCase();
-
-  const rank = { A: 3, B: 2, C: 1 };
-  const r1 = rank[g1] || 1;
-  const r2 = rank[g2] || 1;
-
-  if (r1 === r2) {
-    return { handicap1: 0, handicap2: 0 };
-  }
-
-  const diff = Math.abs(r1 - r2);
-  const points = diff === 1 ? 6 : 12;
-
-  if (r1 > r2) {
-    return { handicap1: 0, handicap2: points };
-  }
-
-  return { handicap1: points, handicap2: 0 };
 }
-}
+
 function getPlayersForGame(players, gameKey) {
   return (players || []).filter((p) => normalizePlayerGames(p?.games).includes(gameKey));
 }
@@ -582,10 +556,13 @@ By participating in any tournament at The Q Club, players acknowledge that tourn
     admin: {
   mainPin: "1234",
   staffPin: "5678",
+  committeePin: "9012",
 },
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
+    reviewHistory: [],
+    matchLedger: [],
     membersPage: [
   {
     id: "member_1",
@@ -766,8 +743,9 @@ memberRegistry: [
     group: "B",
     yearsPlaying: "2",
     reviewStatus: "Stable",
-    lastReviewDate: "",
-    committeeNotes: "",
+reviewRecommendation: "No Change",
+lastReviewDate: "",
+committeeNotes: "",
   },
 ],
     foodOrders: [],
@@ -803,6 +781,64 @@ memberRegistry: [
 
 function pickText(value, fallback) {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+function syncMembersIntoPlayers(data) {
+  const players = Array.isArray(data.players) ? data.players : [];
+  const members = Array.isArray(data.membersPage) ? data.membersPage : [];
+
+  const byName = new Map(
+    players.map((p) => [String(p.name || "").trim().toLowerCase(), p])
+  );
+
+  const nextPlayers = [...players];
+
+  members.forEach((m) => {
+    const memberName = String(m?.name || "").trim();
+    if (!memberName) return;
+
+    const key = memberName.toLowerCase();
+    if (byName.has(key)) return;
+
+    const memberGames = Array.isArray(m?.games)
+      ? m.games
+      : Array.isArray(m?.memberGames)
+      ? m.memberGames
+      : Array.isArray(m?.sports)
+      ? m.sports
+      : ["snooker"];
+
+    const normalizedGames = normalizePlayerGames(memberGames);
+
+    const newPlayer = {
+      id: uid(),
+      name: memberName,
+      photo: String(m?.photo || ""),
+      location: String(m?.location || "Pasighat"),
+      games: normalizedGames,
+      group: String(m?.group || "C"),
+      yearsPlaying: String(m?.yearsPlaying || ""),
+      bio: "",
+      achievements: "",
+      style: "",
+      snookerWins: 0,
+      snookerLosses: 0,
+      poolWins: 0,
+      poolLosses: 0,
+      bestBreak: 0,
+      reviewStatus: "Stable",
+      reviewRecommendation: "No Change",
+      lastReviewDate: "",
+      committeeNotes: "",
+    };
+
+    nextPlayers.push(newPlayer);
+    byName.set(key, newPlayer);
+  });
+
+  return {
+    ...data,
+    players: nextPlayers,
+  };
 }
 
 function mergeWithDefaults(remote) {
@@ -842,8 +878,44 @@ function mergeWithDefaults(remote) {
   ...(src.admin || {}),
   mainPin: pickText(src?.admin?.mainPin, base.admin.mainPin),
   staffPin: pickText(src?.admin?.staffPin, base.admin.staffPin),
+  committeePin: pickText(src?.admin?.committeePin, base.admin.committeePin),
 },
     announcements: Array.isArray(src.announcements) ? src.announcements : base.announcements,
+    reviewHistory: Array.isArray(src.reviewHistory)
+  ? src.reviewHistory.map((r) => ({
+      id: String(r?.id || uid()),
+      playerId: String(r?.playerId || ""),
+      playerName: String(r?.playerName || ""),
+      action: String(r?.action || ""),
+      fromGroup: String(r?.fromGroup || ""),
+      toGroup: String(r?.toGroup || ""),
+      recommendation: String(r?.recommendation || ""),
+      reviewStatus: String(r?.reviewStatus || ""),
+      committeeNotes: String(r?.committeeNotes || ""),
+      createdAt: Number(r?.createdAt || Date.now()),
+      reviewDate: String(r?.reviewDate || ""),
+    }))
+  : [],
+  matchLedger: Array.isArray(src.matchLedger)
+  ? src.matchLedger.map((m) => ({
+      id: String(m?.id || uid()),
+      date: String(m?.date || todayIso()),
+      game: tournamentGameKey(m?.game),
+      player1Id: String(m?.player1Id || ""),
+      player2Id: String(m?.player2Id || ""),
+      player1Name: String(m?.player1Name || ""),
+      player2Name: String(m?.player2Name || ""),
+      score1: String(m?.score1 ?? ""),
+      score2: String(m?.score2 ?? ""),
+      break1: String(m?.break1 ?? ""),
+      break2: String(m?.break2 ?? ""),
+      winnerId: String(m?.winnerId || ""),
+      venueType: String(m?.venueType || "club"),
+      source: String(m?.source || "manual"),
+      notes: String(m?.notes || ""),
+      createdAt: Number(m?.createdAt || Date.now()),
+    }))
+  : [],
     memberRegistry: Array.isArray(src.memberRegistry) ? src.memberRegistry : base.memberRegistry,
 memberships: Array.isArray(src.memberships) ? src.memberships : base.memberships,
 offers: Array.isArray(src.offers) ? src.offers : base.offers,
@@ -861,8 +933,9 @@ players: Array.isArray(src.players)
           ? String(p.yearsPlaying)
           : "",
       reviewStatus: String(p?.reviewStatus || "Stable"),
-      lastReviewDate: String(p?.lastReviewDate || ""),
-      committeeNotes: String(p?.committeeNotes || ""),
+reviewRecommendation: String(p?.reviewRecommendation || "No Change"),
+lastReviewDate: String(p?.lastReviewDate || ""),
+committeeNotes: String(p?.committeeNotes || ""),
     }))
   : base.players,
 foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
@@ -917,10 +990,10 @@ function loadData() {
       localStorage.getItem("qclub_v3_data") ||
       localStorage.getItem("qclub_v2_data");
 
-    if (!raw) return defaultData();
+    if (!raw) return syncMembersIntoPlayers(defaultData());
 
     const parsed = JSON.parse(raw);
-    return mergeWithDefaults(parsed);
+    return syncMembersIntoPlayers(mergeWithDefaults(parsed));
   } catch (e) {
     console.warn("Failed to load saved data:", e);
     return defaultData();
@@ -931,6 +1004,33 @@ function saveData(data) {
   localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
+function handicapFromGroups(group1, group2, game = "snooker") {
+  const gameKey = tournamentGameKey(game);
+
+  if (gameKey !== "snooker") {
+    return { handicap1: 0, handicap2: 0 };
+  }
+
+  const g1 = String(group1 || "C").toUpperCase();
+  const g2 = String(group2 || "C").toUpperCase();
+
+  const rank = { A: 3, B: 2, C: 1 };
+  const r1 = rank[g1] || 1;
+  const r2 = rank[g2] || 1;
+
+  if (r1 === r2) {
+    return { handicap1: 0, handicap2: 0 };
+  }
+
+  const diff = Math.abs(r1 - r2);
+  const points = diff === 1 ? 6 : 12;
+
+  if (r1 > r2) {
+    return { handicap1: 0, handicap2: points };
+  }
+
+  return { handicap1: points, handicap2: 0 };
+}
 /* ---------------------------
    Round robin fixtures
 ---------------------------- */
@@ -983,6 +1083,7 @@ p2Group: getPlayerGroup(p2),
   }
   return matches;
 }
+
 function generateKnockout(playerIds, allPlayers = []) {
   const ids = [...playerIds].filter(Boolean);
   if (ids.length < 2) return [];
@@ -1159,6 +1260,43 @@ function generateKnockoutForTournamentNow(data, commit, tournamentId) {
 
   alert("Knockout fixtures generated successfully.");
 }
+function generateKnockoutForTournamentSilently(data, commit, tournamentId) {
+  const tournaments = data.tournaments || [];
+  const tournament = tournaments.find((t) => t.id === tournamentId);
+
+  if (!tournament) return false;
+
+  const participantIds = Array.isArray(tournament.participantIds)
+    ? tournament.participantIds.filter(Boolean)
+    : [];
+
+  if (participantIds.length < 2) return false;
+
+  const matches = generateKnockout(participantIds, data.players || []);
+
+  const fixtureAnnouncement = {
+    id: uid(),
+    text: `Knockout fixtures generated for ${tournament.name || "current tournament"} !`,
+    link: "/fixtures",
+    createdAt: Date.now(),
+  };
+
+  commit({
+    ...data,
+    tournaments: tournaments.map((t) =>
+      t.id === tournamentId
+        ? {
+            ...t,
+            format: "knockout",
+            matches,
+          }
+        : t
+    ),
+    announcements: [fixtureAnnouncement, ...(data.announcements || [])].slice(0, 20),
+  });
+
+  return true;
+}
 /* ---------------------------
    Leaderboard calc (per tournament)
 ---------------------------- */
@@ -1288,16 +1426,20 @@ function playPing() {
 
 export default function App() {
 
-  const [data, setData] = useState(loadData());
+  const [data, setData] = useState(() =>
+  hydrateLocalMediaIntoState(
+    syncMembersIntoPlayers(mergeWithDefaults(loadData()))
+  )
+);
   const [cloudStatus, setCloudStatus] = useState(
     isCloudEnabled() ? "syncing" : "local"
   );
   const [hasHydratedFromCloud, setHasHydratedFromCloud] = useState(false);
 
   const [adminRole, setAdminRole] = useState("");
-  const admin = adminRole === "main";
+const admin = adminRole === "main";
 const staffAdmin = adminRole === "staff";
-
+const committeeAdmin = adminRole === "committee";
   const navigate = useNavigate();
   const location = useLocation();
     const [selectedPlayer, setSelectedPlayer] = useState(null);
@@ -1372,13 +1514,15 @@ function closePlayerModal() {
   }
 
   function commit(next) {
-  const safeNext = hydrateLocalMediaIntoState(mergeWithDefaults(next));
+  const merged = mergeWithDefaults(next);
+  const synced = syncMembersIntoPlayers(merged);
+  const safeNext = hydrateLocalMediaIntoState(synced);
 
   setData(safeNext);
   saveData(safeNext);
   try {
-  localStorage.setItem("qclub_state_backup", JSON.stringify(safeNext));
-} catch (e) {}
+    localStorage.setItem("qclub_state_backup", JSON.stringify(safeNext));
+  } catch (e) {}
 
   if (!isCloudEnabled()) return;
   if (!hasHydratedFromCloud) return;
@@ -1417,7 +1561,7 @@ function updateData(path, value) {
     return;
   }
 
-  const pin = prompt("Enter Admin PIN");
+  const pin = prompt("Enter Access PIN");
   if (!pin) return;
 
   if (pin === data.admin?.mainPin) {
@@ -1430,29 +1574,41 @@ function updateData(path, value) {
     return;
   }
 
+  if (pin === data.admin?.committeePin) {
+    setAdminRole("committee");
+    return;
+  }
+
   alert("Wrong PIN");
 }
-
   function changePin() {
   if (!admin) return;
 
   const mode = prompt(
-    "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN",
+    "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN\n3 for Committee PIN",
     "2"
   );
 
   if (!mode) return;
 
-  if (mode !== "1" && mode !== "2") {
+  if (mode !== "1" && mode !== "2" && mode !== "3") {
     alert("Invalid choice");
     return;
   }
 
   const current =
-    mode === "1" ? data.admin?.mainPin || "" : data.admin?.staffPin || "";
+    mode === "1"
+      ? data.admin?.mainPin || ""
+      : mode === "2"
+      ? data.admin?.staffPin || ""
+      : data.admin?.committeePin || "";
 
   const oldPin = prompt(
-    mode === "1" ? "Enter current Main Admin PIN" : "Enter current Staff PIN"
+    mode === "1"
+      ? "Enter current Main Admin PIN"
+      : mode === "2"
+      ? "Enter current Staff PIN"
+      : "Enter current Committee PIN"
   );
   if (oldPin === null) return;
 
@@ -1462,7 +1618,11 @@ function updateData(path, value) {
   }
 
   const nextPin = prompt(
-    mode === "1" ? "Enter new Main Admin PIN" : "Enter new Staff PIN"
+    mode === "1"
+      ? "Enter new Main Admin PIN"
+      : mode === "2"
+      ? "Enter new Staff PIN"
+      : "Enter new Committee PIN"
   );
   if (!nextPin) return;
 
@@ -1470,12 +1630,22 @@ function updateData(path, value) {
     ...data,
     admin: {
       ...(data.admin || {}),
-      mainPin: mode === "1" ? nextPin : data.admin?.mainPin || "1234",
-      staffPin: mode === "2" ? nextPin : data.admin?.staffPin || "5678",
+      mainPin:
+        mode === "1" ? nextPin : data.admin?.mainPin || "1234",
+      staffPin:
+        mode === "2" ? nextPin : data.admin?.staffPin || "5678",
+      committeePin:
+        mode === "3" ? nextPin : data.admin?.committeePin || "9012",
     },
   });
 
-  alert(mode === "1" ? "Main Admin PIN updated" : "Staff PIN updated");
+  alert(
+    mode === "1"
+      ? "Main Admin PIN updated"
+      : mode === "2"
+      ? "Staff PIN updated"
+      : "Committee PIN updated"
+  );
 }
 
   function resetAll() {
@@ -1642,10 +1812,11 @@ useEffect(() => {
 
   return (
     <>
-      <TopNav
+     <TopNav
   club={data.club}
   admin={admin}
   staffAdmin={staffAdmin}
+  committeeAdmin={committeeAdmin}
   onToggleAdmin={toggleAdmin}
   onChangePin={changePin}
   onReset={resetAll}
@@ -1750,14 +1921,38 @@ useEffect(() => {
     <TVMode
       data={data}
       activeTournament={activeTournament}
-      players={playersForTournament(activeTournament, data.players || [])}
+      players={data.players || []}
       admin={admin}
       staffAdmin={staffAdmin}
       commit={commit}
     />
   }
 />
-        <Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route
+  path="/review-panel"
+  element={
+    <ReviewPanel
+  data={data}
+  admin={admin}
+  staffAdmin={staffAdmin}
+  committeeAdmin={committeeAdmin}
+  commit={commit}
+/>
+  }
+/>
+<Route
+  path="/match-ledger"
+  element={
+    <MatchLedgerPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      committeeAdmin={committeeAdmin}
+      commit={commit}
+    />
+  }
+/>
+<Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/about" element={<StaticPage title={data.club?.aboutTitle || "About The Q Club"}><AboutContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route path="/contact" element={<StaticPage title={data.club?.contactTitle || "Contact Us"}><ContactContent data={data} admin={admin} commit={commit} /></StaticPage>} />
         <Route path="/terms" element={<StaticPage title={data.club?.termsTitle || "Terms & Conditions"}><TermsContent data={data} admin={admin} commit={commit} /></StaticPage>} />
@@ -2335,7 +2530,7 @@ function BottomPadding() {
   return <div style={{ height: 28 }} />;
 }
 
-function TopNav({ club, admin, staffAdmin, onToggleAdmin, onChangePin, onReset }) {
+function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin, onChangePin, onReset }) {
   return (
     <div className="nav">
       <div className="nav-inner">
@@ -2381,6 +2576,11 @@ function TopNav({ club, admin, staffAdmin, onToggleAdmin, onChangePin, onReset }
 
 {admin ? <Link className="pill" to="/member-registry">Member Registry</Link> : null}
 
+{(admin || staffAdmin || committeeAdmin) ? (
+  <Link className="pill" to="/review-panel">Review Panel</Link>
+) : null}
+{(admin || staffAdmin || committeeAdmin) ? <Link className="pill" to="/match-ledger">Match Ledger</Link> : null}
+
 {admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
 
        {admin && (
@@ -2415,6 +2615,1057 @@ function PageShell({ title, subtitle, right }) {
         <div className="pageHeadRight">{right || null}</div>
       </div>
     </div>
+  );
+}
+function ReviewPanel({ data, admin, staffAdmin, committeeAdmin, commit }) {
+  if (!admin && !staffAdmin && !committeeAdmin) {
+    return (
+      <>
+        <PageShell title="Review Panel" subtitle="Restricted access" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Access denied.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const players = data.players || [];
+  const tournaments = data.tournaments || [];
+  const reviewHistory = data.reviewHistory || [];
+
+  function addHistoryEntry(player, extra = {}) {
+    return {
+      id: uid(),
+      playerId: player.id,
+      playerName: player.name || "",
+      action: extra.action || "review_saved",
+      fromGroup: String(extra.fromGroup || player.group || "C"),
+      toGroup: String(extra.toGroup || player.group || "C"),
+      recommendation: String(extra.recommendation || player.reviewRecommendation || "No Change"),
+      reviewStatus: String(extra.reviewStatus || player.reviewStatus || "Stable"),
+      committeeNotes: String(extra.committeeNotes || player.committeeNotes || ""),
+      createdAt: Date.now(),
+      reviewDate: todayIso(),
+    };
+  }
+
+  function updateReviewField(playerId, field, value) {
+    commit({
+      ...data,
+      players: players.map((p) =>
+        p.id === playerId ? { ...p, [field]: value } : p
+      ),
+    });
+  }
+
+  function saveReview(playerId) {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+
+    const updatedPlayers = players.map((p) =>
+      p.id === playerId
+        ? {
+            ...p,
+            lastReviewDate: todayIso(),
+          }
+        : p
+    );
+
+    commit({
+      ...data,
+      players: updatedPlayers,
+      reviewHistory: [
+        addHistoryEntry(
+          { ...player, lastReviewDate: todayIso() },
+          {
+            action: "review_saved",
+            fromGroup: player.group || "C",
+            toGroup: player.group || "C",
+          }
+        ),
+        ...reviewHistory,
+      ],
+    });
+
+    alert(`Review saved for ${player.name}`);
+  }
+
+  function getPlayerEvidence(player) {
+  const snookerWinsBase = Number(player.snookerWins || 0);
+  const snookerLossesBase = Number(player.snookerLosses || 0);
+  const poolWinsBase = Number(player.poolWins || 0);
+  const poolLossesBase = Number(player.poolLosses || 0);
+  const bestBreakBase = Number(player.bestBreak || 0);
+
+  const ledger = data.matchLedger || [];
+
+  let ledgerSnookerWins = 0;
+  let ledgerSnookerLosses = 0;
+  let ledgerPoolWins = 0;
+  let ledgerPoolLosses = 0;
+  let ledgerBestBreak = 0;
+
+  ledger.forEach((m) => {
+    const gameKey = tournamentGameKey(m?.game);
+    const isP1 = m.player1Id === player.id;
+    const isP2 = m.player2Id === player.id;
+
+    if (!isP1 && !isP2) return;
+
+    const winnerId = String(m.winnerId || "");
+    const isWin = winnerId && winnerId === player.id;
+    const isLoss =
+      winnerId &&
+      ((isP1 && winnerId === m.player2Id) || (isP2 && winnerId === m.player1Id));
+
+    if (gameKey === "snooker") {
+      if (isWin) ledgerSnookerWins += 1;
+      if (isLoss) ledgerSnookerLosses += 1;
+
+      const personalBreak = isP1
+        ? Number(m.break1 || 0)
+        : Number(m.break2 || 0);
+
+      if (Number.isFinite(personalBreak) && personalBreak > ledgerBestBreak) {
+        ledgerBestBreak = personalBreak;
+      }
+    } else {
+      if (isWin) ledgerPoolWins += 1;
+      if (isLoss) ledgerPoolLosses += 1;
+    }
+  });
+
+  const snookerWins = snookerWinsBase + ledgerSnookerWins;
+  const snookerLosses = snookerLossesBase + ledgerSnookerLosses;
+  const poolWins = poolWinsBase + ledgerPoolWins;
+  const poolLosses = poolLossesBase + ledgerPoolLosses;
+  const bestBreak = Math.max(bestBreakBase, ledgerBestBreak);
+
+  const totalWins = snookerWins + poolWins;
+  const totalLosses = snookerLosses + poolLosses;
+  const totalMatches = totalWins + totalLosses;
+  const winRate = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0;
+
+  const recentTournaments = tournaments
+    .filter(
+      (t) =>
+        Array.isArray(t.participantIds) && t.participantIds.includes(player.id)
+    )
+    .slice(-5);
+
+  const recentNames = recentTournaments.map((t) => t.name).filter(Boolean);
+
+  const recentLedgerMatches = ledger
+    .filter((m) => m.player1Id === player.id || m.player2Id === player.id)
+    .slice(0, 5)
+    .map((m) => {
+      const opponentId = m.player1Id === player.id ? m.player2Id : m.player1Id;
+      const opponentName =
+        m.player1Id === player.id ? m.player2Name : m.player1Name || "";
+      const resolvedOpponent =
+        opponentName || players.find((p) => p.id === opponentId)?.name || "Opponent";
+
+      return `${tournamentGameKey(m.game) === "pool" ? "Pool" : "Snooker"} vs ${resolvedOpponent}`;
+    });
+
+  return {
+    snookerWins,
+    snookerLosses,
+    poolWins,
+    poolLosses,
+    bestBreak,
+    totalWins,
+    totalLosses,
+    totalMatches,
+    winRate,
+    recentNames,
+    recentLedgerMatches,
+    ledgerSnookerWins,
+    ledgerSnookerLosses,
+    ledgerPoolWins,
+    ledgerPoolLosses,
+  };
+}
+  
+
+  function getSuggestedRecommendation(player) {
+    const ev = getPlayerEvidence(player);
+    const currentGroup = String(player.group || "C").toUpperCase();
+
+    if (ev.totalMatches >= 20 && ev.winRate <= 35 && currentGroup !== "C") {
+      return {
+        recommendation: "Demote",
+        status: currentGroup === "A" ? "Demote to B" : "Demote to C",
+        reason: `Low win rate (${ev.winRate}%) over ${ev.totalMatches} combined matches (tournaments + ledger)`,
+      };
+    }
+
+    if (ev.totalMatches >= 15 && ev.winRate >= 70 && currentGroup !== "A") {
+      return {
+        recommendation: "Promote",
+        status: currentGroup === "C" ? "Promote to B" : "Promote to A",
+        reason: `Strong win rate (${ev.winRate}%) over ${ev.totalMatches} combined matches (tournaments + ledger)`,
+      };
+    }
+
+    if (ev.totalMatches >= 8 && ev.winRate >= 36 && ev.winRate <= 45) {
+      return {
+        recommendation: "Watchlist",
+        status: "Under Review",
+        reason: `Borderline record (${ev.winRate}%) - watchlist suggested`,
+      };
+    }
+
+    if (ev.totalMatches >= 8 && ev.winRate >= 46 && ev.winRate <= 69) {
+      return {
+        recommendation: "Hold",
+        status: "Hold",
+        reason: `Competitive but not decisive enough for movement (${ev.winRate}%)`,
+      };
+    }
+
+    return {
+      recommendation: "No Change",
+      status: player.reviewStatus || "Stable",
+      reason:
+        ev.totalMatches < 8
+          ? `Not enough recorded matches yet (${ev.totalMatches})`
+          : `No movement suggested from current data`,
+    };
+  }
+  function getEligibilityLabel(player, ev) {
+  const currentGroup = String(player.group || "C").toUpperCase();
+
+  if (ev.totalMatches < 8) {
+    return `Not enough evidence yet (${ev.totalMatches} matches)`;
+  }
+
+  if (currentGroup === "A") {
+    if (ev.totalMatches >= 20 && ev.winRate <= 35) {
+      return "Eligible for demotion review";
+    }
+    return "Top group — monitor stability";
+  }
+
+  if (currentGroup === "B") {
+    if (ev.totalMatches >= 15 && ev.winRate >= 70) {
+      return "Eligible for promotion review";
+    }
+    if (ev.totalMatches >= 20 && ev.winRate <= 35) {
+      return "Eligible for demotion review";
+    }
+    return "Under standard review window";
+  }
+
+  if (currentGroup === "C") {
+    if (ev.totalMatches >= 15 && ev.winRate >= 70) {
+      return "Eligible for promotion review";
+    }
+    return "Development group — continue recording matches";
+  }
+
+  return "Under review";
+}
+
+  function autoSuggestForPlayer(playerId) {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+
+    const suggestion = getSuggestedRecommendation(player);
+
+    commit({
+      ...data,
+      players: players.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              reviewRecommendation: suggestion.recommendation,
+              reviewStatus: suggestion.status,
+              committeeNotes: p.committeeNotes
+                ? p.committeeNotes
+                : `Auto suggestion: ${suggestion.reason}`,
+              lastReviewDate: todayIso(),
+            }
+          : p
+      ),
+      reviewHistory: [
+        addHistoryEntry(
+          {
+            ...player,
+            reviewRecommendation: suggestion.recommendation,
+            reviewStatus: suggestion.status,
+            committeeNotes: player.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
+            lastReviewDate: todayIso(),
+          },
+          {
+            action: "auto_suggested",
+            fromGroup: player.group || "C",
+            toGroup: player.group || "C",
+            recommendation: suggestion.recommendation,
+            reviewStatus: suggestion.status,
+            committeeNotes: player.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
+          }
+        ),
+        ...reviewHistory,
+      ],
+    });
+  }
+
+  function autoSuggestAll() {
+    if (!players.length) return;
+
+    const ok = confirm("Run automatic recommendation helper for all players?");
+    if (!ok) return;
+
+    const updatedPlayers = players.map((p) => {
+      const suggestion = getSuggestedRecommendation(p);
+      return {
+        ...p,
+        reviewRecommendation: suggestion.recommendation,
+        reviewStatus: suggestion.status,
+        committeeNotes: p.committeeNotes
+          ? p.committeeNotes
+          : `Auto suggestion: ${suggestion.reason}`,
+        lastReviewDate: todayIso(),
+      };
+    });
+
+    const historyEntries = players.map((p) => {
+      const suggestion = getSuggestedRecommendation(p);
+      return addHistoryEntry(
+        {
+          ...p,
+          reviewRecommendation: suggestion.recommendation,
+          reviewStatus: suggestion.status,
+          committeeNotes: p.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
+          lastReviewDate: todayIso(),
+        },
+        {
+          action: "auto_suggested",
+          fromGroup: p.group || "C",
+          toGroup: p.group || "C",
+          recommendation: suggestion.recommendation,
+          reviewStatus: suggestion.status,
+          committeeNotes: p.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
+        }
+      );
+    });
+
+    commit({
+      ...data,
+      players: updatedPlayers,
+      reviewHistory: [...historyEntries.reverse(), ...reviewHistory],
+    });
+
+    alert("Automatic recommendation helper applied to all players.");
+  }
+
+  function applyRecommendation(playerId) {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+
+    const recommendation = String(player.reviewRecommendation || "No Change");
+    const currentGroup = String(player.group || "C").toUpperCase();
+
+    let nextGroup = currentGroup;
+
+    if (recommendation === "Promote") {
+      nextGroup =
+        currentGroup === "C"
+          ? "B"
+          : currentGroup === "B"
+          ? "A"
+          : "A";
+    } else if (recommendation === "Demote") {
+      nextGroup =
+        currentGroup === "A"
+          ? "B"
+          : currentGroup === "B"
+          ? "C"
+          : "C";
+    } else if (
+      recommendation === "Hold" ||
+      recommendation === "Watchlist" ||
+      recommendation === "No Change"
+    ) {
+      const ok = confirm(
+        `${player.name}: recommendation is "${recommendation}". Save review without changing group?`
+      );
+      if (!ok) return;
+
+      const updatedPlayer = {
+        ...player,
+        reviewStatus:
+          recommendation === "Watchlist"
+            ? "Under Review"
+            : recommendation === "Hold"
+            ? "Hold"
+            : player.reviewStatus || "Stable",
+        lastReviewDate: todayIso(),
+      };
+
+      commit({
+        ...data,
+        players: players.map((p) =>
+          p.id === playerId ? updatedPlayer : p
+        ),
+        reviewHistory: [
+          addHistoryEntry(updatedPlayer, {
+            action: "review_updated",
+            fromGroup: currentGroup,
+            toGroup: currentGroup,
+          }),
+          ...reviewHistory,
+        ],
+      });
+
+      alert(`Review updated for ${player.name}`);
+      return;
+    }
+
+    if (nextGroup === currentGroup) {
+      alert(`${player.name} is already in Group ${currentGroup}.`);
+      return;
+    }
+
+    const ok = confirm(
+      `Apply recommendation for ${player.name}?\n\nCurrent Group: ${currentGroup}\nNew Group: ${nextGroup}`
+    );
+    if (!ok) return;
+
+    const updatedPlayer = {
+      ...player,
+      group: nextGroup,
+      reviewStatus: `Moved to ${nextGroup}`,
+      lastReviewDate: todayIso(),
+    };
+
+    commit({
+      ...data,
+      players: players.map((p) =>
+        p.id === playerId ? updatedPlayer : p
+      ),
+      reviewHistory: [
+        addHistoryEntry(updatedPlayer, {
+          action: "group_changed",
+          fromGroup: currentGroup,
+          toGroup: nextGroup,
+        }),
+        ...reviewHistory,
+      ],
+    });
+
+    alert(`${player.name} moved to Group ${nextGroup}`);
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Review Panel"
+        subtitle="Tournament committee review workspace"
+        right={
+          <button className="btn primary" onClick={autoSuggestAll}>
+            Auto Suggest All
+          </button>
+        }
+      />
+
+      <div className="container">
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h2 style={{ marginTop: 0 }}>Committee Review Panel</h2>
+          <div className="muted" style={{ marginTop: 8 }}>
+            Review classification, stats, recent participation, system suggestions, remarks, and apply group changes here.
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Recent Review History</h3>
+
+          {reviewHistory.length === 0 ? (
+            <div className="muted">No review history yet.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Player</th>
+                  <th>Action</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Recommendation</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviewHistory.slice(0, 20).map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.reviewDate || "—"}</td>
+                    <td>{r.playerName || "—"}</td>
+                    <td>{r.action || "—"}</td>
+                    <td>{r.fromGroup || "—"}</td>
+                    <td>{r.toGroup || "—"}</td>
+                    <td>{r.recommendation || "—"}</td>
+                    <td>{r.reviewStatus || "—"}</td>
+                    <td>{r.committeeNotes || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="card">
+  <h3 style={{ marginTop: 0 }}>Players Available For Review</h3>
+
+  {players.length === 0 ? (
+    <div className="muted">No players found.</div>
+  ) : (
+    <div
+      style={{
+        display: "grid",
+        gap: 16,
+      }}
+    >
+      {players.map((p) => {
+        const ev = getPlayerEvidence(p);
+        const suggestion = getSuggestedRecommendation(p);
+
+        return (
+          <div
+            key={p.id}
+            className="card"
+            style={{
+              padding: 16,
+              border: "1px solid rgba(255,255,255,.08)",
+              background: "rgba(255,255,255,.03)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.2fr .8fr .8fr",
+                gap: 14,
+                alignItems: "start",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{p.name}</div>
+
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {playerGamesLabel(p)}
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <span className="badge">
+                    <span className="dot" />
+                    Group {p.group || "C"}
+                  </span>
+                </div>
+
+                <div className="muted" style={{ marginTop: 10 }}>
+                  Years Playing: {p.yearsPlaying || "—"}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Performance</div>
+
+                <div className="muted">Snooker: W {ev.snookerWins} • L {ev.snookerLosses}</div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Pool: W {ev.poolWins} • L {ev.poolLosses}
+                </div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Total: W {ev.totalWins} • L {ev.totalLosses}
+                </div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Matches: {ev.totalMatches}
+                </div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Win Rate: {ev.winRate}%
+                </div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Best Break: {ev.bestBreak || "—"}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Evidence</div>
+
+                <div className="muted" style={{ marginBottom: 8 }}>
+                  {suggestion.reason}
+                </div>
+
+                <div className="muted" style={{ marginBottom: 8 }}>
+                  {getEligibilityLabel(p, ev)}
+                </div>
+
+                <div className="muted" style={{ marginBottom: 6 }}>
+                  Recent Tournaments:
+                </div>
+                {ev.recentNames.length ? (
+                  <div style={{ display: "grid", gap: 4, marginBottom: 10 }}>
+                    {ev.recentNames.map((name, idx) => (
+                      <div key={idx} className="muted">
+                        • {name}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted" style={{ marginBottom: 10 }}>
+                    No recent tournaments
+                  </div>
+                )}
+
+                <div className="muted" style={{ marginBottom: 6 }}>
+                  Recent Ledger Matches:
+                </div>
+                {ev.recentLedgerMatches.length ? (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    {ev.recentLedgerMatches.map((name, idx) => (
+                      <div key={idx} className="muted">
+                        • {name}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted">No ledger matches</div>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 14,
+                marginTop: 16,
+              }}
+            >
+              <div>
+                <label className="lbl">Review Status</label>
+                <select
+                  value={p.reviewStatus || "Stable"}
+                  onChange={(e) =>
+                    updateReviewField(p.id, "reviewStatus", e.target.value)
+                  }
+                >
+                  <option value="Stable">Stable</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Promote to B">Promote to B</option>
+                  <option value="Promote to A">Promote to A</option>
+                  <option value="Demote to B">Demote to B</option>
+                  <option value="Demote to C">Demote to C</option>
+                  <option value="Hold">Hold</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="lbl">Recommendation</label>
+                <select
+                  value={p.reviewRecommendation || "No Change"}
+                  onChange={(e) =>
+                    updateReviewField(p.id, "reviewRecommendation", e.target.value)
+                  }
+                >
+                  <option value="No Change">No Change</option>
+                  <option value="Promote">Promote</option>
+                  <option value="Demote">Demote</option>
+                  <option value="Hold">Hold</option>
+                  <option value="Watchlist">Watchlist</option>
+                </select>
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label className="lbl">Committee Notes</label>
+                <textarea
+                  value={p.committeeNotes || ""}
+                  onChange={(e) =>
+                    updateReviewField(p.id, "committeeNotes", e.target.value)
+                  }
+                  placeholder="Committee remarks..."
+                  style={{ minHeight: 90 }}
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                marginTop: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              <div className="muted">
+                Last Review: {p.lastReviewDate || "—"}
+              </div>
+
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => autoSuggestForPlayer(p.id)}
+                >
+                  Auto Suggest
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => saveReview(p.id)}
+                >
+                  Save Review
+                </button>
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={() => applyRecommendation(p.id)}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+      </div>
+    </>
+  );
+}
+function MatchLedgerPage({ data, admin, staffAdmin, committeeAdmin, commit }) {
+  if (!admin && !staffAdmin && !committeeAdmin) {
+    return (
+      <>
+        <PageShell title="Match Ledger" subtitle="Restricted access" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Access denied.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const players = data.players || [];
+  const matchLedger = data.matchLedger || [];
+
+  const [form, setForm] = useState({
+    date: todayIso(),
+    game: "snooker",
+    player1Id: "",
+    player2Id: "",
+    score1: "",
+    score2: "",
+    break1: "",
+    break2: "",
+    venueType: "club",
+    notes: "",
+  });
+
+  const filteredPlayers = players.filter((p) =>
+    normalizePlayerGames(p.games).includes(form.game)
+  );
+
+  function playerName(id) {
+    return players.find((p) => p.id === id)?.name || "Unknown Player";
+  }
+
+  function resetForm() {
+    setForm({
+      date: todayIso(),
+      game: "snooker",
+      player1Id: "",
+      player2Id: "",
+      score1: "",
+      score2: "",
+      break1: "",
+      break2: "",
+      venueType: "club",
+      notes: "",
+    });
+  }
+
+  function saveLedgerMatch() {
+    if (!admin && !staffAdmin) {
+      alert("Only admin or staff can add match records.");
+      return;
+    }
+
+    if (!form.player1Id || !form.player2Id) {
+      alert("Please select both players.");
+      return;
+    }
+
+    if (form.player1Id === form.player2Id) {
+      alert("Player 1 and Player 2 cannot be the same.");
+      return;
+    }
+
+    const s1 = Number(form.score1);
+    const s2 = Number(form.score2);
+
+    if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
+      alert("Enter valid scores.");
+      return;
+    }
+
+    const winnerId = s1 === s2 ? "" : s1 > s2 ? form.player1Id : form.player2Id;
+
+    const entry = {
+      id: uid(),
+      date: form.date || todayIso(),
+      game: tournamentGameKey(form.game),
+      player1Id: form.player1Id,
+      player2Id: form.player2Id,
+      player1Name: playerName(form.player1Id),
+      player2Name: playerName(form.player2Id),
+      score1: String(form.score1),
+      score2: String(form.score2),
+      break1: form.game === "snooker" ? String(form.break1 || "") : "",
+      break2: form.game === "snooker" ? String(form.break2 || "") : "",
+      winnerId,
+      venueType: form.venueType || "club",
+      source: "manual",
+      notes: String(form.notes || "").trim(),
+      createdAt: Date.now(),
+    };
+
+    commit({
+      ...data,
+      matchLedger: [entry, ...(data.matchLedger || [])],
+    });
+
+    resetForm();
+    alert("Match saved to ledger.");
+  }
+
+  function deleteLedgerMatch(id) {
+    if (!admin) {
+      alert("Only main admin can delete ledger matches.");
+      return;
+    }
+
+    if (!confirm("Delete this match record?")) return;
+
+    commit({
+      ...data,
+      matchLedger: (data.matchLedger || []).filter((m) => m.id !== id),
+    });
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Match Ledger"
+        subtitle="Structured non-tournament and review match records"
+      />
+
+      <div className="container">
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h2 style={{ marginTop: 0 }}>Record Match</h2>
+
+          <div className="grid">
+            <div className="cols-4">
+              <label className="lbl">Date</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={(e) => setForm({ ...form, date: e.target.value })}
+              />
+            </div>
+
+            <div className="cols-4">
+              <label className="lbl">Game</label>
+              <select
+                value={form.game}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    game: tournamentGameKey(e.target.value),
+                    player1Id: "",
+                    player2Id: "",
+                    break1: "",
+                    break2: "",
+                  })
+                }
+              >
+                <option value="snooker">Snooker</option>
+                <option value="pool">Pool</option>
+              </select>
+            </div>
+
+            <div className="cols-4">
+              <label className="lbl">Venue Type</label>
+              <select
+                value={form.venueType}
+                onChange={(e) => setForm({ ...form, venueType: e.target.value })}
+              >
+                <option value="club">Club</option>
+                <option value="tournament_review">Tournament Review</option>
+                <option value="friendly">Friendly</option>
+                <option value="practice">Practice</option>
+              </select>
+            </div>
+
+            <div className="cols-6">
+              <label className="lbl">Player 1</label>
+              <select
+                value={form.player1Id}
+                onChange={(e) => setForm({ ...form, player1Id: e.target.value })}
+              >
+                <option value="">Select player</option>
+                {filteredPlayers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="cols-6">
+              <label className="lbl">Player 2</label>
+              <select
+                value={form.player2Id}
+                onChange={(e) => setForm({ ...form, player2Id: e.target.value })}
+              >
+                <option value="">Select player</option>
+                {filteredPlayers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="cols-3">
+              <label className="lbl">Score 1</label>
+              <input
+                value={form.score1}
+                onChange={(e) => setForm({ ...form, score1: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+
+            <div className="cols-3">
+              <label className="lbl">Score 2</label>
+              <input
+                value={form.score2}
+                onChange={(e) => setForm({ ...form, score2: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+
+            {form.game === "snooker" ? (
+              <>
+                <div className="cols-3">
+                  <label className="lbl">Break 1</label>
+                  <input
+                    value={form.break1}
+                    onChange={(e) => setForm({ ...form, break1: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="cols-3">
+                  <label className="lbl">Break 2</label>
+                  <input
+                    value={form.break2}
+                    onChange={(e) => setForm({ ...form, break2: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+              </>
+            ) : null}
+
+            <div className="cols-12">
+              <label className="lbl">Notes</label>
+              <textarea
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                placeholder="Optional notes"
+              />
+            </div>
+          </div>
+
+          <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+            <button className="btn primary" type="button" onClick={saveLedgerMatch}>
+              Save Match
+            </button>
+            <button className="btn" type="button" onClick={resetForm}>
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Recent Match Ledger</h2>
+
+          {matchLedger.length === 0 ? (
+            <div className="muted">No recorded matches yet.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Game</th>
+                  <th>Match</th>
+                  <th>Score</th>
+                  <th>Breaks</th>
+                  <th>Winner</th>
+                  <th>Source</th>
+                  <th>Venue</th>
+                  <th>Notes</th>
+                  <th>Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matchLedger.slice(0, 50).map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.date || "—"}</td>
+                    <td>{tournamentGameKey(m.game) === "pool" ? "Pool" : "Snooker"}</td>
+                    <td>
+                      <b>{m.player1Name || playerName(m.player1Id)}</b>
+                      {" "}vs{" "}
+                      <b>{m.player2Name || playerName(m.player2Id)}</b>
+                    </td>
+                    <td>{m.score1} - {m.score2}</td>
+                    <td>
+                      {tournamentGameKey(m.game) === "snooker"
+                        ? `${m.break1 || 0} / ${m.break2 || 0}`
+                        : "—"}
+                    </td>
+                    <td>{m.winnerId ? playerName(m.winnerId) : "Draw"}</td>
+                    <td>{m.source || "manual"}</td>
+                    <td>{m.venueType || "club"}</td>
+                    <td>{m.notes || "—"}</td>
+                    <td>
+                      {admin ? (
+                        <button
+                          className="btn danger"
+                          type="button"
+                          onClick={() => deleteLedgerMatch(m.id)}
+                        >
+                          Delete
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 function playersForTournament(tournament, allPlayers = []) {
@@ -5158,113 +6409,140 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
   const [mobile, setMobile] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [adminSelectedPlayerName, setAdminSelectedPlayerName] = useState("");
 
   const players = data.players || [];
   const memberPagePlayers = (data.membersPage || []).map((m) => ({
-  id: `memberpage_${m.id}`,
-  name: m.name || "",
-}));
+    id: `memberpage_${m.id}`,
+    name: m.name || "",
+  }));
 
-const registryPlayers = (data.memberRegistry || []).map((m) => ({
-  id: `registry_${m.id}`,
-  name: m.name || "",
-}));
+  const registryPlayers = (data.memberRegistry || []).map((m) => ({
+    id: `registry_${m.id}`,
+    name: m.name || "",
+  }));
 
-const existingSelectablePlayers = [
-  ...players.map((p) => ({ id: p.id, name: p.name || "" })),
-  ...memberPagePlayers,
-  ...registryPlayers,
-].filter((p) => p.name.trim());
+  const existingSelectablePlayers = [
+    ...players.map((p) => ({ id: p.id, name: p.name || "" })),
+    ...memberPagePlayers,
+    ...registryPlayers,
+  ].filter((p) => p.name.trim());
 
-const uniqueSelectablePlayers = existingSelectablePlayers.filter(
-  (p, idx, arr) =>
-    arr.findIndex(
-      (x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase()
-    ) === idx
-);
+  const uniqueSelectablePlayers = existingSelectablePlayers.filter(
+    (p, idx, arr) =>
+      arr.findIndex(
+        (x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase()
+      ) === idx
+  );
+
   const tournamentIdFromUrl = new URLSearchParams(location.search).get("id") || "";
   const currentTournament =
-  (data.tournaments || []).find((t) => t.id === tournamentIdFromUrl) ||
-  activeTournament ||
-  null;
+    (data.tournaments || []).find((t) => t.id === tournamentIdFromUrl) ||
+    activeTournament ||
+    null;
+
+  const registeredNames = new Set(
+    ((currentTournament?.participantIds || [])
+      .map((id) => players.find((p) => p.id === id)?.name || "")
+      .map((name) => String(name).trim().toLowerCase())
+      .filter(Boolean))
+  );
+
+  const adminQuickAddOptions = uniqueSelectablePlayers
+    .filter((p) => {
+      const normalized = String(p.name || "").trim().toLowerCase();
+      return normalized && !registeredNames.has(normalized);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const registrationFee = safeNum(currentTournament?.registrationFee, 99);
   const registrationNote =
-  currentTournament?.registrationNote ||
-  "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.";
-    const balancedFormatTitle =
-    data.club?.balancedFormatTitle || "Q Club Balanced Match Format";
+    currentTournament?.registrationNote ||
+    "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes.";
+
+  const balancedFormatTitle =
+    currentTournament?.balancedFormatTitle ||
+    data.club?.balancedFormatTitle ||
+    "Q Club Balanced Match Format";
+
   const balancedFormatSubtitle =
-    data.club?.balancedFormatSubtitle || "Structured for fair play, balanced competition, and a stronger tournament experience.";
+    currentTournament?.balancedFormatSubtitle ||
+    data.club?.balancedFormatSubtitle ||
+    "Structured for fair play, balanced competition, and a stronger tournament experience.";
+
   const balancedFormatDescription =
-    data.club?.balancedFormatDescription || "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.";
+    currentTournament?.balancedFormatDescription ||
+    data.club?.balancedFormatDescription ||
+    "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.";
+
   const registeredPlayers = (currentTournament?.participantIds || [])
-  .map((id) => players.find((p) => p.id === id))
-  .filter(Boolean);
+    .map((id) => players.find((p) => p.id === id))
+    .filter(Boolean);
+
   function addRegisteredPlayerManually() {
-  if (!admin) return;
+    if (!admin) return;
 
-  if (!currentTournament) {
-    alert("No tournament selected.");
-    return;
-  }
+    if (!currentTournament) {
+      alert("No tournament selected.");
+      return;
+    }
 
-  const name = prompt("Enter player name:");
-  if (!name) return;
+    const name = prompt("Enter player name:");
+    if (!name) return;
 
-  const mobile = prompt("Enter mobile number (optional):", "") || "";
+    const mobile = prompt("Enter mobile number (optional):", "") || "";
 
-  let nextPlayers = [...(data.players || [])];
+    let nextPlayers = [...(data.players || [])];
 
-  let existing = nextPlayers.find(
-    (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
-  );
+    let existing = nextPlayers.find(
+      (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+    );
 
-  let finalPlayerId = existing?.id || "";
+    let finalPlayerId = existing?.id || "";
 
-  if (!finalPlayerId) {
-    const newPlayer = {
-      id: `pl_${Date.now()}`,
-      name: name.trim(),
-      mobile: mobile.trim(),
-      city: "Pasighat",
+    if (!finalPlayerId) {
+      const newPlayer = {
+        id: `pl_${Date.now()}`,
+        name: name.trim(),
+        mobile: mobile.trim(),
+        city: "Pasighat",
+        createdAt: Date.now(),
+      };
+      nextPlayers = [...nextPlayers, newPlayer];
+      finalPlayerId = newPlayer.id;
+    }
+
+    const nextTournaments = (data.tournaments || []).map((t) => {
+      if (t.id !== currentTournament.id) return t;
+
+      const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
+      const nextIds = currentIds.includes(finalPlayerId)
+        ? currentIds
+        : [...currentIds, finalPlayerId];
+
+      return {
+        ...t,
+        participantIds: nextIds,
+      };
+    });
+
+    const manualTournamentAnnouncement = {
+      id: uid(),
+      text: `${name.trim()} registered for ${currentTournament.name || "the tournament"} ! Register now`,
+      link: `/tournament-register?id=${currentTournament.id}`,
       createdAt: Date.now(),
     };
-    nextPlayers = [...nextPlayers, newPlayer];
-    finalPlayerId = newPlayer.id;
+
+    commit({
+      ...data,
+      players: nextPlayers,
+      tournaments: nextTournaments,
+      announcements: [
+        manualTournamentAnnouncement,
+        ...(data.announcements || []),
+      ].slice(0, 20),
+    });
   }
-
-  const nextTournaments = (data.tournaments || []).map((t) => {
-    if (t.id !== currentTournament.id) return t;
-
-    const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
-    const nextIds = currentIds.includes(finalPlayerId)
-      ? currentIds
-      : [...currentIds, finalPlayerId];
-
-    return {
-      ...t,
-      participantIds: nextIds,
-    };
-  });
-
-  const manualTournamentAnnouncement = {
-  id: uid(),
-  text: `${name.trim()} registered for ${currentTournament.name || "the tournament"} ! Register now`,
-  link: `/tournament-register?id=${currentTournament.id}`,
-  createdAt: Date.now(),
-};
-
-commit({
-  ...data,
-  players: nextPlayers,
-  tournaments: nextTournaments,
-  announcements: [
-    manualTournamentAnnouncement,
-    ...(data.announcements || []),
-  ].slice(0, 20),
-});
-}
 
   function beginRegistration() {
     if (!currentTournament) {
@@ -5309,194 +6587,201 @@ commit({
           <div className="grid">
             <div className="card cols-7">
               <h2 style={{ marginTop: 0 }}>{currentTournament.name}</h2>
+
               <div
-  className="row"
-  style={{ marginTop: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}
->
-  <div className="muted">Tournament Fee: ₹{registrationFee}</div>
+                className="row"
+                style={{ marginTop: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}
+              >
+                <div className="muted">Tournament Fee: ₹{registrationFee}</div>
 
-  {admin ? (
-    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-      <button
-        className="btn"
-        type="button"
-        onClick={() => {
-          const nextFee = prompt(
-            "Enter registration fee",
-            String(registrationFee)
-          );
-          if (nextFee === null) return;
+                {admin ? (
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => {
+                        const nextFee = prompt(
+                          "Enter registration fee",
+                          String(registrationFee)
+                        );
+                        if (nextFee === null) return;
 
-          commit({
-            ...data,
-            tournaments: (data.tournaments || []).map((t) =>
-              t.id === currentTournament.id
-                ? {
-                    ...t,
-                    registrationFee: safeNum(nextFee, registrationFee),
-                  }
-                : t
-            ),
-          });
-        }}
-      >
-        Edit Fee
-      </button>
+                        commit({
+                          ...data,
+                          tournaments: (data.tournaments || []).map((t) =>
+                            t.id === currentTournament.id
+                              ? {
+                                  ...t,
+                                  registrationFee: safeNum(nextFee, registrationFee),
+                                }
+                              : t
+                          ),
+                        });
+                      }}
+                    >
+                      Edit Fee
+                    </button>
 
-      <button
-        className="btn secondary"
-        type="button"
-        onClick={() => {
-          const nextTitle = prompt(
-            "Balanced format title:",
-            data.club?.balancedFormatTitle || "Q Club Balanced Match Format"
-          );
-          if (nextTitle === null) return;
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => {
+                        const nextTitle = prompt(
+                          "Balanced format title:",
+                          balancedFormatTitle
+                        );
+                        if (nextTitle === null) return;
 
-          const nextSubtitle = prompt(
-            "Balanced format subtitle:",
-            data.club?.balancedFormatSubtitle || "Structured for fair play, balanced competition, and a stronger tournament experience."
-          );
-          if (nextSubtitle === null) return;
+                        const nextSubtitle = prompt(
+                          "Balanced format subtitle:",
+                          balancedFormatSubtitle
+                        );
+                        if (nextSubtitle === null) return;
 
-          const nextDescription = prompt(
-            "Balanced format description:",
-            data.club?.balancedFormatDescription || "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards."
-          );
-          if (nextDescription === null) return;
+                        const nextDescription = prompt(
+                          "Balanced format description:",
+                          balancedFormatDescription
+                        );
+                        if (nextDescription === null) return;
 
-          commit({
-            ...data,
-            club: {
-              ...data.club,
-              balancedFormatTitle: nextTitle.trim() || "Q Club Balanced Match Format",
-              balancedFormatSubtitle:
-                nextSubtitle.trim() ||
-                "Structured for fair play, balanced competition, and a stronger tournament experience.",
-              balancedFormatDescription:
-                nextDescription.trim() ||
-                "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
-            },
-          });
-        }}
-      >
-        Edit Format
-      </button>
-    </div>
-  ) : null}
-</div>
+                        commit({
+                          ...data,
+                          tournaments: (data.tournaments || []).map((t) =>
+                            t.id === currentTournament.id
+                              ? {
+                                  ...t,
+                                  balancedFormatTitle:
+                                    nextTitle.trim() || "Q Club Balanced Match Format",
+                                  balancedFormatSubtitle:
+                                    nextSubtitle.trim() ||
+                                    "Structured for fair play, balanced competition, and a stronger tournament experience.",
+                                  balancedFormatDescription:
+                                    nextDescription.trim() ||
+                                    "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
+                                }
+                              : t
+                          ),
+                        });
+                      }}
+                    >
+                      Edit Format
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
               <div
-  className="row"
-  style={{
-    marginTop: 8,
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 10,
-    flexWrap: "wrap",
-  }}
->
-  <div
-  className="card"
-  style={{
-    marginTop: 14,
-    border: "1px solid rgba(255,255,255,.10)",
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))",
-    boxShadow: "0 12px 30px rgba(0,0,0,.18)",
-  }}
->
-  <div
-    style={{
-      fontSize: "0.82rem",
-      fontWeight: 800,
-      letterSpacing: ".08em",
-      textTransform: "uppercase",
-      color: "#f6c445",
-      marginBottom: 8,
-    }}
-  >
-    Tournament Format
-  </div>
+                className="row"
+                style={{
+                  marginTop: 8,
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  className="card"
+                  style={{
+                    marginTop: 14,
+                    border: "1px solid rgba(255,255,255,.10)",
+                    background:
+                      "linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))",
+                    boxShadow: "0 12px 30px rgba(0,0,0,.18)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.82rem",
+                      fontWeight: 800,
+                      letterSpacing: ".08em",
+                      textTransform: "uppercase",
+                      color: "#f6c445",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Tournament Format
+                  </div>
 
-  <div
-    style={{
-      fontSize: "1.1rem",
-      fontWeight: 900,
-      color: "#eef3ff",
-      marginBottom: 6,
-    }}
-  >
-    {balancedFormatTitle}
-  </div>
+                  <div
+                    style={{
+                      fontSize: "1.1rem",
+                      fontWeight: 900,
+                      color: "#eef3ff",
+                      marginBottom: 6,
+                    }}
+                  >
+                    {balancedFormatTitle}
+                  </div>
 
-  <div
-    className="muted"
-    style={{
-      fontWeight: 700,
-      color: "rgba(234,240,255,.86)",
-      marginBottom: 10,
-      lineHeight: 1.45,
-    }}
-  >
-    {balancedFormatSubtitle}
-  </div>
+                  <div
+                    className="muted"
+                    style={{
+                      fontWeight: 700,
+                      color: "rgba(234,240,255,.86)",
+                      marginBottom: 10,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {balancedFormatSubtitle}
+                  </div>
 
-  <div
-    className="muted"
-    style={{
-      lineHeight: 1.55,
-      whiteSpace: "pre-line",
-    }}
-  >
-    {balancedFormatDescription}
-  </div>
+                  <div
+                    className="muted"
+                    style={{
+                      lineHeight: 1.55,
+                      whiteSpace: "pre-line",
+                    }}
+                  >
+                    {balancedFormatDescription}
+                  </div>
 
-  <div
-    className="muted"
-    style={{
-      marginTop: 12,
-      whiteSpace: "pre-line",
-      lineHeight: 1.5,
-    }}
-  >
-    {registrationNote}
-  </div>
+                  <div
+                    className="muted"
+                    style={{
+                      marginTop: 12,
+                      whiteSpace: "pre-line",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {registrationNote}
+                  </div>
 
-  <div style={{ marginTop: 12 }}>
-    <Link className="btn secondary" to="/handicap">
-      View Handicap & Classification
-    </Link>
-  </div>
-</div>
+                  <div style={{ marginTop: 12 }}>
+                    <Link className="btn secondary" to="/handicap">
+                      View Handicap & Classification
+                    </Link>
+                  </div>
+                </div>
 
-  {admin ? (
-    <button
-      className="btn"
-      type="button"
-      onClick={() => {
-        const nextNote = prompt(
-          "Edit tournament description / timing note",
-          registrationNote
-        );
-        if (nextNote === null) return;
+                {admin ? (
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      const nextNote = prompt(
+                        "Edit tournament description / timing note",
+                        registrationNote
+                      );
+                      if (nextNote === null) return;
 
-        commit({
-          ...data,
-          tournaments: (data.tournaments || []).map((t) =>
-            t.id === currentTournament.id
-              ? {
-                  ...t,
-                  registrationNote: nextNote.trim(),
-                }
-              : t
-          ),
-        });
-      }}
-    >
-      Edit Details
-    </button>
-  ) : null}
-</div>
+                      commit({
+                        ...data,
+                        tournaments: (data.tournaments || []).map((t) =>
+                          t.id === currentTournament.id
+                            ? {
+                                ...t,
+                                registrationNote: nextNote.trim(),
+                              }
+                            : t
+                        ),
+                      });
+                    }}
+                  >
+                    Edit Details
+                  </button>
+                ) : null}
+              </div>
 
               <div style={{ marginTop: 18 }}>
                 <button
@@ -5525,10 +6810,10 @@ commit({
                     >
                       <option value="">New / manual entry</option>
                       {uniqueSelectablePlayers.map((p) => (
-  <option key={p.id} value={p.id}>
-    {p.name}
-  </option>
-))}
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -5577,66 +6862,162 @@ commit({
               <div className="muted" style={{ marginTop: 10 }}>
                 Registered Players: {(currentTournament.participantIds || []).length}
               </div>
+
               <div id="registered-players" style={{ marginTop: 14 }}>
-  <div
-  style={{
-    fontWeight: 700,
-    marginBottom: 8,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-  }}
->
-  <span>Registered Players</span>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: 8,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>Registered Players</span>
 
-  {admin ? (
-    <button
-      className="btn"
-      type="button"
-      onClick={addRegisteredPlayerManually}
-    >
-      + Add Player
-    </button>
-  ) : null}
-</div>
+                  {admin ? (
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <select
+                        value={adminSelectedPlayerName}
+                        onChange={(e) => setAdminSelectedPlayerName(e.target.value)}
+                        style={{ minWidth: 220 }}
+                      >
+                        <option value="">Select player / member to add</option>
+                        {adminQuickAddOptions.map((p) => (
+                          <option key={p.id} value={p.name}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
 
-  {registeredPlayers.length > 0 ? (
-    <div style={{ display: "grid", gap: 8 }}>
-      {registeredPlayers.map((p, idx) => (
-        <div
-          key={p.id || idx}
-          className="badge"
-          style={{ justifyContent: "flex-start", padding: "10px 12px" }}
-        >
-          <span className="dot" />
-          {p.name}
-        </div>
-      ))}
-    </div>
-  ) : (
-    <div className="muted">No registrations yet.</div>
-  )}
-</div>
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() => {
+                          if (!adminSelectedPlayerName) {
+                            alert("Please select a player or member first.");
+                            return;
+                          }
+
+                          let nextPlayers = [...(data.players || [])];
+
+                          let existing = nextPlayers.find(
+                            (p) =>
+                              String(p.name || "").trim().toLowerCase() ===
+                              adminSelectedPlayerName.trim().toLowerCase()
+                          );
+
+                          let finalPlayerId = existing?.id || "";
+
+                          if (!finalPlayerId) {
+                            const source =
+                              memberPagePlayers.find(
+                                (m) =>
+                                  String(m.name || "").trim().toLowerCase() ===
+                                  adminSelectedPlayerName.trim().toLowerCase()
+                              ) ||
+                              registryPlayers.find(
+                                (m) =>
+                                  String(m.name || "").trim().toLowerCase() ===
+                                  adminSelectedPlayerName.trim().toLowerCase()
+                              );
+
+                            const newPlayer = {
+                              id: `pl_${Date.now()}`,
+                              name: adminSelectedPlayerName.trim(),
+                              mobile: "",
+                              city: "Pasighat",
+                              createdAt: Date.now(),
+                              photo: "",
+                              bio: "",
+                              games: [tournamentGameKey(currentTournament?.game) || "snooker"],
+                              group: "C",
+                              yearsPlaying: "",
+                              reviewStatus: "Stable",
+                              reviewRecommendation: "No Change",
+                              lastReviewDate: "",
+                              committeeNotes: "",
+                              sourceMemberId: source?.id || "",
+                            };
+
+                            nextPlayers = [...nextPlayers, newPlayer];
+                            finalPlayerId = newPlayer.id;
+                          }
+
+                          const nextTournaments = (data.tournaments || []).map((t) => {
+                            if (t.id !== currentTournament.id) return t;
+
+                            const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
+                            const nextIds = currentIds.includes(finalPlayerId)
+                              ? currentIds
+                              : [...currentIds, finalPlayerId];
+
+                            return {
+                              ...t,
+                              participantIds: nextIds,
+                            };
+                          });
+
+                          commit({
+                            ...data,
+                            players: nextPlayers,
+                            tournaments: nextTournaments,
+                          });
+
+                          setAdminSelectedPlayerName("");
+                        }}
+                      >
+                        Add Selected
+                      </button>
+
+                      <button
+                        className="btn secondary"
+                        type="button"
+                        onClick={addRegisteredPlayerManually}
+                      >
+                        + Walk-in
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {registeredPlayers.length > 0 ? (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {registeredPlayers.map((p, idx) => (
+                      <div
+                        key={p.id || idx}
+                        className="badge"
+                        style={{ justifyContent: "flex-start", padding: "10px 12px" }}
+                      >
+                        <span className="dot" />
+                        {p.name}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted">No registrations yet.</div>
+                )}
+              </div>
 
               <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
-  {admin ? (
-    <button
-      className="btn primary"
-      type="button"
-      onClick={() =>
-        generateKnockoutForTournamentNow(data, commit, currentTournament.id)
-      }
-    >
-      Generate Knockout Now
-    </button>
-  ) : null}
+                {admin ? (
+                  <button
+                    className="btn primary"
+                    type="button"
+                    onClick={() =>
+                      generateKnockoutForTournamentNow(data, commit, currentTournament.id)
+                    }
+                  >
+                    Generate Knockout Now
+                  </button>
+                ) : null}
 
-  <button className="btn" type="button" onClick={() => navigate("/")}>
-    Back Home
-  </button>
-</div>
+                <button className="btn" type="button" onClick={() => navigate("/")}>
+                  Back Home
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -5871,8 +7252,9 @@ function Players({ data, admin, commit, activeTournament }) {
         group,
         yearsPlaying: String(yearsPlaying).trim(),
         reviewStatus: "Stable",
-        lastReviewDate: "",
-        committeeNotes: "",
+reviewRecommendation: "No Change",
+lastReviewDate: "",
+committeeNotes: "",
       },
     ],
   });
@@ -6233,6 +7615,10 @@ function Players({ data, admin, commit, activeTournament }) {
     <div className="infoLabel">Review Status</div>
     <div className="infoValue">{selectedPlayer.reviewStatus || "Stable"}</div>
   </div>
+  <div className="card cols-6">
+  <div className="infoLabel">Recommendation</div>
+  <div className="infoValue">{selectedPlayer.reviewRecommendation || "No Change"}</div>
+</div>
 
   <div className="card cols-6">
     <div className="infoLabel">Last Review Date</div>
@@ -6344,7 +7730,6 @@ function Players({ data, admin, commit, activeTournament }) {
 }
 
 function Tournaments({ data, admin, commit }) {
-
   const tournaments = data.tournaments || [];
 
   function addTournament() {
@@ -6360,27 +7745,55 @@ function Tournaments({ data, admin, commit }) {
     if (!game) return;
 
     const registrationNote = prompt(
-  "Tournament description / timing note:",
-  "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
-);
-if (registrationNote === null) return;
+      "Tournament description / timing note:",
+      "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
+    );
+    if (registrationNote === null) return;
 
-commit({
-  ...data,
-  tournaments: [
-    ...tournaments,
-    {
-      id: uid(),
-      name: name.trim(),
-      month: month.trim(),
-      game: tournamentGameKey(game),
-      format: "round_robin",
-      registrationNote: registrationNote.trim(),
-      participantIds: [],
-      matches: [],
-    }
-  ],
-});
+    const balancedFormatTitle = prompt(
+      "Tournament format title:",
+      data.club?.balancedFormatTitle || "Q Club Balanced Match Format"
+    );
+    if (balancedFormatTitle === null) return;
+
+    const balancedFormatSubtitle = prompt(
+      "Tournament format subtitle:",
+      data.club?.balancedFormatSubtitle ||
+        "Structured for fair play, balanced competition, and a stronger tournament experience."
+    );
+    if (balancedFormatSubtitle === null) return;
+
+    const balancedFormatDescription = prompt(
+      "Tournament format description:",
+      data.club?.balancedFormatDescription ||
+        "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards."
+    );
+    if (balancedFormatDescription === null) return;
+
+    commit({
+      ...data,
+      tournaments: [
+        ...tournaments,
+        {
+          id: uid(),
+          name: name.trim(),
+          month: month.trim(),
+          game: tournamentGameKey(game),
+          format: "round_robin",
+          registrationNote: registrationNote.trim(),
+          balancedFormatTitle:
+            balancedFormatTitle.trim() || "Q Club Balanced Match Format",
+          balancedFormatSubtitle:
+            balancedFormatSubtitle.trim() ||
+            "Structured for fair play, balanced competition, and a stronger tournament experience.",
+          balancedFormatDescription:
+            balancedFormatDescription.trim() ||
+            "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
+          participantIds: [],
+          matches: [],
+        },
+      ],
+    });
   }
 
   function deleteTournament(id) {
@@ -6400,30 +7813,31 @@ commit({
     if (!t) return;
 
     const name = prompt("Edit name:", t.name || "");
-if (name === null) return;
+    if (name === null) return;
 
-const month = prompt("Edit month:", t.month || "");
-if (month === null) return;
+    const month = prompt("Edit month:", t.month || "");
+    if (month === null) return;
 
-const registrationNote = prompt(
-  "Edit tournament description / timing note:",
-  t.registrationNote || "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
-);
-if (registrationNote === null) return;
+    const registrationNote = prompt(
+      "Edit tournament description / timing note:",
+      t.registrationNote ||
+        "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."
+    );
+    if (registrationNote === null) return;
 
-commit({
-  ...data,
-  tournaments: tournaments.map((x) =>
-    x.id === id
-      ? {
-          ...x,
-          name: name.trim(),
-          month: month.trim(),
-          registrationNote: registrationNote.trim(),
-        }
-      : x
-  ),
-});
+    commit({
+      ...data,
+      tournaments: tournaments.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              name: name.trim(),
+              month: month.trim(),
+              registrationNote: registrationNote.trim(),
+            }
+          : x
+      ),
+    });
   }
 
   return (
@@ -6441,7 +7855,6 @@ commit({
       />
 
       <div className="container">
-
         {tournaments.length === 0 ? (
           <div className="card">
             <div className="muted">No tournaments created yet.</div>
@@ -6449,15 +7862,11 @@ commit({
         ) : null}
 
         <div className="grid">
-
           {tournaments.map((t) => (
-
             <div className="card cols-6" key={t.id}>
-
-              <div className="row" style={{justifyContent:"space-between"}}>
-
+              <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>
-                  <h2 style={{marginBottom:6}}>{t.name}</h2>
+                  <h2 style={{ marginBottom: 6 }}>{t.name}</h2>
                   <div className="badge">
                     <span className="dot" />
                     {t.month}
@@ -6466,62 +7875,51 @@ commit({
 
                 {admin ? (
                   <div className="row">
-                    <button className="btn" onClick={()=>editTournament(t.id)}>
+                    <button className="btn" onClick={() => editTournament(t.id)}>
                       Edit
                     </button>
 
-                    <button className="btn danger" onClick={()=>deleteTournament(t.id)}>
+                    <button className="btn danger" onClick={() => deleteTournament(t.id)}>
                       Delete
                     </button>
                   </div>
                 ) : null}
-
               </div>
 
-              <div className="muted" style={{marginTop:10}}>
-  Game: {tournamentGameKey(t.game) === "pool" ? "Pool" : "Snooker"}
-</div>
+              <div className="muted" style={{ marginTop: 10 }}>
+                Game: {tournamentGameKey(t.game) === "pool" ? "Pool" : "Snooker"}
+              </div>
 
-<div
-  className="muted"
-  style={{
-    marginTop: 8,
-    whiteSpace: "pre-line",
-    lineHeight: 1.5,
-  }}
->
-  {t.registrationNote ||
-    "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."}
-</div>
+              <div
+                className="muted"
+                style={{
+                  marginTop: 8,
+                  whiteSpace: "pre-line",
+                  lineHeight: 1.5,
+                }}
+              >
+                {t.registrationNote ||
+                  "Tournament starts at 6:00 PM sharp. Fixtures will be generated shortly after registration closes."}
+              </div>
 
-<div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-  <Link
-    className="btn primary"
-    to={`/tournament-register?id=${t.id}`}
-  >
-    Register Now
-  </Link>
+              <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Link className="btn primary" to={`/tournament-register?id=${t.id}`}>
+                  Register Now
+                </Link>
 
-  <Link
-    className="btn"
-    to={`/tournament-register?id=${t.id}#registered-players`}
-  >
-    Registered Players
-  </Link>
+                <Link className="btn" to={`/tournament-register?id=${t.id}#registered-players`}>
+                  Registered Players
+                </Link>
 
-  {admin ? (
-    <Link className="btn" to="/fixtures">
-      Manage Fixtures
-    </Link>
-  ) : null}
-</div>
-
+                {admin ? (
+                  <Link className="btn" to="/fixtures">
+                    Manage Fixtures
+                  </Link>
+                ) : null}
+              </div>
             </div>
-
           ))}
-
         </div>
-
       </div>
     </>
   );
@@ -8298,139 +9696,186 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
 
 
 function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
-  const matches = activeTournament?.matches || [];
-  const isSnooker = tournamentGameKey(activeTournament?.game) === "snooker";
+  const [selectedTvTournamentId, setSelectedTvTournamentId] = useState(
+  activeTournament?.id || data.tournaments?.[0]?.id || ""
+);
 
-  const [tvMode, setTvMode] = useState("showcase"); // showcase | fixtures | auto
+const tvTournament =
+  (data.tournaments || []).find((t) => t.id === selectedTvTournamentId) ||
+  activeTournament ||
+  null;
+
+const tvMatches = tvTournament?.matches || [];
+const matches = tvMatches;
+const isSnooker = tournamentGameKey(tvTournament?.game) === "snooker";
+
+const [tvMode, setTvMode] = useState("showcase"); // showcase | fixtures | auto
 const [slideIndex, setSlideIndex] = useState(0);
 const [fixturePage, setFixturePage] = useState(0);
 const [autoPhase, setAutoPhase] = useState("showcase"); // showcase | fixtures
 const [showFixtureBanner, setShowFixtureBanner] = useState(false);
 const tvSlideFileInputRef = useRef(null);
 
-const [fixtureRevealStage, setFixtureRevealStage] = useState("idle"); 
+const [fixtureRevealStage, setFixtureRevealStage] = useState("idle");
 // idle | closed | generating | locked | ready | done
-
 const [hasPlayedFixtureReveal, setHasPlayedFixtureReveal] = useState(false);
+const [revealedPairCount, setRevealedPairCount] = useState(0);
 
-  useEffect(() => {
-  if (matches.length > 0) {
-    setShowFixtureBanner(true);
-    const t = setTimeout(() => {
-      setShowFixtureBanner(false);
-    }, 6000);
-    return () => clearTimeout(t);
-  }
-}, [matches.length]);
+const leaderboard = tvTournament
+  ? calcLeaderboard(playersForTournament(tvTournament, data.players || []), tvTournament)
+  : [];
+
+const tournamentPlayersForTv = tvTournament
+  ? playersForTournament(tvTournament, data.players || [])
+  : [];
+
+const nextMatches = matches.filter((m) => m.status !== "done");
+const doneMatches = matches.filter((m) => m.status === "done");
+
+function playerById(id) {
+  return (players || []).find((x) => x.id === id) || null;
+}
+
+function playerName(id) {
+  return playerById(id)?.name || "Player";
+}
+
+function playerPhoto(id) {
+  return playerById(id)?.photo || "";
+}
+
+function scoreText(m) {
+  const s1 = m?.score1 === "" || m?.score1 == null ? "-" : m.score1;
+  const s2 = m?.score2 === "" || m?.score2 == null ? "-" : m.score2;
+  return `${s1} : ${s2}`;
+}
+
+function chunkItems(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+const fixturePages = chunkItems(nextMatches.length ? nextMatches : doneMatches, 4);
+const currentFixturePage = fixturePages[fixturePage] || [];
+
+const highestBreakPlayer = isSnooker
+  ? (players || []).slice().sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
+  : null;
 
 useEffect(() => {
-  if (!matches.length) {
-    setFixtureRevealStage("idle");
-    setHasPlayedFixtureReveal(false);
-    return;
+  setFixturePage(0);
+  setFixtureRevealStage("idle");
+  setHasPlayedFixtureReveal(false);
+  setShowFixtureBanner(false);
+  setRevealedPairCount(0);
+}, [selectedTvTournamentId]);
+
+useEffect(() => {
+  if (!showFixtureBanner) return;
+  const t = setTimeout(() => setShowFixtureBanner(false), 4500);
+  return () => clearTimeout(t);
+}, [showFixtureBanner]);
+
+useEffect(() => {
+  const slidesExist = true;
+  if (!slidesExist) return;
+
+  const t = setInterval(() => {
+    setSlideIndex((prev) => prev + 1);
+  }, 7000);
+
+  return () => clearInterval(t);
+}, []);
+
+useEffect(() => {
+  if (fixturePages.length <= 1) return;
+
+  const shouldRotateFixtures =
+    tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
+
+  if (!shouldRotateFixtures) return;
+
+  const t = setInterval(() => {
+    setFixturePage((prev) => (prev + 1) % fixturePages.length);
+  }, 10000);
+
+  return () => clearInterval(t);
+}, [fixturePages.length, tvMode, autoPhase]);
+
+useEffect(() => {
+  if (tvMode !== "auto") return;
+
+  setAutoPhase("showcase");
+
+  const t = setInterval(() => {
+    setAutoPhase((prev) => {
+      if (prev === "showcase") {
+        return matches.length ? "fixtures" : "showcase";
+      }
+      return "showcase";
+    });
+  }, 15000);
+
+  return () => clearInterval(t);
+}, [tvMode, matches.length]);
+
+useEffect(() => {
+  let t;
+
+  if (fixtureRevealStage === "closed") {
+    t = setTimeout(() => setFixtureRevealStage("generating"), 700);
+  } else if (fixtureRevealStage === "generating") {
+    t = setTimeout(() => setFixtureRevealStage("locked"), 1100);
+  } else if (fixtureRevealStage === "locked") {
+    t = setTimeout(() => setFixtureRevealStage("ready"), 1200);
+  } else if (fixtureRevealStage === "ready") {
+    t = setTimeout(() => {
+      setFixtureRevealStage("done");
+      setHasPlayedFixtureReveal(true);
+      setTvMode("fixtures");
+    }, 1200);
   }
-
-  if (hasPlayedFixtureReveal) return;
-
-  setFixtureRevealStage("closed");
-
-  const t1 = setTimeout(() => setFixtureRevealStage("generating"), 2200);
-  const t2 = setTimeout(() => setFixtureRevealStage("locked"), 5200);
-  const t3 = setTimeout(() => setFixtureRevealStage("ready"), 7600);
-  const t4 = setTimeout(() => {
-    setFixtureRevealStage("done");
-    setHasPlayedFixtureReveal(true);
-    setTvMode("fixtures");
-  }, 9800);
 
   return () => {
-    clearTimeout(t1);
-    clearTimeout(t2);
-    clearTimeout(t3);
-    clearTimeout(t4);
+    if (t) clearTimeout(t);
   };
-}, [matches.length, hasPlayedFixtureReveal]);
+}, [fixtureRevealStage]);
 
-  const highestBreakPlayer = isSnooker
-    ? (players || []).slice().sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
-    : null;
+useEffect(() => {
+  if (fixtureRevealStage !== "locked" && fixtureRevealStage !== "ready") return;
 
-  const leaderboard = activeTournament
-    ? calcLeaderboard(playersForTournament(activeTournament, data.players || []), activeTournament)
-    : [];
+  const maxPairs = Math.min(8, matches.length);
+  if (maxPairs <= 0) return;
 
-  const nextMatches = matches.filter((m) => m.status !== "done");
-  const doneMatches = matches.filter((m) => m.status === "done");
+  setRevealedPairCount(1);
 
-  function playerById(id) {
-    return (players || []).find((x) => x.id === id) || null;
-  }
+  const t = setInterval(() => {
+    setRevealedPairCount((prev) => {
+      if (prev >= maxPairs) {
+        clearInterval(t);
+        return prev;
+      }
+      return prev + 1;
+    });
+  }, 450);
 
-  function playerName(id) {
-    return playerById(id)?.name || "Player";
-  }
+  return () => clearInterval(t);
+}, [fixtureRevealStage, matches.length]);
 
-  function playerPhoto(id) {
-    return playerById(id)?.photo || "";
-  }
+function triggerFixtureReveal() {
+  setFixturePage(0);
+  setShowFixtureBanner(false);
+  setHasPlayedFixtureReveal(false);
+  setRevealedPairCount(0);
+  setTvMode("showcase");
+  setFixtureRevealStage("idle");
 
-  function scoreText(m) {
-    const s1 = m?.score1 === "" || m?.score1 == null ? "-" : m.score1;
-    const s2 = m?.score2 === "" || m?.score2 == null ? "-" : m.score2;
-    return `${s1} : ${s2}`;
-  }
-
-  function chunkItems(arr, size) {
-    const out = [];
-    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-    return out;
-  }
-
-  const fixturePages = chunkItems(nextMatches.length ? nextMatches : doneMatches, 4);
-  const currentFixturePage = fixturePages[fixturePage] || [];
-
-  useEffect(() => {
-    const slidesExist = true;
-    if (!slidesExist) return;
-
-    const t = setInterval(() => {
-      setSlideIndex((prev) => prev + 1);
-    }, 7000);
-
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    if (fixturePages.length <= 1) return;
-
-    const shouldRotateFixtures =
-      tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
-
-    if (!shouldRotateFixtures) return;
-
-    const t = setInterval(() => {
-      setFixturePage((prev) => (prev + 1) % fixturePages.length);
-    }, 10000);
-
-    return () => clearInterval(t);
-  }, [fixturePages.length, tvMode, autoPhase]);
-
-  useEffect(() => {
-    if (tvMode !== "auto") return;
-
-    setAutoPhase("showcase");
-
-    const t = setInterval(() => {
-      setAutoPhase((prev) => {
-        if (prev === "showcase") {
-          return matches.length ? "fixtures" : "showcase";
-        }
-        return "showcase";
-      });
-    }, 15000);
-
-    return () => clearInterval(t);
-  }, [tvMode, matches.length]);
+  setTimeout(() => {
+    setShowFixtureBanner(true);
+    setFixtureRevealStage("closed");
+  }, 40);
+}
 
   const heroSlides = (data.club?.heroSlides || []).filter(Boolean).map((url, idx) => ({
     id: `hero_${idx}`,
@@ -8477,53 +9922,54 @@ useEffect(() => {
     .slice(0, 6);
 
   const textSlides = [
-  {
-    id: "amenities",
-    kind: "text",
-    title: "Club Amenities",
-    subtitle: "2 Full-size 12x6 Snooker Tables • Mini Snooker • American Pool • Air Hockey • Foosball • Massage Chair",
-  },
-  {
-    id: "beverages",
-    kind: "text",
-    title: "Food & Beverage",
-    subtitle: "Tea • Coffee • Mocktails • Momos • Sausages • Chicken • More at The Q Club",
-  },
-  {
-    id: "memberships",
-    kind: "text",
-    title: "Membership Open",
-    subtitle: "Join Bronze • Silver • Gold • Platinum for member perks and special rates",
-  },
-  {
-    id: "booking",
-    kind: "text",
-    title: "Book Your Table",
-    subtitle: "Scan and book at theqclubpasighat.com",
-  },
-  {
-    id: "tournament",
-    kind: "text",
-    title: activeTournament ? tournamentDisplay(activeTournament) : "Monthly Club Tournaments",
-    subtitle: activeTournament?.registrationNote || "Skill-based club tournaments, fixtures, rankings, and more.",
-  },
-];
+    {
+      id: "amenities",
+      kind: "text",
+      title: "Club Amenities",
+      subtitle:
+        "2 Full-size 12x6 Snooker Tables • Mini Snooker • American Pool • Air Hockey • Foosball • Massage Chair",
+    },
+    {
+      id: "beverages",
+      kind: "text",
+      title: "Food & Beverage",
+      subtitle: "Tea • Coffee • Mocktails • Momos • Sausages • Chicken • More at The Q Club",
+    },
+    {
+      id: "memberships",
+      kind: "text",
+      title: "Membership Open",
+      subtitle: "Join Bronze • Silver • Gold • Platinum for member perks and special rates",
+    },
+    {
+      id: "booking",
+      kind: "text",
+      title: "Book Your Table",
+      subtitle: "Scan and book at theqclubpasighat.com",
+    },
+    {
+      id: "tournament",
+      kind: "text",
+      title: tvTournament ? tournamentDisplay(tvTournament) : "Monthly Club Tournaments",
+      subtitle: tvTournament?.registrationNote || "Skill-based club tournaments, fixtures, rankings, and more.",
+    },
+  ];
 
-const customSlides = (data.club?.tvCustomSlides || []).map((s, idx) => ({
-  id: s.id || `custom_${idx}`,
-  kind: s.kind || "text",
-  title: s.title || "Showcase Slide",
-  subtitle: s.subtitle || "",
-  image: s.image || "",
-  isCustom: true,
-}));
+  const customSlides = (data.club?.tvCustomSlides || []).map((s, idx) => ({
+    id: s.id || `custom_${idx}`,
+    kind: s.kind || "text",
+    title: s.title || "Showcase Slide",
+    subtitle: s.subtitle || "",
+    image: s.image || "",
+    isCustom: true,
+  }));
 
-const editableSlides = [...textSlides, ...customSlides];
-const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_only" : "mixed";
+  const editableSlides = [...textSlides, ...customSlides];
+  const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_only" : "mixed";
 
   const showcaseSlides =
-  tvShowcaseMode === "custom_only"
-    ? (customSlides.length
+    tvShowcaseMode === "custom_only"
+      ? customSlides.length
         ? customSlides
         : [
             {
@@ -8532,14 +9978,8 @@ const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_onl
               title: "No Custom TV Slides Yet",
               subtitle: "Add or upload custom slides to use Custom Slides Only mode.",
             },
-          ])
-    : [
-        ...heroSlides,
-        ...editableSlides,
-        ...memberSlides,
-        ...gallerySlides,
-        ...hallOfFameSlides,
-      ];
+          ]
+      : [...heroSlides, ...editableSlides, ...memberSlides, ...gallerySlides, ...hallOfFameSlides];
 
   const safeSlides = showcaseSlides.length
     ? showcaseSlides
@@ -8554,41 +9994,103 @@ const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_onl
 
   const activeSlide = safeSlides[slideIndex % safeSlides.length];
   const canEditTvSlides = admin || staffAdmin;
+
   function setTvShowcaseMode(nextMode) {
-  if (!canEditTvSlides) return;
+    if (!canEditTvSlides) return;
 
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      tvCustomSlides: data.club?.tvCustomSlides || [],
-      tvShowcaseMode: nextMode === "custom_only" ? "custom_only" : "mixed",
-    },
-  });
-}
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        tvCustomSlides: data.club?.tvCustomSlides || [],
+        tvShowcaseMode: nextMode === "custom_only" ? "custom_only" : "mixed",
+      },
+    });
+  }
+
   function triggerTvSlideImagePicker() {
-  if (!canEditTvSlides) return;
-  if (!tvSlideFileInputRef.current) return;
-  tvSlideFileInputRef.current.value = "";
-  tvSlideFileInputRef.current.click();
-}
+    if (!canEditTvSlides) return;
+    if (!tvSlideFileInputRef.current) return;
+    tvSlideFileInputRef.current.value = "";
+    tvSlideFileInputRef.current.click();
+  }
 
-function handleTvSlideImageFileChange(e) {
-  if (!canEditTvSlides) return;
+  function handleTvSlideImageFileChange(e) {
+    if (!canEditTvSlides) return;
 
-  const file = e.target.files?.[0];
-  if (!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = String(reader.result || "");
-    if (!dataUrl) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      if (!dataUrl) return;
 
-    const title = prompt("Slide title:", "The Q Club Showcase");
+      const title = prompt("Slide title:", "The Q Club Showcase");
+      if (title === null) return;
+
+      const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
+      if (subtitle === null) return;
+
+      commit({
+        ...data,
+        club: {
+          ...(data.club || {}),
+          tvCustomSlides: [
+            ...(data.club?.tvCustomSlides || []),
+            {
+              id: uid(),
+              kind: "image",
+              title: title.trim(),
+              subtitle: subtitle.trim(),
+              image: dataUrl,
+            },
+          ],
+        },
+      });
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  function moveCurrentTvSlide(direction) {
+    if (!canEditTvSlides) return;
+    if (!activeSlide?.isCustom) {
+      alert("Only custom TV slides can be reordered.");
+      return;
+    }
+
+    const slides = [...(data.club?.tvCustomSlides || [])];
+    const idx = slides.findIndex((s) => s.id === activeSlide.id);
+    if (idx === -1) return;
+
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= slides.length) return;
+
+    const temp = slides[idx];
+    slides[idx] = slides[targetIdx];
+    slides[targetIdx] = temp;
+
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        tvCustomSlides: slides,
+      },
+    });
+  }
+
+  function addCustomTvSlide() {
+    if (!canEditTvSlides) return;
+
+    const title = prompt("Slide title:", "Welcome to The Q Club");
     if (title === null) return;
 
     const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
     if (subtitle === null) return;
+
+    const image = prompt("Optional image URL / data URL:", "");
+    if (image === null) return;
 
     commit({
       ...data,
@@ -8598,132 +10100,72 @@ function handleTvSlideImageFileChange(e) {
           ...(data.club?.tvCustomSlides || []),
           {
             id: uid(),
-            kind: "image",
+            kind: image.trim() ? "image" : "text",
             title: title.trim(),
             subtitle: subtitle.trim(),
-            image: dataUrl,
+            image: image.trim(),
           },
         ],
       },
     });
-  };
-
-  reader.readAsDataURL(file);
-}
-
-function moveCurrentTvSlide(direction) {
-  if (!canEditTvSlides) return;
-  if (!activeSlide?.isCustom) {
-    alert("Only custom TV slides can be reordered.");
-    return;
   }
 
-  const slides = [...(data.club?.tvCustomSlides || [])];
-  const idx = slides.findIndex((s) => s.id === activeSlide.id);
-  if (idx === -1) return;
+  function editCurrentTvSlide() {
+    if (!canEditTvSlides) return;
+    if (!activeSlide?.isCustom) {
+      alert("Only custom TV slides are editable. Built-in slides are automatic.");
+      return;
+    }
 
-  const targetIdx = direction === "up" ? idx - 1 : idx + 1;
-  if (targetIdx < 0 || targetIdx >= slides.length) return;
+    const current = (data.club?.tvCustomSlides || []).find((s) => s.id === activeSlide.id);
+    if (!current) return;
 
-  const temp = slides[idx];
-  slides[idx] = slides[targetIdx];
-  slides[targetIdx] = temp;
+    const title = prompt("Edit slide title:", current.title || "");
+    if (title === null) return;
 
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      tvCustomSlides: slides,
-    },
-  });
-}
+    const subtitle = prompt("Edit slide subtitle:", current.subtitle || "");
+    if (subtitle === null) return;
 
-function addCustomTvSlide() {
-  if (!canEditTvSlides) return;
+    const image = prompt("Edit image URL / data URL:", current.image || "");
+    if (image === null) return;
 
-  const title = prompt("Slide title:", "Welcome to The Q Club");
-  if (title === null) return;
-
-  const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
-  if (subtitle === null) return;
-
-  const image = prompt("Optional image URL / data URL:", "");
-  if (image === null) return;
-
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      tvCustomSlides: [
-        ...(data.club?.tvCustomSlides || []),
-        {
-          id: uid(),
-          kind: image.trim() ? "image" : "text",
-          title: title.trim(),
-          subtitle: subtitle.trim(),
-          image: image.trim(),
-        },
-      ],
-    },
-  });
-}
-
-function editCurrentTvSlide() {
-  if (!canEditTvSlides) return;
-  if (!activeSlide?.isCustom) {
-    alert("Only custom TV slides are editable. Built-in slides are automatic.");
-    return;
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        tvCustomSlides: (data.club?.tvCustomSlides || []).map((s) =>
+          s.id === current.id
+            ? {
+                ...s,
+                title: title.trim(),
+                subtitle: subtitle.trim(),
+                image: image.trim(),
+                kind: image.trim() ? "image" : "text",
+              }
+            : s
+        ),
+      },
+    });
   }
 
-  const current = (data.club?.tvCustomSlides || []).find((s) => s.id === activeSlide.id);
-  if (!current) return;
+  function deleteCurrentTvSlide() {
+    if (!canEditTvSlides) return;
+    if (!activeSlide?.isCustom) {
+      alert("Only custom TV slides can be deleted.");
+      return;
+    }
+    if (!confirm("Delete this custom TV slide?")) return;
 
-  const title = prompt("Edit slide title:", current.title || "");
-  if (title === null) return;
-
-  const subtitle = prompt("Edit slide subtitle:", current.subtitle || "");
-  if (subtitle === null) return;
-
-  const image = prompt("Edit image URL / data URL:", current.image || "");
-  if (image === null) return;
-
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      tvCustomSlides: (data.club?.tvCustomSlides || []).map((s) =>
-        s.id === current.id
-          ? {
-              ...s,
-              title: title.trim(),
-              subtitle: subtitle.trim(),
-              image: image.trim(),
-              kind: image.trim() ? "image" : "text",
-            }
-          : s
-      ),
-    },
-  });
-}
-
-function deleteCurrentTvSlide() {
-  if (!canEditTvSlides) return;
-  if (!activeSlide?.isCustom) {
-    alert("Only custom TV slides can be deleted.");
-    return;
+    commit({
+      ...data,
+      club: {
+        ...(data.club || {}),
+        tvCustomSlides: (data.club?.tvCustomSlides || []).filter(
+          (s) => s.id !== activeSlide.id
+        ),
+      },
+    });
   }
-  if (!confirm("Delete this custom TV slide?")) return;
-
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      tvCustomSlides: (data.club?.tvCustomSlides || []).filter(
-        (s) => s.id !== activeSlide.id
-      ),
-    },
-  });
-}
 
   const showFixtureView =
     tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
@@ -8955,7 +10397,7 @@ function deleteCurrentTvSlide() {
                 Fixture Broadcast
               </div>
               <div style={{ fontSize: "clamp(26px, 4vw, 48px)", fontWeight: 900, lineHeight: 1.05 }}>
-                {activeTournament ? tournamentDisplay(activeTournament) : "No Active Tournament"}
+                {tvTournament ? tournamentDisplay(tvTournament) : "No Selected Tournament"}
               </div>
               <div className="muted" style={{ marginTop: 8, fontSize: 16 }}>
                 {focusMatch
@@ -9083,66 +10525,173 @@ function deleteCurrentTvSlide() {
       </div>
     );
   }
-  
-function renderFixtureReveal() {
+
+  function renderFixtureReveal() {
   if (fixtureRevealStage === "idle" || fixtureRevealStage === "done") return null;
 
-  const stageMap = {
+  const revealMatches = matches.slice(0, 8);
+  const revealPlayers = tournamentPlayersForTv.slice(0, 16);
+  const visiblePairs = revealMatches.slice(0, revealedPairCount || 0);
+
+  const stageMeta = {
     closed: {
-      title: "Tournament Registration Closed",
-      subtitle: activeTournament?.registrationNote || "Preparing the official fixture board.",
-      glow: "rgba(255, 204, 102, 0.28)",
+      kicker: "Registration Locked",
+      title: "Tournament Entry Closed",
+      subtitle:
+        tvTournament?.registrationNote ||
+        "All registered players are now being prepared for the official draw.",
+      glow: "rgba(255, 186, 64, 0.28)",
+      accent: "#ffcc66",
     },
     generating: {
-      title: "Generating Fixtures…",
-      subtitle: "Shuffling players and preparing match cards.",
-      glow: "rgba(0, 191, 255, 0.28)",
+      kicker: "Live Draw Engine",
+      title: "Names Entering The Draw Bucket",
+      subtitle:
+        "Registered participants are flying into the draw, mixing rapidly, and forming the opening bracket.",
+      glow: "rgba(0, 200, 255, 0.26)",
+      accent: "#7ee7ff",
     },
     locked: {
-      title: "Players Locked In",
-      subtitle: "Finalizing rounds and arranging pairings.",
-      glow: "rgba(140, 180, 255, 0.28)",
+      kicker: "Bracket Lock",
+      title: "Round One Pairings Emerging",
+      subtitle:
+        "The shuffle is complete. Opening round pairings are now being revealed one by one.",
+      glow: "rgba(110, 150, 255, 0.26)",
+      accent: "#9ec0ff",
     },
     ready: {
-      title: "Fixtures Ready",
-      subtitle: "Broadcast starting now.",
-      glow: "rgba(56, 211, 159, 0.30)",
+      kicker: "Broadcast Ready",
+      title: "Opening Round Confirmed",
+      subtitle:
+        "The opening draw is complete and ready for fixture broadcast.",
+      glow: "rgba(56, 211, 159, 0.28)",
+      accent: "#7fffd4",
     },
   };
 
-  const current = stageMap[fixtureRevealStage];
-  const previewPlayers = (players || []).slice(0, 8);
+  const meta = stageMeta[fixtureRevealStage] || stageMeta.closed;
+  const isPairStage =
+    fixtureRevealStage === "locked" || fixtureRevealStage === "ready";
 
   return (
     <div
       style={{
         position: "relative",
-        minHeight: "64vh",
-        borderRadius: 24,
+        minHeight: "72vh",
+        borderRadius: 30,
         overflow: "hidden",
-        background: "radial-gradient(circle at top, rgba(24,42,76,.95), rgba(7,12,22,.98) 60%)",
+        background:
+          "radial-gradient(circle at 50% 0%, rgba(34,70,130,.94), rgba(7,11,22,.98) 42%, rgba(3,7,15,1) 100%)",
         border: "1px solid rgba(255,255,255,.08)",
-        boxShadow: "0 20px 60px rgba(0,0,0,.35)",
-        padding: 28,
+        boxShadow: "0 30px 90px rgba(0,0,0,.44)",
+        padding: 30,
       }}
     >
+      <style>{`
+        @keyframes qclubGlowPulse {
+          0%, 100% { opacity: .72; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.04); }
+        }
+
+        @keyframes qclubSweep {
+          0% { transform: translateX(-22%) skewX(-18deg); opacity: .08; }
+          50% { opacity: .58; }
+          100% { transform: translateX(122%) skewX(-18deg); opacity: .08; }
+        }
+
+        @keyframes qclubChipLeft {
+          0% { transform: translateX(-90px) translateY(-18px) scale(.90); opacity: 0; }
+          65% { opacity: 1; }
+          100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
+        }
+
+        @keyframes qclubChipRight {
+          0% { transform: translateX(90px) translateY(-18px) scale(.90); opacity: 0; }
+          65% { opacity: 1; }
+          100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
+        }
+
+        @keyframes qclubChipFadeAway {
+          0% { opacity: 1; transform: scale(1); }
+          100% { opacity: .18; transform: scale(.94); }
+        }
+
+        @keyframes qclubBucketHum {
+          0%, 100% {
+            box-shadow:
+              0 0 0 rgba(255,255,255,0),
+              0 20px 55px rgba(0,0,0,.34);
+            transform: translateY(0);
+          }
+          50% {
+            box-shadow:
+              0 0 30px rgba(130,210,255,.10),
+              0 28px 70px rgba(0,0,0,.42);
+            transform: translateY(-2px);
+          }
+        }
+
+        @keyframes qclubPairCardIn {
+          0% { transform: translateY(34px) scale(.94); opacity: 0; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        @keyframes qclubCenterFlash {
+          0%, 100% { opacity: .18; }
+          50% { opacity: .46; }
+        }
+      `}</style>
+
       <div
         style={{
           position: "absolute",
           inset: 0,
-          background: `radial-gradient(circle at center, ${current.glow}, transparent 55%)`,
+          background: `radial-gradient(circle at 50% 34%, ${meta.glow}, transparent 42%)`,
           pointerEvents: "none",
         }}
       />
 
       <div
         style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,.03), transparent 20%, transparent 78%, rgba(255,255,255,.03))",
+          pointerEvents: "none",
+        }}
+      />
+
+      {(fixtureRevealStage === "generating" || fixtureRevealStage === "locked") &&
+        [0, 1, 2, 3].map((line) => (
+          <div
+            key={line}
+            style={{
+              position: "absolute",
+              left: "-24%",
+              top: `${17 + line * 18}%`,
+              width: "48%",
+              height: 14,
+              borderRadius: 999,
+              background:
+                "linear-gradient(90deg, transparent, rgba(255,255,255,.08), rgba(0,191,255,.22), rgba(255,255,255,.08), transparent)",
+              filter: "blur(1px)",
+              animationName: "qclubSweep",
+              animationDuration: "1.05s",
+              animationTimingFunction: "linear",
+              animationIterationCount: "infinite",
+              animationDelay: `${line * 0.16}s`,
+            }}
+          />
+        ))}
+
+      <div
+        style={{
           position: "relative",
           zIndex: 1,
           display: "grid",
-          gap: 18,
-          alignContent: "center",
-          minHeight: "58vh",
+          gap: 22,
+          minHeight: "64vh",
+          alignContent: "start",
         }}
       >
         <div
@@ -9150,127 +10699,303 @@ function renderFixtureReveal() {
             display: "inline-flex",
             width: "fit-content",
             alignItems: "center",
-            gap: 8,
-            padding: "8px 14px",
+            gap: 10,
+            padding: "10px 16px",
             borderRadius: 999,
             background: "rgba(255,255,255,.10)",
-            border: "1px solid rgba(255,255,255,.14)",
-            fontWeight: 800,
+            border: `1px solid ${meta.accent}55`,
+            fontWeight: 900,
             fontSize: 14,
+            letterSpacing: ".05em",
+            color: "#eef3ff",
           }}
         >
-          <span className="dot warn" />
-          Tournament Broadcast
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              background: meta.accent,
+              boxShadow: `0 0 14px ${meta.accent}`,
+            }}
+          />
+          {meta.kicker}
         </div>
 
         <div
           style={{
-            fontSize: "clamp(34px, 5vw, 68px)",
+            fontSize: "clamp(36px, 5vw, 72px)",
             fontWeight: 900,
             lineHeight: 1.02,
-            textShadow: "0 4px 24px rgba(0,0,0,.35)",
+            textShadow: "0 6px 28px rgba(0,0,0,.34)",
+            maxWidth: 1020,
           }}
         >
-          {current.title}
+          {meta.title}
         </div>
 
         <div
           style={{
-            fontSize: "clamp(16px, 2vw, 26px)",
-            lineHeight: 1.35,
-            color: "rgba(255,255,255,.88)",
-            maxWidth: 920,
+            fontSize: "clamp(16px, 2vw, 24px)",
+            lineHeight: 1.45,
+            color: "rgba(255,255,255,.86)",
+            maxWidth: 980,
           }}
         >
-          {current.subtitle}
+          {meta.subtitle}
         </div>
 
-        {fixtureRevealStage === "generating" ? (
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
-            {["Round 1", "Semi Finals", "Final", "Broadcast Sync"].map((label, idx) => (
-              <div
-                key={label}
-                style={{
-                  padding: "12px 18px",
-                  borderRadius: 16,
-                  background: "rgba(255,255,255,.06)",
-                  border: "1px solid rgba(255,255,255,.10)",
-                  fontWeight: 800,
-                  opacity: 0.65 + idx * 0.1,
-                }}
-              >
-                {label}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {(fixtureRevealStage === "locked" || fixtureRevealStage === "ready") && previewPlayers.length ? (
+        <div
+          style={{
+            position: "relative",
+            borderRadius: 28,
+            padding: "22px 20px 24px",
+            background: "rgba(255,255,255,.04)",
+            border: "1px solid rgba(255,255,255,.08)",
+            overflow: "hidden",
+          }}
+        >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: 12,
-              marginTop: 8,
+              gridTemplateColumns: "1fr minmax(240px, 320px) 1fr",
+              gap: 20,
+              alignItems: "start",
             }}
           >
-            {previewPlayers.map((p, idx) => (
-              <div
-                key={p.id || idx}
-                style={{
-                  borderRadius: 18,
-                  padding: 14,
-                  background: "rgba(255,255,255,.05)",
-                  border: "1px solid rgba(255,255,255,.10)",
-                  display: "grid",
-                  gap: 10,
-                }}
-              >
-                <div style={{ fontSize: 12, opacity: 0.72 }}>
-                  Player {idx + 1}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {p.photo ? (
-                    <img
-                      src={p.photo}
-                      alt={p.name}
-                      style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 14,
-                        objectFit: "cover",
-                        border: "1px solid rgba(255,255,255,.12)",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 14,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(255,255,255,.08)",
-                        fontWeight: 900,
-                        fontSize: 22,
-                      }}
-                    >
-                      {String(p.name || "?").slice(0, 1).toUpperCase()}
-                    </div>
-                  )}
-
-                  <div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>
+            <div style={{ display: "grid", gap: 10 }}>
+              {revealPlayers
+                .filter((_, idx) => idx % 2 === 0)
+                .slice(0, 8)
+                .map((p, idx) => (
+                  <div
+                    key={p.id || idx}
+                    style={{
+                      borderRadius: 18,
+                      padding: "13px 15px",
+                      background: "rgba(255,255,255,.05)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                      fontWeight: 800,
+                      fontSize: 16,
+                      boxShadow: "0 8px 22px rgba(0,0,0,.16)",
+                      animationName: isPairStage ? "qclubChipFadeAway" : "qclubChipLeft",
+                      animationDuration: isPairStage ? ".45s" : ".48s",
+                      animationTimingFunction: "ease",
+                      animationFillMode: "forwards",
+                      animationDelay: `${idx * 0.09}s`,
+                      opacity: 0,
+                    }}
+                  >
                     {p.name || "Player"}
                   </div>
+                ))}
+            </div>
+
+            <div
+              style={{
+                position: "relative",
+                minHeight: 300,
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: "18% 18% auto 18%",
+                  height: 110,
+                  borderRadius: 999,
+                  background:
+                    "radial-gradient(circle, rgba(0,191,255,.16), rgba(255,255,255,.02), transparent 70%)",
+                  filter: "blur(12px)",
+                  animationName: "qclubCenterFlash",
+                  animationDuration: "1.3s",
+                  animationTimingFunction: "ease-in-out",
+                  animationIterationCount: "infinite",
+                }}
+              />
+
+              <div
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  width: 180,
+                  height: 28,
+                  borderRadius: 999,
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.04))",
+                  border: "1px solid rgba(255,255,255,.12)",
+                }}
+              />
+
+              <div
+                style={{
+                  position: "absolute",
+                  top: 36,
+                  width: 215,
+                  height: 178,
+                  clipPath: "polygon(14% 0%, 86% 0%, 100% 100%, 0% 100%)",
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,.11), rgba(20,30,58,.62) 22%, rgba(8,12,22,.96) 100%)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  animationName: "qclubBucketHum",
+                  animationDuration: "2.1s",
+                  animationTimingFunction: "ease-in-out",
+                  animationIterationCount: "infinite",
+                }}
+              />
+
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 2,
+                  display: "grid",
+                  gap: 8,
+                  justifyItems: "center",
+                  marginTop: 16,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    letterSpacing: ".14em",
+                    textTransform: "uppercase",
+                    color: meta.accent,
+                    fontWeight: 900,
+                  }}
+                >
+                  Draw Bucket
                 </div>
+
+                <div
+                  style={{
+                    fontSize: 28,
+                    fontWeight: 900,
+                    textAlign: "center",
+                    lineHeight: 1.12,
+                    maxWidth: 250,
+                  }}
+                >
+                  {tvTournament ? tvTournament.name : "Tournament Draw"}
+                </div>
+
+                <div
+                  className="muted"
+                  style={{
+                    textAlign: "center",
+                    maxWidth: 230,
+                    lineHeight: 1.45,
+                    fontWeight: 700,
+                  }}
+                >
+                  {fixtureRevealStage === "closed"
+                    ? "Closing entries and preparing draw"
+                    : fixtureRevealStage === "generating"
+                    ? "Mixing and shuffling players"
+                    : fixtureRevealStage === "locked"
+                    ? "Pairings now emerging"
+                    : "Opening round confirmed"}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {revealPlayers
+                .filter((_, idx) => idx % 2 === 1)
+                .slice(0, 8)
+                .map((p, idx) => (
+                  <div
+                    key={p.id || idx}
+                    style={{
+                      borderRadius: 18,
+                      padding: "13px 15px",
+                      background: "rgba(255,255,255,.05)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                      fontWeight: 800,
+                      fontSize: 16,
+                      boxShadow: "0 8px 22px rgba(0,0,0,.16)",
+                      animationName: isPairStage ? "qclubChipFadeAway" : "qclubChipRight",
+                      animationDuration: isPairStage ? ".45s" : ".48s",
+                      animationTimingFunction: "ease",
+                      animationFillMode: "forwards",
+                      animationDelay: `${idx * 0.09}s`,
+                      opacity: 0,
+                    }}
+                  >
+                    {p.name || "Player"}
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+
+        {(fixtureRevealStage === "locked" || fixtureRevealStage === "ready") && visiblePairs.length ? (
+          <div
+            style={{
+              marginTop: 4,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: 16,
+            }}
+          >
+            {visiblePairs.map((m, idx) => (
+              <div
+                key={m.id || idx}
+                style={{
+                  borderRadius: 22,
+                  padding: 20,
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03))",
+                  border: "1px solid rgba(255,255,255,.11)",
+                  boxShadow: "0 16px 38px rgba(0,0,0,.24)",
+                  animationName: "qclubPairCardIn",
+                  animationDuration: ".42s",
+                  animationTimingFunction: "ease",
+                  animationFillMode: "forwards",
+                  animationDelay: `${idx * 0.08}s`,
+                  opacity: 0,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    textTransform: "uppercase",
+                    letterSpacing: ".09em",
+                    color: meta.accent,
+                    fontWeight: 900,
+                    marginBottom: 10,
+                  }}
+                >
+                  Round {m.round || 1}
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 900,
+                    lineHeight: 1.22,
+                  }}
+                >
+                  {playerName(m.p1)} <span style={{ opacity: 0.56 }}>vs</span> {playerName(m.p2)}
+                </div>
+
+                {isSnooker ? (
+                  <div
+                    className="muted"
+                    style={{
+                      marginTop: 10,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Handicap: {Number(m.handicap1 || 0)} - {Number(m.handicap2 || 0)}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
         ) : null}
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
           {["closed", "generating", "locked", "ready"].map((stage, idx) => {
             const active =
               ["closed", "generating", "locked", "ready"].indexOf(fixtureRevealStage) >= idx;
@@ -9279,10 +11004,10 @@ function renderFixtureReveal() {
               <span
                 key={stage}
                 style={{
-                  width: active ? 40 : 14,
+                  width: active ? 46 : 14,
                   height: 14,
                   borderRadius: 999,
-                  background: active ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.22)",
+                  background: active ? "rgba(255,255,255,.96)" : "rgba(255,255,255,.20)",
                   transition: "all .25s ease",
                 }}
               />
@@ -9293,19 +11018,61 @@ function renderFixtureReveal() {
     </div>
   );
 }
-
   return (
     <>
-      <PageShell title="TV Display" subtitle="Club showcase and fixture broadcast" />
+      <PageShell
+        title="TV Display"
+        subtitle={tvTournament ? `${tvTournament.name} • ${tvTournament.month || ""}` : "Live tournament fixtures"}
+        right={
+          (admin || staffAdmin) ? (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <select
+                value={selectedTvTournamentId}
+                onChange={(e) => setSelectedTvTournamentId(e.target.value)}
+              >
+                {(data.tournaments || []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {tournamentDisplay(t)}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+  if (!tvTournament) {
+    alert("Please select a tournament first.");
+    return;
+  }
+
+  const ok = generateKnockoutForTournamentSilently(data, commit, tvTournament.id);
+  if (!ok) {
+    alert("Need at least 2 registered players to generate fixtures.");
+    return;
+  }
+
+  setTimeout(() => {
+    triggerFixtureReveal();
+  }, 80);
+}}
+              >
+                Generate Fixtures
+              </button>
+            </div>
+          ) : null
+        }
+      />
 
       <div className="container">
         <input
-  ref={tvSlideFileInputRef}
-  type="file"
-  accept="image/*"
-  style={{ display: "none" }}
-  onChange={handleTvSlideImageFileChange}
-/>
+          ref={tvSlideFileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={handleTvSlideImageFileChange}
+        />
+
         {(data.announcements || []).length > 0 && (
           <div
             style={{
@@ -9337,43 +11104,25 @@ function renderFixtureReveal() {
           </div>
         )}
 
-        {(admin || staffAdmin) && activeTournament ? (
-          (!Array.isArray(activeTournament.matches) || activeTournament.matches.length === 0) ? (
-            <div style={{ marginBottom: 14 }}>
-              <button
-                className="btn primary"
-                style={{
-                  fontSize: "18px",
-                  padding: "12px 18px",
-                  fontWeight: 800,
-                }}
-                onClick={() =>
-                  generateKnockoutForTournamentNow(data, commit, activeTournament.id)
-                }
-              >
-                Generate Knockout Fixtures (Live)
-              </button>
-            </div>
-          ) : showFixtureBanner ? (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: "14px 22px",
-                borderRadius: 14,
-                display: "inline-block",
-                background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
-                border: "1px solid rgba(56, 211, 159, 0.45)",
-                fontWeight: 800,
-                fontSize: "22px",
-                color: "#7fffd4",
-                boxShadow: "0 0 18px rgba(56,211,159,.28)",
-                animation: "pulseGlow 1.4s infinite",
-                letterSpacing: "0.3px",
-              }}
-            >
-              🎯 Knockout Fixtures Generated
-            </div>
-          ) : null
+        {showFixtureBanner ? (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: "14px 22px",
+              borderRadius: 14,
+              display: "inline-block",
+              background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
+              border: "1px solid rgba(56, 211, 159, 0.45)",
+              fontWeight: 800,
+              fontSize: "22px",
+              color: "#7fffd4",
+              boxShadow: "0 0 18px rgba(56,211,159,.28)",
+              animation: "pulseGlow 1.4s infinite",
+              letterSpacing: "0.3px",
+            }}
+          >
+            🎯 Fixtures Generated for {tvTournament?.name || "Selected Tournament"}
+          </div>
         ) : null}
 
         <div className="card">
@@ -9389,135 +11138,134 @@ function renderFixtureReveal() {
           >
             <div>
               <h2 style={{ marginBottom: 6 }}>
-                {activeTournament ? tournamentDisplay(activeTournament) : "The Q Club TV Mode"}
+                {tvTournament ? tournamentDisplay(tvTournament) : "The Q Club TV Mode"}
               </h2>
               <div className="muted">
-  {tvMode === "showcase"
-    ? `Showcase Mode • ${tvShowcaseMode === "custom_only" ? "Custom Slides Only" : "Mixed Showcase"}${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
-    : tvMode === "fixtures"
-    ? "Fixture Broadcast"
-    : `Auto Mode • ${autoPhase === "fixtures" ? "Showing Fixtures" : "Showing Showcase"}`}
-</div>
+                {tvMode === "showcase"
+                  ? `Showcase Mode • ${
+                      tvShowcaseMode === "custom_only" ? "Custom Slides Only" : "Mixed Showcase"
+                    }${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
+                  : tvMode === "fixtures"
+                  ? "Fixture Broadcast"
+                  : `Auto Mode • ${autoPhase === "fixtures" ? "Showing Fixtures" : "Showing Showcase"}`}
+              </div>
             </div>
 
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-  <button
-    type="button"
-    className={tvMode === "showcase" ? "btn primary" : "btn secondary"}
-    onClick={() => setTvMode("showcase")}
-  >
-    Showcase Mode
-  </button>
+              <button
+                type="button"
+                className={tvMode === "showcase" ? "btn primary" : "btn secondary"}
+                onClick={() => setTvMode("showcase")}
+              >
+                Showcase Mode
+              </button>
 
-  <button
-    type="button"
-    className={tvMode === "fixtures" ? "btn primary" : "btn secondary"}
-    onClick={() => setTvMode("fixtures")}
-  >
-    Fixture Broadcast
-  </button>
+              <button
+                type="button"
+                className={tvMode === "fixtures" ? "btn primary" : "btn secondary"}
+                onClick={() => setTvMode("fixtures")}
+              >
+                Fixture Broadcast
+              </button>
 
-  <button
-    type="button"
-    className={tvMode === "auto" ? "btn primary" : "btn secondary"}
-    onClick={() => setTvMode("auto")}
-  >
-    Auto Mode
-  </button>
+              <button
+                type="button"
+                className={tvMode === "auto" ? "btn primary" : "btn secondary"}
+                onClick={() => setTvMode("auto")}
+              >
+                Auto Mode
+              </button>
 
-  {(admin || staffAdmin) && tvMode === "showcase" ? (
-    <>
-    <button
-  type="button"
-  className={tvShowcaseMode === "mixed" ? "btn primary" : "btn secondary"}
-  onClick={() => setTvShowcaseMode("mixed")}
->
-  Mixed Showcase
-</button>
+              {(admin || staffAdmin) && tvMode === "showcase" ? (
+                <>
+                  <button
+                    type="button"
+                    className={tvShowcaseMode === "mixed" ? "btn primary" : "btn secondary"}
+                    onClick={() => setTvShowcaseMode("mixed")}
+                  >
+                    Mixed Showcase
+                  </button>
 
-<button
-  type="button"
-  className={tvShowcaseMode === "custom_only" ? "btn primary" : "btn secondary"}
-  onClick={() => setTvShowcaseMode("custom_only")}
->
-  Custom Slides Only
-</button>
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={addCustomTvSlide}
-      >
-        + Add Slide
-      </button>
+                  <button
+                    type="button"
+                    className={tvShowcaseMode === "custom_only" ? "btn primary" : "btn secondary"}
+                    onClick={() => setTvShowcaseMode("custom_only")}
+                  >
+                    Custom Slides Only
+                  </button>
 
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={triggerTvSlideImagePicker}
-      >
-        Upload Slide Image
-      </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={addCustomTvSlide}
+                  >
+                    + Add Slide
+                  </button>
 
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={editCurrentTvSlide}
-      >
-        Edit Current Slide
-      </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={triggerTvSlideImagePicker}
+                  >
+                    Upload Slide Image
+                  </button>
 
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={() => moveCurrentTvSlide("up")}
-      >
-        Move Up
-      </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={editCurrentTvSlide}
+                  >
+                    Edit Current Slide
+                  </button>
 
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={() => moveCurrentTvSlide("down")}
-      >
-        Move Down
-      </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => moveCurrentTvSlide("up")}
+                  >
+                    Move Up
+                  </button>
 
-      <button
-        type="button"
-        className="btn danger"
-        onClick={deleteCurrentTvSlide}
-      >
-        Delete Current Slide
-      </button>
-    </>
-  ) : null}
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => moveCurrentTvSlide("down")}
+                  >
+                    Move Down
+                  </button>
 
-  {(admin || staffAdmin) && matches.length ? (
-    <button
-      type="button"
-      className="btn secondary"
-      onClick={() => {
-        setHasPlayedFixtureReveal(false);
-        setFixtureRevealStage("closed");
-      }}
-    >
-      Replay Reveal
-    </button>
-  ) : null}
-</div>
+                  <button
+                    type="button"
+                    className="btn danger"
+                    onClick={deleteCurrentTvSlide}
+                  >
+                    Delete Current Slide
+                  </button>
+                </>
+              ) : null}
+
+              {(admin || staffAdmin) && matches.length ? (
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={triggerFixtureReveal}
+                >
+                  Replay Reveal
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {fixtureRevealStage !== "idle" && fixtureRevealStage !== "done"
-  ? renderFixtureReveal()
-  : showFixtureView
-  ? renderFixtureView()
-  : renderSlide(activeSlide)}
+            ? renderFixtureReveal()
+            : showFixtureView
+            ? renderFixtureView()
+            : renderSlide(activeSlide)}
         </div>
       </div>
     </>
   );
 }
-
 function AdminPanel({ data, admin, commit, activeTournament }) {
   if (!admin) {
     return (
