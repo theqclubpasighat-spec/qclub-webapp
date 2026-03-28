@@ -394,6 +394,7 @@ function defaultData() {
   heroSpeed: 3500,
   tickerSpeed: 28,
   tvCustomSlides: [],
+  tvShowcaseMode: "mixed",
   aboutTitle: "About The Q Club",
   aboutContent: `The Q Club is a premium indoor gaming lounge in Pasighat offering cue sports and leisure experiences in a comfortable, modern setting.
 
@@ -702,6 +703,8 @@ function mergeWithDefaults(remote) {
         heroSlides: Array.isArray(src?.club?.heroSlides) ? src.club.heroSlides.filter(Boolean) : base.club.heroSlides,
       tickerSpeed: safeNum(src?.club?.tickerSpeed, base.club.tickerSpeed),
       tvCustomSlides: Array.isArray(src?.club?.tvCustomSlides) ? src.club.tvCustomSlides : base.club.tvCustomSlides,
+      tvShowcaseMode:
+  src?.club?.tvShowcaseMode === "custom_only" ? "custom_only" : base.club.tvShowcaseMode,
         contact: {
         ...base.club.contact,
         ...((src.club || {}).contact || {}),
@@ -1365,18 +1368,108 @@ useEffect(() => {
   if (!hasHydratedFromCloud) {
   return (
     <div className="container" style={{ paddingTop: 40 }}>
+      <style>{`
+        @keyframes qclubBallBounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+
+        @keyframes qclubCueTravel {
+          0% { transform: translateX(0); opacity: .95; }
+          50% { transform: translateX(282px); opacity: 1; }
+          100% { transform: translateX(0); opacity: .95; }
+        }
+      `}</style>
+
       <div
         className="card"
         style={{
-          minHeight: 180,
+          minHeight: 220,
+          borderRadius: 28,
+          border: "1px solid rgba(255,255,255,.12)",
+          background: "linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 20,
-          fontWeight: 800,
+          gap: 18,
+          boxShadow: "0 20px 50px rgba(0,0,0,.25)",
         }}
       >
-        Loading The Q Club...
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            padding: "18px 22px 34px",
+          }}
+        >
+          {[
+            { color: "#c62828", delay: "0s" },
+            { color: "#f6c445", delay: ".1s" },
+            { color: "#1faa59", delay: ".2s" },
+            { color: "#7a4a22", delay: ".3s" },
+            { color: "#1565c0", delay: ".4s" },
+            { color: "#ff6fae", delay: ".5s" },
+            { color: "#111", delay: ".6s" },
+          ].map((ball, i) => (
+            <span
+              key={i}
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 999,
+                display: "inline-block",
+                position: "relative",
+                background: ball.color,
+                boxShadow:
+                  "inset -4px -5px 8px rgba(0,0,0,.35), inset 3px 3px 6px rgba(255,255,255,.18), 0 8px 18px rgba(0,0,0,.28)",
+                animation: `qclubBallBounce 1.4s ease-in-out infinite`,
+                animationDelay: ball.delay,
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  left: 5,
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "rgba(255,255,255,.55)",
+                }}
+              />
+            </span>
+          ))}
+
+          <span
+            style={{
+              position: "absolute",
+              left: 8,
+              top: 20,
+              width: 24,
+              height: 24,
+              borderRadius: 999,
+              background: "#f7f7f7",
+              boxShadow:
+                "inset -3px -4px 7px rgba(0,0,0,.18), inset 2px 2px 5px rgba(255,255,255,.95), 0 8px 18px rgba(0,0,0,.22)",
+              animation: "qclubCueTravel 2.8s ease-in-out infinite",
+              zIndex: 2,
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            fontSize: "clamp(15px, 2vw, 20px)",
+            fontWeight: 700,
+            letterSpacing: ".3px",
+            color: "rgba(238,243,255,.82)",
+          }}
+        >
+          Setting the table...
+        </div>
       </div>
     </div>
   );
@@ -4124,22 +4217,28 @@ function unblockSelectedSlot(slotValue = timeSlot) {
 )}
 
             <div className="row" style={{ marginBottom: 12 }}>
-              <button
-                className={`btn ${bookingType === "nonmember" ? "primary" : ""}`}
-                onClick={() => setBookingType("nonmember")}
-                type="button"
-              >
-                Non-member
-              </button>
+  <button
+    className={`btn ${bookingType === "nonmember" ? "primary" : ""}`}
+    onClick={() => {
+      setBookingType("nonmember");
+      setName("");
+    }}
+    type="button"
+  >
+    Non-member
+  </button>
 
-              <button
-                className={`btn ${bookingType === "member" ? "primary" : ""}`}
-                onClick={() => setBookingType("member")}
-                type="button"
-              >
-                Member
-              </button>
-            </div>
+  <button
+    className={`btn ${bookingType === "member" ? "primary" : ""}`}
+    onClick={() => {
+      setBookingType("member");
+      setName("");
+    }}
+    type="button"
+  >
+    Member
+  </button>
+</div>
 
             <div className="grid">
               <div className="cols-6">
@@ -7764,14 +7863,27 @@ const customSlides = (data.club?.tvCustomSlides || []).map((s, idx) => ({
 }));
 
 const editableSlides = [...textSlides, ...customSlides];
+const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_only" : "mixed";
 
-  const showcaseSlides = [
-  ...heroSlides,
-  ...editableSlides,
-  ...memberSlides,
-  ...gallerySlides,
-  ...hallOfFameSlides,
-];
+  const showcaseSlides =
+  tvShowcaseMode === "custom_only"
+    ? (customSlides.length
+        ? customSlides
+        : [
+            {
+              id: "custom_only_empty",
+              kind: "text",
+              title: "No Custom TV Slides Yet",
+              subtitle: "Add or upload custom slides to use Custom Slides Only mode.",
+            },
+          ])
+    : [
+        ...heroSlides,
+        ...editableSlides,
+        ...memberSlides,
+        ...gallerySlides,
+        ...hallOfFameSlides,
+      ];
 
   const safeSlides = showcaseSlides.length
     ? showcaseSlides
@@ -7786,6 +7898,18 @@ const editableSlides = [...textSlides, ...customSlides];
 
   const activeSlide = safeSlides[slideIndex % safeSlides.length];
   const canEditTvSlides = admin || staffAdmin;
+  function setTvShowcaseMode(nextMode) {
+  if (!canEditTvSlides) return;
+
+  commit({
+    ...data,
+    club: {
+      ...(data.club || {}),
+      tvCustomSlides: data.club?.tvCustomSlides || [],
+      tvShowcaseMode: nextMode === "custom_only" ? "custom_only" : "mixed",
+    },
+  });
+}
   function triggerTvSlideImagePicker() {
   if (!canEditTvSlides) return;
   if (!tvSlideFileInputRef.current) return;
@@ -8613,7 +8737,7 @@ function renderFixtureReveal() {
               </h2>
               <div className="muted">
   {tvMode === "showcase"
-    ? `Showcase Mode${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
+    ? `Showcase Mode • ${tvShowcaseMode === "custom_only" ? "Custom Slides Only" : "Mixed Showcase"}${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
     : tvMode === "fixtures"
     ? "Fixture Broadcast"
     : `Auto Mode • ${autoPhase === "fixtures" ? "Showing Fixtures" : "Showing Showcase"}`}
@@ -8647,6 +8771,21 @@ function renderFixtureReveal() {
 
   {(admin || staffAdmin) && tvMode === "showcase" ? (
     <>
+    <button
+  type="button"
+  className={tvShowcaseMode === "mixed" ? "btn primary" : "btn secondary"}
+  onClick={() => setTvShowcaseMode("mixed")}
+>
+  Mixed Showcase
+</button>
+
+<button
+  type="button"
+  className={tvShowcaseMode === "custom_only" ? "btn primary" : "btn secondary"}
+  onClick={() => setTvShowcaseMode("custom_only")}
+>
+  Custom Slides Only
+</button>
       <button
         type="button"
         className="btn secondary"
