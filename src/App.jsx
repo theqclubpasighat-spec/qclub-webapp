@@ -2323,11 +2323,34 @@ const heroImages =
       img.src = src;
     });
   }, [heroImages]);
-  const isSnookerTournament = tournamentGameKey(activeTournament?.game) === "snooker";
-  const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
-  const disclaimerTitle = data.club?.tournamentDisclaimerTitle || "Tournament Legal Disclaimer";
-  const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData().club.tournamentDisclaimerContent;
+  const featuredTournaments =
+  (data.tournaments || []).filter(Boolean).length > 0
+    ? (data.tournaments || []).filter(Boolean)
+    : (activeTournament ? [activeTournament] : []);
 
+const [featuredTournamentIndex, setFeaturedTournamentIndex] = useState(0);
+
+useEffect(() => {
+  if (featuredTournaments.length <= 1) return;
+
+  const timer = setInterval(() => {
+    setFeaturedTournamentIndex((prev) =>
+      prev === featuredTournaments.length - 1 ? 0 : prev + 1
+    );
+  }, 3200);
+
+  return () => clearInterval(timer);
+}, [featuredTournaments.length]);
+
+const displayedFeaturedTournament =
+  featuredTournaments[featuredTournamentIndex] || activeTournament || null;
+
+const isSnookerTournament =
+  tournamentGameKey(displayedFeaturedTournament?.game) === "snooker";
+
+const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
+const disclaimerTitle = data.club?.tournamentDisclaimerTitle || "Tournament Legal Disclaimer";
+const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData().club.tournamentDisclaimerContent;
   const clubGallery = [
     { id: "snooker", url: "/home/snooker.jpg", caption: "Snooker" },
     { id: "airhockey", url: "/home/air-hockey.png", caption: "Air Hockey" },
@@ -2337,6 +2360,27 @@ const heroImages =
   const memberships = (data.memberships || []).slice(0, 3);
 
   return (
+  <>
+    <style>{`
+      @keyframes qclubLockDrop {
+        0% {
+          opacity: 0;
+          transform: translateY(-34px) rotateX(75deg);
+          filter: blur(1.5px);
+        }
+        55% {
+          opacity: 1;
+          transform: translateY(6px) rotateX(0deg);
+          filter: blur(0);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) rotateX(0deg);
+          filter: blur(0);
+        }
+      }
+    `}</style>
+
     <div className="container refHome">
       <section
   className="refHero"
@@ -2555,37 +2599,67 @@ const heroImages =
 
       <section className="refTournamentCard">
         <div className="refTournamentContent">
-          <div className="refTournamentKicker">Featured Tournament</div>
-          <div className="refTournamentName">
-            {activeTournament?.name || "Q Club Tournament"}
-          </div>
-          <div className="refTournamentMonth">
-            {activeTournament?.month || "This Month"}
-          </div>
-          <div className="muted" style={{ marginTop: 8 }}>
-            {isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
-          </div>
+          <div className="refTournamentKicker">Featured Tournaments</div>
+          <div className="refTournamentName" style={{ overflow: "hidden" }}>
+  <div
+    key={`featured-name-${featuredTournamentIndex}`}
+    style={{
+      display: "inline-block",
+      animation: "qclubLockDrop .45s ease",
+      transformOrigin: "center top",
+      willChange: "transform, opacity",
+    }}
+  >
+    {displayedFeaturedTournament?.name || "Q Club Tournament"}
+  </div>
+</div>
+<div className="refTournamentMonth" style={{ overflow: "hidden" }}>
+  <div
+    key={`featured-month-${featuredTournamentIndex}`}
+    style={{
+      display: "inline-block",
+      animation: "qclubLockDrop .5s ease",
+      transformOrigin: "center top",
+      willChange: "transform, opacity",
+    }}
+  >
+    {displayedFeaturedTournament?.month || "This Month"}
+  </div>
+</div>
+<div className="muted" style={{ marginTop: 8, overflow: "hidden" }}>
+  <div
+    key={`featured-game-${featuredTournamentIndex}`}
+    style={{
+      display: "inline-block",
+      animation: "qclubLockDrop .55s ease",
+      transformOrigin: "center top",
+      willChange: "transform, opacity",
+    }}
+  >
+    {isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
+  </div>
+</div>
 
           <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
   <Link
-  className="btn neonGreen refViewBtn"
-  to={`/fixtures?id=${activeTournament?.id || ""}`}
->
-  View Fixtures
-</Link>
-
-  <a
-    href={data.club?.liveStreamUrl || "#"}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="btn"
+    className="btn primary"
+    to="/tournaments"
+    style={{
+      flex: "1 1 180px",
+      minWidth: 0,
+      textAlign: "center",
+      fontWeight: 700,
+      background: "linear-gradient(90deg, #00ffcc, #00bfff)",
+      boxShadow: "0 0 12px rgba(0,255,200,0.6)",
+      animation: "pulseGlow 1.5s infinite",
+    }}
   >
-    📺 Watch it Live
-  </a>
+    Explore Tournaments
+  </Link>
 
   <Link
     className="btn primary"
-    to="/tournament-register"
+    to="/tournaments"
     style={{
       animation: "pulseGlow 1.2s infinite",
       fontWeight: 800,
@@ -2597,29 +2671,29 @@ const heroImages =
     Register Now
   </Link>
 
+  <a
+    href={data.club?.liveStreamUrl || "#"}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="btn"
+  >
+    📺 Watch it Live
+  </a>
+
   <Link
-  className="btn primary"
-  to="/tournaments"
-  style={{
-    flex: "1 1 180px",
-    minWidth: 0,
-    textAlign: "center",
-    fontWeight: 700,
-    background: "linear-gradient(90deg, #00ffcc, #00bfff)",
-    boxShadow: "0 0 12px rgba(0,255,200,0.6)",
-    animation: "pulseGlow 1.5s infinite",
-  }}
->
-  Explore Tournaments
-</Link>
+    className="btn neonGreen refViewBtn"
+    to={`/fixtures?id=${displayedFeaturedTournament?.id || ""}`}
+  >
+    View Fixtures
+  </Link>
 </div>
         </div>
 
         <div className="refTournamentVisual">
           <img
-            src={tournamentImage}
-            alt={isSnookerTournament ? "Snooker Tournament" : "Pool Tournament"}
-          />
+  src={tournamentImage}
+  alt={displayedFeaturedTournament?.name || (isSnookerTournament ? "Snooker Tournament" : "Pool Tournament")}
+/>
         </div>
       </section>
 
@@ -2647,8 +2721,9 @@ const heroImages =
             ) : null}
           </div>
         </div>
-      </section>
+            </section>
     </div>
+  </>
   );
 }
 function MembersPage({ data, admin, commit }) {
@@ -4222,6 +4297,8 @@ function unblockSelectedSlot(slotValue = timeSlot) {
     onClick={() => {
       setBookingType("nonmember");
       setName("");
+      setMobile("");
+      setNote("");
     }}
     type="button"
   >
@@ -4233,6 +4310,8 @@ function unblockSelectedSlot(slotValue = timeSlot) {
     onClick={() => {
       setBookingType("member");
       setName("");
+      setMobile("");
+      setNote("");
     }}
     type="button"
   >
