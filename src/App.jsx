@@ -11939,148 +11939,150 @@ const displayTime = new Date().toLocaleString();
 
       setOrderSaved(true);
     }
-    // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
-if (paymentContext === "membership" && !orderSaved) {
-  if (paymentContext === "tournament" && !orderSaved) {
-  const tournamentId = localStorage.getItem("qclub_tournament_id") || "";
-  const tournamentName = localStorage.getItem("qclub_tournament_name") || "";
-  const name = localStorage.getItem("qclub_payment_name") || "";
-  const mobile = localStorage.getItem("qclub_payment_mobile") || "";
-  const existingPlayerId = localStorage.getItem("qclub_tournament_player_id") || "";
+        // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
+    if (paymentContext === "membership" && !orderSaved) {
+      const name = localStorage.getItem("qclub_payment_name") || "";
+      const mobile = localStorage.getItem("qclub_payment_mobile") || "";
+      const tier = localStorage.getItem("qclub_membership_tier") || "Member";
 
-  if (tournamentId && name.trim()) {
-    let nextPlayers = [...(data.players || [])];
-    let finalPlayerId = existingPlayerId;
+      const today = todayIso();
 
-    if (!finalPlayerId) {
-      const existingPlayer = nextPlayers.find(
-        (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+      // default validity: 30 days (you can upgrade later per plan)
+      const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+
+      const existing = (data.memberRegistry || []).find(
+        (m) => m.mobile === mobile
       );
 
-      if (existingPlayer) {
-        finalPlayerId = existingPlayer.id;
+      let nextRegistry;
+
+      if (existing) {
+        // RENEW
+        nextRegistry = (data.memberRegistry || []).map((m) =>
+          m.mobile === mobile
+            ? {
+                ...m,
+                validUntil,
+                status: "active",
+                tier,
+              }
+            : m
+        );
       } else {
-        const newPlayer = {
-          id: `pl_${Date.now()}`,
-          name: name.trim(),
-          mobile: mobile.trim(),
-          city: "Pasighat",
-          createdAt: Date.now(),
-        };
-        nextPlayers = [...nextPlayers, newPlayer];
-        finalPlayerId = newPlayer.id;
-      }
-    }
-
-    const nextTournaments = (data.tournaments || []).map((t) => {
-      if (t.id !== tournamentId) return t;
-
-      const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
-      const nextIds = currentIds.includes(finalPlayerId)
-        ? currentIds
-        : [...currentIds, finalPlayerId];
-
-      return {
-        ...t,
-        participantIds: nextIds,
-      };
-    });
-
-    const tournamentAnnouncement = {
-  id: uid(),
-  text: `${name.trim()} registered for ${tournamentName || "the current tournament"} ! Register now`,
-  link: `/tournament-register?id=${tournamentId}`,
-  createdAt: Date.now(),
-};
-
-    commit({
-      ...data,
-      players: nextPlayers,
-      tournaments: nextTournaments,
-      announcements: [
-        tournamentAnnouncement,
-        ...(data.announcements || []),
-      ].slice(0, 20),
-    });
-
-    setOrderSaved(true);
-  }
-}
-  const name = localStorage.getItem("qclub_payment_name") || "";
-  const mobile = localStorage.getItem("qclub_payment_mobile") || "";
-  const tier = localStorage.getItem("qclub_membership_tier") || "Member";
-
-  const today = todayIso();
-
-  // default validity: 30 days (you can upgrade later per plan)
-  const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  const existing = (data.memberRegistry || []).find(
-    (m) => m.mobile === mobile
-  );
-
-  let nextRegistry;
-
-  if (existing) {
-    // RENEW
-    nextRegistry = (data.memberRegistry || []).map((m) =>
-      m.mobile === mobile
-        ? {
-            ...m,
+        // NEW MEMBER
+        nextRegistry = [
+          ...(data.memberRegistry || []),
+          {
+            id: `reg_${Date.now()}`,
+            name,
+            mobile,
+            tier,
+            joinedOn: today,
             validUntil,
             status: "active",
-            tier,
+            notes: "Auto-created after payment",
+          },
+        ];
+      }
+
+      // ALSO UPDATE PUBLIC MEMBERS PAGE
+      const nextMembersPage = [
+        ...(data.membersPage || []),
+        {
+          id: `mem_${Date.now()}`,
+          name,
+          tier,
+          joinedOn: today,
+          note: "Member",
+        },
+      ];
+
+      const membershipAnnouncement = {
+        id: uid(),
+        text: `${name} joins as the latest Q Club member !`,
+        createdAt: Date.now(),
+      };
+
+      commit({
+        ...data,
+        memberRegistry: nextRegistry,
+        membersPage: nextMembersPage,
+        announcements: [
+          membershipAnnouncement,
+          ...(data.announcements || []),
+        ].slice(0, 20),
+      });
+
+      setOrderSaved(true);
+    }
+
+    if (paymentContext === "tournament" && !orderSaved) {
+      const tournamentId = localStorage.getItem("qclub_tournament_id") || "";
+      const tournamentName = localStorage.getItem("qclub_tournament_name") || "";
+      const name = localStorage.getItem("qclub_payment_name") || "";
+      const mobile = localStorage.getItem("qclub_payment_mobile") || "";
+      const existingPlayerId = localStorage.getItem("qclub_tournament_player_id") || "";
+
+      if (tournamentId && name.trim()) {
+        let nextPlayers = [...(data.players || [])];
+        let finalPlayerId = existingPlayerId;
+
+        if (!finalPlayerId) {
+          const existingPlayer = nextPlayers.find(
+            (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+          );
+
+          if (existingPlayer) {
+            finalPlayerId = existingPlayer.id;
+          } else {
+            const newPlayer = {
+              id: `pl_${Date.now()}`,
+              name: name.trim(),
+              mobile: mobile.trim(),
+              city: "Pasighat",
+              createdAt: Date.now(),
+            };
+            nextPlayers = [...nextPlayers, newPlayer];
+            finalPlayerId = newPlayer.id;
           }
-        : m
-    );
-  } else {
-    // NEW MEMBER
-    nextRegistry = [
-      ...(data.memberRegistry || []),
-      {
-        id: `reg_${Date.now()}`,
-        name,
-        mobile,
-        tier,
-        joinedOn: today,
-        validUntil,
-        status: "active",
-        notes: "Auto-created after payment",
-      },
-    ];
-  }
+        }
 
-  // ALSO UPDATE PUBLIC MEMBERS PAGE
-  const nextMembersPage = [
-    ...(data.membersPage || []),
-    {
-      id: `mem_${Date.now()}`,
-      name,
-      tier,
-      joinedOn: today,
-      note: "Member",
-    },
-  ];
+        const nextTournaments = (data.tournaments || []).map((t) => {
+          if (t.id !== tournamentId) return t;
 
-  const membershipAnnouncement = {
-  id: uid(),
-  text: `${name} joins as the latest Q Club member !`,
-  createdAt: Date.now(),
-};
+          const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
+          const nextIds = currentIds.includes(finalPlayerId)
+            ? currentIds
+            : [...currentIds, finalPlayerId];
 
-commit({
-  ...data,
-  memberRegistry: nextRegistry,
-  membersPage: nextMembersPage,
-  announcements: [
-    membershipAnnouncement,
-    ...(data.announcements || []),
-  ].slice(0, 20),
-});
-}
-setOrderSaved(true);
+          return {
+            ...t,
+            participantIds: nextIds,
+          };
+        });
+
+        const tournamentAnnouncement = {
+          id: uid(),
+          text: `${name.trim()} registered for ${tournamentName || "the current tournament"} ! Register now`,
+          link: `/tournament-register?id=${tournamentId}`,
+          createdAt: Date.now(),
+        };
+
+        commit({
+          ...data,
+          players: nextPlayers,
+          tournaments: nextTournaments,
+          announcements: [
+            tournamentAnnouncement,
+            ...(data.announcements || []),
+          ].slice(0, 20),
+        });
+
+        setOrderSaved(true);
+      }
+    }
 
     setStatus("success");
 
