@@ -11426,6 +11426,18 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     },
   });
 }
+  const lastWhatsappDraft = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("qclub_last_whatsapp_draft") || "null");
+    } catch {
+      return null;
+    }
+  })();
+
+  const hasWhatsappDraft =
+    lastWhatsappDraft &&
+    typeof lastWhatsappDraft === "object" &&
+    (lastWhatsappDraft.phone || lastWhatsappDraft.text || lastWhatsappDraft.url);
 
   return (
     <>
@@ -11614,6 +11626,78 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     </div>
   ) : null}
 </div>
+
+                    <div className="card cols-12">
+            <h2>WhatsApp Draft Tester</h2>
+            <div className="muted" style={{ marginBottom: 12 }}>
+              Preview the latest saved WhatsApp draft from successful membership payment.
+            </div>
+
+            {!hasWhatsappDraft ? (
+              <div className="muted">No saved WhatsApp draft found yet.</div>
+            ) : (
+              <>
+                <div className="grid" style={{ marginTop: 8 }}>
+                  <div className="cols-4">
+                    <div className="muted">Label</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>
+                      {lastWhatsappDraft.label || "—"}
+                    </div>
+                  </div>
+
+                  <div className="cols-4">
+                    <div className="muted">Phone</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>
+                      {lastWhatsappDraft.phone || "—"}
+                    </div>
+                  </div>
+
+                  <div className="cols-4">
+                    <div className="muted">WhatsApp Link</div>
+                    <div style={{ marginTop: 6 }}>
+                      {lastWhatsappDraft.url ? "Ready" : "Not ready"}
+                    </div>
+                  </div>
+
+                  <div className="cols-12">
+                    <div className="muted" style={{ marginBottom: 6 }}>Message Preview</div>
+                    <textarea
+                      readOnly
+                      value={lastWhatsappDraft.text || ""}
+                      style={{ minHeight: 140 }}
+                    />
+                  </div>
+                </div>
+
+                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn primary"
+                    type="button"
+                    onClick={() => {
+                      if (!lastWhatsappDraft?.url) {
+                        alert("WhatsApp draft link is not ready.");
+                        return;
+                      }
+                      window.open(lastWhatsappDraft.url, "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    Open in WhatsApp
+                  </button>
+
+                  <button
+                    className="btn danger"
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem("qclub_last_whatsapp_draft");
+                      window.location.reload();
+                    }}
+                  >
+                    Clear Saved Draft
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           <div className="card cols-12">
             <h2>Quick Admin Actions</h2>
