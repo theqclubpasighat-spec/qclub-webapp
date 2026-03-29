@@ -5426,6 +5426,53 @@ function buildMembershipWhatsappText({ name = "", tier = "", validUntil = "" }) 
     .filter(Boolean)
     .join("\n");
 }
+function buildTournamentWhatsappText({ name = "", tournamentName = "", fee = "" }) {
+  return [
+    `Hello ${String(name || "").trim()},`,
+    ``,
+    `Your registration for ${String(tournamentName || "the tournament").trim()} at The Q Club has been confirmed successfully.`,
+    fee ? `Registration fee received: ₹${fee}` : "",
+    ``,
+    `Thank you and all the best for the tournament.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+function buildFoodWhatsappText({ name = "", orderNo = "", total = "", itemCount = 0 }) {
+  return [
+    `Hello ${String(name || "").trim()},`,
+    ``,
+    `Your Q Lounge order has been placed successfully at The Q Club.`,
+    orderNo ? `Order No: ${orderNo}` : "",
+    itemCount ? `Items: ${itemCount}` : "",
+    total ? `Amount received: ₹${total}` : "",
+    ``,
+    `Thank you for your order.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+function buildBookingWhatsappText({
+  name = "",
+  table = "",
+  bookingDate = "",
+  bookingSlot = "",
+  amount = "",
+}) {
+  return [
+    `Hello ${String(name || "").trim()},`,
+    ``,
+    `Your booking request at The Q Club has been received successfully.`,
+    table ? `Table / Game: ${table}` : "",
+    bookingDate ? `Date: ${bookingDate}` : "",
+    bookingSlot ? `Time Slot: ${bookingSlot}` : "",
+    amount ? `Amount received: ₹${amount}` : "",
+    ``,
+    `We look forward to seeing you at The Q Club.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 function BookTable({ data, admin, commit, startPayment }) {
   const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
@@ -6057,13 +6104,13 @@ function unblockSelectedSlot(slotValue = timeSlot) {
     return;
   }
 
-  localStorage.setItem("qclub_payment_context", "booking");
+    localStorage.setItem("qclub_payment_context", "booking");
   localStorage.setItem("qclub_payment_name", name.trim());
   localStorage.setItem("qclub_payment_mobile", mobile.trim());
   localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
   localStorage.setItem("qclub_booking_date", bookingDate || "");
   localStorage.setItem("qclub_booking_slot", timeSlot || "");
-
+  localStorage.setItem("qclub_booking_amount", String(amount || ""));
   const ok = submitBooking();
   if (!ok) return;
 
@@ -12042,7 +12089,7 @@ const displayTime = new Date().toLocaleString();
       .then((orderData) => {
   if (orderData.order_status === "PAID") {
 
-    if (paymentContext === "food" && !orderSaved) {
+        if (paymentContext === "food" && !orderSaved) {
 
       const newOrder = {
         id: displayOrderNo,
@@ -12054,10 +12101,49 @@ const displayTime = new Date().toLocaleString();
         status: "Paid"
       };
 
+      const foodWhatsappDraft = buildWhatsappDraft({
+        phone: paymentMobile,
+        label: "food_success",
+        text: buildFoodWhatsappText({
+          name: paymentName,
+          orderNo: displayOrderNo,
+          total: foodTotal,
+          itemCount: Array.isArray(foodCart) ? foodCart.length : 0,
+        }),
+      });
+
       commit({
   ...data,
   foodOrders: [...(data.foodOrders || []), newOrder]
 });
+
+      localStorage.setItem(
+        "qclub_last_whatsapp_draft",
+        JSON.stringify(foodWhatsappDraft)
+      );
+
+      setOrderSaved(true);
+    }
+        if (paymentContext === "booking" && !orderSaved) {
+      const bookingWhatsappDraft = buildWhatsappDraft({
+        phone: localStorage.getItem("qclub_payment_mobile") || "",
+        label: "booking_success",
+        text: buildBookingWhatsappText({
+          name: localStorage.getItem("qclub_payment_name") || "",
+          table: localStorage.getItem("qclub_booking_table") || "",
+          bookingDate: localStorage.getItem("qclub_booking_date") || "",
+          bookingSlot: localStorage.getItem("qclub_booking_slot") || "",
+          amount:
+            localStorage.getItem("qclub_booking_amount") ||
+            localStorage.getItem("qclub_booking_fee") ||
+            "",
+        }),
+      });
+
+      localStorage.setItem(
+        "qclub_last_whatsapp_draft",
+        JSON.stringify(bookingWhatsappDraft)
+      );
 
       setOrderSaved(true);
     }
@@ -12226,12 +12312,22 @@ const displayTime = new Date().toLocaleString();
           };
         });
 
-        const tournamentAnnouncement = {
+                const tournamentAnnouncement = {
           id: uid(),
           text: `${name.trim()} registered for ${tournamentName || "the current tournament"} ! Register now`,
           link: `/tournament-register?id=${tournamentId}`,
           createdAt: Date.now(),
         };
+
+        const tournamentWhatsappDraft = buildWhatsappDraft({
+          phone: mobile,
+          label: "tournament_success",
+          text: buildTournamentWhatsappText({
+            name,
+            tournamentName,
+            fee: localStorage.getItem("qclub_tournament_fee") || "",
+          }),
+        });
 
         commit({
           ...data,
@@ -12242,6 +12338,11 @@ const displayTime = new Date().toLocaleString();
             ...(data.announcements || []),
           ].slice(0, 20),
         });
+
+        localStorage.setItem(
+          "qclub_last_whatsapp_draft",
+          JSON.stringify(tournamentWhatsappDraft)
+        );
 
         setOrderSaved(true);
       }
