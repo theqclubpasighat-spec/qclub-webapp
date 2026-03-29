@@ -3068,14 +3068,25 @@ function deletePlayerFromReview(playerId) {
   const player = players.find((p) => p.id === playerId);
   if (!player) return;
 
+  const playerNameKey = String(player.name || "").trim().toLowerCase();
+
   const ok = confirm(
-    `Delete ${player.name} from Players?\n\nThis will remove the player from:\n- Players list\n- tournament participant lists\n- review history entries\n- match ledger entries`
+    `Delete ${player.name} everywhere?\n\nThis will remove the player from:\n- Players list\n- Members page matching name\n- Member registry matching name\n- tournament participant lists\n- review history entries\n- match ledger entries`
   );
   if (!ok) return;
 
   commit({
     ...data,
     players: players.filter((p) => p.id !== playerId),
+
+    membersPage: (data.membersPage || []).filter(
+      (m) => String(m?.name || "").trim().toLowerCase() !== playerNameKey
+    ),
+
+    memberRegistry: (data.memberRegistry || []).filter(
+      (m) => String(m?.name || "").trim().toLowerCase() !== playerNameKey
+    ),
+
     tournaments: (data.tournaments || []).map((t) => ({
       ...t,
       participantIds: (t.participantIds || []).filter((id) => id !== playerId),
@@ -3086,13 +3097,27 @@ function deletePlayerFromReview(playerId) {
         winner: m.winner === playerId ? "" : m.winner,
       })),
     })),
-    reviewHistory: (data.reviewHistory || []).filter((r) => r.playerId !== playerId),
-    matchLedger: (data.matchLedger || []).filter(
-      (m) => m.player1Id !== playerId && m.player2Id !== playerId
+
+    reviewHistory: (data.reviewHistory || []).filter(
+      (r) =>
+        r.playerId !== playerId &&
+        String(r.playerName || "").trim().toLowerCase() !== playerNameKey
     ),
+
+    matchLedger: (data.matchLedger || []).filter((m) => {
+      const p1NameKey = String(m?.player1Name || "").trim().toLowerCase();
+      const p2NameKey = String(m?.player2Name || "").trim().toLowerCase();
+
+      return (
+        m.player1Id !== playerId &&
+        m.player2Id !== playerId &&
+        p1NameKey !== playerNameKey &&
+        p2NameKey !== playerNameKey
+      );
+    }),
   });
 
-  alert(`${player.name} deleted.`);
+  alert(`${player.name} deleted everywhere.`);
 }
   return (
     <>
