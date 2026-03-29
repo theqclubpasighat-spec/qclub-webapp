@@ -11940,9 +11940,9 @@ const displayTime = new Date().toLocaleString();
       setOrderSaved(true);
     }
         // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
-    if (paymentContext === "membership" && !orderSaved) {
-      const name = localStorage.getItem("qclub_payment_name") || "";
-      const mobile = localStorage.getItem("qclub_payment_mobile") || "";
+        if (paymentContext === "membership" && !orderSaved) {
+      const name = (localStorage.getItem("qclub_payment_name") || "").trim();
+      const mobile = (localStorage.getItem("qclub_payment_mobile") || "").trim();
       const tier = localStorage.getItem("qclub_membership_tier") || "Member";
 
       const today = todayIso();
@@ -11952,24 +11952,33 @@ const displayTime = new Date().toLocaleString();
         .toISOString()
         .slice(0, 10);
 
-      const existing = (data.memberRegistry || []).find(
-        (m) => m.mobile === mobile
-      );
+      const normalizedName = name.toLowerCase();
+
+      const existing = (data.memberRegistry || []).find((m) => {
+        const memberName = String(m?.name || "").trim().toLowerCase();
+        const memberMobile = String(m?.mobile || "").trim();
+        return memberName === normalizedName && memberMobile === mobile;
+      });
 
       let nextRegistry;
 
       if (existing) {
-        // RENEW
-        nextRegistry = (data.memberRegistry || []).map((m) =>
-          m.mobile === mobile
+        // RENEW SAME MEMBER
+        nextRegistry = (data.memberRegistry || []).map((m) => {
+          const memberName = String(m?.name || "").trim().toLowerCase();
+          const memberMobile = String(m?.mobile || "").trim();
+
+          return memberName === normalizedName && memberMobile === mobile
             ? {
                 ...m,
+                name,
+                mobile,
                 validUntil,
                 status: "active",
                 tier,
               }
-            : m
-        );
+            : m;
+        });
       } else {
         // NEW MEMBER
         nextRegistry = [
@@ -11987,17 +11996,33 @@ const displayTime = new Date().toLocaleString();
         ];
       }
 
-      // ALSO UPDATE PUBLIC MEMBERS PAGE
-      const nextMembersPage = [
-        ...(data.membersPage || []),
-        {
-          id: `mem_${Date.now()}`,
-          name,
-          tier,
-          joinedOn: today,
-          note: "Member",
-        },
-      ];
+      // UPDATE PUBLIC MEMBERS PAGE IF SAME NAME EXISTS, ELSE ADD NEW
+      const existingMembersPageEntry = (data.membersPage || []).find(
+        (m) => String(m?.name || "").trim().toLowerCase() === normalizedName
+      );
+
+      const nextMembersPage = existingMembersPageEntry
+        ? (data.membersPage || []).map((m) =>
+            String(m?.name || "").trim().toLowerCase() === normalizedName
+              ? {
+                  ...m,
+                  name,
+                  tier,
+                  joinedOn: m.joinedOn || today,
+                  note: m.note || "Member",
+                }
+              : m
+          )
+        : [
+            ...(data.membersPage || []),
+            {
+              id: `mem_${Date.now()}`,
+              name,
+              tier,
+              joinedOn: today,
+              note: "Member",
+            },
+          ];
 
       const membershipAnnouncement = {
         id: uid(),
@@ -12017,6 +12042,7 @@ const displayTime = new Date().toLocaleString();
 
       setOrderSaved(true);
     }
+    
 
     if (paymentContext === "tournament" && !orderSaved) {
       const tournamentId = localStorage.getItem("qclub_tournament_id") || "";
