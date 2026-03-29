@@ -3059,7 +3059,41 @@ function ReviewPanel({ data, admin, staffAdmin, committeeAdmin, commit }) {
 
     alert(`${player.name} moved to Group ${nextGroup}`);
   }
+function deletePlayerFromReview(playerId) {
+  if (!admin) {
+    alert("Only main admin can delete players.");
+    return;
+  }
 
+  const player = players.find((p) => p.id === playerId);
+  if (!player) return;
+
+  const ok = confirm(
+    `Delete ${player.name} from Players?\n\nThis will remove the player from:\n- Players list\n- tournament participant lists\n- review history entries\n- match ledger entries`
+  );
+  if (!ok) return;
+
+  commit({
+    ...data,
+    players: players.filter((p) => p.id !== playerId),
+    tournaments: (data.tournaments || []).map((t) => ({
+      ...t,
+      participantIds: (t.participantIds || []).filter((id) => id !== playerId),
+      matches: (t.matches || []).map((m) => ({
+        ...m,
+        p1: m.p1 === playerId ? "" : m.p1,
+        p2: m.p2 === playerId ? "" : m.p2,
+        winner: m.winner === playerId ? "" : m.winner,
+      })),
+    })),
+    reviewHistory: (data.reviewHistory || []).filter((r) => r.playerId !== playerId),
+    matchLedger: (data.matchLedger || []).filter(
+      (m) => m.player1Id !== playerId && m.player2Id !== playerId
+    ),
+  });
+
+  alert(`${player.name} deleted.`);
+}
   return (
     <>
       <PageShell
@@ -3306,28 +3340,38 @@ function ReviewPanel({ data, admin, staffAdmin, committeeAdmin, commit }) {
               </div>
 
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => autoSuggestForPlayer(p.id)}
-                >
-                  Auto Suggest
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => saveReview(p.id)}
-                >
-                  Save Review
-                </button>
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={() => applyRecommendation(p.id)}
-                >
-                  Apply
-                </button>
-              </div>
+  <button
+    className="btn"
+    type="button"
+    onClick={() => autoSuggestForPlayer(p.id)}
+  >
+    Auto Suggest
+  </button>
+  <button
+    className="btn"
+    type="button"
+    onClick={() => saveReview(p.id)}
+  >
+    Save Review
+  </button>
+  <button
+    className="btn primary"
+    type="button"
+    onClick={() => applyRecommendation(p.id)}
+  >
+    Apply
+  </button>
+
+  {admin ? (
+    <button
+      className="btn danger"
+      type="button"
+      onClick={() => deletePlayerFromReview(p.id)}
+    >
+      Delete Player
+    </button>
+  ) : null}
+</div>
             </div>
           </div>
         );
