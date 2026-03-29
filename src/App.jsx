@@ -101,7 +101,31 @@ function monthKey(d = new Date()) {
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
+function formatWhatsappDateTime(value = new Date()) {
+  const dt = value instanceof Date ? value : new Date(value);
 
+  if (Number.isNaN(dt.getTime())) return "";
+
+  return dt.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+function scrollAnyOpenPanelToTop() {
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    document
+      .querySelectorAll(".modal-body, .sheet-body, .drawer-body, .page-body, .legal-body")
+      .forEach((el) => {
+        el.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      });
+  });
+}
 function bookingTimeSlots(selectedDate = todayIso(), blockedSlotValues = []) {
   const slots = [];
   const today = todayIso();
@@ -1698,8 +1722,8 @@ useEffect(() => {
   };
 }, []);
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [location.pathname]);
+  scrollAnyOpenPanelToTop();
+}, [location.pathname]);
   if (!hasHydratedFromCloud) {
   return (
     <div className="container" style={{ paddingTop: 40 }}>
@@ -5413,33 +5437,269 @@ function buildWhatsappDraft({ phone = "", text = "", label = "" }) {
         : "",
   };
 }
+const WHATSAPP_OPT_OUTS_KEY = "qclub_whatsapp_opt_outs";
+const WHATSAPP_MODE_KEY = "qclub_whatsapp_mode";
+const WHATSAPP_SETTINGS_KEY = "qclub_whatsapp_settings";
 
-function buildMembershipWhatsappText({ name = "", tier = "", validUntil = "" }) {
+function getWhatsappSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WHATSAPP_SETTINGS_KEY) || "{}");
+        return {
+      provider: String(saved?.provider || "msg91").trim() || "msg91",
+      authKey: String(saved?.authKey || "").trim(),
+      senderNumber: String(saved?.senderNumber || "").trim(),
+      senderLabel: String(saved?.senderLabel || "").trim(),
+      membershipTemplate: String(saved?.membershipTemplate || "").trim(),
+      tournamentTemplate: String(saved?.tournamentTemplate || "").trim(),
+      foodTemplate: String(saved?.foodTemplate || "").trim(),
+      bookingTemplate: String(saved?.bookingTemplate || "").trim(),
+      otpTemplate: String(saved?.otpTemplate || "").trim(),
+    };
+  } catch {
+        return {
+      provider: "msg91",
+      authKey: "",
+      senderNumber: "",
+      senderLabel: "",
+      membershipTemplate: "",
+      tournamentTemplate: "",
+      foodTemplate: "",
+      bookingTemplate: "",
+      otpTemplate: "",
+    };
+  }
+}
+
+function saveWhatsappSettings(next) {
+  const current = getWhatsappSettings();
+
+    const merged = {
+    provider: String(next?.provider ?? current.provider ?? "msg91").trim() || "msg91",
+    authKey: String(next?.authKey ?? current.authKey ?? "").trim(),
+    senderNumber: String(next?.senderNumber ?? current.senderNumber ?? "").trim(),
+    senderLabel: String(next?.senderLabel ?? current.senderLabel ?? "").trim(),
+    membershipTemplate: String(next?.membershipTemplate ?? current.membershipTemplate ?? "").trim(),
+    tournamentTemplate: String(next?.tournamentTemplate ?? current.tournamentTemplate ?? "").trim(),
+    foodTemplate: String(next?.foodTemplate ?? current.foodTemplate ?? "").trim(),
+    bookingTemplate: String(next?.bookingTemplate ?? current.bookingTemplate ?? "").trim(),
+    otpTemplate: String(next?.otpTemplate ?? current.otpTemplate ?? "").trim(),
+  };
+
+  localStorage.setItem(WHATSAPP_SETTINGS_KEY, JSON.stringify(merged));
+  return merged;
+}
+function getWhatsappTemplateForLabel(label = "", settings = getWhatsappSettings()) {
+  const cleanLabel = String(label || "").trim().toLowerCase();
+
+  if (cleanLabel === "membership_success") {
+    return settings.membershipTemplate || "";
+  }
+
+  if (cleanLabel === "tournament_success") {
+    return settings.tournamentTemplate || "";
+  }
+
+  if (cleanLabel === "food_success") {
+    return settings.foodTemplate || "";
+  }
+
+  if (cleanLabel === "booking_success") {
+    return settings.bookingTemplate || "";
+  }
+
+  if (cleanLabel === "otp" || cleanLabel === "guest_otp" || cleanLabel === "otp_success") {
+    return settings.otpTemplate || "";
+  }
+
+  return "";
+}
+function buildMsg91WhatsappPayload(draft, settings = getWhatsappSettings()) {
+  const phone = normalizeWhatsappNumber(draft?.phone || "");
+  const templateName = String(draft?.templateName || "").trim();
+  const senderNumber = String(settings?.senderNumber || draft?.senderNumber || "").trim();
+  const senderLabel = String(settings?.senderLabel || draft?.senderLabel || "").trim();
+
+  return {
+    integrated_number: senderNumber,
+    content_type: "template",
+    payload: {
+      messaging_product: "whatsapp",
+      type: "template",
+      template: {
+        name: templateName,
+        language: {
+          code: "en",
+          policy: "deterministic",
+        },
+        components: [],
+      },
+    },
+    recipient: {
+      phone,
+      name: senderLabel || "Q Club Customer",
+    },
+    meta: {
+      label: String(draft?.label || "").trim(),
+      textPreview: String(draft?.text || "").trim(),
+      provider: "msg91",
+    },
+  };
+}
+
+function getWhatsappMode() {
+  const saved = String(localStorage.getItem(WHATSAPP_MODE_KEY) || "draft_only").trim();
+
+  if (saved === "disabled") return "disabled";
+  return "draft_only";
+}
+
+function setWhatsappMode(mode) {
+  const nextMode = mode === "disabled" ? "disabled" : "draft_only";
+  localStorage.setItem(WHATSAPP_MODE_KEY, nextMode);
+  return nextMode;
+}
+
+function getWhatsappOptOuts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WHATSAPP_OPT_OUTS_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((x) => normalizeWhatsappNumber(x))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function saveWhatsappOptOuts(list) {
+  const normalized = Array.isArray(list)
+    ? Array.from(new Set(list.map((x) => normalizeWhatsappNumber(x)).filter(Boolean)))
+    : [];
+
+  localStorage.setItem(WHATSAPP_OPT_OUTS_KEY, JSON.stringify(normalized));
+}
+
+function isWhatsappOptedOut(phone) {
+  const normalized = normalizeWhatsappNumber(phone);
+  if (!normalized) return false;
+  return getWhatsappOptOuts().includes(normalized);
+}
+
+function storeLatestWhatsappDraft(draft) {
+  const phone = normalizeWhatsappNumber(draft?.phone || "");
+  if (!phone) return false;
+  if (isWhatsappOptedOut(phone)) return false;
+
+  localStorage.setItem("qclub_last_whatsapp_draft", JSON.stringify(draft));
+  return true;
+}
+function handleWhatsappNotification({
+  label = "",
+  phone = "",
+  text = "",
+  draft = null,
+}) {
+  const mode = getWhatsappMode();
+
+  if (mode === "disabled") {
+    return false;
+  }
+
+  const settings = getWhatsappSettings();
+
+  const baseDraft =
+    draft && typeof draft === "object"
+      ? draft
+      : buildWhatsappDraft({
+          label,
+          phone,
+          text,
+        });
+
+  const resolvedLabel = String(baseDraft?.label || label || "").trim();
+  const mappedTemplate = getWhatsappTemplateForLabel(resolvedLabel, settings);
+
+  const finalDraft = {
+    ...baseDraft,
+    label: resolvedLabel,
+    templateName: mappedTemplate,
+    provider: settings.provider || "msg91",
+    senderNumber: settings.senderNumber || "",
+    senderLabel: settings.senderLabel || "",
+    msg91Payload:
+      (settings.provider || "msg91") === "msg91"
+        ? buildMsg91WhatsappPayload(
+            {
+              ...baseDraft,
+              label: resolvedLabel,
+              templateName: mappedTemplate,
+              senderNumber: settings.senderNumber || "",
+              senderLabel: settings.senderLabel || "",
+            },
+            settings
+          )
+        : null,
+  };
+
+  if (mode === "draft_only") {
+    return storeLatestWhatsappDraft(finalDraft);
+  }
+
+  return false;
+}
+
+function buildMembershipWhatsappText({
+  name = "",
+  tier = "",
+  validUntil = "",
+  activatedAt = "",
+}) {
+  const safeName = String(name || "").trim() || "Member";
+  const safeTier = String(tier || "").trim() || "Membership";
+  const safeValidUntil = String(validUntil || "").trim() || "—";
+  const safeActivatedAt = formatWhatsappDateTime(activatedAt || new Date());
+
   return [
-    `Hello ${String(name || "").trim()},`,
-    ``,
-    `Your ${String(tier || "Q Club Membership").trim()} membership at The Q Club has been activated successfully.`,
-    validUntil ? `Valid until: ${validUntil}` : "",
-    ``,
+    `Hello ${safeName},`,
+    `Your ${safeTier} membership at The Q Club has been activated successfully.`,
+    `Date & Time: ${safeActivatedAt}`,
+    `Valid until: ${safeValidUntil}`,
     `Thank you for joining The Q Club, Pasighat.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].join("\n");
 }
-function buildTournamentWhatsappText({ name = "", tournamentName = "", fee = "" }) {
+function buildTournamentWhatsappText({
+  name = "",
+  tournamentName = "",
+  fee = "",
+  registeredAt = "",
+}) {
+  const safeName = String(name || "").trim() || "Player";
+  const safeTournamentName = String(tournamentName || "").trim() || "Tournament";
+  const safeFee = String(fee || "").trim() || "0";
+  const safeRegisteredAt = formatWhatsappDateTime(registeredAt || new Date());
+
   return [
-    `Hello ${String(name || "").trim()},`,
-    ``,
-    `Your registration for ${String(tournamentName || "the tournament").trim()} at The Q Club has been confirmed successfully.`,
-    fee ? `Registration fee received: ₹${fee}` : "",
-    ``,
-    `Thank you and all the best for the tournament.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `Hello ${safeName},`,
+    `Thank you for registering for ${safeTournamentName}.`,
+    `Date & Time: ${safeRegisteredAt}`,
+    `Registration Fee: ₹${safeFee}`,
+    `Tournament will begin as scheduled. Fixtures will be generated shortly after registration closes.`,
+  ].join("\n");
 }
-function buildFoodWhatsappText({ name = "", orderNo = "", total = "", items = [] }) {
-  const itemLines = Array.isArray(items)
+function buildFoodWhatsappText({
+  name = "",
+  orderNo = "",
+  total = "",
+  items = [],
+  itemCount = 0,
+  orderedAt = "",
+}) {
+  const safeName = String(name || "").trim() || "Customer";
+  const safeOrderNo = String(orderNo || "").trim() || "—";
+  const safeTotal = String(total || "").trim() || "0";
+  const safeOrderedAt = formatWhatsappDateTime(orderedAt || new Date());
+
+  const itemLines = Array.isArray(items) && items.length
     ? items
         .map((item) => {
           const itemName = String(item?.name || "").trim();
@@ -5450,19 +5710,24 @@ function buildFoodWhatsappText({ name = "", orderNo = "", total = "", items = []
         .filter(Boolean)
     : [];
 
-  return [
-    `Hello ${String(name || "").trim()},`,
-    ``,
+  const lines = [
+    `Hello ${safeName},`,
     `Your Q Lounge order has been placed successfully at The Q Club.`,
-    orderNo ? `Order No: ${orderNo}` : "",
-    itemLines.length ? `Items:` : "",
-    ...itemLines,
-    total ? `Amount received: ₹${total}` : "",
-    ``,
-    `Thank you for your order.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `Order No: ${safeOrderNo}`,
+    `Date & Time: ${safeOrderedAt}`,
+  ];
+
+  if (itemLines.length) {
+    lines.push("Items:");
+    lines.push(...itemLines);
+  } else if (itemCount) {
+    lines.push(`Items: ${itemCount}`);
+  }
+
+  lines.push(`Amount received: ₹${safeTotal}`);
+  lines.push(`Thank you for your order.`);
+
+  return lines.join("\n");
 }
 function buildBookingWhatsappText({
   name = "",
@@ -5470,16 +5735,23 @@ function buildBookingWhatsappText({
   bookingDate = "",
   bookingSlot = "",
   amount = "",
+  bookedAt = "",
 }) {
+  const safeName = String(name || "").trim() || "Customer";
+  const safeTable = String(table || "").trim();
+  const safeBookingDate = String(bookingDate || "").trim();
+  const safeBookingSlot = String(bookingSlot || "").trim();
+  const safeAmount = String(amount || "").trim();
+  const safeBookedAt = formatWhatsappDateTime(bookedAt || new Date());
+
   return [
-    `Hello ${String(name || "").trim()},`,
-    ``,
+    `Hello ${safeName},`,
     `Your booking request at The Q Club has been received successfully.`,
-    table ? `Table / Game: ${table}` : "",
-    bookingDate ? `Date: ${bookingDate}` : "",
-    bookingSlot ? `Time Slot: ${bookingSlot}` : "",
-    amount ? `Amount received: ₹${amount}` : "",
-    ``,
+    `Date & Time: ${safeBookedAt}`,
+    safeTable ? `Table / Game: ${safeTable}` : "",
+    safeBookingDate ? `Booking Date: ${safeBookingDate}` : "",
+    safeBookingSlot ? `Time Slot: ${safeBookingSlot}` : "",
+    safeAmount ? `Amount received: ₹${safeAmount}` : "",
     `We look forward to seeing you at The Q Club.`,
   ]
     .filter(Boolean)
@@ -11497,6 +11769,162 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
     lastWhatsappDraft &&
     typeof lastWhatsappDraft === "object" &&
     (lastWhatsappDraft.phone || lastWhatsappDraft.text || lastWhatsappDraft.url);
+      const currentDraftPhone = normalizeWhatsappNumber(lastWhatsappDraft?.phone || "");
+  const currentDraftIsOptedOut = currentDraftPhone
+    ? isWhatsappOptedOut(currentDraftPhone)
+    : false;
+      const whatsappOptOuts = getWhatsappOptOuts();
+        const whatsappMode = getWhatsappMode();
+          const whatsappSettings = getWhatsappSettings();
+              function createMembershipTestDraft() {
+    const demoDraft = buildWhatsappDraft({
+      phone: "9774219051",
+      label: "membership_success",
+      text: buildMembershipWhatsappText({
+        name: "WhatsApp Test User",
+        tier: "Bronze",
+        validUntil: "2026-04-30",
+      }),
+    });
+
+    handleWhatsappNotification({
+      draft: demoDraft,
+    });
+
+    alert("Membership test WhatsApp draft created.");
+    window.location.reload();
+  }
+
+  function createTournamentTestDraft() {
+    const demoDraft = buildWhatsappDraft({
+      phone: "9774219051",
+      label: "tournament_success",
+      text: buildTournamentWhatsappText({
+        name: "WhatsApp Test User",
+        tournamentName: "9 Ball Battle",
+        fee: "99",
+      }),
+    });
+
+    handleWhatsappNotification({
+      draft: demoDraft,
+    });
+
+    alert("Tournament test WhatsApp draft created.");
+    window.location.reload();
+  }
+
+  function createFoodTestDraft() {
+    const demoDraft = buildWhatsappDraft({
+      phone: "9774219051",
+      label: "food_success",
+      text: buildFoodWhatsappText({
+        name: "WhatsApp Test User",
+        orderNo: "QC-TEST-001",
+        total: "198",
+        items: [
+          { name: "Blue Lagoon", qty: 1 },
+          { name: "Virgin Mojito", qty: 1 },
+        ],
+      }),
+    });
+
+    handleWhatsappNotification({
+      draft: demoDraft,
+    });
+
+    alert("Food test WhatsApp draft created.");
+    window.location.reload();
+  }
+
+  function createBookingTestDraft() {
+    const demoDraft = buildWhatsappDraft({
+      phone: "9774219051",
+      label: "booking_success",
+      text: buildBookingWhatsappText({
+        name: "WhatsApp Test User",
+        table: "Snooker Table 12x6",
+        bookingDate: "2026-04-01",
+        bookingSlot: "18:00-19:00",
+        amount: "300",
+      }),
+    });
+
+    handleWhatsappNotification({
+      draft: demoDraft,
+    });
+
+    alert("Booking test WhatsApp draft created.");
+    window.location.reload();
+  }
+    async function copyMsg91Payload() {
+    if (!lastWhatsappDraft?.msg91Payload) {
+      alert("No MSG91 payload available to copy.");
+      return;
+    }
+
+    const text = JSON.stringify(lastWhatsappDraft.msg91Payload, null, 2);
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        alert("MSG91 payload copied.");
+        return;
+      }
+    } catch {}
+
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "true");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      alert("MSG91 payload copied.");
+    } catch {
+      alert("Unable to copy payload automatically.");
+    }
+  }
+    async function sendCurrentDraftToDryRunApi() {
+    if (!lastWhatsappDraft) {
+      alert("No saved WhatsApp draft found.");
+      return;
+    }
+
+    const payload =
+      lastWhatsappDraft.msg91Payload || {
+        phone: lastWhatsappDraft.phone || "",
+        provider: lastWhatsappDraft.provider || "msg91",
+        templateName: lastWhatsappDraft.templateName || "",
+        label: lastWhatsappDraft.label || "",
+      };
+
+    try {
+      const res = await fetch("/api/whatsapp-send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+
+      alert(
+        json?.ok
+          ? "Dry run API accepted the current draft."
+          : `Dry run API rejected it: ${json?.error || "Unknown error"}`
+      );
+
+      console.log("WhatsApp dry run response:", json);
+    } catch (error) {
+      console.error("WhatsApp dry run request failed:", error);
+      alert("Dry run API request failed.");
+    }
+  }
 
   return (
     <>
@@ -11686,10 +12114,245 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
   ) : null}
 </div>
 
-                    <div className="card cols-12">
-            <h2>WhatsApp Draft Tester</h2>
+                              <div className="card cols-12">
+            <h2>WhatsApp Settings</h2>
             <div className="muted" style={{ marginBottom: 12 }}>
-              Preview the latest saved WhatsApp draft from successful membership payment.
+              Local provider settings for future API integration. No live sending yet.
+            </div>
+
+            <div className="grid" style={{ marginTop: 8 }}>
+              <div className="cols-3">
+                <div className="muted">Provider</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.provider || "msg91"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Sender Number</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.senderNumber || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Sender Label</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.senderLabel || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Auth Key</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.authKey ? "Saved" : "Not set"}
+                </div>
+              </div>
+                            <div className="cols-3">
+                <div className="muted">Membership Template</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.membershipTemplate || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Tournament Template</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.tournamentTemplate || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Food Template</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.foodTemplate || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">Booking Template</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.bookingTemplate || "—"}
+                </div>
+              </div>
+
+              <div className="cols-3">
+                <div className="muted">OTP Template</div>
+                <div style={{ fontWeight: 800, marginTop: 6 }}>
+                  {whatsappSettings.otpTemplate || "—"}
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => {
+                  const provider = prompt(
+                    "WhatsApp provider:",
+                    whatsappSettings.provider || "msg91"
+                  );
+                  if (provider === null) return;
+
+                  const senderNumber = prompt(
+                    "Sender WhatsApp number:",
+                    whatsappSettings.senderNumber || ""
+                  );
+                  if (senderNumber === null) return;
+
+                  const senderLabel = prompt(
+                    "Sender label / business display name:",
+                    whatsappSettings.senderLabel || ""
+                  );
+                  if (senderLabel === null) return;
+
+                  const authKey = prompt(
+                    "Provider auth key / API key:",
+                    whatsappSettings.authKey || ""
+                  );
+                  if (authKey === null) return;
+
+                                    const membershipTemplate = prompt(
+                    "Membership template name / ID:",
+                    whatsappSettings.membershipTemplate || ""
+                  );
+                  if (membershipTemplate === null) return;
+
+                  const tournamentTemplate = prompt(
+                    "Tournament template name / ID:",
+                    whatsappSettings.tournamentTemplate || ""
+                  );
+                  if (tournamentTemplate === null) return;
+
+                  const foodTemplate = prompt(
+                    "Food template name / ID:",
+                    whatsappSettings.foodTemplate || ""
+                  );
+                  if (foodTemplate === null) return;
+
+                  const bookingTemplate = prompt(
+                    "Booking template name / ID:",
+                    whatsappSettings.bookingTemplate || ""
+                  );
+                  if (bookingTemplate === null) return;
+
+                  const otpTemplate = prompt(
+                    "OTP template name / ID:",
+                    whatsappSettings.otpTemplate || ""
+                  );
+                  if (otpTemplate === null) return;
+
+                  saveWhatsappSettings({
+                    provider,
+                    senderNumber,
+                    senderLabel,
+                    authKey,
+                    membershipTemplate,
+                    tournamentTemplate,
+                    foodTemplate,
+                    bookingTemplate,
+                    otpTemplate,
+                  });
+
+                  alert("WhatsApp settings saved locally.");
+                  window.location.reload();
+                }}
+              >
+                Edit Settings
+              </button>
+
+              <button
+                className="btn danger"
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem("qclub_whatsapp_settings");
+                  alert("WhatsApp settings cleared.");
+                  window.location.reload();
+                }}
+              >
+                Clear Settings
+              </button>
+            </div>
+          </div>
+
+          <div className="card cols-12">
+            <h2>WhatsApp Draft Tester</h2>
+                        <div className="muted" style={{ marginBottom: 12 }}>
+              Preview the latest saved WhatsApp draft from successful payment actions.
+            </div>
+
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 12,
+                border: "1px solid rgba(255,255,255,.10)",
+                borderRadius: 14,
+                background: "rgba(255,255,255,.03)",
+              }}
+            >
+              <div className="muted">WhatsApp Mode</div>
+              <div style={{ marginTop: 6, fontWeight: 800 }}>
+                {whatsappMode === "disabled" ? "Disabled" : "Draft Only"}
+              </div>
+
+                                          <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => {
+                    setWhatsappMode("draft_only");
+                    alert("WhatsApp mode set to Draft Only.");
+                    window.location.reload();
+                  }}
+                >
+                  Set Draft Only
+                </button>
+
+                <button
+                  className="btn warn"
+                  type="button"
+                  onClick={() => {
+                    setWhatsappMode("disabled");
+                    alert("WhatsApp mode set to Disabled.");
+                    window.location.reload();
+                  }}
+                >
+                  Disable WhatsApp
+                </button>
+
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={createMembershipTestDraft}
+                >
+                  Test Membership
+                </button>
+
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={createTournamentTestDraft}
+                >
+                  Test Tournament
+                </button>
+
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={createFoodTestDraft}
+                >
+                  Test Food
+                </button>
+
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={createBookingTestDraft}
+                >
+                  Test Booking
+                </button>
+              </div>
             </div>
 
             {!hasWhatsappDraft ? (
@@ -11704,21 +12367,41 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
                     </div>
                   </div>
 
-                  <div className="cols-4">
+                                    <div className="cols-3">
                     <div className="muted">Phone</div>
                     <div style={{ fontWeight: 800, marginTop: 6 }}>
                       {lastWhatsappDraft.phone || "—"}
                     </div>
                   </div>
 
-                  <div className="cols-4">
-                    <div className="muted">WhatsApp Link</div>
-                    <div style={{ marginTop: 6 }}>
-                      {lastWhatsappDraft.url ? "Ready" : "Not ready"}
+                  <div className="cols-3">
+                    <div className="muted">Template</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>
+                      {lastWhatsappDraft.templateName || "—"}
                     </div>
                   </div>
 
+                                    <div className="cols-3">
+                    <div className="muted">Provider</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>
+                      {lastWhatsappDraft.provider || "—"}
+                    </div>
+                  </div>
+
+                  <div className="cols-3">
+                    <div className="muted">MSG91 Payload</div>
+                    <div style={{ marginTop: 6, fontWeight: 800 }}>
+                      {lastWhatsappDraft.msg91Payload ? "Ready" : "Not ready"}
+                    </div>
+                  </div>
                   <div className="cols-12">
+                    <div className="muted">Opt-out Status</div>
+                    <div style={{ marginTop: 6, fontWeight: 800 }}>
+                      {currentDraftIsOptedOut ? "This number is opted out" : "This number is allowed"}
+                    </div>
+                  </div>
+
+                                    <div className="cols-12">
                     <div className="muted" style={{ marginBottom: 6 }}>Message Preview</div>
                     <textarea
                       readOnly
@@ -11726,9 +12409,22 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
                       style={{ minHeight: 140 }}
                     />
                   </div>
+
+                  <div className="cols-12">
+                    <div className="muted" style={{ marginBottom: 6 }}>MSG91 Payload Preview</div>
+                    <textarea
+                      readOnly
+                      value={
+                        lastWhatsappDraft.msg91Payload
+                          ? JSON.stringify(lastWhatsappDraft.msg91Payload, null, 2)
+                          : ""
+                      }
+                      style={{ minHeight: 220 }}
+                    />
+                  </div>
                 </div>
 
-                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                                                                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="btn primary"
                     type="button"
@@ -11737,10 +12433,57 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
                         alert("WhatsApp draft link is not ready.");
                         return;
                       }
+                      if (currentDraftIsOptedOut) {
+                        alert("This number is opted out from WhatsApp messages.");
+                        return;
+                      }
                       window.open(lastWhatsappDraft.url, "_blank", "noopener,noreferrer");
                     }}
                   >
                     Open in WhatsApp
+                  </button>
+
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    onClick={copyMsg91Payload}
+                  >
+                    Copy MSG91 Payload
+                  </button>
+
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    onClick={sendCurrentDraftToDryRunApi}
+                  >
+                    Send to Dry Run API
+                  </button>
+
+                  <button
+                    className="btn warn"
+                    type="button"
+                    onClick={() => {
+                      if (!currentDraftPhone) {
+                        alert("No valid WhatsApp number found.");
+                        return;
+                      }
+
+                      const optOuts = getWhatsappOptOuts();
+
+                      if (optOuts.includes(currentDraftPhone)) {
+                        saveWhatsappOptOuts(
+                          optOuts.filter((x) => x !== currentDraftPhone)
+                        );
+                        alert("Number removed from opt-out list.");
+                      } else {
+                        saveWhatsappOptOuts([...optOuts, currentDraftPhone]);
+                        alert("Number added to opt-out list.");
+                      }
+
+                      window.location.reload();
+                    }}
+                  >
+                    {currentDraftIsOptedOut ? "Remove Opt-Out" : "Opt Out This Number"}
                   </button>
 
                   <button
@@ -11756,6 +12499,74 @@ function AdminPanel({ data, admin, commit, activeTournament }) {
                 </div>
               </>
             )}
+                    </div>
+
+          <div className="card cols-12">
+            <h2>WhatsApp Opt-Out List</h2>
+            <div className="muted" style={{ marginBottom: 12 }}>
+              Numbers in this list will not be opened or saved as WhatsApp drafts.
+            </div>
+
+            {whatsappOptOuts.length === 0 ? (
+              <div className="muted">No opted-out numbers yet.</div>
+            ) : (
+              <div className="grid" style={{ marginTop: 8 }}>
+                {whatsappOptOuts.map((phone) => (
+                  <div
+                    key={phone}
+                    className="cols-4"
+                    style={{
+                      border: "1px solid rgba(255,255,255,.10)",
+                      borderRadius: 14,
+                      padding: 12,
+                      background: "rgba(255,255,255,.03)",
+                    }}
+                  >
+                    <div className="muted">Phone</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>{phone}</div>
+
+                    <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        className="btn danger"
+                        type="button"
+                        onClick={() => {
+                          saveWhatsappOptOuts(
+                            whatsappOptOuts.filter((x) => x !== phone)
+                          );
+                          alert("Number removed from opt-out list.");
+                          window.location.reload();
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => {
+                  const phone = prompt("Enter WhatsApp number to opt out:", "");
+                  if (!phone) return;
+
+                  const normalized = normalizeWhatsappNumber(phone);
+                  if (!normalized) {
+                    alert("Invalid number.");
+                    return;
+                  }
+
+                  saveWhatsappOptOuts([...whatsappOptOuts, normalized]);
+                  alert("Number added to opt-out list.");
+                  window.location.reload();
+                }}
+              >
+                + Add Number Manually
+              </button>
+            </div>
           </div>
 
           <div className="card cols-12">
@@ -12119,6 +12930,7 @@ const displayTime = new Date().toLocaleString();
   text: buildFoodWhatsappText({
     name: paymentName,
     orderNo: displayOrderNo,
+    orderedAt: new Date().toISOString(),
     total: foodTotal,
     items: Array.isArray(foodCart) ? foodCart : [],
   }),
@@ -12129,10 +12941,9 @@ const displayTime = new Date().toLocaleString();
   foodOrders: [...(data.foodOrders || []), newOrder]
 });
 
-      localStorage.setItem(
-        "qclub_last_whatsapp_draft",
-        JSON.stringify(foodWhatsappDraft)
-      );
+                        handleWhatsappNotification({
+              draft: foodWhatsappDraft,
+            });
 
       setOrderSaved(true);
     }
@@ -12141,21 +12952,21 @@ const displayTime = new Date().toLocaleString();
         phone: localStorage.getItem("qclub_payment_mobile") || "",
         label: "booking_success",
         text: buildBookingWhatsappText({
-          name: localStorage.getItem("qclub_payment_name") || "",
-          table: localStorage.getItem("qclub_booking_table") || "",
-          bookingDate: localStorage.getItem("qclub_booking_date") || "",
-          bookingSlot: localStorage.getItem("qclub_booking_slot") || "",
-          amount:
-            localStorage.getItem("qclub_booking_amount") ||
-            localStorage.getItem("qclub_booking_fee") ||
-            "",
-        }),
+  name: localStorage.getItem("qclub_payment_name") || "",
+  table: localStorage.getItem("qclub_booking_table") || "",
+  bookedAt: new Date().toISOString(),
+  bookingDate: localStorage.getItem("qclub_booking_date") || "",
+  bookingSlot: localStorage.getItem("qclub_booking_slot") || "",
+  amount:
+    localStorage.getItem("qclub_booking_amount") ||
+    localStorage.getItem("qclub_booking_fee") ||
+    "",
+}),
       });
 
-      localStorage.setItem(
-        "qclub_last_whatsapp_draft",
-        JSON.stringify(bookingWhatsappDraft)
-      );
+                        handleWhatsappNotification({
+              draft: bookingWhatsappDraft,
+            });
 
       setOrderSaved(true);
     }
@@ -12254,10 +13065,11 @@ const displayTime = new Date().toLocaleString();
         phone: mobile,
         label: "membership_success",
         text: buildMembershipWhatsappText({
-          name,
-          tier,
-          validUntil,
-        }),
+  name: paymentName,
+  tier: paymentTier,
+  activatedAt: new Date().toISOString(),
+  validUntil: validUntilValue,
+}),
       });
 
       commit({
@@ -12270,10 +13082,9 @@ const displayTime = new Date().toLocaleString();
         ].slice(0, 20),
       });
 
-      localStorage.setItem(
-        "qclub_last_whatsapp_draft",
-        JSON.stringify(membershipWhatsappDraft)
-      );
+                        handleWhatsappNotification({
+              draft: membershipWhatsappDraft,
+            });
 
       setOrderSaved(true);
     }
@@ -12335,10 +13146,11 @@ const displayTime = new Date().toLocaleString();
           phone: mobile,
           label: "tournament_success",
           text: buildTournamentWhatsappText({
-            name,
-            tournamentName,
-            fee: localStorage.getItem("qclub_tournament_fee") || "",
-          }),
+  name,
+  tournamentName,
+  registeredAt: new Date().toISOString(),
+  fee: localStorage.getItem("qclub_tournament_fee") || "",
+}),
         });
 
         commit({
@@ -12351,10 +13163,9 @@ const displayTime = new Date().toLocaleString();
           ].slice(0, 20),
         });
 
-        localStorage.setItem(
-          "qclub_last_whatsapp_draft",
-          JSON.stringify(tournamentWhatsappDraft)
-        );
+                                handleWhatsappNotification({
+                  draft: tournamentWhatsappDraft,
+                });
 
         setOrderSaved(true);
       }
