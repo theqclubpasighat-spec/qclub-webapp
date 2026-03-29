@@ -2302,6 +2302,12 @@ function FooterLinks({ data, admin, commit }) {
   );
 }
 function StaticPage({ title, children }) {
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, []);
+
   return (
     <>
       <PageShell title={title} subtitle="The Q Club • Pasighat" />
