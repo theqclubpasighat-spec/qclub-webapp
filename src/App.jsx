@@ -5438,13 +5438,25 @@ function buildTournamentWhatsappText({ name = "", tournamentName = "", fee = "" 
     .filter(Boolean)
     .join("\n");
 }
-function buildFoodWhatsappText({ name = "", orderNo = "", total = "", itemCount = 0 }) {
+function buildFoodWhatsappText({ name = "", orderNo = "", total = "", items = [] }) {
+  const itemLines = Array.isArray(items)
+    ? items
+        .map((item) => {
+          const itemName = String(item?.name || "").trim();
+          const qty = Number(item?.qty || 0);
+          if (!itemName) return "";
+          return `- ${itemName}${qty > 0 ? ` x ${qty}` : ""}`;
+        })
+        .filter(Boolean)
+    : [];
+
   return [
     `Hello ${String(name || "").trim()},`,
     ``,
     `Your Q Lounge order has been placed successfully at The Q Club.`,
     orderNo ? `Order No: ${orderNo}` : "",
-    itemCount ? `Items: ${itemCount}` : "",
+    itemLines.length ? `Items:` : "",
+    ...itemLines,
     total ? `Amount received: ₹${total}` : "",
     ``,
     `Thank you for your order.`,
@@ -12102,15 +12114,15 @@ const displayTime = new Date().toLocaleString();
       };
 
       const foodWhatsappDraft = buildWhatsappDraft({
-        phone: paymentMobile,
-        label: "food_success",
-        text: buildFoodWhatsappText({
-          name: paymentName,
-          orderNo: displayOrderNo,
-          total: foodTotal,
-          itemCount: Array.isArray(foodCart) ? foodCart.length : 0,
-        }),
-      });
+  phone: paymentMobile,
+  label: "food_success",
+  text: buildFoodWhatsappText({
+    name: paymentName,
+    orderNo: displayOrderNo,
+    total: foodTotal,
+    items: Array.isArray(foodCart) ? foodCart : [],
+  }),
+});
 
       commit({
   ...data,
