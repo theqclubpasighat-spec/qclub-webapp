@@ -5388,6 +5388,44 @@ function qrUrl(text, size = 280) {
   const safeText = encodeURIComponent(String(text || ""));
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${safeText}`;
 }
+
+function normalizeWhatsappNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+
+  if (!digits) return "";
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+
+  return digits;
+}
+
+function buildWhatsappDraft({ phone = "", text = "", label = "" }) {
+  const normalizedPhone = normalizeWhatsappNumber(phone);
+  const cleanText = String(text || "").trim();
+
+  return {
+    label: String(label || "").trim(),
+    phone: normalizedPhone,
+    text: cleanText,
+    url:
+      normalizedPhone && cleanText
+        ? `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(cleanText)}`
+        : "",
+  };
+}
+
+function buildMembershipWhatsappText({ name = "", tier = "", validUntil = "" }) {
+  return [
+    `Hello ${String(name || "").trim()},`,
+    ``,
+    `Your ${String(tier || "Q Club Membership").trim()} membership at The Q Club has been activated successfully.`,
+    validUntil ? `Valid until: ${validUntil}` : "",
+    ``,
+    `Thank you for joining The Q Club, Pasighat.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 function BookTable({ data, admin, commit, startPayment }) {
   const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
@@ -12024,11 +12062,21 @@ const displayTime = new Date().toLocaleString();
             },
           ];
 
-      const membershipAnnouncement = {
+            const membershipAnnouncement = {
         id: uid(),
         text: `${name} joins as the latest Q Club member !`,
         createdAt: Date.now(),
       };
+
+      const membershipWhatsappDraft = buildWhatsappDraft({
+        phone: mobile,
+        label: "membership_success",
+        text: buildMembershipWhatsappText({
+          name,
+          tier,
+          validUntil,
+        }),
+      });
 
       commit({
         ...data,
@@ -12039,6 +12087,11 @@ const displayTime = new Date().toLocaleString();
           ...(data.announcements || []),
         ].slice(0, 20),
       });
+
+      localStorage.setItem(
+        "qclub_last_whatsapp_draft",
+        JSON.stringify(membershipWhatsappDraft)
+      );
 
       setOrderSaved(true);
     }
