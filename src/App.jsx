@@ -3773,6 +3773,84 @@ function playersForTournament(tournament, allPlayers = []) {
   if (!ids.length) return getEligiblePlayersForTournament(allPlayers, tournament);
   return (allPlayers || []).filter((p) => ids.includes(p.id));
 }
+function BeyondTablesSection() {
+  const [activeImage, setActiveImage] = useState(null);
+
+  const cards = [
+    {
+      title: "Air Hockey",
+      desc: "Fast-paced 1v1 action",
+      img: "/home/air-hockey.png",
+    },
+    {
+      title: "Foosball",
+      desc: "Fun 2v2 battles",
+      img: "/home/foosball.jpg",
+    },
+    {
+      title: "Massage Chair",
+      desc: "Relax between games",
+      img: "/home/massagechair.png",
+    },
+  ];
+
+  return (
+    <>
+      <div className="card">
+        <h2 style={{ marginBottom: 6 }}>Beyond the Tables</h2>
+        <div className="muted" style={{ marginBottom: 12 }}>
+          More than just snooker — experience The Q Club
+        </div>
+
+        <div className="bt-scroll">
+          {cards.map((c) => (
+            <button
+              key={c.title}
+              type="button"
+              className="bt-card"
+              onClick={() => setActiveImage(c)}
+            >
+              <img src={c.img} alt={c.title} />
+              <div className="bt-overlay">
+                <h3>{c.title}</h3>
+                <p>{c.desc}</p>
+                <span className="btn primary">View Image</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeImage ? (
+        <div className="bt-modal" onClick={() => setActiveImage(null)}>
+          <div
+            className="bt-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="bt-close"
+              onClick={() => setActiveImage(null)}
+            >
+              ×
+            </button>
+
+            <img
+              src={activeImage.img}
+              alt={activeImage.title}
+              className="bt-modal-img"
+            />
+
+            <div className="bt-modal-info">
+              <h3>{activeImage.title}</h3>
+              <div className="muted">{activeImage.desc}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 
 function Home({ data, admin, commit, activeTournament }) {
@@ -4148,6 +4226,7 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
     ))}
   </div>
 )}
+<BeyondTablesSection />
 </section>
 
       
