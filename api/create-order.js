@@ -55,11 +55,13 @@ function cleanText(value = "", maxLength = 1000) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
 
-function normalizePhone(value = "") {
+function normalizeCashfreePhone(value = "") {
   const digits = String(value || "").replace(/\D/g, "");
   if (!digits) return "";
-  if (digits.length === 10) return `91${digits}`;
-  return digits;
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  if (digits.length > 10) return digits.slice(-10);
+  return "";
 }
 
 function cleanOrderTags(raw = {}) {
@@ -127,9 +129,16 @@ export default async function handler(req, res) {
     }
 
     const order_id = `order_${Date.now()}_${randomUUID().slice(0, 8)}`;
-    const customerPhone = normalizePhone(customer_phone || tags.mobile || tags.phone);
+    const customerPhone = normalizeCashfreePhone(customer_phone || tags.mobile || tags.phone);
     const customerName = cleanText(customer_name || tags.customer_name || "Customer", 120) || "Customer";
     const siteUrl = cleanText(env("QCLUB_SITE_URL") || "https://www.theqclubpasighat.com", 160);
+
+    if (!customerPhone) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid customer phone number",
+      });
+    }
 
     const cashfreePayload = {
       order_id,
@@ -144,7 +153,6 @@ export default async function handler(req, res) {
         return_url: `${siteUrl}/payment-status?order_id={order_id}`,
         notify_url: `${siteUrl}/api/cashfree-webhook`,
       },
-      order_tags: tags,
     };
 
     const response = await fetch("https://api.cashfree.com/pg/orders", {
@@ -158,12 +166,31 @@ export default async function handler(req, res) {
       body: JSON.stringify(cashfreePayload),
     });
 
-    const data = await response.json().catch(() => null);
+    const responseText = await response.text();
+    let data = null;
+
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      data = null;
+    }
 
     if (!response.ok) {
+      const cashfreeMessage =
+        data?.message ||
+        data?.error ||
+        cleanText(responseText || "", 300) ||
+        "Cashfree order creation failed";
+
       return res.status(response.status).json({
         ok: false,
-        error: data?.message || data?.error || "Cashfree order creation failed",
+        error: cashfreeMessage,
+        cashfree: {
+          status: response.status,
+          code: data?.code || data?.error_code || "",
+          message: cashfreeMessage,
+          type: data?.type || "",
+        },
       });
     }
 
@@ -187,7 +214,7 @@ export default async function handler(req, res) {
       webhookEvents: [],
     });
 
-    return res.status(200).json(data);
+    return res.status(200).json(data || {});
   } catch (error) {
     console.error("create-order error:", error);
     return res.status(500).json({
