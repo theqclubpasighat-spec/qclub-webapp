@@ -157,28 +157,98 @@ function formatWhatsappDateTime(value = new Date()) {
   });
 }
 
-function getSuccessTemplateName(context = "") {
+const MSG91_TEMPLATE_SPECS = {
+  success: {
+    food: {
+      envName: "MSG91_FOOD_SUCCESS_TEMPLATE",
+      fallbackTemplate: "food_success_items",
+      params: ["customer_name", "food_order_no", "food_items", "amount"],
+    },
+    shop: {
+      envName: "MSG91_QSHOP_SUCCESS_TEMPLATE",
+      params: ["customer_name", "qshop_order_no", "amount"],
+    },
+    booking: {
+      envName: "MSG91_BOOKING_SUCCESS_TEMPLATE",
+      params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
+    },
+    membership: {
+      envName: "MSG91_MEMBERSHIP_SUCCESS_TEMPLATE",
+      params: ["customer_name", "tier", "activated_at", "valid_until"],
+    },
+    tournament: {
+      envName: "MSG91_TOURNAMENT_SUCCESS_TEMPLATE",
+      params: ["customer_name", "tournament_name", "tournament_fee"],
+    },
+  },
+  failed: {
+    food: {
+      envName: "MSG91_FOOD_FAILED_TEMPLATE",
+      params: ["customer_name", "food_order_no", "food_items", "amount"],
+    },
+    shop: {
+      envName: "MSG91_QSHOP_FAILED_TEMPLATE",
+      params: ["customer_name", "qshop_order_no", "amount"],
+    },
+    booking: {
+      envName: "MSG91_BOOKING_FAILED_TEMPLATE",
+      params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
+    },
+    membership: {
+      envName: "MSG91_MEMBERSHIP_FAILED_TEMPLATE",
+      params: ["customer_name", "tier", "amount"],
+    },
+    tournament: {
+      envName: "MSG91_TOURNAMENT_FAILED_TEMPLATE",
+      params: ["customer_name", "tournament_name", "tournament_fee"],
+    },
+  },
+};
+
+function contextKey(context = "") {
   const clean = safeText(context).toLowerCase();
+  return clean === "qshop" ? "shop" : clean;
+}
 
-  if (clean === "shop") return env("MSG91_QSHOP_SUCCESS_TEMPLATE");
-  if (clean === "food") return env("MSG91_FOOD_SUCCESS_TEMPLATE") || "food_success_items";
-  if (clean === "booking") return env("MSG91_BOOKING_SUCCESS_TEMPLATE");
-  if (clean === "membership") return env("MSG91_MEMBERSHIP_SUCCESS_TEMPLATE");
-  if (clean === "tournament") return env("MSG91_TOURNAMENT_SUCCESS_TEMPLATE");
+function getTemplateSpec(kind = "", context = "") {
+  return MSG91_TEMPLATE_SPECS[kind]?.[contextKey(context)] || null;
+}
 
-  return "";
+function getSuccessTemplateName(context = "") {
+  const spec = getTemplateSpec("success", context);
+  return spec ? env(spec.envName) || spec.fallbackTemplate || "" : "";
 }
 
 function getFailedTemplateName(context = "") {
-  const clean = safeText(context).toLowerCase();
+  const spec = getTemplateSpec("failed", context);
+  return spec ? env(spec.envName) || spec.fallbackTemplate || "" : "";
+}
 
-  if (clean === "shop") return env("MSG91_QSHOP_FAILED_TEMPLATE");
-  if (clean === "food") return env("MSG91_FOOD_FAILED_TEMPLATE");
-  if (clean === "booking") return env("MSG91_BOOKING_FAILED_TEMPLATE");
-  if (clean === "membership") return env("MSG91_MEMBERSHIP_FAILED_TEMPLATE");
-  if (clean === "tournament") return env("MSG91_TOURNAMENT_FAILED_TEMPLATE");
+function templateValue(key = "", { orderId = "", amount = 0, orderTags = {}, customerName = "" }) {
+  const safeAmount = String(Number.isFinite(Number(amount)) ? Number(amount) : 0);
+  const values = {
+    customer_name: customerName || "Customer",
+    food_order_no: `QC-${String(orderId || "").slice(-6)}`,
+    qshop_order_no: `QSHOP-${String(orderId || "").replace(/^order_/, "")}`,
+    booking_ref: `BK-${String(orderId || "").slice(-5)}`,
+    amount: safeAmount,
+    table_label: safeText(orderTags.table_label || "Booked Table"),
+    booking_date: safeText(orderTags.booking_date || "—"),
+    booking_slot: safeText(orderTags.booking_slot || "—"),
+    tier: safeText(orderTags.tier || "Member"),
+    activated_at: formatWhatsappDateTime(new Date()),
+    valid_until: safeText(orderTags.valid_until || "—"),
+    tournament_name: safeText(orderTags.tournament_name || "Tournament"),
+    tournament_fee: safeText(orderTags.tournament_fee || safeAmount),
+  };
 
-  return "";
+  return safeText(values[key] ?? "—", 1200) || "—";
+}
+
+function buildTemplateParams(kind = "", payload = {}) {
+  const spec = getTemplateSpec(kind, payload.context);
+  if (!spec) return [];
+  return spec.params.map((key) => templateValue(key, payload));
 }
 
 function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, orderTags = {}, customerName = "" }) {
@@ -190,11 +260,7 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
   }
 
   if (clean === "food") {
-    const foodItemsText = safeText(
-      orderTags.food_items || orderTags.items || orderTags.item_list || "Food items",
-      1200
-    );
-    return [customerName || "Customer", `QC-${String(orderId || "").slice(-6)}`, foodItemsText || "Food items", safeAmount];
+    return [customerName || "Customer", `QC-${String(orderId || "").slice(-6)}`, safeAmount];
   }
 
   if (clean === "booking") {
@@ -250,7 +316,14 @@ function buildFailedTemplateParams({ context = "", orderId = "", amount = 0, ord
   return [];
 }
 
-async function sendMsg91Template({ phone, templateName, templateParams = [], label = "", textPreview = "" }) {
+async function sendMsg91Template({
+  phone,
+  templateName,
+  templateParams = [],
+  label = "",
+  textPreview = "",
+  expectedParamCount = null,
+}) {
   const authKey = env("MSG91_AUTH_KEY");
   const integratedNumber = env("MSG91_SENDER_NUMBER");
   const normalizedPhone = normalizePhone(phone);
@@ -259,6 +332,11 @@ async function sendMsg91Template({ phone, templateName, templateParams = [], lab
   if (!integratedNumber) throw new Error("Missing MSG91_SENDER_NUMBER");
   if (!templateName) throw new Error("Missing MSG91 template name");
   if (!normalizedPhone) throw new Error("Missing recipient phone");
+  if (Number.isInteger(expectedParamCount) && templateParams.length !== expectedParamCount) {
+    throw new Error(
+      `MSG91 template ${templateName} expects ${expectedParamCount} params, got ${templateParams.length}`
+    );
+  }
 
   const payload = {
     integrated_number: integratedNumber,
@@ -493,6 +571,7 @@ export default async function handler(req, res) {
         orderTags: trustedOrderTags,
         customerName,
       });
+      const successSpec = getTemplateSpec("success", context);
 
       const response = await sendMsg91Template({
         phone,
@@ -500,6 +579,7 @@ export default async function handler(req, res) {
         templateParams,
         label: `${context}_success_webhook`,
         textPreview: `${context} payment success for ${parsed.orderId}`,
+        expectedParamCount: successSpec?.params?.length ?? null,
       });
 
       await writePaymentPatch(supabase, state, orders, index, {
@@ -580,6 +660,7 @@ export default async function handler(req, res) {
       orderTags: trustedOrderTags,
       customerName,
     });
+    const failedSpec = getTemplateSpec("failed", context);
 
     const response = await sendMsg91Template({
       phone,
@@ -587,6 +668,7 @@ export default async function handler(req, res) {
       templateParams,
       label: `${context}_failed_webhook`,
       textPreview: `${context} payment failed for ${parsed.orderId}`,
+      expectedParamCount: failedSpec?.params?.length ?? null,
     });
 
     await writePaymentPatch(supabase, state, orders, index, {
