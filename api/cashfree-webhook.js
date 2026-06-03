@@ -259,8 +259,21 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
     return [customerName || "Customer", `QSHOP-${String(orderId || "").replace(/^order_/, "")}`, safeAmount];
   }
 
-  if (clean === "food") {
-    return [customerName || "Customer", `QC-${String(orderId || "").slice(-6)}`, safeAmount];
+    if (clean === "food") {
+    const foodItemsText = safeText(
+      orderTags.food_items ||
+        orderTags.items ||
+        orderTags.items_text ||
+        orderTags.food_items_text ||
+        "Food items"
+    );
+
+    return [
+      customerName || "Customer",
+      `QC-${String(orderId || "").slice(-6)}`,
+      foodItemsText,
+      safeAmount,
+    ];
   }
 
   if (clean === "booking") {
@@ -298,7 +311,22 @@ function buildFailedTemplateParams({ context = "", orderId = "", amount = 0, ord
   const safeAmount = String(Number.isFinite(Number(amount)) ? Number(amount) : 0);
 
   if (clean === "shop") return [customerName || "Customer", `QSHOP-${String(orderId || "").replace(/^order_/, "")}`, safeAmount];
-  if (clean === "food") return [customerName || "Customer", `QC-${String(orderId || "").slice(-6)}`, safeAmount];
+  if (clean === "food") {
+    const foodItemsText = safeText(
+      orderTags.food_items ||
+        orderTags.items ||
+        orderTags.items_text ||
+        orderTags.food_items_text ||
+        "Food items"
+    );
+
+    return [
+      customerName || "Customer",
+      `QC-${String(orderId || "").slice(-6)}`,
+      foodItemsText,
+      safeAmount,
+    ];
+  }
 
   if (clean === "booking") {
     return [
@@ -700,3 +728,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+
