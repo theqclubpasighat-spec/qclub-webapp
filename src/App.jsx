@@ -1,17 +1,130 @@
-/* ================================
+﻿/* ================================
    App.jsx — PART 1
-   (Beginning → inside resetAll())
+   (Beginning â†’ inside resetAll())
 ================================ */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Routes, Route, Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
 import { supabase, supabaseReady } from "./supabase";
+import {
+  uid,
+  safeNum,
+  monthKey,
+  todayIso,
+  toLocalYmd,
+  bookingAnnouncementExpiresAt,
+  isAnnouncementVisible,
+  formatWhatsappDateTime,
+  scrollAnyOpenPanelToTop,
+  timeToMinutes,
+  minutesToTime,
+  bookingEndTime,
+  bookingSlotLabel,
+  bookingAmountFor,
+  bookingTotalAmount,
+  isActiveBookingStatus,
+  hasBookingConflict,
+  bookingStatusLabel,
+  offerPriceLines,
+  tournamentDisplay,
+  
+  normalizePlayerGames,
+  playerGamesLabel,
+  tournamentGameKey,
+  getPlayersForGame,
+  getCurrentTournamentForGame,
+  getEligiblePlayersForTournament,
+  calcAutoRankingBoard,
+} from "./lib/qclub-utils";
+import {
+  BottomPadding,
+  PageShell,
+  StaticPage,
+  renderEditableContent,
+  editStaticPage,
+} from "./components/page-helpers";
+import {
+  AboutContent,
+  ContactContent,
+  TermsContent,
+  RefundContent,
+  PrivacyContent,
+  AirHockeyInfoContent,
+  FoosballInfoContent,
+  MassageChairInfoContent,
+  TournamentLegalContent,
+  HandicapContent,
+} from "./components/static-content-pages";
+import { TopNav, FooterLinks } from "./components/layout-shell";
+import { BeyondTablesSection } from "./components/beyond-tables-section";
 
+
+const ReviewPanel = lazy(() =>
+  import("./components/review-panel").then((module) => ({
+    default: module.ReviewPanel,
+  }))
+);
+const MatchLedgerPage = lazy(() =>
+  import("./components/match-ledger-page").then((module) => ({
+    default: module.MatchLedgerPage,
+  }))
+);
+const TVMode = lazy(() =>
+  import("./components/tv-mode").then((module) => ({
+    default: module.TVMode,
+  }))
+);
+const AdminPanel = lazy(() =>
+  import("./components/admin-panel").then((module) => ({
+    default: module.AdminPanel,
+  }))
+);
+const RummySnookerPage = lazy(() =>
+  import("./components/rummy-snooker-page.jsx").then((module) => ({
+    default: module.RummySnookerPage,
+  }))
+);
+
+const RummySnookerDisplayPage = lazy(() =>
+  import("./components/rummy-snooker-page.jsx").then((module) => ({
+    default: module.RummySnookerDisplayPage,
+  }))
+);
+const QChaseRecordsPage = lazy(() =>
+  import("./components/rummy-snooker-page.jsx").then((module) => ({
+    default: module.QChaseRecordsPage,
+  }))
+);
+const QChaseMonthlyReportPage = lazy(() =>
+  import("./components/rummy-snooker-page.jsx").then((module) => ({
+    default: module.QChaseMonthlyReportPage,
+  }))
+);
+const KittyPage = lazy(() =>
+  import("./components/kitty-page.jsx").then((module) => ({
+    default: module.KittyPage,
+  }))
+);
+const KittyDisplayPage = lazy(() =>
+  import("./components/kitty-page.jsx").then((module) => ({
+    default: module.KittyDisplayPage,
+  }))
+);
+const KittyRecordsPage = lazy(() =>
+  import("./components/kitty-page.jsx").then((module) => ({
+    default: module.KittyRecordsPage,
+  }))
+);
+const KittyMonthlyReportPage = lazy(() =>
+  import("./components/kitty-page.jsx").then((module) => ({
+    default: module.KittyMonthlyReportPage,
+  }))
+);
 /* =========================================================
-   Q CLUB – Single-file WebApp (Mobile-first)
+   Q CLUB â€“ Single-file WebApp (Mobile-first)
    - LocalStorage database
    - Admin mode
    - Booking + "payment submitted" ping notification
@@ -25,6 +138,79 @@ import { supabase, supabaseReady } from "./supabase";
 const LS_KEY = "qclub_v5_data";
 const STORAGE_BUCKET = "photos";
 const LAST_SEEN_BOOKING_KEY = "qclub_last_seen_booking_at";
+const FOOD_AUTO_PRINT_ENABLED_KEY = "qclub_food_auto_print_enabled";
+const POLICY_SYNC_VERSION = "2026-04-19-policy-v1";
+const POLICY_SYNC_KEY = "qclub_policy_sync_version";
+const QCLUB_APP_VERSION = "2026-05-23-cache-buster-v1";
+const QCLUB_APP_VERSION_KEY = "qclub_app_version";
+const QCLUB_UPDATE_RELOAD_KEY = "qclub_update_reload_once";
+
+async function clearQClubBrowserCache() {
+  try {
+    if ("caches" in window) {
+      const cacheNames = await window.caches.keys();
+      await Promise.all(cacheNames.map((name) => window.caches.delete(name)));
+    }
+  } catch {}
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+  } catch {}
+}
+
+async function checkQClubAppVersion() {
+  if (typeof window === "undefined") return;
+    const path = String(window.location?.pathname || "");
+  const isLiveScorerPage =
+    path.startsWith("/kitty") ||
+    path.startsWith("/rummy") ||
+    path.startsWith("/qchase");
+
+  if (isLiveScorerPage) return;
+
+  let latestVersion = QCLUB_APP_VERSION;
+
+  try {
+    const response = await fetch(`/version.json?v=${Date.now()}`, {
+      cache: "no-store",
+    });
+
+    if (response.ok) {
+      const info = await response.json();
+      latestVersion = String(info?.version || QCLUB_APP_VERSION).trim() || QCLUB_APP_VERSION;
+    }
+  } catch {}
+
+  const savedVersion = localStorage.getItem(QCLUB_APP_VERSION_KEY);
+
+  if (!savedVersion) {
+    localStorage.setItem(QCLUB_APP_VERSION_KEY, latestVersion);
+    return;
+  }
+
+  if (savedVersion === latestVersion) {
+    localStorage.removeItem(QCLUB_UPDATE_RELOAD_KEY);
+    return;
+  }
+
+  const alreadyReloadedForVersion =
+    localStorage.getItem(QCLUB_UPDATE_RELOAD_KEY) === latestVersion;
+
+  localStorage.setItem(QCLUB_APP_VERSION_KEY, latestVersion);
+
+  if (alreadyReloadedForVersion) return;
+
+  localStorage.setItem(QCLUB_UPDATE_RELOAD_KEY, latestVersion);
+
+  await clearQClubBrowserCache();
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("qv", latestVersion);
+  window.location.replace(url.toString());
+}
 
 function getLastSeenBookingAt() {
   return Number(localStorage.getItem(LAST_SEEN_BOOKING_KEY) || 0);
@@ -85,319 +271,74 @@ async function deleteStorageObject(path) {
 /* ---------------------------
    Helpers
 ---------------------------- */
-function uid() {
-  return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
-}
 
-function safeNum(x, fallback = 0) {
-  const v = Number(x);
-  return Number.isFinite(v) ? v : fallback;
-}
 
-function monthKey(d = new Date()) {
-  return d.toISOString().slice(0, 7);
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-function formatWhatsappDateTime(value = new Date()) {
-  const dt = value instanceof Date ? value : new Date(value);
-
-  if (Number.isNaN(dt.getTime())) return "";
-
-  return dt.toLocaleString("en-IN", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
-function scrollAnyOpenPanelToTop() {
-  requestAnimationFrame(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-
-    document
-      .querySelectorAll(".modal-body, .sheet-body, .drawer-body, .page-body, .legal-body")
-      .forEach((el) => {
-        el.scrollTo({ top: 0, left: 0, behavior: "auto" });
-      });
-  });
-}
-function bookingTimeSlots(selectedDate = todayIso(), blockedSlotValues = []) {
+function bookingTimeSlots(selectedDate = todayIso(), blockedSlotValues = [], durationHours = 1) {
   const slots = [];
   const today = todayIso();
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const blockedSet = new Set((blockedSlotValues || []).filter(Boolean));
+  const blockedRanges = (blockedSlotValues || []).map((value) => {
+    const safeValue = String(value || "").trim();
 
-  for (let hour = 11; hour <= 22; hour += 1) {
-    const next = hour + 1;
-    const start = `${String(hour).padStart(2, "0")}:00`;
-    const end = `${String(next).padStart(2, "0")}:00`;
+    if (!safeValue) return null;
 
-    const slotStartMinutes = hour * 60;
-    const slotEndMinutes = next * 60;
-    const value = `${start}-${end}`;
+    if (safeValue.includes(" to ")) {
+  const [startStr, endStr] = safeValue.split(" to ");
+  const startMinutes = timeToMinutes(startStr);
+  const endMinutes = timeToMinutes(endStr);
 
-    const isPastToday =
-      selectedDate === today && currentMinutes >= slotEndMinutes;
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
 
-    const isRunningNow =
-      selectedDate === today &&
-      currentMinutes >= slotStartMinutes &&
-      currentMinutes < slotEndMinutes;
+  return { startMinutes, endMinutes };
+}
 
-    const isBlocked = blockedSet.has(value);
+const plainStart = safeValue.includes("-")
+  ? safeValue.split("-")[0]
+  : safeValue;
 
-    slots.push({
-      value,
-      label: `${start} to ${end}`,
-      disabled: isPastToday || isRunningNow || isBlocked,
-      blocked: isBlocked,
-    });
-  }
+const startMinutes = timeToMinutes(plainStart);
+const endMinutes = timeToMinutes(bookingEndTime(plainStart, 1));
+
+if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
+
+return { startMinutes, endMinutes };
+  }).filter(Boolean);
+
+  for (let minutes = 11 * 60; minutes <= 22 * 60; minutes += 15) {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+
+  const start = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const value = start;
+
+  const slotEndMinutes = timeToMinutes(bookingEndTime(start, durationHours));
+  const closingMinutes = 23 * 60;
+
+  const isPastToday =
+    selectedDate === today && currentMinutes >= minutes;
+
+  const exceedsClosingTime =
+    Number.isFinite(slotEndMinutes) && slotEndMinutes > closingMinutes;
+
+  const isBlocked = blockedRanges.some((range) => {
+    return minutes < range.endMinutes && slotEndMinutes > range.startMinutes;
+  });
+
+  slots.push({
+    value,
+    label: start,
+    disabled: isPastToday || exceedsClosingTime || isBlocked,
+    blocked: isBlocked,
+  });
+}
 
   return slots;
 }
 
-function bookingAmountFor(table, bookingType) {
-  if (!table) return 0;
 
-  // Non-member → normal price
-  if (bookingType !== "member") {
-    return Math.max(0, safeNum(table.pricePerHour, 0));
-  }
 
-  // Member pricing based on table name
-  const label = (table.label || "").toLowerCase();
 
-  if (label.includes("12") || label.includes("12x6")) return 300;
-  if (label.includes("mini") || label.includes("10x5")) return 200;
-  if (label.includes("pool")) return 200;
-
-  // fallback
-  return Math.max(0, safeNum(table.pricePerHour, 0));
-}
-
-function isActiveBookingStatus(status) {
-  return [
-    "pending",
-    "verified",
-    "pending_member_verification",
-    "member_verified",
-  ].includes(status);
-}
-
-function hasBookingConflict(requests, nextRequest) {
-  return (requests || []).some((r) => {
-    if (!isActiveBookingStatus(r.status)) return false;
-
-    return (
-      r.itemId === nextRequest.itemId &&
-      r.bookingDate === nextRequest.bookingDate &&
-      r.timeSlot === nextRequest.timeSlot
-    );
-  });
-}
-
-function bookingStatusLabel(status) {
-  switch (status) {
-    case "verified":
-      return "verified";
-    case "member_verified":
-      return "member approved";
-    case "member_rejected":
-      return "member rejected";
-    case "pending_member_verification":
-      return "member verify";
-    default:
-      return "pending";
-  }
-}
-
-function offerPriceLines(price) {
-  if (!price) return [];
-
-  return String(price)
-    .split(/\s*[•|]\s*|\s*,\s*/g)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function tournamentDisplay(t) {
-  if (!t) return "—";
-
-  const parts = [t.name, t.month].filter(Boolean);
-
-  return parts.join(" • ") || "—";
-}
-
-function normalizePlayerGames(value) {
-  const raw = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-    ? value.split(",")
-    : [];
-
-  const cleaned = raw
-    .map((x) => String(x || "").trim().toLowerCase())
-    .filter(Boolean)
-    .map((x) => (x === "snooker" || x === "pool" ? x : null))
-    .filter(Boolean);
-
-  return cleaned.length ? Array.from(new Set(cleaned)) : ["snooker"];
-}
-
-function playerGamesLabel(player) {
-  const games = normalizePlayerGames(player?.games);
-
-  return games
-    .map((x) => (x === "snooker" ? "Snooker" : "Pool"))
-    .join(" / ");
-}
-
-function tournamentGameKey(game) {
-  const value = String(game || "").trim().toLowerCase();
-
-  if (value.includes("pool")) return "pool";
-
-  return "snooker";
-}
-
-function getPlayersForGame(players, gameKey) {
-  return (players || []).filter((p) => normalizePlayerGames(p?.games).includes(gameKey));
-}
-
-function getCurrentTournamentForGame(tournaments, gameKey) {
-  const filtered = (tournaments || []).filter((t) => tournamentGameKey(t?.game) === gameKey);
-  const flagged = filtered.find((t) => t.isCurrent);
-  if (flagged) return flagged;
-  return filtered
-    .slice()
-    .sort((a, b) => `${a.month || ""}|${a.createdAt || 0}`.localeCompare(`${b.month || ""}|${b.createdAt || 0}`))
-    .pop() || null;
-}
-
-function getEligiblePlayersForTournament(players, tournament) {
-  const gameKey = tournamentGameKey(tournament?.game);
-  return getPlayersForGame(players || [], gameKey);
-}
-
-function calcAutoRankingBoard(players, tournaments, gameKey) {
-  const eligiblePlayers = getPlayersForGame(players || [], gameKey);
-  const rows = eligiblePlayers.map((p) => ({
-    id: p.id,
-    name: p.name,
-    city: p.city || "",
-    tournaments: 0,
-    matches: 0,
-    wins: 0,
-    draws: 0,
-    losses: 0,
-    points: 0,
-    for: 0,
-    against: 0,
-    highestBreak: 0,
-  }));
-  const byId = new Map(rows.map((r) => [r.id, r]));
-
-  (tournaments || [])
-    .filter((t) => tournamentGameKey(t?.game) === gameKey)
-    .forEach((t) => {
-      const eligibleIds = new Set(getEligiblePlayersForTournament(players, t).map((p) => p.id));
-      const participantIds = t.participantIds?.length ? new Set(t.participantIds) : eligibleIds;
-      const touched = new Set();
-
-      (t.matches || []).forEach((m) => {
-        if (m.status !== "done") return;
-        const a = byId.get(m.p1);
-        const b = byId.get(m.p2);
-        if (!a || !b) return;
-        if (participantIds && (!participantIds.has(m.p1) || !participantIds.has(m.p2))) return;
-
-                const b1 = Number(m.break1 || 0);
-        const b2 = Number(m.break2 || 0);
-
-        if (Number.isFinite(b1) && b1 > a.highestBreak) a.highestBreak = b1;
-        if (Number.isFinite(b2) && b2 > b.highestBreak) b.highestBreak = b2;
-
-        touched.add(m.p1);
-        touched.add(m.p2);
-
-        a.matches++;
-        b.matches++;
-
-        if (t?.format === "knockout") {
-          if (m.winner === m.p1) {
-            a.wins++;
-            b.losses++;
-            a.points += t.pointsWin ?? 1;
-            b.points += t.pointsLoss ?? 0;
-          } else if (m.winner === m.p2) {
-            b.wins++;
-            a.losses++;
-            b.points += t.pointsWin ?? 1;
-            a.points += t.pointsLoss ?? 0;
-          } else {
-            a.matches--;
-            b.matches--;
-            touched.delete(m.p1);
-            touched.delete(m.p2);
-          }
-          return;
-        }
-
-        const s1 = Number(m.score1);
-        const s2 = Number(m.score2);
-        if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
-          a.matches--;
-          b.matches--;
-          touched.delete(m.p1);
-          touched.delete(m.p2);
-          return;
-        }
-
-        a.for += s1;
-        a.against += s2;
-        b.for += s2;
-        b.against += s1;
-
-        if (s1 > s2) {
-          a.wins++;
-          b.losses++;
-          a.points += t.pointsWin ?? 3;
-          b.points += t.pointsLoss ?? 0;
-        } else if (s2 > s1) {
-          b.wins++;
-          a.losses++;
-          b.points += t.pointsWin ?? 3;
-          a.points += t.pointsLoss ?? 0;
-        } else {
-          a.draws++;
-          b.draws++;
-          a.points += t.pointsDraw ?? 1;
-          b.points += t.pointsDraw ?? 1;
-        }
-      });
-
-      touched.forEach((id) => {
-        const row = byId.get(id);
-        if (row) row.tournaments++;
-      });
-    });
-
-    return rows.sort((x, y) => {
-    return (
-      (y.points - x.points) ||
-      (y.wins - x.wins) ||
-      (y.highestBreak - x.highestBreak) ||
-      x.name.localeCompare(y.name)
-    );
-  });
-}
 
 /* ---------------------------
    Default data
@@ -407,8 +348,22 @@ function defaultData() {
     club: {
   name: "The Q CLUB",
   location: "Pasighat",
-  tagline: "Play. Chill. Compete.",
-  contact: { phone1: "7005212774", phone2: "7085221922" },
+    tagline: "Play. Chill. Compete.",
+  heroBookBtnLabel: "Book Table",
+  heroMembershipBtnLabel: "Membership",
+  heroShopBtnLabel: "The Q Shop",
+  bookPageTitle: "Book Table",
+  bookPageSubtitle: "Quick Booking + Secure Online Payment",
+  membershipPageTitle: "Membership",
+  membershipPageSubtitle: "Apply for Membership with Secure Online Payment",
+  shopPageTitle: "The Q Shop",
+  shopPageSubtitle: "Cue sticks, cases and accessories arriving soon",
+  contact: {
+  phone1: "8974193310",
+  phone2: "7085221922",
+  email1: "admin@theqclubpasighat.com",
+  email2: "theqclubpasighat@gmail.com",
+},
   upiId: "Q526263817@ybl",
   upiName: "THE Q CLUB",
   isOpenNow: true,
@@ -443,29 +398,36 @@ Our goal is to create a safe, premium, and welcoming environment that promotes s
 ## Community Events
 The Q Club may organise friendly tournaments, league nights, and special club events for members and guests.`,
   contactTitle: "Contact Us",
-  contactContent: `If you have any questions about bookings, memberships, tournaments, or club rules, feel free to reach out.
+  contactContent: `If you have any questions about bookings, memberships, tournaments, QShop orders, or pickups, feel free to contact us.
 
-The Q Club
-GTC, Pasighat
-Arunachal Pradesh, India
+The Q Club Pasighat
+GTC, Near DHO Office
+PO/PS: Pasighat
+East Siang, Arunachal Pradesh
+PIN: 791102
 
-## Phone / WhatsApp
-7005212774
-7085221922
+## WhatsApp Support
+8974193310
 
-## Operating Hours
-Open Daily: 11:00 AM – 10:00 PM (subject to holidays or tournament schedules)
+## Email
+admin@theqclubpasighat.com
+theqclubpasighat@gmail.com
 
-## Visit Us For
+## Support / Pickup Hours
+11:00 AM to 8:00 PM
+
+## Services
 - Snooker
 - Pool
 - Air Hockey
 - Foosball
 - Massage Chair
 - Tea & Coffee
-- Monthly Club Events`,
+- QShop Orders
+- Memberships
+- Tournaments`,
   termsTitle: "Terms & Conditions",
-  termsContent: `By entering The Q Club or using our services, you agree to the following terms.
+  termsContent: `By entering The Q Club Pasighat premises or using our website, QShop, bookings, memberships, or other club services, you agree to the following terms.
 
 ## 1. Club Rules
 - No smoking inside the main club area.
@@ -485,42 +447,189 @@ Complimentary play sessions, where applicable, may be offered at the discretion 
 - Snooker Table: up to 30 minutes
 Unless specified otherwise, such sessions are generally available from 11:00 AM to 5:00 PM.
 
-## 4. Liability
-The Q Club is not responsible for loss of personal belongings within the premises.
+## 4. QShop Orders
+- QShop currently operates on an online payment and in-store pickup only model.
+- Home delivery is not available at this time.
+- All products are subject to stock availability.
+- Product images are for general representation only. Actual colour, finish, packaging, or minor design details may vary slightly depending on supplier batch or available stock.
 
-## 5. Management Rights
-The management reserves the right to refuse entry, modify prices, update membership benefits, and change club rules without prior notice.`,
+## 5. Payments
+- Once payment is successfully made, the order is treated as confirmed.
+- Cancellation is not allowed after payment.
+
+## 6. Pickup
+- Orders must be collected within 7 days from the date of confirmation.
+- Customers may be asked to show order confirmation, payment confirmation, or registered mobile / WhatsApp number at the time of pickup.
+- If another person is collecting on behalf of the customer, the customer should inform the shop in advance and provide the order details.
+
+## 7. Refunds and Exchanges
+- No refunds shall be provided after successful payment.
+- Exchange may be allowed only if the item is found to be genuinely defective, subject to inspection and stock availability.
+
+## 8. Liability
+- The Q Club Pasighat is not responsible for loss of personal belongings within the premises.
+- The Club shall not be responsible for wrong purchase decisions made without checking product details, specifications, or compatibility properly.
+
+## 9. Management Rights
+- The management reserves the right to refuse entry, refuse service, verify customer details, reject suspicious pickups, modify prices, update membership benefits, and change club rules or store policies without prior notice.`,
   refundTitle: "Refund Policy",
-  refundContent: `At The Q Club, we strive to ensure a smooth and fair experience for all customers.
+  refundContent: `At The Q Club Pasighat, we strive to ensure a smooth and fair experience for all customers, members, players, and visitors.
 
-## Membership
-Membership fees are generally non-refundable once activated.
+## 1. Membership
+- Membership fees are generally non-refundable once activated.
+- Membership registrations once approved and activated are ordinarily final.
+- In exceptional cases involving duplicate payment or technical error, management may review the matter at its discretion.
 
-## Table Bookings
-If advance bookings are introduced in the future, cancellations made at least 2 hours before booking time may be eligible for rescheduling. Missed bookings may not be refundable.
+## 2. Table Bookings
+- If advance bookings are introduced or accepted, cancellations made at least 2 hours before booking time may be eligible for rescheduling at the discretion of management.
+- Missed bookings may not be refundable.
+- If a booking slot cannot be honoured due to operational reasons, equipment issues, or a verified system error, management may offer rescheduling, time adjustment, credit, or other suitable resolution at its discretion.
 
-## Technical Issues
-If a game cannot be completed due to equipment malfunction, staff may offer replacement play time or a complimentary session at the discretion of management.
+## 3. QShop Orders
+- QShop currently operates on an online payment and in-store pickup only model.
+- No refunds shall be issued after successful payment for QShop orders.
+- Cancellation is not allowed after payment.
+- Refund requests based on change of mind, incorrect selection by customer, delayed pickup, or personal preference shall not be accepted.
+- Exchange may be considered only if the item is found to be genuinely defective.
+- Exchange requests should be raised promptly at pickup or within a reasonable time if the defect could not have been easily noticed immediately.
+- Management may inspect the item before approving exchange.
+- Exchange is subject to stock availability.
 
-## Refund Review
-If a payment is made in error or a technical issue occurs during payment processing, customers may contact The Q Club for review. Refunds, if applicable, may be processed within 5–7 working days.`,
+## 4. QFood Orders
+- Food and beverage orders, once confirmed and prepared or processed, are generally non-cancellable and non-refundable.
+- If an item becomes unavailable after payment, management may offer a replacement item, store adjustment, or refund at its discretion.
+- Complaints relating to missing, wrong, or defective food items should be raised promptly with staff for review.
+
+## 5. Tournament Registration
+- Tournament registration fees are generally non-refundable once a playerâ€™s entry has been accepted or the fixture process has begun.
+- If a player withdraws after registration, refund is ordinarily not available.
+- If a tournament is postponed, rescheduled, or cancelled by the club, management may decide whether to carry forward the registration, reschedule participation, provide club credit, or issue refund in full or in part, depending on the circumstances.
+
+## 6. Technical Issues
+- If a game, session, order, registration, or payment cannot be completed properly due to equipment malfunction, staff error, platform issue, or payment verification problem, staff or management may offer replacement play time, rescheduling, exchange, club credit, or another reasonable remedy at the discretion of management.
+
+## 7. Refund Review
+- If a payment is made in error or a genuine technical issue occurs during payment processing, customers may contact The Q Club Pasighat for review.
+- Any refund, if approved, may be processed within 5â€“7 working days or within a reasonable time depending on banking and payment gateway timelines.
+
+## 8. Not Covered
+Refund or exchange shall ordinarily not apply in the following cases:
+- change of mind
+- incorrect selection by customer
+- delayed pickup by customer
+- minor cosmetic variation in packaging
+- slight variation in colour or appearance from listing image
+- damage caused after pickup or handover
+- misuse, mishandling, alteration, or improper storage by customer
+- failure to attend a booked session, tournament, or scheduled pickup without valid operational cause`,
   privacyTitle: "Privacy Policy",
-  privacyContent: `The Q Club respects your privacy.
+  privacyContent: `The Q Club Pasighat respects your privacy and is committed to handling customer, member, player, and visitor information responsibly.
 
-## Information We Collect
-We may collect basic information such as name, phone number, membership details, and tournament participation records.
+## 1. Information We Collect
+We may collect basic information such as:
+- name
+- phone number
+- WhatsApp number
+- membership details
+- booking details
+- tournament participation records
+- QShop order details
+- QFood order details
+- payment reference information
+- basic support or grievance messages submitted by customers
 
-## How We Use This Information
-Your information is used for membership verification, tournament records, leaderboard rankings, and communication about club events.
+## 2. How We Use This Information
+Your information may be used for:
+- membership verification and administration
+- booking confirmation and scheduling
+- tournament registration, fixtures, records, and leaderboard rankings
+- QShop order confirmation, pickup coordination, and support
+- QFood order processing and customer coordination
+- communication about club events, announcements, offers, services, and operational updates
+- payment verification and basic record keeping
+- handling customer complaints, exchanges, technical issues, or refund reviews where applicable
 
-## Data Protection
-We do not sell or share your personal data with third parties.
+## 3. Data Protection
+The Q Club Pasighat does not sell customer personal data to third parties.
+We take reasonable steps to store and use customer information only for club, operational, service, and communication purposes.
 
-## Payment Information
-Payment transactions are processed through authorized payment gateway providers. The Q Club does not store card or payment details on its servers.
+## 4. Payment Information
+Payment transactions are processed through authorised payment gateway providers.
+The Q Club Pasighat does not store full card, UPI PIN, banking password, or other sensitive payment credentials on its own servers.
 
-## Media Usage
-Photos and videos taken inside the club and on Membership pages may be used on social media, promotional materials, and website content.`,
+## 5. Sharing of Information
+Customer information may be shared only where reasonably necessary with:
+- authorised payment service providers
+- operational service tools used by the club
+- staff or administrators handling bookings, orders, memberships, tournaments, or support
+- legal or regulatory authorities where required by law
+
+## 6. Media Usage
+Photos and videos taken inside the club premises, during tournaments, events, memberships, or related activities may be used on social media, promotional materials, and website content, unless management decides otherwise in a specific case.
+
+## 7. Customer Responsibility
+Customers are requested to provide correct contact and order information.
+The Club shall not be responsible for issues caused by incorrect phone number, wrong pickup details, or inaccurate information submitted by the customer.
+
+## 8. Policy Updates
+This Privacy Policy may be updated from time to time to reflect operational, legal, or service changes. Continued use of The Q Club Pasighat website or services shall be treated as acceptance of the updated policy.`,
+  airHockeyInfoTitle: "Air Hockey at The Q Club",
+  airHockeyInfoContent: `## Pricing
+- ₹100 per game(7 goals) or 10 minutes,whichever comes first
+- Great for quick matches with friends
+
+## How to Play
+- Two players stand on opposite sides
+- Use the striker to hit the puck
+- Score by sending the puck into the opponent's goal
+
+## Basic Rules
+- Do not touch the puck with hands
+- Keep the striker on your half
+- First to the agreed score wins
+
+## Why Try It at Q Club
+- Fast and exciting
+- Perfect for friends and groups
+- A fun break between snooker and pool sessions`,
+  foosballInfoTitle: "Foosball at The Q Club",
+  foosballInfoContent: `## Pricing
+- ₹100 per game(5 goals) or 10 minutes,whichever comes first
+- Great for quick doubles or singles matches
+
+## How to Play
+- Each player controls rods with football figures
+- Use the rods to pass, defend, and shoot
+- Score by sending the ball into the opponent's goal
+
+## Basic Rules
+- No spinning the rods wildly
+- Restart play fairly after a goal
+- First to the agreed score wins
+
+## Why Try It at Q Club
+- Fast and social
+- Perfect for 2 or 4 players
+- Great fun for friends and groups`,
+  massageChairInfoTitle: "Massage Chair at The Q Club",
+  massageChairInfoContent: `## Pricing
+- ₹200 for 10 minutes
+- ₹300 for 20 minutes
+
+## How to Use
+- Sit comfortably and choose your session
+- Relax while the chair runs the massage program
+- Best enjoyed between games or after long sessions
+
+## Available Modes
+- Neck & shoulder relaxation
+- Back massage
+- Full body relaxation
+
+## Why Try It at Q Club
+- Premium comfort
+- Great between matches
+- A novelty experience in town`,
       balancedFormatTitle: "Q Club Balanced Match Format",
   balancedFormatSubtitle: "Structured for fair play, balanced competition, and a stronger tournament experience.",
   balancedFormatDescription: "This tournament uses player classification and handicap points to create fairer and more competitive matches across different playing standards.",
@@ -571,19 +680,21 @@ tournamentDisclaimerTitle: "Tournament Legal Disclaimer",
 
 Prize money, trophies, gifts, or other rewards for tournament winners may be funded from player registration fees, sponsorship support, promotional budgets, or contributions made by the club management. Such tournaments are intended as skill-based recreational competitions and not as gambling or wagering activities conducted by the club.
 
-The Club does not organise, facilitate, or profit from any private wagering or side betting that individuals may independently engage in amongst themselves. Any such private act is not part of the Club’s official services, tournament structure, or business model.
+The Club does not organise, facilitate, or profit from any private wagering or side betting that individuals may independently engage in amongst themselves. Any such private act is not part of the Clubâ€™s official services, tournament structure, or business model.
 
 The Club charges only for lawful use of its premises, facilities, event organisation, and related services, and does not take any commission or percentage from private bets, if any, between individuals.
 
 By participating in any tournament at The Q Club, players acknowledge that tournament formats, rules, prize structures, schedules, and eligibility conditions may be fixed, revised, or interpreted by the management in the interest of smooth event conduct. Management reserves the right to refuse entry, disqualify participants for misconduct, and amend tournament rules or schedules when reasonably required.`,
 },
-    admin: {
+        admin: {
   mainPin: "1234",
   staffPin: "5678",
   committeePin: "9012",
+  rummyPin: "2468",
+  rummyFinalLockPin: "8642",
 },
     announcements: [
-      { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
+      { id: uid(), text: "Monthly tournaments every month ðŸ”¥ Register at counter.", createdAt: Date.now() },
     ],
     reviewHistory: [],
     matchLedger: [],
@@ -640,10 +751,10 @@ memberRegistry: [
       },
     ],
     offers: [
-      { id: uid(), title: "Massage Chair", price: "₹99 / 10 min • ₹199 / 20 min", details: "Relax between frames." },
+      { id: uid(), title: "Massage Chair", price: "₹99 / 10 min â€¢ ₹199 / 20 min", details: "Relax between frames." },
       { id: uid(), title: "Foosball", price: "₹50 / game", details: "Best of 3 fun matches." },
       { id: uid(), title: "Air Hockey", price: "₹50 / game", details: "Fast rounds — winner stays!" },
-      { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
+      { id: uid(), title: "Tea/Coffee Vending", price: "₹10â€“₹20", details: "Self-serve vending." },
     ],
     menuCatalog: {
   mocktails: {
@@ -772,8 +883,53 @@ lastReviewDate: "",
 committeeNotes: "",
   },
 ],
-    foodOrders: [],
+        foodOrders: [],
+    jobApplications: [],
+    jobSettings: {
+  acceptingApplications: true,
+  positions: [
+    "Club Assistant (Counter & Operations)",
+    "Floor Assistant",
+    "Marker / Referee",
+    "Kitchen Assistant",
+  ],
+},
+    speakerAlerts: [],
+    whatsappJobs: [],
+    whatsappPersistence: {
+      customTemplates: [
+  {
+    id: "job_application_received",
+    label: "Job Application Received",
+    key: "job_application_received",
+    templateName: "job_application_received",
+    purpose: "Employment application confirmation",
+  },
+],
+  settings: {
+    provider: "msg91",
+    authKey: "",
+    senderNumber: "",
+    senderLabel: "",
+    qshopSuccessTemplate: "",
+    qshopFailedTemplate: "",
+    bookingSuccessTemplate: "",
+    bookingFailedTemplate: "",
+    membershipSuccessTemplate: "",
+    membershipFailedTemplate: "",
+    otpTemplate: "",
+    tournamentSuccessTemplate: "",
+    tournamentFailedTemplate: "",
+    foodSuccessTemplate: "",
+    foodFailedTemplate: "",
+    jobApplicationReceivedTemplate: "",
+    jobInterviewCallTemplate: "",
+  },
+  mode: "draft_only",
+  optOuts: [],
+},
     archivedFoodOrders: [],
+    shopReceipts: [],
     tournaments: [
       {
         id: uid(),
@@ -790,9 +946,24 @@ committeeNotes: "",
     ],
     booking: {
   tables: [
-    { id: "snk12", label: "Snooker Table 12x6 — ₹400 / hour", pricePerHour: 400 },
-    { id: "mini10", label: "Mini Snooker 10x5 — ₹300 / hour", pricePerHour: 300 },
-    { id: "pool9", label: "American Pool — ₹300 / hour", pricePerHour: 300 },
+    {
+      id: "snk12",
+      label: "Snooker Table 12x6",
+      pricePerHour: 400,
+      memberPricePerHour: 300,
+    },
+    {
+      id: "mini10",
+      label: "Mini Snooker 10x5",
+      pricePerHour: 300,
+      memberPricePerHour: 200,
+    },
+    {
+      id: "pool9",
+      label: "American Pool",
+      pricePerHour: 300,
+      memberPricePerHour: 200,
+    },
   ],
   requests: [],
   blockedSlots: [],
@@ -891,11 +1062,13 @@ function mergeWithDefaults(remote) {
       tvShowcaseMode:
   src?.club?.tvShowcaseMode === "custom_only" ? "custom_only" : base.club.tvShowcaseMode,
         contact: {
-        ...base.club.contact,
-        ...((src.club || {}).contact || {}),
-        phone1: pickText(src?.club?.contact?.phone1, base.club.contact.phone1),
-        phone2: pickText(src?.club?.contact?.phone2, base.club.contact.phone2),
-      },
+  ...base.club.contact,
+  ...((src.club || {}).contact || {}),
+  phone1: pickText(src?.club?.contact?.phone1, base.club.contact.phone1),
+  phone2: pickText(src?.club?.contact?.phone2, base.club.contact.phone2),
+  email1: pickText(src?.club?.contact?.email1, base.club.contact.email1 || ""),
+  email2: pickText(src?.club?.contact?.email2, base.club.contact.email2 || ""),
+},
     },
     admin: {
   ...base.admin,
@@ -963,12 +1136,76 @@ committeeNotes: String(p?.committeeNotes || ""),
     }))
   : base.players,
 foodOrders: Array.isArray(src.foodOrders) ? src.foodOrders : base.foodOrders,
+jobApplications: Array.isArray(src.jobApplications) ? src.jobApplications : base.jobApplications,
+jobSettings: {
+  ...base.jobSettings,
+  ...(src.jobSettings || {}),
+  acceptingApplications:
+    typeof src?.jobSettings?.acceptingApplications === "boolean"
+      ? src.jobSettings.acceptingApplications
+      : base.jobSettings.acceptingApplications,
+      positions: Array.isArray(src?.jobSettings?.positions) && src.jobSettings.positions.length
+  ? src.jobSettings.positions
+  : base.jobSettings.positions,
+},
+speakerAlerts: Array.isArray(src.speakerAlerts) ? src.speakerAlerts : (base.speakerAlerts || []),
+whatsappJobs: Array.isArray(src.whatsappJobs) ? src.whatsappJobs : [],
+whatsappPersistence: {
+  customTemplates: Array.isArray(src?.whatsappPersistence?.customTemplates)
+  ? src.whatsappPersistence.customTemplates
+  : base.whatsappPersistence.customTemplates,
+  settings: {
+    provider:
+      String(src?.whatsappPersistence?.settings?.provider || base.whatsappPersistence.settings.provider).trim() || "msg91",
+    authKey: String(src?.whatsappPersistence?.settings?.authKey || base.whatsappPersistence.settings.authKey).trim(),
+    senderNumber: String(src?.whatsappPersistence?.settings?.senderNumber || base.whatsappPersistence.settings.senderNumber).trim(),
+    senderLabel: String(src?.whatsappPersistence?.settings?.senderLabel || base.whatsappPersistence.settings.senderLabel).trim(),
+    qshopSuccessTemplate: String(src?.whatsappPersistence?.settings?.qshopSuccessTemplate || base.whatsappPersistence.settings.qshopSuccessTemplate).trim(),
+    qshopFailedTemplate: String(src?.whatsappPersistence?.settings?.qshopFailedTemplate || base.whatsappPersistence.settings.qshopFailedTemplate).trim(),
+    bookingSuccessTemplate: String(src?.whatsappPersistence?.settings?.bookingSuccessTemplate || base.whatsappPersistence.settings.bookingSuccessTemplate).trim(),
+    bookingFailedTemplate: String(src?.whatsappPersistence?.settings?.bookingFailedTemplate || base.whatsappPersistence.settings.bookingFailedTemplate).trim(),
+    membershipSuccessTemplate: String(src?.whatsappPersistence?.settings?.membershipSuccessTemplate || base.whatsappPersistence.settings.membershipSuccessTemplate).trim(),
+    membershipFailedTemplate: String(src?.whatsappPersistence?.settings?.membershipFailedTemplate || base.whatsappPersistence.settings.membershipFailedTemplate).trim(),
+    otpTemplate: String(src?.whatsappPersistence?.settings?.otpTemplate || base.whatsappPersistence.settings.otpTemplate).trim(),
+    tournamentSuccessTemplate: String(src?.whatsappPersistence?.settings?.tournamentSuccessTemplate || base.whatsappPersistence.settings.tournamentSuccessTemplate).trim(),
+    tournamentFailedTemplate: String(src?.whatsappPersistence?.settings?.tournamentFailedTemplate || base.whatsappPersistence.settings.tournamentFailedTemplate).trim(),
+    foodSuccessTemplate: String(src?.whatsappPersistence?.settings?.foodSuccessTemplate || base.whatsappPersistence.settings.foodSuccessTemplate).trim(),
+    foodFailedTemplate: String(src?.whatsappPersistence?.settings?.foodFailedTemplate || base.whatsappPersistence.settings.foodFailedTemplate).trim(),
+    jobApplicationReceivedTemplate: String(src?.whatsappPersistence?.settings?.jobApplicationReceivedTemplate || base.whatsappPersistence.settings.jobApplicationReceivedTemplate).trim(),
+  jobInterviewCallTemplate: String(src?.whatsappPersistence?.settings?.jobInterviewCallTemplate || base.whatsappPersistence.settings.jobInterviewCallTemplate).trim(),
+  },
+  mode:
+    String(src?.whatsappPersistence?.mode || base.whatsappPersistence.mode).trim() === "disabled"
+      ? "disabled"
+      : String(src?.whatsappPersistence?.mode || base.whatsappPersistence.mode).trim() === "live"
+      ? "live"
+      : "draft_only",
+  optOuts: Array.isArray(src?.whatsappPersistence?.optOuts)
+    ? src.whatsappPersistence.optOuts
+    : base.whatsappPersistence.optOuts,
+},
 archivedFoodOrders: Array.isArray(src.archivedFoodOrders) ? src.archivedFoodOrders : base.archivedFoodOrders,
+shopReceipts: Array.isArray(src.shopReceipts) ? src.shopReceipts : (base.shopReceipts || []),
 tournaments: Array.isArray(src.tournaments) ? src.tournaments : base.tournaments,
     booking: {
   ...base.booking,
   ...(src.booking || {}),
-  tables: Array.isArray(src?.booking?.tables) && src.booking.tables.length ? src.booking.tables : base.booking.tables,
+  tables:
+  Array.isArray(src?.booking?.tables) && src.booking.tables.length
+    ? src.booking.tables.map((t) => ({
+        ...t,
+        label: String(t?.label || ""),
+        pricePerHour: safeNum(t?.pricePerHour, 0),
+        memberPricePerHour: safeNum(
+          t?.memberPricePerHour,
+          t?.id === "snk12"
+            ? 300
+            : t?.id === "mini10" || t?.id === "pool9"
+            ? 200
+            : safeNum(t?.pricePerHour, 0)
+        ),
+      }))
+    : base.booking.tables,
   requests: Array.isArray(src?.booking?.requests) ? src.booking.requests : base.booking.requests,
   blockedSlots: Array.isArray(src?.booking?.blockedSlots) ? src.booking.blockedSlots : base.booking.blockedSlots,
   lastSeenRequestAt: Number.isFinite(src?.booking?.lastSeenRequestAt) ? src.booking.lastSeenRequestAt : base.booking.lastSeenRequestAt,
@@ -1001,23 +1238,365 @@ function stripHeavyMediaForCloud(src) {
 function hydrateLocalMediaIntoState(src) {
   return JSON.parse(JSON.stringify(src || {}));
 }
+function pickLatestIso(localValue = "", remoteValue = "") {
+  const localTime = Date.parse(localValue || "");
+  const remoteTime = Date.parse(remoteValue || "");
+
+  if (Number.isFinite(localTime) && Number.isFinite(remoteTime)) {
+    return localTime >= remoteTime ? localValue : remoteValue;
+  }
+
+  return localValue || remoteValue || "";
+}
+
+function mergeById(remoteList = [], localList = [], mergeItem, options = {}) {
+  const keepLocalOnly = options.keepLocalOnly !== false;
+
+  const localMap = new Map(
+    (localList || [])
+      .map((item) => [String(item?.id || ""), item])
+      .filter(([id]) => id)
+  );
+
+  const remoteIds = new Set();
+
+  const mergedRemote = (remoteList || []).map((item) => {
+    const id = String(item?.id || "");
+    if (id) remoteIds.add(id);
+
+    const localItem = localMap.get(id);
+    return localItem ? mergeItem(item, localItem) : item;
+  });
+
+  if (!keepLocalOnly) {
+    return mergedRemote;
+  }
+
+  const localOnly = (localList || []).filter((item) => {
+    const id = String(item?.id || "");
+    return id && !remoteIds.has(id);
+  });
+
+  return [...mergedRemote, ...localOnly];
+}
+
+function mergeHydratedOperationalState(localState, remoteState) {
+  const local = localState && typeof localState === "object" ? localState : {};
+  const remote = remoteState && typeof remoteState === "object" ? remoteState : {};
+
+  const mergedFoodOrders = mergeById(
+    remote.foodOrders || [],
+    local.foodOrders || [],
+    (remoteOrder, localOrder) => {
+      const printedAt = pickLatestIso(
+        String(localOrder?.printMeta?.printedAt || ""),
+        String(remoteOrder?.printMeta?.printedAt || "")
+      );
+
+      const printingAt = pickLatestIso(
+        String(localOrder?.printMeta?.printingAt || ""),
+        String(remoteOrder?.printMeta?.printingAt || "")
+      );
+
+      let status = String(remoteOrder?.printMeta?.status || "");
+
+      if (printedAt) {
+        status = "printed";
+      } else if (
+        String(localOrder?.printMeta?.status || "") === "printing" ||
+        String(remoteOrder?.printMeta?.status || "") === "printing"
+      ) {
+        status = "printing";
+      } else {
+        status =
+          String(localOrder?.printMeta?.status || "") ||
+          String(remoteOrder?.printMeta?.status || "") ||
+          "pending_auto_print";
+      }
+
+            return {
+        ...remoteOrder,
+        printMeta: {
+          ...(remoteOrder?.printMeta || {}),
+          ...(localOrder?.printMeta || {}),
+          status,
+          printedAt,
+          printingAt,
+          printedByRole:
+            localOrder?.printMeta?.printedByRole ||
+            remoteOrder?.printMeta?.printedByRole ||
+            "",
+          printingByRole:
+            localOrder?.printMeta?.printingByRole ||
+            remoteOrder?.printMeta?.printingByRole ||
+            "",
+        },
+      };
+    },
+    { keepLocalOnly: false }
+  );
+
+  const mergedSpeakerAlerts = mergeById(
+    remote.speakerAlerts || [],
+    local.speakerAlerts || [],
+    (remoteAlert, localAlert) => {
+      const playedAt = pickLatestIso(
+        String(localAlert?.playedAt || ""),
+        String(remoteAlert?.playedAt || "")
+      );
+
+      return {
+        ...remoteAlert,
+        ...(playedAt ? { playedAt } : {}),
+        playedByRole:
+          localAlert?.playedByRole ||
+          remoteAlert?.playedByRole ||
+          "",
+      };
+    }
+  );
+
+  const mergedWhatsappJobs = mergeById(
+    remote.whatsappJobs || [],
+    local.whatsappJobs || [],
+    (remoteJob, localJob) => {
+      const sentAt = pickLatestIso(
+        String(localJob?.sentAt || ""),
+        String(remoteJob?.sentAt || "")
+      );
+
+      const failedAt = pickLatestIso(
+        String(localJob?.failedAt || ""),
+        String(remoteJob?.failedAt || "")
+      );
+
+      const sendingAt = pickLatestIso(
+        String(localJob?.sendingAt || ""),
+        String(remoteJob?.sendingAt || "")
+      );
+
+      let status = String(remoteJob?.status || "");
+
+      if (sentAt) {
+        status = "sent";
+      } else if (failedAt) {
+        status = "failed";
+      } else if (
+        String(localJob?.status || "") === "sending" ||
+        String(remoteJob?.status || "") === "sending"
+      ) {
+        status = "sending";
+      } else {
+        status =
+          String(localJob?.status || "") ||
+          String(remoteJob?.status || "") ||
+          "pending";
+      }
+
+      return {
+        ...remoteJob,
+        draft: remoteJob?.draft || localJob?.draft || null,
+        status,
+        sentAt,
+        failedAt,
+        sendingAt,
+        failedReason:
+          localJob?.failedReason ||
+          remoteJob?.failedReason ||
+          "",
+        sentByRole:
+          localJob?.sentByRole ||
+          remoteJob?.sentByRole ||
+          "",
+      };
+    }
+  );
+
+    const mergedJobApplications = mergeById(
+    remote.jobApplications || [],
+    local.jobApplications || [],
+    (remoteApp, localApp) => {
+      const updatedAt = pickLatestIso(
+        String(localApp?.updatedAt || localApp?.createdAt || ""),
+        String(remoteApp?.updatedAt || remoteApp?.createdAt || "")
+      );
+
+      return {
+        ...remoteApp,
+        ...localApp,
+        status: String(localApp?.status || remoteApp?.status || "new"),
+        createdAt: pickLatestIso(
+          String(localApp?.createdAt || ""),
+          String(remoteApp?.createdAt || "")
+        ),
+        updatedAt,
+      };
+    }
+  );
+
+  return {
+    ...remote,
+    foodOrders: mergedFoodOrders,
+    speakerAlerts: mergedSpeakerAlerts,
+    whatsappJobs: mergedWhatsappJobs,
+    jobApplications: mergedJobApplications,
+  };
+}
 
 function isMeaningfulState(obj) {
   if (!obj || typeof obj !== "object") return false;
   return Object.keys(obj).length > 0;
 }
 
+function qclubArrayLen(value) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function qclubObjectKeyLen(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? Object.keys(value).length
+    : 0;
+}
+
+function qclubStringLen(value) {
+  return String(value || "").trim().length;
+}
+
+function getQclubStateHealth(state) {
+  const s = state && typeof state === "object" ? state : {};
+  const club = s.club || {};
+  const contact = club.contact || {};
+  const menuCatalog = s.menuCatalog || {};
+
+  const menuCategories = qclubObjectKeyLen(menuCatalog);
+  const menuItems = Object.values(menuCatalog || {}).reduce((sum, category) => {
+    return sum + qclubArrayLen(category?.items);
+  }, 0);
+
+  return {
+    shopItems: qclubArrayLen(s.shopCatalog?.items) + qclubArrayLen(s.shopItems),
+    memberships: qclubArrayLen(s.memberships),
+    tournaments: qclubArrayLen(s.tournaments),
+    bookingTables: qclubArrayLen(s.booking?.tables),
+    bookingRequests: qclubArrayLen(s.booking?.requests),
+    players: qclubArrayLen(s.players),
+    membersPage: qclubArrayLen(s.membersPage),
+    memberRegistry: qclubArrayLen(s.memberRegistry),
+    offers: qclubArrayLen(s.offers),
+    photos: qclubArrayLen(s.photos),
+    hallOfFame: qclubArrayLen(s.hallOfFame),
+    announcements: qclubArrayLen(s.announcements),
+    menuCategories,
+    menuItems,
+    foodOrders: qclubArrayLen(s.foodOrders),
+    shopReceipts: qclubArrayLen(s.shopReceipts),
+    inventoryItems: qclubArrayLen(s.inventoryItems),
+    reviewHistory: qclubArrayLen(s.reviewHistory),
+    whatsappJobs: qclubArrayLen(s.whatsappJobs),
+
+    clubText:
+      qclubStringLen(club.name) +
+      qclubStringLen(club.location) +
+      qclubStringLen(club.tagline) +
+      qclubStringLen(club.aboutContent) +
+      qclubStringLen(club.termsContent) +
+      qclubStringLen(club.refundContent) +
+      qclubStringLen(club.privacyContent) +
+      qclubStringLen(contact.phone1) +
+      qclubStringLen(contact.phone2) +
+      qclubStringLen(contact.email1) +
+      qclubStringLen(contact.email2),
+
+    customPins:
+      [
+        s.admin?.mainPin,
+        s.admin?.staffPin,
+        s.admin?.committeePin,
+        s.admin?.rummyPin,
+        s.admin?.rummyFinalLockPin,
+      ].filter((pin) => {
+        const clean = String(pin || "").trim();
+        return clean && !["1234", "5678", "9012"].includes(clean);
+      }).length,
+  };
+}
+
+function stateRichnessScore(state) {
+  const h = getQclubStateHealth(state);
+
+  let score = 0;
+
+  score += h.shopItems * 12;
+  score += h.memberships * 10;
+  score += h.tournaments * 12;
+  score += h.bookingTables * 10;
+  score += h.players * 7;
+  score += h.membersPage * 6;
+  score += h.memberRegistry * 6;
+  score += h.menuCategories * 8;
+  score += h.menuItems * 5;
+  score += h.offers * 5;
+  score += h.photos * 3;
+  score += h.bookingRequests * 3;
+  score += h.shopReceipts * 2;
+  score += h.foodOrders * 2;
+  score += h.inventoryItems * 3;
+  score += h.announcements * 2;
+  score += h.hallOfFame * 2;
+  score += h.reviewHistory * 2;
+  score += h.whatsappJobs;
+  score += Math.min(h.clubText, 3000) / 40;
+  score += h.customPins * 8;
+
+  return score;
+}
+
+function chooseRicherState(primaryState, fallbackState) {
+  const primaryScore = stateRichnessScore(primaryState);
+  const fallbackScore = stateRichnessScore(fallbackState);
+
+  return fallbackScore > primaryScore ? fallbackState : primaryState;
+}
+
+function isWholeWebappCatastrophicDrop(previousState, nextState) {
+  const before = getQclubStateHealth(previousState);
+  const after = getQclubStateHealth(nextState);
+
+  const danger =
+    (before.shopItems >= 8 && after.shopItems <= 3) ||
+    (before.memberships >= 4 && after.memberships <= 1) ||
+    (before.tournaments >= 4 && after.tournaments <= 1) ||
+    (before.bookingTables >= 3 && after.bookingTables === 0) ||
+    (before.players >= 5 && after.players <= 1) ||
+    (before.membersPage >= 3 && after.membersPage <= 1) ||
+    (before.memberRegistry >= 3 && after.memberRegistry <= 1) ||
+    (before.menuCategories >= 4 && after.menuCategories <= 1) ||
+    (before.menuItems >= 8 && after.menuItems <= 2) ||
+    (before.offers >= 3 && after.offers === 0) ||
+    (before.clubText >= 1200 && after.clubText < 400) ||
+    (before.customPins >= 2 && after.customPins === 0);
+
+  return danger;
+}
+
 function loadData() {
   try {
-    const raw =
+    const primaryRaw =
       localStorage.getItem("qclub_v5_data") ||
       localStorage.getItem("qclub_v3_data") ||
-      localStorage.getItem("qclub_v2_data");
+      localStorage.getItem("qclub_v2_data") ||
+      "";
 
-    if (!raw) return syncMembersIntoPlayers(defaultData());
+    const backupRaw = localStorage.getItem("qclub_state_backup") || "";
 
-    const parsed = JSON.parse(raw);
-    return syncMembersIntoPlayers(mergeWithDefaults(parsed));
+    const primaryParsed = primaryRaw ? JSON.parse(primaryRaw) : null;
+    const backupParsed = backupRaw ? JSON.parse(backupRaw) : null;
+
+    const bestParsed = chooseRicherState(primaryParsed, backupParsed);
+
+    if (!bestParsed) return syncMembersIntoPlayers(defaultData());
+
+    return syncMembersIntoPlayers(mergeWithDefaults(bestParsed));
   } catch (e) {
     console.warn("Failed to load saved data:", e);
     return defaultData();
@@ -1443,7 +2022,49 @@ function playPing() {
     }, 180);
   } catch {}
 }
+function announceNewFoodOrder() {
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
 
+    synth.cancel();
+
+    const text = "New food order received. New food order received.";
+    const msg = new SpeechSynthesisUtterance(text);
+
+    msg.volume = 1;
+    msg.rate = 0.9;
+    msg.pitch = 1;
+
+    const voices = synth.getVoices();
+    const preferred =
+      voices.find((v) => /english/i.test(v.lang || "") && /female/i.test(v.name || "")) ||
+      voices.find((v) => /english/i.test(v.lang || "")) ||
+      null;
+
+    if (preferred) {
+      msg.voice = preferred;
+    }
+
+    synth.speak(msg);
+  } catch {}
+}
+function createWhatsappJob(type = "", draft = null) {
+  return {
+    id: uid(),
+    type: String(type || "").trim(),
+    createdAt: Date.now(),
+    status: "pending",
+    sentAt: "",
+    failedAt: "",
+    failedReason: "",
+    sentByRole: "",
+    draft:
+      draft && typeof draft === "object"
+        ? JSON.parse(JSON.stringify(draft))
+        : null,
+  };
+}
 /* =========================================================
    App
 ========================================================= */
@@ -1460,12 +2081,248 @@ export default function App() {
   );
   const [hasHydratedFromCloud, setHasHydratedFromCloud] = useState(false);
 
-  const [adminRole, setAdminRole] = useState("");
+  const [adminRole, setAdminRole] = useState(() => {
+  try {
+    return sessionStorage.getItem("qclub_admin_role") || "" || "";
+  } catch {
+    return "";
+  }
+});
+
 const admin = adminRole === "main";
 const staffAdmin = adminRole === "staff";
 const committeeAdmin = adminRole === "committee";
-  const navigate = useNavigate();
-  const location = useLocation();
+const latestDataRef = useRef(data);
+const cloudWriteLockedRef = useRef(isCloudEnabled());
+const autoPrintedFoodIdsRef = useRef({});
+const seenFoodOrderIdsRef = useRef(new Set());
+const autoSentWhatsappJobIdsRef = useRef({});
+const navigate = useNavigate();
+const location = useLocation();
+const scorerOnlyPaths = [
+  "/rummy-snooker",
+  "/rummy-snooker-table-1",
+  "/rummy-snooker-table-2",
+  "/rummy-snooker-table-3",
+  "/rummy-snooker-table-1-display",
+  "/rummy-snooker-table-2-display",
+  "/rummy-snooker-table-3-display",
+  "/qchase-records",
+  "/kitty",
+  "/kitty-table-1",
+  "/kitty-table-2",
+  "/kitty-table-3",
+  "/kitty-table-1-display",
+  "/kitty-table-2-display",
+  "/kitty-table-3-display",
+  "/kitty-records",
+    "/jobs",
+    "/food-print-bridge",
+];
+
+const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
+
+const [showInstallHelp, setShowInstallHelp] = useState(false);
+useEffect(() => {
+  checkQClubAppVersion();
+
+  const onFocus = () => checkQClubAppVersion();
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      checkQClubAppVersion();
+    }
+  };
+
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}, []);
+
+useEffect(() => {
+  const openInstallHelp = () => setShowInstallHelp(true);
+
+  window.addEventListener("qclub-install-help", openInstallHelp);
+
+  return () => {
+    window.removeEventListener("qclub-install-help", openInstallHelp);
+  };
+}, []);
+  useEffect(() => {
+  try {
+    if (adminRole) {
+      sessionStorage.setItem("qclub_admin_role", adminRole);
+      localStorage.removeItem("qclub_admin_role");
+    } else {
+      sessionStorage.removeItem("qclub_admin_role");
+      localStorage.removeItem("qclub_admin_role");
+    }
+  } catch {}
+}, [adminRole]);
+
+useEffect(() => {
+  latestDataRef.current = data;
+}, [data]);
+useEffect(() => {
+  if (isCloudEnabled() && (!hasHydratedFromCloud || cloudWriteLockedRef.current)) return;
+
+  const policyClub = defaultData().club;
+  const currentClub = data?.club || {};
+
+  const nextContact = {
+    ...(policyClub.contact || {}),
+    ...(currentClub.contact || {}),
+  };
+
+  const needsPolicySync =
+    localStorage.getItem(POLICY_SYNC_KEY) !== POLICY_SYNC_VERSION ||
+    !String(currentClub.contactContent || "").trim() ||
+    !String(currentClub.termsContent || "").trim() ||
+    !String(currentClub.refundContent || "").trim() ||
+    !String(currentClub.privacyContent || "").trim();
+
+  if (!needsPolicySync) return;
+
+  const next = {
+    ...data,
+    club: {
+      ...currentClub,
+      contact: nextContact,
+      contactContent: String(currentClub.contactContent || "").trim() || policyClub.contactContent,
+      termsContent: String(currentClub.termsContent || "").trim() || policyClub.termsContent,
+      refundContent: String(currentClub.refundContent || "").trim() || policyClub.refundContent,
+      privacyContent: String(currentClub.privacyContent || "").trim() || policyClub.privacyContent,
+    },
+  };
+
+  try {
+    localStorage.setItem(POLICY_SYNC_KEY, POLICY_SYNC_VERSION);
+  } catch {}
+
+  commit(next);
+}, [hasHydratedFromCloud, data]);
+useEffect(() => {
+  if (!hasHydratedFromCloud) return;
+  if (isCloudEnabled() && cloudWriteLockedRef.current) return;
+
+  const persisted = data.whatsappPersistence || {};
+  const persistedSettings = persisted.settings || {};
+  const persistedMode =
+    persisted.mode === "disabled"
+      ? "disabled"
+      : persisted.mode === "live"
+      ? "live"
+      : "draft_only";
+  const persistedOptOuts = Array.isArray(persisted.optOuts) ? persisted.optOuts : [];
+
+  const hasPersistedSettings =
+    !!persistedSettings.authKey ||
+    !!persistedSettings.senderNumber ||
+    !!persistedSettings.senderLabel ||
+    !!persistedSettings.qshopSuccessTemplate ||
+    !!persistedSettings.qshopFailedTemplate ||
+    !!persistedSettings.bookingSuccessTemplate ||
+    !!persistedSettings.bookingFailedTemplate ||
+    !!persistedSettings.membershipSuccessTemplate ||
+    !!persistedSettings.membershipFailedTemplate ||
+    !!persistedSettings.otpTemplate ||
+    !!persistedSettings.tournamentSuccessTemplate ||
+    !!persistedSettings.tournamentFailedTemplate ||
+    !!persistedSettings.foodSuccessTemplate ||
+    !!persistedSettings.foodFailedTemplate ||
+    persistedMode !== "draft_only" ||
+    persistedOptOuts.length > 0;
+
+  if (hasPersistedSettings) {
+    try {
+      localStorage.setItem(
+        "qclub_whatsapp_settings",
+        JSON.stringify({
+          provider: String(persistedSettings.provider || "msg91").trim() || "msg91",
+          authKey: String(persistedSettings.authKey || "").trim(),
+          senderNumber: String(persistedSettings.senderNumber || "").trim(),
+          senderLabel: String(persistedSettings.senderLabel || "").trim(),
+          qshopSuccessTemplate: String(persistedSettings.qshopSuccessTemplate || "").trim(),
+          qshopFailedTemplate: String(persistedSettings.qshopFailedTemplate || "").trim(),
+          bookingSuccessTemplate: String(persistedSettings.bookingSuccessTemplate || "").trim(),
+          bookingFailedTemplate: String(persistedSettings.bookingFailedTemplate || "").trim(),
+          membershipSuccessTemplate: String(persistedSettings.membershipSuccessTemplate || "").trim(),
+          membershipFailedTemplate: String(persistedSettings.membershipFailedTemplate || "").trim(),
+          otpTemplate: String(persistedSettings.otpTemplate || "").trim(),
+          tournamentSuccessTemplate: String(persistedSettings.tournamentSuccessTemplate || "").trim(),
+          tournamentFailedTemplate: String(persistedSettings.tournamentFailedTemplate || "").trim(),
+          foodSuccessTemplate: String(persistedSettings.foodSuccessTemplate || "").trim(),
+          foodFailedTemplate: String(persistedSettings.foodFailedTemplate || "").trim(),
+        jobApplicationReceivedTemplate: String(persistedSettings.jobApplicationReceivedTemplate || "").trim(),
+        })
+      );
+
+      localStorage.setItem("qclub_whatsapp_mode", persistedMode);
+      localStorage.setItem(
+        "qclub_whatsapp_opt_outs",
+        JSON.stringify(persistedOptOuts)
+      );
+    } catch {}
+
+    return;
+  }
+
+  const localSettings = getWhatsappSettings();
+  const localMode = getWhatsappMode();
+  const localOptOuts = getWhatsappOptOuts();
+
+  const hasLocalSettings =
+    !!localSettings.authKey ||
+    !!localSettings.senderNumber ||
+    !!localSettings.senderLabel ||
+    !!localSettings.qshopSuccessTemplate ||
+    !!localSettings.qshopFailedTemplate ||
+    !!localSettings.bookingSuccessTemplate ||
+    !!localSettings.bookingFailedTemplate ||
+    !!localSettings.membershipSuccessTemplate ||
+    !!localSettings.membershipFailedTemplate ||
+    !!localSettings.otpTemplate ||
+    !!localSettings.tournamentSuccessTemplate ||
+    !!localSettings.tournamentFailedTemplate ||
+    !!localSettings.foodSuccessTemplate ||
+    !!localSettings.foodFailedTemplate ||
+    !!localSettings.jobApplicationReceivedTemplate ||
+    localMode !== "draft_only" ||
+    localOptOuts.length > 0;
+
+  if (!hasLocalSettings) return;
+
+  commit({
+    ...data,
+    whatsappPersistence: {
+      settings: {
+        provider: String(localSettings.provider || "msg91").trim() || "msg91",
+        authKey: String(localSettings.authKey || "").trim(),
+        senderNumber: String(localSettings.senderNumber || "").trim(),
+        senderLabel: String(localSettings.senderLabel || "").trim(),
+        qshopSuccessTemplate: String(localSettings.qshopSuccessTemplate || "").trim(),
+        qshopFailedTemplate: String(localSettings.qshopFailedTemplate || "").trim(),
+        bookingSuccessTemplate: String(localSettings.bookingSuccessTemplate || "").trim(),
+        bookingFailedTemplate: String(localSettings.bookingFailedTemplate || "").trim(),
+        membershipSuccessTemplate: String(localSettings.membershipSuccessTemplate || "").trim(),
+        membershipFailedTemplate: String(localSettings.membershipFailedTemplate || "").trim(),
+        otpTemplate: String(localSettings.otpTemplate || "").trim(),
+        tournamentSuccessTemplate: String(localSettings.tournamentSuccessTemplate || "").trim(),
+        tournamentFailedTemplate: String(localSettings.tournamentFailedTemplate || "").trim(),
+        foodSuccessTemplate: String(localSettings.foodSuccessTemplate || "").trim(),
+        foodFailedTemplate: String(localSettings.foodFailedTemplate || "").trim(),
+      
+        jobApplicationReceivedTemplate: String(localSettings.jobApplicationReceivedTemplate || "").trim(),
+},
+      mode: localMode,
+      optOuts: localOptOuts,
+    },
+  });
+}, [data.whatsappPersistence, hasHydratedFromCloud]);
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     function openPlayerModal(playerId) {
   const found = (data.players || []).find(p => p.id === playerId);
@@ -1509,48 +2366,87 @@ function closePlayerModal() {
   customerName = "",
   orderTags = {}
 ) {
-    try {
-      const res = await fetch("/api/create-order", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          amount,
-          customer_phone: customerPhone,
-          customer_name: customerName,
-          order_tags: orderTags && typeof orderTags === "object" ? orderTags : {},
-        }),
+  try {
+    const cleanOrderTags =
+      orderTags && typeof orderTags === "object" && !Array.isArray(orderTags)
+        ? orderTags
+        : {};
+
+    const res = await fetch("/api/create-order", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        amount,
+        customer_phone: customerPhone,
+        customer_name: customerName,
+        order_tags: cleanOrderTags,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data?.payment_session_id) {
+      const cashfree = window.Cashfree({
+        mode: "production",
       });
 
-      const data = await res.json();
-
-      if (data?.payment_session_id) {
-        const cashfree = window.Cashfree({
-          mode: "production",
-        });
-
-        cashfree.checkout({
-          paymentSessionId: data.payment_session_id,
-          redirectTarget: "_self",
-        });
-      } else {
-        alert("Unable to start payment. Please try again.");
-        console.log(data);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Payment error. Please try again.");
+      cashfree.checkout({
+        paymentSessionId: data.payment_session_id,
+        redirectTarget: "_self",
+      });
+    } else {
+      alert("Unable to start payment. Please try again.");
+      console.log(data);
     }
+  } catch (err) {
+    console.error(err);
+    alert("Payment error. Please try again.");
   }
+}
 
-  function commit(next) {
+ function commit(next) {
   const merged = mergeWithDefaults(next);
   const synced = syncMembersIntoPlayers(merged);
   const safeNext = hydrateLocalMediaIntoState(synced);
 
+  const previousLocal = latestDataRef.current || data || {};
+
+    if (isWholeWebappCatastrophicDrop(previousLocal, safeNext)) {
+    console.error("Q Club safety guard blocked dangerous whole-webapp local save", {
+      before: getQclubStateHealth(previousLocal),
+      after: getQclubStateHealth(safeNext),
+    });
+
+    setCloudStatus("error");
+
+    alert(
+      "Q Club safety guard blocked a dangerous full-app overwrite before saving. " +
+      "Your current device tried to replace rich club data with weak/default data. " +
+      "Please refresh once and check Admin before saving again."
+    );
+
+    return;
+  }
+
+  if (isCloudEnabled() && cloudWriteLockedRef.current) {
+    console.error("Q Club safety guard blocked save because cloud has not safely hydrated yet.");
+
+    setCloudStatus("error");
+
+    alert(
+      "Q Club cloud is not safely loaded yet. Saving is blocked to protect the live website. " +
+      "Please refresh once and wait for cloud sync before making Admin changes."
+    );
+
+    return;
+  }
+
   setData(safeNext);
+  latestDataRef.current = safeNext;
   saveData(safeNext);
+
   try {
     localStorage.setItem("qclub_state_backup", JSON.stringify(safeNext));
   } catch (e) {}
@@ -1561,10 +2457,27 @@ function closePlayerModal() {
   setCloudStatus("syncing");
 
   const cloudSafe = stripHeavyMediaForCloud(safeNext);
+  const previousCloudSafe = stripHeavyMediaForCloud(previousLocal);
+
+  if (isWholeWebappCatastrophicDrop(previousCloudSafe, cloudSafe)) {
+    console.error("Q Club safety guard blocked dangerous whole-webapp cloud overwrite", {
+      before: getQclubStateHealth(previousCloudSafe),
+      after: getQclubStateHealth(cloudSafe),
+    });
+
+    setCloudStatus("error");
+
+    alert(
+      "Q Club safety guard blocked a dangerous full-app cloud overwrite. " +
+      "Saved cloud data was protected. Please refresh once and check Admin before saving again."
+    );
+
+    return;
+  }
 
   writeState(cloudSafe)
     .then(() => {
-      setCloudStatus("offline");
+      setCloudStatus("synced");
     })
     .catch((err) => {
       console.error("Cloud sync error:", err);
@@ -1586,9 +2499,142 @@ function updateData(path, value) {
 
   commit(next);
 }
+
+function markFoodOrderAsPrinted(orderId, extra = {}) {
+  if (!orderId) return;
+
+  const current = latestDataRef.current || {};
+  const currentOrders = Array.isArray(current.foodOrders) ? current.foodOrders : [];
+  const target = currentOrders.find((order) => order.id === orderId);
+
+  if (!target) return;
+  if (target?.printMeta?.printedAt) return;
+
+  commit({
+    ...current,
+    foodOrders: currentOrders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            printMeta: {
+              ...(order.printMeta || {}),
+              status: "printed",
+              printedAt: extra.printedAt || new Date().toISOString(),
+              printedByRole: extra.printedByRole || (admin ? "main" : "staff"),
+            },
+          }
+        : order
+    ),
+  });
+}
+function markFoodOrderAsPrinting(orderId, extra = {}) {
+  if (!orderId) return;
+
+  const current = latestDataRef.current || {};
+  const currentOrders = Array.isArray(current.foodOrders) ? current.foodOrders : [];
+  const target = currentOrders.find((order) => order.id === orderId);
+
+  if (!target) return;
+  if (target?.printMeta?.printedAt) return;
+  if (target?.printMeta?.status === "printing") return;
+
+  commit({
+    ...current,
+    foodOrders: currentOrders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            printMeta: {
+              ...(order.printMeta || {}),
+              status: "printing",
+              printingAt: extra.printingAt || new Date().toISOString(),
+              printingByRole: extra.printingByRole || (admin ? "main" : "staff"),
+            },
+          }
+        : order
+    ),
+  });
+}
+function markSpeakerAlertPlayed(alertId) {
+  if (!alertId) return;
+
+  const current = latestDataRef.current || {};
+  const currentAlerts = Array.isArray(current.speakerAlerts) ? current.speakerAlerts : [];
+  const target = currentAlerts.find((x) => x.id === alertId);
+
+  if (!target) return;
+  if (target.playedAt) return;
+
+  commit({
+    ...current,
+    speakerAlerts: currentAlerts.map((x) =>
+      x.id === alertId
+        ? {
+            ...x,
+            playedAt: new Date().toISOString(),
+            playedByRole: admin ? "main" : "staff",
+          }
+        : x
+    ),
+  });
+}
+function markWhatsappJobStatus(jobId, extra = {}) {
+  if (!jobId) return;
+
+  const current = latestDataRef.current || {};
+  const currentJobs = Array.isArray(current.whatsappJobs) ? current.whatsappJobs : [];
+  const target = currentJobs.find((job) => job.id === jobId);
+
+  if (!target) return;
+
+  commit({
+    ...current,
+    whatsappJobs: currentJobs.map((job) =>
+      job.id === jobId
+        ? {
+            ...job,
+            ...extra,
+          }
+        : job
+    ),
+  });
+}
+function markWhatsappJobAsSending(jobId, extra = {}) {
+  if (!jobId) return;
+
+  const current = latestDataRef.current || {};
+  const currentJobs = Array.isArray(current.whatsappJobs) ? current.whatsappJobs : [];
+  const target = currentJobs.find((job) => job.id === jobId);
+
+  if (!target) return;
+  if (target?.sentAt) return;
+  if (target?.failedAt) return;
+  if (target?.status === "sending") return;
+
+  commit({
+    ...current,
+    whatsappJobs: currentJobs.map((job) =>
+      job.id === jobId
+        ? {
+            ...job,
+            status: "sending",
+            sendingAt: extra.sendingAt || new Date().toISOString(),
+            sentByRole: extra.sentByRole || (admin ? "main" : "staff"),
+          }
+        : job
+    ),
+  });
+}
+function shouldAutoPrintFoodOrders() {
+  return true;
+}
   function toggleAdmin() {
   if (adminRole) {
     setAdminRole("");
+    try {
+      sessionStorage.removeItem("qclub_admin_role");
+localStorage.removeItem("qclub_admin_role");
+    } catch {}
     return;
   }
 
@@ -1597,16 +2643,25 @@ function updateData(path, value) {
 
   if (pin === data.admin?.mainPin) {
     setAdminRole("main");
+    try {
+      sessionStorage.setItem("qclub_admin_role", "main");
+    } catch {}
     return;
   }
 
   if (pin === data.admin?.staffPin) {
     setAdminRole("staff");
+    try {
+      sessionStorage.setItem("qclub_admin_role", "staff");
+    } catch {}
     return;
   }
 
   if (pin === data.admin?.committeePin) {
     setAdminRole("committee");
+    try {
+      sessionStorage.setItem("qclub_admin_role", "committee");
+    } catch {}
     return;
   }
 
@@ -1627,25 +2682,15 @@ function updateData(path, value) {
     return;
   }
 
-  const current =
-    mode === "1"
-      ? data.admin?.mainPin || ""
-      : mode === "2"
-      ? data.admin?.staffPin || ""
-      : data.admin?.committeePin || "";
+  if (mode === "1") {
+    const current = data.admin?.mainPin || "";
+    const oldPin = prompt("Enter current Main Admin PIN");
+    if (oldPin === null) return;
 
-  const oldPin = prompt(
-    mode === "1"
-      ? "Enter current Main Admin PIN"
-      : mode === "2"
-      ? "Enter current Staff PIN"
-      : "Enter current Committee PIN"
-  );
-  if (oldPin === null) return;
-
-  if (oldPin !== current) {
-    alert("Current PIN is incorrect");
-    return;
+    if (oldPin !== current) {
+      alert("Current Main Admin PIN is incorrect");
+      return;
+    }
   }
 
   const nextPin = prompt(
@@ -1655,18 +2700,16 @@ function updateData(path, value) {
       ? "Enter new Staff PIN"
       : "Enter new Committee PIN"
   );
+
   if (!nextPin) return;
 
   commit({
     ...data,
     admin: {
       ...(data.admin || {}),
-      mainPin:
-        mode === "1" ? nextPin : data.admin?.mainPin || "1234",
-      staffPin:
-        mode === "2" ? nextPin : data.admin?.staffPin || "5678",
-      committeePin:
-        mode === "3" ? nextPin : data.admin?.committeePin || "9012",
+      mainPin: mode === "1" ? nextPin : data.admin?.mainPin || "1234",
+      staffPin: mode === "2" ? nextPin : data.admin?.staffPin || "5678",
+      committeePin: mode === "3" ? nextPin : data.admin?.committeePin || "9012",
     },
   });
 
@@ -1674,8 +2717,8 @@ function updateData(path, value) {
     mode === "1"
       ? "Main Admin PIN updated"
       : mode === "2"
-      ? "Staff PIN updated"
-      : "Committee PIN updated"
+      ? "Staff PIN reset successfully"
+      : "Committee PIN reset successfully"
   );
 }
 
@@ -1685,6 +2728,10 @@ function updateData(path, value) {
     const d = defaultData();
 commit(d);
 setAdminRole("");
+try {
+  sessionStorage.removeItem("qclub_admin_role");
+localStorage.removeItem("qclub_admin_role");
+} catch {}
 navigate("/");
   }
 
@@ -1697,28 +2744,340 @@ navigate("/");
       setLastSeenBookingAt(newest);
     }
   }, [admin, data.booking?.requests]);
+
+   useEffect(() => {
+    const isFoodPrintBridgePage = location.pathname === "/food-print-bridge";
+
+    if (!isFoodPrintBridgePage) return;
+    if (!(admin || staffAdmin)) return;
+    if (!shouldAutoPrintFoodOrders()) return;
+
+    const pendingFoodOrder = (data.foodOrders || []).find((order) => {
+      if (!order?.id) return false;
+      if (order?.printMeta?.printedAt) return false;
+      if (order?.printMeta?.status === "printing") return false;
+      if (order?.printMeta?.status === "printed") return false;
+      if (autoPrintedFoodIdsRef.current[order.id]) return false;
+      return true;
+    });
+
+    if (!pendingFoodOrder) return;
+
+    autoPrintedFoodIdsRef.current[pendingFoodOrder.id] = true;
+
+    markFoodOrderAsPrinting(pendingFoodOrder.id, {
+      printingAt: new Date().toISOString(),
+      printingByRole: admin ? "main" : "staff",
+    });
+
+    const receipt = buildFoodReceiptRecord(pendingFoodOrder, data.club || {});
+    const receiptJson = JSON.stringify(receipt);
+    const receiptPayload = btoa(unescape(encodeURIComponent(receiptJson)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    const receiptUrl = `${window.location.origin}/api/food-receipt-html?payload=${receiptPayload}`;
+    const printAppLink =
+      `print://escpos.org/escpos/bt/print?srcTp=uri&srcObj=html&numCopies=1&src='${encodeURIComponent(receiptUrl)}'`;
+
+    setTimeout(() => {
+      try {
+        window.location.href = printAppLink;
+      } catch {}
+    }, 3500);
+
+    setTimeout(() => {
+      markFoodOrderAsPrinted(pendingFoodOrder.id, {
+        printedAt: new Date().toISOString(),
+        printedByRole: admin ? "main" : "staff",
+      });
+    }, 12000);
+  }, [admin, staffAdmin, location.pathname, data.foodOrders, data.club]);
+  useEffect(() => {
+  if (!(admin || staffAdmin)) return;
+
+  const pendingAlert = (data.speakerAlerts || []).find((x) => !x?.playedAt && x?.text);
+
+  if (!pendingAlert) return;
+
+  try {
+    const synth = window.speechSynthesis;
+    const message = String(pendingAlert.text || "").trim();
+    if (!synth || !message) return;
+
+    synth.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.volume = 1;
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+
+    const voices = synth.getVoices();
+    const preferred =
+      voices.find((v) => /en/i.test(v.lang || "") && /female/i.test(v.name || "")) ||
+      voices.find((v) => /en/i.test(v.lang || "")) ||
+      null;
+
+    if (preferred) utterance.voice = preferred;
+
+    let finished = false;
+
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      markSpeakerAlertPlayed(pendingAlert.id);
+    };
+
+    utterance.onend = done;
+    utterance.onerror = done;
+
+    synth.speak(utterance);
+
+    setTimeout(done, 5000);
+  } catch {}
+}, [admin, staffAdmin, data.speakerAlerts]);
 useEffect(() => {
-  if (!isCloudEnabled()) {
-    setData(loadData());
+  if (!(admin || staffAdmin)) return;
+
+  const pendingJob = (data.whatsappJobs || []).find((job) => {
+  if (!job?.id) return false;
+  if (job?.sentAt) return false;
+  if (job?.failedAt) return false;
+  if (job?.status === "sending") return false;
+  if (!job?.draft?.phone) return false;
+  if (autoSentWhatsappJobIdsRef.current[job.id]) return false;
+
+  const jobType = String(job?.type || job?.draft?.label || "").trim();
+  const orderNo = String(
+    job?.draft?.orderNo ||
+      job?.draft?.order_no ||
+      job?.draft?.templateParams?.[1] ||
+      ""
+  ).trim();
+
+  if (jobType === "food_success" && orderNo) {
+    const duplicateAlreadyHandled = (data.whatsappJobs || []).some((otherJob) => {
+      if (!otherJob?.id || otherJob.id === job.id) return false;
+
+      const otherType = String(otherJob?.type || otherJob?.draft?.label || "").trim();
+      if (otherType !== "food_success") return false;
+
+      const otherOrderNo = String(
+        otherJob?.draft?.orderNo ||
+          otherJob?.draft?.order_no ||
+          otherJob?.draft?.templateParams?.[1] ||
+          ""
+      ).trim();
+
+      if (otherOrderNo !== orderNo) return false;
+
+      return Boolean(otherJob?.sentAt) || otherJob?.status === "sending";
+    });
+
+    if (duplicateAlreadyHandled) return false;
+  }
+
+  return true;
+});
+
+    if (!pendingJob) return;
+
+  const mode = getWhatsappMode();
+  if (mode === "disabled") return;
+
+  const whatsappSendLockKey = `qclub_whatsapp_send_lock_${pendingJob.id}`;
+  const whatsappSendLockOwner = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  try {
+    const existingLock = JSON.parse(localStorage.getItem(whatsappSendLockKey) || "null");
+
+    if (
+      existingLock?.owner &&
+      Number(existingLock?.expiresAt || 0) > Date.now()
+    ) {
+      return;
+    }
+
+    localStorage.setItem(
+      whatsappSendLockKey,
+      JSON.stringify({
+        owner: whatsappSendLockOwner,
+        expiresAt: Date.now() + 120000,
+      })
+    );
+
+    const savedLock = JSON.parse(localStorage.getItem(whatsappSendLockKey) || "null");
+
+    if (savedLock?.owner !== whatsappSendLockOwner) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  autoSentWhatsappJobIdsRef.current[pendingJob.id] = true;
+
+  markWhatsappJobAsSending(pendingJob.id, {
+    sendingAt: new Date().toISOString(),
+    sentByRole: admin ? "main" : "staff",
+  });
+
+  const settings = getWhatsappSettings();
+  const baseDraft = pendingJob?.draft || {};
+  const resolvedLabel = String(baseDraft?.label || pendingJob?.type || "").trim();
+  const mappedTemplate = getWhatsappTemplateForLabel(resolvedLabel, settings);
+
+  const finalDraft = {
+    ...baseDraft,
+    label: resolvedLabel,
+    templateName: String(baseDraft?.templateName || mappedTemplate || "").trim(),
+    provider: settings.provider || "msg91",
+    senderNumber: settings.senderNumber || "",
+    senderLabel: settings.senderLabel || "",
+    msg91Payload:
+      (settings.provider || "msg91") === "msg91"
+        ? buildMsg91WhatsappPayload(
+            {
+              ...baseDraft,
+              label: resolvedLabel,
+              templateName: String(baseDraft?.templateName || mappedTemplate || "").trim(),
+              senderNumber: settings.senderNumber || "",
+              senderLabel: settings.senderLabel || "",
+            },
+            settings
+          )
+        : null,
+  };
+
+  storeLatestWhatsappDraft(finalDraft);
+
+  let cancelled = false;
+
+  (async () => {
+    if (mode === "draft_only") {
+      if (cancelled) return;
+
+      markWhatsappJobStatus(pendingJob.id, {
+        status: "draft_saved",
+        sentAt: new Date().toISOString(),
+        sentByRole: admin ? "main" : "staff",
+        failedAt: "",
+        failedReason: "",
+      });
+
+      return;
+    }
+
+    const result = await sendMsg91WhatsappMessage(finalDraft, settings);
+
+    if (cancelled) return;
+
+    localStorage.setItem(
+      "qclub_last_whatsapp_send_result",
+      JSON.stringify({
+        ok: !!result?.ok,
+        error: result?.error || "",
+        sentAt: new Date().toISOString(),
+        label: finalDraft.label || "",
+        phone: finalDraft.phone || "",
+        templateName: finalDraft.templateName || "",
+        response: result?.response || null,
+      })
+    );
+
+    if (result?.ok) {
+      markWhatsappJobStatus(pendingJob.id, {
+        status: "sent",
+        sentAt: new Date().toISOString(),
+        sentByRole: admin ? "main" : "staff",
+        failedAt: "",
+        failedReason: "",
+      });
+      return;
+    }
+
+    delete autoSentWhatsappJobIdsRef.current[pendingJob.id];
+
+    markWhatsappJobStatus(pendingJob.id, {
+      status: "failed",
+      failedAt: new Date().toISOString(),
+      failedReason: result?.error || "Unknown WhatsApp send error.",
+    });
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [admin, staffAdmin, data.whatsappJobs]);
+useEffect(() => {
+    if (!isCloudEnabled()) {
+    cloudWriteLockedRef.current = false;
+
+    const localOnlyState = hydrateLocalMediaIntoState(
+      syncMembersIntoPlayers(mergeWithDefaults(loadData()))
+    );
+
+    setData(localOnlyState);
+    latestDataRef.current = localOnlyState;
     setHasHydratedFromCloud(true);
     return;
   }
 
   setCloudStatus("syncing");
 
-  const fallbackTimer = setTimeout(() => {
+   const fallbackTimer = setTimeout(() => {
+    console.warn("Q Club cloud hydration delayed. Showing local data but keeping Admin saves locked.");
+
+    const localFallbackState = hydrateLocalMediaIntoState(
+      syncMembersIntoPlayers(mergeWithDefaults(loadData()))
+    );
+
+    cloudWriteLockedRef.current = true;
+    setData(localFallbackState);
+    latestDataRef.current = localFallbackState;
     setHasHydratedFromCloud(true);
-    setCloudStatus("synced");
-  }, 2500);
+    setCloudStatus("error");
+  }, 8000);
 
   const unsubscribe = subscribeState((remoteState) => {
     if (!remoteState || typeof remoteState !== "object") return;
 
     clearTimeout(fallbackTimer);
 
-    const merged = hydrateLocalMediaIntoState(mergeWithDefaults(remoteState));
+    const localCurrent = latestDataRef.current || loadData();
+    const mergedRemote = mergeWithDefaults(remoteState);
+    const protectedState = mergeHydratedOperationalState(localCurrent, mergedRemote);
+    const merged = hydrateLocalMediaIntoState(protectedState);
+
+    if (isWholeWebappCatastrophicDrop(localCurrent, merged)) {
+      console.error("Q Club safety guard blocked dangerous remote hydration", {
+        before: getQclubStateHealth(localCurrent),
+        after: getQclubStateHealth(merged),
+      });
+
+      cloudWriteLockedRef.current = true;
+      setHasHydratedFromCloud(true);
+      setCloudStatus("error");
+
+      alert(
+        "Q Club safety guard blocked a dangerous cloud state from replacing this browser's data. " +
+        "Please check Supabase qclub_state before making Admin changes."
+      );
+
+      return;
+    }
+
+    cloudWriteLockedRef.current = false;
+
     setData(merged);
+    latestDataRef.current = merged;
     saveData(merged);
+
+    try {
+      localStorage.setItem("qclub_state_backup", JSON.stringify(merged));
+    } catch {}
+
     setHasHydratedFromCloud(true);
     setCloudStatus("synced");
   });
@@ -1726,6 +3085,57 @@ useEffect(() => {
   return () => {
     clearTimeout(fallbackTimer);
     if (typeof unsubscribe === "function") unsubscribe();
+  };
+}, []);
+useEffect(() => {
+  function syncFromLocalStorage() {
+    try {
+      const fresh = hydrateLocalMediaIntoState(
+  syncMembersIntoPlayers(mergeWithDefaults(loadData()))
+);
+
+const current = latestDataRef.current || data || {};
+
+if (isWholeWebappCatastrophicDrop(current, fresh)) {
+  console.error("Q Club safety guard blocked dangerous localStorage refresh", {
+    before: getQclubStateHealth(current),
+    after: getQclubStateHealth(fresh),
+  });
+  return;
+}
+
+setData(fresh);
+latestDataRef.current = fresh;
+    } catch (e) {
+      console.warn("Local storage sync failed:", e);
+    }
+  }
+
+  function onStorage(e) {
+    if (!e) return;
+
+    if (
+      e.key === LS_KEY ||
+      e.key === "qclub_v3_data" ||
+      e.key === "qclub_v2_data" ||
+      e.key === "qclub_state_backup"
+    ) {
+      syncFromLocalStorage();
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === "visible") {
+      syncFromLocalStorage();
+    }
+  }
+
+  window.addEventListener("storage", onStorage);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }, []);
   useEffect(() => {
@@ -1843,21 +3253,24 @@ useEffect(() => {
 
   return (
     <>
-     <TopNav
-  club={data.club}
-  admin={admin}
-  staffAdmin={staffAdmin}
-  committeeAdmin={committeeAdmin}
-  onToggleAdmin={toggleAdmin}
-  onChangePin={changePin}
-  onReset={resetAll}
-  cloudStatus={cloudStatus}
-/>
+     {!isScorerOnlyPage ? (
+  <TopNav
+    club={data.club}
+    admin={admin}
+    staffAdmin={staffAdmin}
+    committeeAdmin={committeeAdmin}
+    onToggleAdmin={toggleAdmin}
+    onChangePin={changePin}
+    onReset={resetAll}
+    cloudStatus={cloudStatus}
+  />
+) : null}
 
       <Routes>
         <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route path="/members" element={<MembersPage data={data} admin={admin} commit={commit} />} />
         <Route path="/member-registry" element={<MemberRegistryPage data={data} admin={admin} commit={commit} />} />
+        <Route path="/jobs" element={<JobApplicationPage data={data} commit={commit} />} />
         <Route
   path="/book"
   element={
@@ -1902,6 +3315,9 @@ useEffect(() => {
             />
           }
         />
+        <Route path="/air-hockey" element={<AirHockeyPage />} />
+                <Route path="/foosball" element={<FoosballPage />} />
+                        <Route path="/massage-chair" element={<MassageChairPage />} />
         <Route
   path="/offer"
   element={
@@ -1913,13 +3329,40 @@ useEffect(() => {
     />
   }
 />
+<Route
+  path="/shop"
+  element={
+    <QShopPage
+      data={data}
+      admin={admin}
+      commit={commit}
+      startPayment={startPayment}
+    />
+  }
+/>
+<Route
+  path="/shop/successful-order-receipts"
+  element={
+    <ShopSuccessfulOrderReceipts
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+    />
+  }
+/>
         <Route path="/photos" element={<Photos data={data} admin={admin} commit={commit} />} />
         <Route path="/players" element={<Players data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
         <Route
   path="/handicap"
   element={
     <StaticPage title={data.club?.handicapTitle || "Handicap & Classification"}>
-      <HandicapContent data={data} admin={admin} commit={commit} />
+      <HandicapContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/>
     </StaticPage>
   }
 />
@@ -1930,6 +3373,7 @@ useEffect(() => {
     <Fixtures
       data={data}
       admin={admin}
+      staffAdmin={staffAdmin}
       commit={commit}
       onOpenPlayer={openPlayerModal}
     />
@@ -1945,65 +3389,484 @@ useEffect(() => {
     />
   }
 />
-        <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
-        <Route
-  path="/tv"
+<Route
+  path="/staff-walkins"
   element={
-    <TVMode
+    <StaffWalkinBookings
       data={data}
-      activeTournament={activeTournament}
-      players={data.players || []}
       admin={admin}
       staffAdmin={staffAdmin}
       commit={commit}
     />
+  }
+/>
+<Route
+  path="/inventory"
+  element={
+    <InventoryMaintenance
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+    />
+  }
+/>
+        <Route path="/halloffame" element={<HallOfFame data={data} admin={admin} commit={commit} />} />
+        <Route
+  path="/tv"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading TV mode...</div>
+          </div>
+        </div>
+      }
+    >
+      <TVMode
+        data={data}
+        activeTournament={activeTournament}
+        players={data.players || []}
+        admin={admin}
+        staffAdmin={staffAdmin}
+        commit={commit}
+      />
+    </Suspense>
   }
 />
         <Route
   path="/review-panel"
   element={
-    <ReviewPanel
-  data={data}
-  admin={admin}
-  staffAdmin={staffAdmin}
-  committeeAdmin={committeeAdmin}
-  commit={commit}
-/>
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading review panel...</div>
+          </div>
+        </div>
+      }
+    >
+      <ReviewPanel
+        data={data}
+        admin={admin}
+        staffAdmin={staffAdmin}
+        committeeAdmin={committeeAdmin}
+        commit={commit}
+      />
+    </Suspense>
   }
 />
 <Route
   path="/match-ledger"
   element={
-    <MatchLedgerPage
-      data={data}
-      admin={admin}
-      staffAdmin={staffAdmin}
-      committeeAdmin={committeeAdmin}
-      commit={commit}
-    />
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading match ledger...</div>
+          </div>
+        </div>
+      }
+    >
+      <MatchLedgerPage
+        data={data}
+        admin={admin}
+        staffAdmin={staffAdmin}
+        committeeAdmin={committeeAdmin}
+        commit={commit}
+      />
+    </Suspense>
   }
 />
-<Route path="/admin-panel" element={<AdminPanel data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
-        <Route path="/about" element={<StaticPage title={data.club?.aboutTitle || "About The Q Club"}><AboutContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route path="/contact" element={<StaticPage title={data.club?.contactTitle || "Contact Us"}><ContactContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route path="/terms" element={<StaticPage title={data.club?.termsTitle || "Terms & Conditions"}><TermsContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route path="/refund" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route path="/tournament-legal" element={<StaticPage title={data.club?.tournamentDisclaimerTitle || "Tournament Legal Notice"}><TournamentLegalContent data={data} admin={admin} commit={commit} /></StaticPage>} />
-        <Route
+<Route
+  path="/admin-panel"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading admin panel...</div>
+          </div>
+        </div>
+      }
+    >
+      <AdminPanel
+        data={data}
+        admin={admin}
+        commit={commit}
+        activeTournament={activeTournament}
+      />
+    </Suspense>
+  }
+/>
+        <Route path="/about" element={<StaticPage title={data.club?.aboutTitle || "About The Q Club"}><AboutContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/contact" element={<StaticPage title={data.club?.contactTitle || "Contact Us"}><ContactContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/terms" element={<StaticPage title={data.club?.termsTitle || "Terms & Conditions"}><TermsContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/refund" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+                <Route path="/air-hockey-info" element={<StaticPage title={data.club?.airHockeyInfoTitle || "Air Hockey at The Q Club"}><AirHockeyInfoContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+                        <Route path="/foosball-info" element={<StaticPage title={data.club?.foosballInfoTitle || "Foosball at The Q Club"}><FoosballInfoContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+                                <Route path="/massage-chair-info" element={<StaticPage title={data.club?.massageChairInfoTitle || "Massage Chair at The Q Club"}><MassageChairInfoContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/tournament-legal" element={<StaticPage title={data.club?.tournamentDisclaimerTitle || "Tournament Legal Notice"}><TournamentLegalContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+                <Route
   path="/admin/orders"
   element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
+/>
+<Route
+  path="/food-print-bridge"
+  element={<FoodPrintBridge data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
 />
 <Route
   path="/admin/orders-archive"
   element={<FoodOrdersArchive data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
 />
-        
-        <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
+<Route
+  path="/rummy-snooker"
+  element={
+    <RummySnookerPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table1"
+      tableLabel="Snooker Table 1"
+    />
+  }
+/>
+
+<Route
+  path="/rummy-snooker-table-1"
+  element={
+    <RummySnookerPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table1"
+      tableLabel="Snooker Table 1"
+    />
+  }
+/>
+
+<Route
+  path="/rummy-snooker-table-2"
+  element={
+    <RummySnookerPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table2"
+      tableLabel="Snooker Table 2"
+    />
+  }
+/>
+
+<Route
+  path="/rummy-snooker-table-3"
+  element={
+    <RummySnookerPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table3"
+      tableLabel="Mini / Table 3"
+    />
+  }
+/>
+
+<Route
+  path="/rummy-snooker-table-1-display"
+  element={<RummySnookerDisplayPage tableKey="table1" tableLabel="Snooker Table 1" />}
+/>
+
+<Route
+  path="/rummy-snooker-table-2-display"
+  element={<RummySnookerDisplayPage tableKey="table2" tableLabel="Snooker Table 2" />}
+/>
+
+<Route
+  path="/rummy-snooker-table-3-display"
+  element={<RummySnookerDisplayPage tableKey="table3" tableLabel="Mini / Table 3" />}
+/>
+<Route
+  path="/qchase-records"
+  element={
+    <QChaseRecordsPage
+      admin={admin}
+      staffAdmin={staffAdmin}
+    />
+  }
+/>
+<Route
+  path="/qchase-monthly"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading Q Chase monthly reports.</div>
+          </div>
+        </div>
+      }
+    >
+      <QChaseMonthlyReportPage
+        admin={admin}
+        staffAdmin={staffAdmin}
+      />
+    </Suspense>
+  }
+/>
+<Route
+  path="/kitty"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table1"
+      tableLabel="Snooker Table 1"
+    />
+  }
+/>
+
+<Route
+  path="/kitty-table-1"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table1"
+      tableLabel="Snooker Table 1"
+    />
+  }
+/>
+
+<Route
+  path="/kitty-table-2"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table2"
+      tableLabel="Snooker Table 2"
+    />
+  }
+/>
+
+<Route
+  path="/kitty-table-3"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table3"
+      tableLabel="Mini / Table 3"
+    />
+  }
+/>
+
+<Route
+  path="/kitty-table-1-display"
+  element={<KittyDisplayPage tableKey="table1" tableLabel="Snooker Table 1" />}
+/>
+
+<Route
+  path="/kitty-table-2-display"
+  element={<KittyDisplayPage tableKey="table2" tableLabel="Snooker Table 2" />}
+/>
+
+<Route
+  path="/kitty-table-3-display"
+  element={<KittyDisplayPage tableKey="table3" tableLabel="Mini / Table 3" />}
+/>
+<Route
+  path="/kitty-records"
+  element={
+    <KittyRecordsPage
+      admin={admin}
+      staffAdmin={staffAdmin}
+    />
+  }
+/>
+        <Route
+  path="/kitty-monthly"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading Kitty monthly reports.</div>
+          </div>
+        </div>
+      }
+    >
+      <KittyMonthlyReportPage
+        admin={admin}
+        staffAdmin={staffAdmin}
+      />
+    </Suspense>
+  }
+/>
+                <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
 
-      <FooterLinks data={data} admin={admin} commit={commit} />
+      {showInstallHelp ? (
+        <div
+          onClick={() => setShowInstallHelp(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            background: "rgba(0,0,0,.72)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(720px, 94vw)",
+              maxHeight: "86vh",
+              overflowY: "auto",
+              borderRadius: 26,
+              border: "1px solid rgba(255,255,255,.14)",
+              background:
+                "linear-gradient(180deg, rgba(20,28,44,.98), rgba(8,13,24,.98))",
+              boxShadow: "0 28px 90px rgba(0,0,0,.55)",
+              padding: 22,
+            }}
+          >
+            <div
+              className="row"
+              style={{
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 12,
+              }}
+            >
+              <div>
+                <div className="muted" style={{ fontSize: 12, fontWeight: 800 }}>
+                  THE Q CLUB PASIGHAT
+                </div>
+                <h2 style={{ marginTop: 6 }}>Install Q Club App</h2>
+                <div className="muted">
+                  Add the webapp to your phone home screen for quick access.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn danger"
+                onClick={() => setShowInstallHelp(false)}
+                aria-label="Close install instructions"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="grid" style={{ marginTop: 18 }}>
+              <div className="card small cols-6">
+                <h3>Android / Chrome</h3>
+                <div className="hr" />
+                <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+                  <li>Open The Q Club website in Chrome.</li>
+                  <li>Tap the three-dot menu at the top right.</li>
+                  <li>Tap <b>Add to Home screen</b> or <b>Install app</b>.</li>
+                  <li>Tap <b>Install</b> or <b>Add</b>.</li>
+                  <li>Open it from your phone home screen.</li>
+                </ol>
+              </div>
+
+              <div className="card small cols-6">
+                <h3>iPhone / Safari</h3>
+                <div className="hr" />
+                <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+                  <li>Open The Q Club website in Safari.</li>
+                  <li>Tap the <b>Share</b> button.</li>
+                  <li>Scroll and tap <b>Add to Home Screen</b>.</li>
+                  <li>Tap <b>Add</b> at the top right.</li>
+                  <li>Open it from your iPhone home screen.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div
+              className="muted"
+              style={{
+                marginTop: 16,
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}
+            >
+              Note: On iPhone, this works best from Safari. On Android, Chrome usually gives the best install option.
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!isScorerOnlyPage ? (
+  <FooterLinks data={data} admin={admin} commit={commit} />
+) : null}
             {selectedPlayer ? (
         <div
           onClick={closePlayerModal}
@@ -2103,7 +3966,7 @@ useEffect(() => {
               </div>
 
               <button className="iconBtn" onClick={closePlayerModal}>
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -2196,1669 +4059,146 @@ useEffect(() => {
   );
 }
 
-function FooterLinks({ data, admin, commit }) {
-  return (
-    <footer className="siteFooter">
-      <div className="container">
-        <div className="siteFooterInner">
-          <div>
-            <div className="siteFooterBrand">The Q Club</div>
-            <div className="muted">
-  {data.club?.footerAbout || "Premium indoor gaming lounge at GTC, Pasighat."}
-</div>
-<div className="muted" style={{ marginTop: 10 }}>
-  {data.club?.footerDescription || "Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee."}
-</div>
-
-{admin && (
-  <div style={{ marginTop: 12 }}>
-    <button
-      className="btn"
-      type="button"
-      onClick={() => {
-        const footerAbout = prompt(
-          "Footer About text:",
-          data.club?.footerAbout || "Premium indoor gaming lounge at GTC, Pasighat."
-        );
-        if (!footerAbout) return;
-
-        const footerDescription = prompt(
-          "Footer Description text:",
-          data.club?.footerDescription || "Snooker, Pool, Air Hockey, Foosball, Massage Chair, Tea & Coffee."
-        );
-        if (!footerDescription) return;
-
-        commit({
-          ...data,
-          club: {
-            ...data.club,
-            footerAbout,
-            footerDescription,
-          },
-        });
-      }}
-    >
-      Edit Footer
-    </button>
-  </div>
-)}
-          </div>
-
-          <div className="siteFooterLinks">
-            <Link to="/about">{data.club?.footerAboutLabel || "About Us"}</Link>
-<Link to="/contact">{data.club?.footerContactLabel || "Contact Us"}</Link>
-<Link to="/terms">{data.club?.footerTermsLabel || "Terms & Conditions"}</Link>
-<Link to="/refund">{data.club?.footerRefundLabel || "Refund Policy"}</Link>
-<Link to="/privacy">{data.club?.footerPrivacyLabel || "Privacy Policy"}</Link>
-          </div>{admin && (
-  <div style={{ marginTop: 12 }}>
-    <button
-      className="btn"
-      type="button"
-      onClick={() => {
-        const footerAboutLabel = prompt(
-          "About label:",
-          data.club?.footerAboutLabel || "About Us"
-        );
-        if (!footerAboutLabel) return;
-
-        const footerContactLabel = prompt(
-          "Contact label:",
-          data.club?.footerContactLabel || "Contact Us"
-        );
-        if (!footerContactLabel) return;
-
-        const footerTermsLabel = prompt(
-          "Terms label:",
-          data.club?.footerTermsLabel || "Terms & Conditions"
-        );
-        if (!footerTermsLabel) return;
-
-        const footerRefundLabel = prompt(
-          "Refund label:",
-          data.club?.footerRefundLabel || "Refund Policy"
-        );
-        if (!footerRefundLabel) return;
-
-        const footerPrivacyLabel = prompt(
-          "Privacy label:",
-          data.club?.footerPrivacyLabel || "Privacy Policy"
-        );
-        if (!footerPrivacyLabel) return;
-
-        commit({
-          ...data,
-          club: {
-            ...data.club,
-            footerAboutLabel,
-            footerContactLabel,
-            footerTermsLabel,
-            footerRefundLabel,
-            footerPrivacyLabel,
-          },
-        });
-      }}
-    >
-      Edit Footer Links
-    </button>
-  </div>
-)}
-        </div>
-      </div>
-    </footer>
-  );
-}
-function StaticPage({ title, children }) {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  }, []);
-
-  return (
-    <>
-      <PageShell title={title} subtitle="The Q Club • Pasighat" />
-      <div className="container legalWrap">
-        <div className="legalCard">{children}</div>
-      </div>
-    </>
-  );
-}
-
-function renderEditableContent(content) {
-  const blocks = String(content || "")
-    .split(/\n\s*\n/g)
-    .map((x) => x.trim())
-    .filter(Boolean);
-
-  return blocks.map((block, idx) => {
-    const lines = block.split("\n").map((x) => x.trim()).filter(Boolean);
-    if (!lines.length) return null;
-
-    if (lines[0].startsWith("## ")) {
-      const heading = lines[0].replace(/^##\s+/, "");
-      const rest = lines.slice(1);
-      const listItems = rest.filter((line) => line.startsWith("- "));
-      const textLines = rest.filter((line) => !line.startsWith("- "));
-
-      return (
-        <div key={idx}>
-          <h3>{heading}</h3>
-          {textLines.length ? <p>{textLines.join(" ")}</p> : null}
-          {listItems.length ? (
-            <ul>
-              {listItems.map((item, itemIdx) => (
-                <li key={itemIdx}>{item.replace(/^-\s+/, "")}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      );
-    }
-
-    const listItems = lines.filter((line) => line.startsWith("- "));
-    const textLines = lines.filter((line) => !line.startsWith("- "));
-
-    return (
-      <div key={idx}>
-        {textLines.length ? (
-          <p>
-            {textLines.map((line, lineIdx) => (
-              <React.Fragment key={lineIdx}>
-                {lineIdx > 0 ? <br /> : null}
-                {line}
-              </React.Fragment>
-            ))}
-          </p>
-        ) : null}
-        {listItems.length ? (
-          <ul>
-            {listItems.map((item, itemIdx) => (
-              <li key={itemIdx}>{item.replace(/^-\s+/, "")}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    );
-  });
-}
-
-function editStaticPage(admin, data, commit, titleKey, contentKey, fallbackTitle, fallbackContent) {
-  if (!admin) return;
-
-  const nextTitle = prompt("Page title:", data.club?.[titleKey] || fallbackTitle);
-  if (nextTitle === null) return;
-
-  const nextContent = prompt(
-    "Page content. Use blank lines between paragraphs, ## for headings, and - for bullet points.",
-    data.club?.[contentKey] || fallbackContent
-  );
-  if (nextContent === null) return;
-
-  commit({
-    ...data,
-    club: {
-      ...data.club,
-      [titleKey]: nextTitle.trim() || fallbackTitle,
-      [contentKey]: nextContent.trim() || fallbackContent,
-    },
-  });
-}
-
-function AboutContent({ data, admin, commit }) {
-  const fallbackTitle = "About The Q Club";
-  const fallbackContent = defaultData().club.aboutContent;
-  const content = data.club?.aboutContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "aboutTitle", "aboutContent", fallbackTitle, fallbackContent)}>
-            Edit Page
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function ContactContent({ data, admin, commit }) {
-  const fallbackTitle = "Contact Us";
-  const fallbackContent = defaultData().club.contactContent;
-  const content = data.club?.contactContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "contactTitle", "contactContent", fallbackTitle, fallbackContent)}>
-            Edit Page
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function TermsContent({ data, admin, commit }) {
-  const fallbackTitle = "Terms & Conditions";
-  const fallbackContent = defaultData().club.termsContent;
-  const content = data.club?.termsContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "termsTitle", "termsContent", fallbackTitle, fallbackContent)}>
-            Edit Page
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function RefundContent({ data, admin, commit }) {
-  const fallbackTitle = "Refund Policy";
-  const fallbackContent = defaultData().club.refundContent;
-  const content = data.club?.refundContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "refundTitle", "refundContent", fallbackTitle, fallbackContent)}>
-            Edit Page
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function PrivacyContent({ data, admin, commit }) {
-  const fallbackTitle = "Privacy Policy";
-  const fallbackContent = defaultData().club.privacyContent;
-  const content = data.club?.privacyContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className="btn" onClick={() => editStaticPage(admin, data, commit, "privacyTitle", "privacyContent", fallbackTitle, fallbackContent)}>
-            Edit Page
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function TournamentLegalContent({ data, admin, commit }) {
-  const fallbackTitle = "Tournament Legal Notice";
-  const fallbackContent = defaultData().club.tournamentDisclaimerContent;
-  const content = data.club?.tournamentDisclaimerContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button
-            className="btn"
-            onClick={() =>
-              editStaticPage(
-                admin,
-                data,
-                commit,
-                "tournamentDisclaimerTitle",
-                "tournamentDisclaimerContent",
-                fallbackTitle,
-                fallbackContent
-              )
-            }
-          >
-            Edit Notice
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-function HandicapContent({ data, admin, commit }) {
-  const fallbackTitle = "Handicap & Classification";
-  const fallbackContent = defaultData().club.handicapContent;
-  const content = data.club?.handicapContent || fallbackContent;
-
-  return (
-    <>
-      {admin ? (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-          <button
-            className="btn"
-            onClick={() =>
-              editStaticPage(
-                admin,
-                data,
-                commit,
-                "handicapTitle",
-                "handicapContent",
-                fallbackTitle,
-                fallbackContent
-              )
-            }
-          >
-            Edit Rules
-          </button>
-        </div>
-      ) : null}
-      {renderEditableContent(content)}
-    </>
-  );
-}
-
-function BottomPadding() {
-  return <div style={{ height: 28 }} />;
-}
-
-function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin, onChangePin, onReset }) {
-  return (
-    <div className="nav">
-      <div className="nav-inner">
-        <div className="brand">
-          <div
-  className="title"
-  onDoubleClick={onToggleAdmin} // desktop
-  onTouchStart={(e) => {
-    e.currentTarget.pressTimer = setTimeout(() => {
-      onToggleAdmin();
-    }, 800); // hold for 0.8 sec
-  }}
-  onTouchEnd={(e) => {
-    clearTimeout(e.currentTarget.pressTimer);
-  }}
-  title="The Q Club"
-  style={{ cursor: "pointer" }}
->
-  {club?.name || "The Q CLUB"}
-</div>
-          <div className="sub">
-            {club?.location || "Pasighat"} • {club?.tagline || "Play. Chill. Compete."}
-          </div>
-        </div>
-
-        <div className="spacer" />
-
-        <Link className="pill" to="/">Home</Link>
-        
-        <Link className="pill" to="/live">Live Matches</Link>
-        
-        <Link className="pill" to="/photos">Photos</Link>
-        <Link className="pill" to="/members">Members</Link>
-<Link className="pill" to="/players">Players</Link>
-<Link className="pill" to="/handicap">Handicap</Link>
-<Link className="pill" to="/tournaments">Tournaments</Link>
-        <Link className="pill" to="/fixtures">Fixtures</Link>
-        <Link className="pill" to="/leaderboard">Leaderboards</Link>
-        <Link className="pill" to="/halloffame">Hall of Fame</Link>
-        {(admin || staffAdmin) ? <Link className="pill" to="/tv">TV</Link> : null}
-
-{(admin || staffAdmin) ? <Link className="pill" to="/admin/orders">Orders</Link> : null}
-
-{admin ? <Link className="pill" to="/member-registry">Member Registry</Link> : null}
-
-{(admin || staffAdmin || committeeAdmin) ? (
-  <Link className="pill" to="/review-panel">Review Panel</Link>
-) : null}
-{(admin || staffAdmin || committeeAdmin) ? <Link className="pill" to="/match-ledger">Match Ledger</Link> : null}
-
-{admin ? <Link className="pill" to="/admin-panel">Admin Panel</Link> : null}
-
-       {admin && (
-  <>
-    <button className="btn primary" onClick={onToggleAdmin}>
-      Admin: ON
-    </button>
-    <button className="btn" onClick={onChangePin}>Change PIN</button>
-    <button className="btn danger" onClick={onReset}>Reset</button>
-  </>
-)}
-      </div>
-    </div>
-  );
-}
-
-function PageShell({ title, subtitle, right }) {
-  const navigate = useNavigate();
-
-  return (
-    <div className="container">
-      <div className="pageHead">
-        <div className="pageHeadLeft">
-          <button className="iconBtn" onClick={() => navigate(-1)} aria-label="Back">←</button>
-          <Link className="iconBtn" to="/" aria-label="Home">⌂</Link>
-          <div>
-            <div className="pageTitle">{title}</div>
-            {subtitle ? <div className="muted">{subtitle}</div> : null}
-          </div>
-        </div>
-
-        <div className="pageHeadRight">{right || null}</div>
-      </div>
-    </div>
-  );
-}
-function ReviewPanel({ data, admin, staffAdmin, committeeAdmin, commit }) {
-  if (!admin && !staffAdmin && !committeeAdmin) {
-    return (
-      <>
-        <PageShell title="Review Panel" subtitle="Restricted access" />
-        <div className="container">
-          <div className="card">
-            <div className="muted">Access denied.</div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  const players = data.players || [];
-  const tournaments = data.tournaments || [];
-  const reviewHistory = data.reviewHistory || [];
-
-  function addHistoryEntry(player, extra = {}) {
-    return {
-      id: uid(),
-      playerId: player.id,
-      playerName: player.name || "",
-      action: extra.action || "review_saved",
-      fromGroup: String(extra.fromGroup || player.group || "C"),
-      toGroup: String(extra.toGroup || player.group || "C"),
-      recommendation: String(extra.recommendation || player.reviewRecommendation || "No Change"),
-      reviewStatus: String(extra.reviewStatus || player.reviewStatus || "Stable"),
-      committeeNotes: String(extra.committeeNotes || player.committeeNotes || ""),
-      createdAt: Date.now(),
-      reviewDate: todayIso(),
-    };
-  }
-
-  function updateReviewField(playerId, field, value) {
-    commit({
-      ...data,
-      players: players.map((p) =>
-        p.id === playerId ? { ...p, [field]: value } : p
-      ),
-    });
-  }
-
-  function saveReview(playerId) {
-    const player = players.find((p) => p.id === playerId);
-    if (!player) return;
-
-    const updatedPlayers = players.map((p) =>
-      p.id === playerId
-        ? {
-            ...p,
-            lastReviewDate: todayIso(),
-          }
-        : p
-    );
-
-    commit({
-      ...data,
-      players: updatedPlayers,
-      reviewHistory: [
-        addHistoryEntry(
-          { ...player, lastReviewDate: todayIso() },
-          {
-            action: "review_saved",
-            fromGroup: player.group || "C",
-            toGroup: player.group || "C",
-          }
-        ),
-        ...reviewHistory,
-      ],
-    });
-
-    alert(`Review saved for ${player.name}`);
-  }
-
-  function getPlayerEvidence(player) {
-  const snookerWinsBase = Number(player.snookerWins || 0);
-  const snookerLossesBase = Number(player.snookerLosses || 0);
-  const poolWinsBase = Number(player.poolWins || 0);
-  const poolLossesBase = Number(player.poolLosses || 0);
-  const bestBreakBase = Number(player.bestBreak || 0);
-
-  const ledger = data.matchLedger || [];
-
-  let ledgerSnookerWins = 0;
-  let ledgerSnookerLosses = 0;
-  let ledgerPoolWins = 0;
-  let ledgerPoolLosses = 0;
-  let ledgerBestBreak = 0;
-
-  ledger.forEach((m) => {
-    const gameKey = tournamentGameKey(m?.game);
-    const isP1 = m.player1Id === player.id;
-    const isP2 = m.player2Id === player.id;
-
-    if (!isP1 && !isP2) return;
-
-    const winnerId = String(m.winnerId || "");
-    const isWin = winnerId && winnerId === player.id;
-    const isLoss =
-      winnerId &&
-      ((isP1 && winnerId === m.player2Id) || (isP2 && winnerId === m.player1Id));
-
-    if (gameKey === "snooker") {
-      if (isWin) ledgerSnookerWins += 1;
-      if (isLoss) ledgerSnookerLosses += 1;
-
-      const personalBreak = isP1
-        ? Number(m.break1 || 0)
-        : Number(m.break2 || 0);
-
-      if (Number.isFinite(personalBreak) && personalBreak > ledgerBestBreak) {
-        ledgerBestBreak = personalBreak;
-      }
-    } else {
-      if (isWin) ledgerPoolWins += 1;
-      if (isLoss) ledgerPoolLosses += 1;
-    }
-  });
-
-  const snookerWins = snookerWinsBase + ledgerSnookerWins;
-  const snookerLosses = snookerLossesBase + ledgerSnookerLosses;
-  const poolWins = poolWinsBase + ledgerPoolWins;
-  const poolLosses = poolLossesBase + ledgerPoolLosses;
-  const bestBreak = Math.max(bestBreakBase, ledgerBestBreak);
-
-  const totalWins = snookerWins + poolWins;
-  const totalLosses = snookerLosses + poolLosses;
-  const totalMatches = totalWins + totalLosses;
-  const winRate = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0;
-
-  const recentTournaments = tournaments
-    .filter(
-      (t) =>
-        Array.isArray(t.participantIds) && t.participantIds.includes(player.id)
-    )
-    .slice(-5);
-
-  const recentNames = recentTournaments.map((t) => t.name).filter(Boolean);
-
-  const recentLedgerMatches = ledger
-    .filter((m) => m.player1Id === player.id || m.player2Id === player.id)
-    .slice(0, 5)
-    .map((m) => {
-      const opponentId = m.player1Id === player.id ? m.player2Id : m.player1Id;
-      const opponentName =
-        m.player1Id === player.id ? m.player2Name : m.player1Name || "";
-      const resolvedOpponent =
-        opponentName || players.find((p) => p.id === opponentId)?.name || "Opponent";
-
-      return `${tournamentGameKey(m.game) === "pool" ? "Pool" : "Snooker"} vs ${resolvedOpponent}`;
-    });
-
-  return {
-    snookerWins,
-    snookerLosses,
-    poolWins,
-    poolLosses,
-    bestBreak,
-    totalWins,
-    totalLosses,
-    totalMatches,
-    winRate,
-    recentNames,
-    recentLedgerMatches,
-    ledgerSnookerWins,
-    ledgerSnookerLosses,
-    ledgerPoolWins,
-    ledgerPoolLosses,
-  };
-}
-  
-
-  function getSuggestedRecommendation(player) {
-    const ev = getPlayerEvidence(player);
-    const currentGroup = String(player.group || "C").toUpperCase();
-
-    if (ev.totalMatches >= 20 && ev.winRate <= 35 && currentGroup !== "C") {
-      return {
-        recommendation: "Demote",
-        status: currentGroup === "A" ? "Demote to B" : "Demote to C",
-        reason: `Low win rate (${ev.winRate}%) over ${ev.totalMatches} combined matches (tournaments + ledger)`,
-      };
-    }
-
-    if (ev.totalMatches >= 15 && ev.winRate >= 70 && currentGroup !== "A") {
-      return {
-        recommendation: "Promote",
-        status: currentGroup === "C" ? "Promote to B" : "Promote to A",
-        reason: `Strong win rate (${ev.winRate}%) over ${ev.totalMatches} combined matches (tournaments + ledger)`,
-      };
-    }
-
-    if (ev.totalMatches >= 8 && ev.winRate >= 36 && ev.winRate <= 45) {
-      return {
-        recommendation: "Watchlist",
-        status: "Under Review",
-        reason: `Borderline record (${ev.winRate}%) - watchlist suggested`,
-      };
-    }
-
-    if (ev.totalMatches >= 8 && ev.winRate >= 46 && ev.winRate <= 69) {
-      return {
-        recommendation: "Hold",
-        status: "Hold",
-        reason: `Competitive but not decisive enough for movement (${ev.winRate}%)`,
-      };
-    }
-
-    return {
-      recommendation: "No Change",
-      status: player.reviewStatus || "Stable",
-      reason:
-        ev.totalMatches < 8
-          ? `Not enough recorded matches yet (${ev.totalMatches})`
-          : `No movement suggested from current data`,
-    };
-  }
-  function getEligibilityLabel(player, ev) {
-  const currentGroup = String(player.group || "C").toUpperCase();
-
-  if (ev.totalMatches < 8) {
-    return `Not enough evidence yet (${ev.totalMatches} matches)`;
-  }
-
-  if (currentGroup === "A") {
-    if (ev.totalMatches >= 20 && ev.winRate <= 35) {
-      return "Eligible for demotion review";
-    }
-    return "Top group — monitor stability";
-  }
-
-  if (currentGroup === "B") {
-    if (ev.totalMatches >= 15 && ev.winRate >= 70) {
-      return "Eligible for promotion review";
-    }
-    if (ev.totalMatches >= 20 && ev.winRate <= 35) {
-      return "Eligible for demotion review";
-    }
-    return "Under standard review window";
-  }
-
-  if (currentGroup === "C") {
-    if (ev.totalMatches >= 15 && ev.winRate >= 70) {
-      return "Eligible for promotion review";
-    }
-    return "Development group — continue recording matches";
-  }
-
-  return "Under review";
-}
-
-  function autoSuggestForPlayer(playerId) {
-    const player = players.find((p) => p.id === playerId);
-    if (!player) return;
-
-    const suggestion = getSuggestedRecommendation(player);
-
-    commit({
-      ...data,
-      players: players.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              reviewRecommendation: suggestion.recommendation,
-              reviewStatus: suggestion.status,
-              committeeNotes: p.committeeNotes
-                ? p.committeeNotes
-                : `Auto suggestion: ${suggestion.reason}`,
-              lastReviewDate: todayIso(),
-            }
-          : p
-      ),
-      reviewHistory: [
-        addHistoryEntry(
-          {
-            ...player,
-            reviewRecommendation: suggestion.recommendation,
-            reviewStatus: suggestion.status,
-            committeeNotes: player.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
-            lastReviewDate: todayIso(),
-          },
-          {
-            action: "auto_suggested",
-            fromGroup: player.group || "C",
-            toGroup: player.group || "C",
-            recommendation: suggestion.recommendation,
-            reviewStatus: suggestion.status,
-            committeeNotes: player.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
-          }
-        ),
-        ...reviewHistory,
-      ],
-    });
-  }
-
-  function autoSuggestAll() {
-    if (!players.length) return;
-
-    const ok = confirm("Run automatic recommendation helper for all players?");
-    if (!ok) return;
-
-    const updatedPlayers = players.map((p) => {
-      const suggestion = getSuggestedRecommendation(p);
-      return {
-        ...p,
-        reviewRecommendation: suggestion.recommendation,
-        reviewStatus: suggestion.status,
-        committeeNotes: p.committeeNotes
-          ? p.committeeNotes
-          : `Auto suggestion: ${suggestion.reason}`,
-        lastReviewDate: todayIso(),
-      };
-    });
-
-    const historyEntries = players.map((p) => {
-      const suggestion = getSuggestedRecommendation(p);
-      return addHistoryEntry(
-        {
-          ...p,
-          reviewRecommendation: suggestion.recommendation,
-          reviewStatus: suggestion.status,
-          committeeNotes: p.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
-          lastReviewDate: todayIso(),
-        },
-        {
-          action: "auto_suggested",
-          fromGroup: p.group || "C",
-          toGroup: p.group || "C",
-          recommendation: suggestion.recommendation,
-          reviewStatus: suggestion.status,
-          committeeNotes: p.committeeNotes || `Auto suggestion: ${suggestion.reason}`,
-        }
-      );
-    });
-
-    commit({
-      ...data,
-      players: updatedPlayers,
-      reviewHistory: [...historyEntries.reverse(), ...reviewHistory],
-    });
-
-    alert("Automatic recommendation helper applied to all players.");
-  }
-
-  function applyRecommendation(playerId) {
-    const player = players.find((p) => p.id === playerId);
-    if (!player) return;
-
-    const recommendation = String(player.reviewRecommendation || "No Change");
-    const currentGroup = String(player.group || "C").toUpperCase();
-
-    let nextGroup = currentGroup;
-
-    if (recommendation === "Promote") {
-      nextGroup =
-        currentGroup === "C"
-          ? "B"
-          : currentGroup === "B"
-          ? "A"
-          : "A";
-    } else if (recommendation === "Demote") {
-      nextGroup =
-        currentGroup === "A"
-          ? "B"
-          : currentGroup === "B"
-          ? "C"
-          : "C";
-    } else if (
-      recommendation === "Hold" ||
-      recommendation === "Watchlist" ||
-      recommendation === "No Change"
-    ) {
-      const ok = confirm(
-        `${player.name}: recommendation is "${recommendation}". Save review without changing group?`
-      );
-      if (!ok) return;
-
-      const updatedPlayer = {
-        ...player,
-        reviewStatus:
-          recommendation === "Watchlist"
-            ? "Under Review"
-            : recommendation === "Hold"
-            ? "Hold"
-            : player.reviewStatus || "Stable",
-        lastReviewDate: todayIso(),
-      };
-
-      commit({
-        ...data,
-        players: players.map((p) =>
-          p.id === playerId ? updatedPlayer : p
-        ),
-        reviewHistory: [
-          addHistoryEntry(updatedPlayer, {
-            action: "review_updated",
-            fromGroup: currentGroup,
-            toGroup: currentGroup,
-          }),
-          ...reviewHistory,
-        ],
-      });
-
-      alert(`Review updated for ${player.name}`);
-      return;
-    }
-
-    if (nextGroup === currentGroup) {
-      alert(`${player.name} is already in Group ${currentGroup}.`);
-      return;
-    }
-
-    const ok = confirm(
-      `Apply recommendation for ${player.name}?\n\nCurrent Group: ${currentGroup}\nNew Group: ${nextGroup}`
-    );
-    if (!ok) return;
-
-    const updatedPlayer = {
-      ...player,
-      group: nextGroup,
-      reviewStatus: `Moved to ${nextGroup}`,
-      lastReviewDate: todayIso(),
-    };
-
-    commit({
-      ...data,
-      players: players.map((p) =>
-        p.id === playerId ? updatedPlayer : p
-      ),
-      reviewHistory: [
-        addHistoryEntry(updatedPlayer, {
-          action: "group_changed",
-          fromGroup: currentGroup,
-          toGroup: nextGroup,
-        }),
-        ...reviewHistory,
-      ],
-    });
-
-    alert(`${player.name} moved to Group ${nextGroup}`);
-  }
-function deletePlayerFromReview(playerId) {
-  if (!admin) {
-    alert("Only main admin can delete players.");
-    return;
-  }
-
-  const player = players.find((p) => p.id === playerId);
-  if (!player) return;
-
-  const playerNameKey = String(player.name || "").trim().toLowerCase();
-
-  const ok = confirm(
-    `Delete ${player.name} everywhere?\n\nThis will remove the player from:\n- Players list\n- Members page matching name\n- Member registry matching name\n- tournament participant lists\n- review history entries\n- match ledger entries`
-  );
-  if (!ok) return;
-
-  commit({
-    ...data,
-    players: players.filter((p) => p.id !== playerId),
-
-    membersPage: (data.membersPage || []).filter(
-      (m) => String(m?.name || "").trim().toLowerCase() !== playerNameKey
-    ),
-
-    memberRegistry: (data.memberRegistry || []).filter(
-      (m) => String(m?.name || "").trim().toLowerCase() !== playerNameKey
-    ),
-
-    tournaments: (data.tournaments || []).map((t) => ({
-      ...t,
-      participantIds: (t.participantIds || []).filter((id) => id !== playerId),
-      matches: (t.matches || []).map((m) => ({
-        ...m,
-        p1: m.p1 === playerId ? "" : m.p1,
-        p2: m.p2 === playerId ? "" : m.p2,
-        winner: m.winner === playerId ? "" : m.winner,
-      })),
-    })),
-
-    reviewHistory: (data.reviewHistory || []).filter(
-      (r) =>
-        r.playerId !== playerId &&
-        String(r.playerName || "").trim().toLowerCase() !== playerNameKey
-    ),
-
-    matchLedger: (data.matchLedger || []).filter((m) => {
-      const p1NameKey = String(m?.player1Name || "").trim().toLowerCase();
-      const p2NameKey = String(m?.player2Name || "").trim().toLowerCase();
-
-      return (
-        m.player1Id !== playerId &&
-        m.player2Id !== playerId &&
-        p1NameKey !== playerNameKey &&
-        p2NameKey !== playerNameKey
-      );
-    }),
-  });
-
-  alert(`${player.name} deleted everywhere.`);
-}
-  return (
-    <>
-      <PageShell
-        title="Review Panel"
-        subtitle="Tournament committee review workspace"
-        right={
-          <button className="btn primary" onClick={autoSuggestAll}>
-            Auto Suggest All
-          </button>
-        }
-      />
-
-      <div className="container">
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Committee Review Panel</h2>
-          <div className="muted" style={{ marginTop: 8 }}>
-            Review classification, stats, recent participation, system suggestions, remarks, and apply group changes here.
-          </div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Recent Review History</h3>
-
-          {reviewHistory.length === 0 ? (
-            <div className="muted">No review history yet.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Player</th>
-                  <th>Action</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Recommendation</th>
-                  <th>Status</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviewHistory.slice(0, 20).map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.reviewDate || "—"}</td>
-                    <td>{r.playerName || "—"}</td>
-                    <td>{r.action || "—"}</td>
-                    <td>{r.fromGroup || "—"}</td>
-                    <td>{r.toGroup || "—"}</td>
-                    <td>{r.recommendation || "—"}</td>
-                    <td>{r.reviewStatus || "—"}</td>
-                    <td>{r.committeeNotes || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card">
-  <h3 style={{ marginTop: 0 }}>Players Available For Review</h3>
-
-  {players.length === 0 ? (
-    <div className="muted">No players found.</div>
-  ) : (
-    <div
-      style={{
-        display: "grid",
-        gap: 16,
-      }}
-    >
-      {players.map((p) => {
-        const ev = getPlayerEvidence(p);
-        const suggestion = getSuggestedRecommendation(p);
-
-        return (
-          <div
-            key={p.id}
-            className="card"
-            style={{
-              padding: 16,
-              border: "1px solid rgba(255,255,255,.08)",
-              background: "rgba(255,255,255,.03)",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr .8fr .8fr",
-                gap: 14,
-                alignItems: "start",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{p.name}</div>
-
-                <div className="muted" style={{ marginTop: 6 }}>
-                  {playerGamesLabel(p)}
-                </div>
-
-                <div style={{ marginTop: 10 }}>
-                  <span className="badge">
-                    <span className="dot" />
-                    Group {p.group || "C"}
-                  </span>
-                </div>
-
-                <div className="muted" style={{ marginTop: 10 }}>
-                  Years Playing: {p.yearsPlaying || "—"}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Performance</div>
-
-                <div className="muted">Snooker: W {ev.snookerWins} • L {ev.snookerLosses}</div>
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Pool: W {ev.poolWins} • L {ev.poolLosses}
-                </div>
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Total: W {ev.totalWins} • L {ev.totalLosses}
-                </div>
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Matches: {ev.totalMatches}
-                </div>
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Win Rate: {ev.winRate}%
-                </div>
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Best Break: {ev.bestBreak || "—"}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Evidence</div>
-
-                <div className="muted" style={{ marginBottom: 8 }}>
-                  {suggestion.reason}
-                </div>
-
-                <div className="muted" style={{ marginBottom: 8 }}>
-                  {getEligibilityLabel(p, ev)}
-                </div>
-
-                <div className="muted" style={{ marginBottom: 6 }}>
-                  Recent Tournaments:
-                </div>
-                {ev.recentNames.length ? (
-                  <div style={{ display: "grid", gap: 4, marginBottom: 10 }}>
-                    {ev.recentNames.map((name, idx) => (
-                      <div key={idx} className="muted">
-                        • {name}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="muted" style={{ marginBottom: 10 }}>
-                    No recent tournaments
-                  </div>
-                )}
-
-                <div className="muted" style={{ marginBottom: 6 }}>
-                  Recent Ledger Matches:
-                </div>
-                {ev.recentLedgerMatches.length ? (
-                  <div style={{ display: "grid", gap: 4 }}>
-                    {ev.recentLedgerMatches.map((name, idx) => (
-                      <div key={idx} className="muted">
-                        • {name}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="muted">No ledger matches</div>
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 14,
-                marginTop: 16,
-              }}
-            >
-              <div>
-                <label className="lbl">Review Status</label>
-                <select
-                  value={p.reviewStatus || "Stable"}
-                  onChange={(e) =>
-                    updateReviewField(p.id, "reviewStatus", e.target.value)
-                  }
-                >
-                  <option value="Stable">Stable</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Promote to B">Promote to B</option>
-                  <option value="Promote to A">Promote to A</option>
-                  <option value="Demote to B">Demote to B</option>
-                  <option value="Demote to C">Demote to C</option>
-                  <option value="Hold">Hold</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="lbl">Recommendation</label>
-                <select
-                  value={p.reviewRecommendation || "No Change"}
-                  onChange={(e) =>
-                    updateReviewField(p.id, "reviewRecommendation", e.target.value)
-                  }
-                >
-                  <option value="No Change">No Change</option>
-                  <option value="Promote">Promote</option>
-                  <option value="Demote">Demote</option>
-                  <option value="Hold">Hold</option>
-                  <option value="Watchlist">Watchlist</option>
-                </select>
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label className="lbl">Committee Notes</label>
-                <textarea
-                  value={p.committeeNotes || ""}
-                  onChange={(e) =>
-                    updateReviewField(p.id, "committeeNotes", e.target.value)
-                  }
-                  placeholder="Committee remarks..."
-                  style={{ minHeight: 90 }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                marginTop: 16,
-                flexWrap: "wrap",
-              }}
-            >
-              <div className="muted">
-                Last Review: {p.lastReviewDate || "—"}
-              </div>
-
-              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-  <button
-    className="btn"
-    type="button"
-    onClick={() => autoSuggestForPlayer(p.id)}
-  >
-    Auto Suggest
-  </button>
-  <button
-    className="btn"
-    type="button"
-    onClick={() => saveReview(p.id)}
-  >
-    Save Review
-  </button>
-  <button
-    className="btn primary"
-    type="button"
-    onClick={() => applyRecommendation(p.id)}
-  >
-    Apply
-  </button>
-
-  {admin ? (
-    <button
-      className="btn danger"
-      type="button"
-      onClick={() => deletePlayerFromReview(p.id)}
-    >
-      Delete Player
-    </button>
-  ) : null}
-</div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  )}
-</div>
-      </div>
-    </>
-  );
-}
-function MatchLedgerPage({ data, admin, staffAdmin, committeeAdmin, commit }) {
-  if (!admin && !staffAdmin && !committeeAdmin) {
-    return (
-      <>
-        <PageShell title="Match Ledger" subtitle="Restricted access" />
-        <div className="container">
-          <div className="card">
-            <div className="muted">Access denied.</div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  const players = data.players || [];
-  const matchLedger = data.matchLedger || [];
-
-  const [form, setForm] = useState({
-    date: todayIso(),
-    game: "snooker",
-    player1Id: "",
-    player2Id: "",
-    score1: "",
-    score2: "",
-    break1: "",
-    break2: "",
-    venueType: "club",
-    notes: "",
-  });
-
-  const filteredPlayers = players.filter((p) =>
-    normalizePlayerGames(p.games).includes(form.game)
-  );
-
-  function playerName(id) {
-    return players.find((p) => p.id === id)?.name || "Unknown Player";
-  }
-
-  function resetForm() {
-    setForm({
-      date: todayIso(),
-      game: "snooker",
-      player1Id: "",
-      player2Id: "",
-      score1: "",
-      score2: "",
-      break1: "",
-      break2: "",
-      venueType: "club",
-      notes: "",
-    });
-  }
-
-  function saveLedgerMatch() {
-    if (!admin && !staffAdmin) {
-      alert("Only admin or staff can add match records.");
-      return;
-    }
-
-    if (!form.player1Id || !form.player2Id) {
-      alert("Please select both players.");
-      return;
-    }
-
-    if (form.player1Id === form.player2Id) {
-      alert("Player 1 and Player 2 cannot be the same.");
-      return;
-    }
-
-    const s1 = Number(form.score1);
-    const s2 = Number(form.score2);
-
-    if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
-      alert("Enter valid scores.");
-      return;
-    }
-
-    const winnerId = s1 === s2 ? "" : s1 > s2 ? form.player1Id : form.player2Id;
-
-    const entry = {
-      id: uid(),
-      date: form.date || todayIso(),
-      game: tournamentGameKey(form.game),
-      player1Id: form.player1Id,
-      player2Id: form.player2Id,
-      player1Name: playerName(form.player1Id),
-      player2Name: playerName(form.player2Id),
-      score1: String(form.score1),
-      score2: String(form.score2),
-      break1: form.game === "snooker" ? String(form.break1 || "") : "",
-      break2: form.game === "snooker" ? String(form.break2 || "") : "",
-      winnerId,
-      venueType: form.venueType || "club",
-      source: "manual",
-      notes: String(form.notes || "").trim(),
-      createdAt: Date.now(),
-    };
-
-    commit({
-      ...data,
-      matchLedger: [entry, ...(data.matchLedger || [])],
-    });
-
-    resetForm();
-    alert("Match saved to ledger.");
-  }
-
-  function deleteLedgerMatch(id) {
-    if (!admin) {
-      alert("Only main admin can delete ledger matches.");
-      return;
-    }
-
-    if (!confirm("Delete this match record?")) return;
-
-    commit({
-      ...data,
-      matchLedger: (data.matchLedger || []).filter((m) => m.id !== id),
-    });
-  }
-
-  return (
-    <>
-      <PageShell
-        title="Match Ledger"
-        subtitle="Structured non-tournament and review match records"
-      />
-
-      <div className="container">
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Record Match</h2>
-
-          <div className="grid">
-            <div className="cols-4">
-              <label className="lbl">Date</label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-              />
-            </div>
-
-            <div className="cols-4">
-              <label className="lbl">Game</label>
-              <select
-                value={form.game}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    game: tournamentGameKey(e.target.value),
-                    player1Id: "",
-                    player2Id: "",
-                    break1: "",
-                    break2: "",
-                  })
-                }
-              >
-                <option value="snooker">Snooker</option>
-                <option value="pool">Pool</option>
-              </select>
-            </div>
-
-            <div className="cols-4">
-              <label className="lbl">Venue Type</label>
-              <select
-                value={form.venueType}
-                onChange={(e) => setForm({ ...form, venueType: e.target.value })}
-              >
-                <option value="club">Club</option>
-                <option value="tournament_review">Tournament Review</option>
-                <option value="friendly">Friendly</option>
-                <option value="practice">Practice</option>
-              </select>
-            </div>
-
-            <div className="cols-6">
-              <label className="lbl">Player 1</label>
-              <select
-                value={form.player1Id}
-                onChange={(e) => setForm({ ...form, player1Id: e.target.value })}
-              >
-                <option value="">Select player</option>
-                {filteredPlayers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="cols-6">
-              <label className="lbl">Player 2</label>
-              <select
-                value={form.player2Id}
-                onChange={(e) => setForm({ ...form, player2Id: e.target.value })}
-              >
-                <option value="">Select player</option>
-                {filteredPlayers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="cols-3">
-              <label className="lbl">Score 1</label>
-              <input
-                value={form.score1}
-                onChange={(e) => setForm({ ...form, score1: e.target.value })}
-                placeholder="0"
-              />
-            </div>
-
-            <div className="cols-3">
-              <label className="lbl">Score 2</label>
-              <input
-                value={form.score2}
-                onChange={(e) => setForm({ ...form, score2: e.target.value })}
-                placeholder="0"
-              />
-            </div>
-
-            {form.game === "snooker" ? (
-              <>
-                <div className="cols-3">
-                  <label className="lbl">Break 1</label>
-                  <input
-                    value={form.break1}
-                    onChange={(e) => setForm({ ...form, break1: e.target.value })}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div className="cols-3">
-                  <label className="lbl">Break 2</label>
-                  <input
-                    value={form.break2}
-                    onChange={(e) => setForm({ ...form, break2: e.target.value })}
-                    placeholder="0"
-                  />
-                </div>
-              </>
-            ) : null}
-
-            <div className="cols-12">
-              <label className="lbl">Notes</label>
-              <textarea
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Optional notes"
-              />
-            </div>
-          </div>
-
-          <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-            <button className="btn primary" type="button" onClick={saveLedgerMatch}>
-              Save Match
-            </button>
-            <button className="btn" type="button" onClick={resetForm}>
-              Reset
-            </button>
-          </div>
-        </div>
-
-        <div className="card">
-          <h2 style={{ marginTop: 0 }}>Recent Match Ledger</h2>
-
-          {matchLedger.length === 0 ? (
-            <div className="muted">No recorded matches yet.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Game</th>
-                  <th>Match</th>
-                  <th>Score</th>
-                  <th>Breaks</th>
-                  <th>Winner</th>
-                  <th>Source</th>
-                  <th>Venue</th>
-                  <th>Notes</th>
-                  <th>Admin</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matchLedger.slice(0, 50).map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.date || "—"}</td>
-                    <td>{tournamentGameKey(m.game) === "pool" ? "Pool" : "Snooker"}</td>
-                    <td>
-                      <b>{m.player1Name || playerName(m.player1Id)}</b>
-                      {" "}vs{" "}
-                      <b>{m.player2Name || playerName(m.player2Id)}</b>
-                    </td>
-                    <td>{m.score1} - {m.score2}</td>
-                    <td>
-                      {tournamentGameKey(m.game) === "snooker"
-                        ? `${m.break1 || 0} / ${m.break2 || 0}`
-                        : "—"}
-                    </td>
-                    <td>{m.winnerId ? playerName(m.winnerId) : "Draw"}</td>
-                    <td>{m.source || "manual"}</td>
-                    <td>{m.venueType || "club"}</td>
-                    <td>{m.notes || "—"}</td>
-                    <td>
-                      {admin ? (
-                        <button
-                          className="btn danger"
-                          type="button"
-                          onClick={() => deleteLedgerMatch(m.id)}
-                        >
-                          Delete
-                        </button>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
 function playersForTournament(tournament, allPlayers = []) {
   if (!tournament) return [];
   const ids = tournament.participantIds || [];
   if (!ids.length) return getEligiblePlayersForTournament(allPlayers, tournament);
   return (allPlayers || []).filter((p) => ids.includes(p.id));
 }
-function BeyondTablesSection() {
-  const [activeImage, setActiveImage] = useState(null);
 
-  const cards = [
-    {
-      title: "Air Hockey",
-      desc: "Fast-paced 1v1 action",
-      img: "/home/air-hockey.png",
-    },
-    {
-      title: "Foosball",
-      desc: "Fun 2v2 battles",
-      img: "/home/foosball.jpg",
-    },
-    {
-      title: "Massage Chair",
-      desc: "Relax between games",
-      img: "/home/massagechair.png",
-    },
-  ];
-
+function AirHockeyPage() {
+    const navigate = useNavigate();
   return (
-    <>
-      <div className="card">
-        <h2 style={{ marginBottom: 6 }}>Beyond the Tables</h2>
-        <div className="muted" style={{ marginBottom: 12 }}>
-          More than just snooker — experience The Q Club
-        </div>
+        <div className="card">
+      <button
+        className="btn"
+        style={{ marginBottom: "12px" }}
+        onClick={() => navigate("/")}
+      >
+        â† Back to Home
+      </button>
+      <img
+        src="/home/air-hockey.png"
+        alt="Air Hockey"
+        style={{
+          width: "100%",
+          borderRadius: "16px",
+          marginBottom: "12px",
+        }}
+      />
 
-        <div className="bt-scroll">
-          {cards.map((c) => (
-            <button
-              key={c.title}
-              type="button"
-              className="bt-card"
-              onClick={() => setActiveImage(c)}
-            >
-              <img src={c.img} alt={c.title} />
-              <div className="bt-overlay">
-                <h3>{c.title}</h3>
-                <p>{c.desc}</p>
-                <span className="btn primary">View Image</span>
-              </div>
-            </button>
-          ))}
-        </div>
+      <h2>Air Hockey</h2>
+
+      <div className="muted" style={{ marginBottom: "10px" }}>
+        Fast-paced arcade-style game. First to score wins.
       </div>
 
-      {activeImage ? (
-        <div className="bt-modal" onClick={() => setActiveImage(null)}>
-          <div
-            className="bt-modal-card"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <div style={{ marginBottom: "12px" }}>
+        âš¡ 1 vs 1 or 2 vs 2 <br />
+        âš¡ Quick matches <br />
+        âš¡ High energy gameplay
+      </div>
+
             <button
-              type="button"
-              className="bt-close"
-              onClick={() => setActiveImage(null)}
-            >
-              ×
-            </button>
-
-            <img
-              src={activeImage.img}
-              alt={activeImage.title}
-              className="bt-modal-img"
-            />
-
-            <div className="bt-modal-info">
-              <h3>{activeImage.title}</h3>
-              <div className="muted">{activeImage.desc}</div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
+        className="btn primary"
+        style={{ width: "100%" }}
+        onClick={() => navigate("/air-hockey-info")}
+      >
+        Pricing, Rules & How to Play
+      </button>
+    </div>
   );
 }
 
+function FoosballPage() {
+  const navigate = useNavigate();
+
+  return (
+        <div className="card">
+      <button
+        className="btn"
+        style={{ marginBottom: "12px" }}
+        onClick={() => navigate("/")}
+      >
+        â† Back to Home
+      </button>
+      <img
+        src="/home/foosball.jpg"
+        alt="Foosball"
+        style={{
+          width: "100%",
+          borderRadius: "16px",
+          marginBottom: "12px",
+        }}
+      />
+
+      <h2>Foosball</h2>
+
+      <div className="muted" style={{ marginBottom: "10px" }}>
+        Fast, social, and competitive table football for friends and groups.
+      </div>
+
+      <div style={{ marginBottom: "12px" }}>
+        âš½ 1 vs 1 or 2 vs 2 <br />
+        âš½ Quick and exciting matches <br />
+        âš½ Perfect for group fun
+      </div>
+
+      <button
+        className="btn primary"
+        style={{ width: "100%" }}
+        onClick={() => navigate("/foosball-info")}
+      >
+        Pricing, Rules & How to Play
+      </button>
+    </div>
+  );
+}
+function MassageChairPage() {
+  const navigate = useNavigate();
+
+  return (
+    <div className="card">
+      <button
+        className="btn"
+        style={{ marginBottom: "12px" }}
+        onClick={() => navigate("/")}
+      >
+        â† Back to Home
+      </button>
+
+      <img
+        src="/home/massagechair.png"
+        alt="Massage Chair"
+        style={{
+          width: "100%",
+          borderRadius: "16px",
+          marginBottom: "12px",
+        }}
+      />
+
+      <h2>Massage Chair</h2>
+
+      <div className="muted" style={{ marginBottom: "10px" }}>
+        Relax, recharge, and unwind between games at The Q Club.
+      </div>
+
+      <div style={{ marginBottom: "12px" }}>
+        ðŸ’† Full-body relaxation <br />
+        ðŸ’† Great between matches <br />
+        ðŸ’† Premium lounge experience
+      </div>
+
+      <button
+        className="btn primary"
+        style={{ width: "100%" }}
+        onClick={() => navigate("/massage-chair-info")}
+      >
+        Pricing, Modes & How to Use
+      </button>
+    </div>
+  );
+}
 
 function Home({ data, admin, commit, activeTournament }) {
   const phone = [data.club?.contact?.phone1, data.club?.contact?.phone2]
@@ -3991,6 +4331,43 @@ const isSnookerTournament =
 const tournamentImage = isSnookerTournament ? "/home/snooker.jpg" : "/home/pool.jpg";
 const disclaimerTitle = data.club?.tournamentDisclaimerTitle || "Tournament Legal Disclaimer";
 const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData().club.tournamentDisclaimerContent;
+const visibleAnnouncements = (data.announcements || []).filter(isAnnouncementVisible);
+
+const prioritizedAnnouncements = useMemo(() => {
+  const activeBookings = (visibleAnnouncements || []).filter(
+    (a) => a?.type === "table_booking"
+  );
+  const rest = (visibleAnnouncements || []).filter(
+    (a) => a?.type !== "table_booking"
+  );
+
+  return [...activeBookings, ...rest];
+}, [visibleAnnouncements]);
+
+const tickerItems = useMemo(() => {
+  const activeBookings = prioritizedAnnouncements.filter(
+    (a) => a?.type === "table_booking"
+  );
+  const rest = prioritizedAnnouncements.filter(
+    (a) => a?.type !== "table_booking"
+  );
+
+  return [...activeBookings, ...rest, ...rest];
+}, [prioritizedAnnouncements]);
+
+const tickerRenderKey = useMemo(
+  () =>
+    (tickerItems || [])
+      .map((a) => `${a.id || ""}:${a.text || ""}:${a.expiresAt || ""}`)
+      .join("|"),
+  [tickerItems]
+);
+const [tickerPaused, setTickerPaused] = useState(false);
+const [tickerDragOffset, setTickerDragOffset] = useState(0);
+const tickerTouchStartX = useRef(null);
+const tickerTouchMoved = useRef(false);
+const tickerDragStartOffset = useRef(0);
+
   const clubGallery = [
     { id: "snooker", url: "/home/snooker.jpg", caption: "Snooker" },
     { id: "airhockey", url: "/home/air-hockey.png", caption: "Air Hockey" },
@@ -4022,36 +4399,172 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
     `}</style>
 
     <div className="container refHome">
-      <section
+            {admin && (
+  <div className="row" style={{ marginTop: 4, gap: 8, flexWrap: "wrap" }}>
+    <button className="btn" type="button" onClick={addAnnouncement}>
+      + Add Announcement
+    </button>
+    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+  <span className="muted">Ticker Speed</span>
+  <input
+    type="number"
+    min="10"
+    max="120"
+    step="1"
+    value={data.club?.tickerSpeed || 28}
+    onChange={(e) =>
+      commit({
+        ...data,
+        club: {
+          ...data.club,
+          tickerSpeed: safeNum(e.target.value, 28),
+        },
+      })
+    }
+    style={{
+      width: 90,
+      padding: "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(255,255,255,.12)",
+      background: "rgba(255,255,255,.04)",
+      color: "#eaf0ff",
+    }}
+  />
+</div>
+    
+    {(data.announcements || []).map((a) => (
+      <div key={a.id} className="row" style={{ gap: 6 }}>
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={() => editAnnouncement(a.id)}
+        >
+          Edit
+        </button>
+
+        <button
+          className="btn danger"
+          type="button"
+          onClick={() => deleteAnnouncement(a.id)}
+        >
+          Delete
+        </button>
+      </div>
+    ))}
+  </div>
+)}
+<div
+  className="refGlassCard"
+  style={{
+    overflow: "hidden",
+    marginTop: 2,
+    marginBottom: 4,
+    padding: "2px 10px",
+  }}
+>
+  <div
+    className="announceTicker"
+    onMouseEnter={() => setTickerPaused(true)}
+    onMouseLeave={() => {
+      setTickerPaused(false);
+      setTickerDragOffset(0);
+    }}
+    onTouchStart={(e) => {
+      const startX = e.touches?.[0]?.clientX ?? null;
+      setTickerPaused(true);
+      tickerTouchMoved.current = false;
+      tickerTouchStartX.current = startX;
+      tickerDragStartOffset.current = tickerDragOffset;
+    }}
+    onTouchMove={(e) => {
+      const currentX = e.touches?.[0]?.clientX ?? null;
+      if (tickerTouchStartX.current !== null && currentX !== null) {
+        const deltaX = currentX - tickerTouchStartX.current;
+
+        if (Math.abs(deltaX) > 8) {
+          tickerTouchMoved.current = true;
+        }
+
+        setTickerDragOffset(tickerDragStartOffset.current + deltaX);
+      }
+    }}
+    onTouchEnd={() => {
+      tickerTouchStartX.current = null;
+      tickerDragStartOffset.current = 0;
+      setTickerDragOffset(0);
+      setTimeout(() => setTickerPaused(false), 1200);
+    }}
+  >
+    <div
+      style={{
+        transform: tickerDragOffset
+          ? `translateX(${tickerDragOffset}px)`
+          : "translateX(0px)",
+        transition: tickerPaused ? "none" : "transform .35s ease",
+        willChange: "transform",
+      }}
+    >
+      <div
+  key={tickerRenderKey}
+  className="announceTickerTrack"
+  style={{
+    animationDuration: `${data.club?.tickerSpeed || 28}s`,
+    animationPlayState: tickerPaused ? "paused" : "running",
+  }}
+>
+        {tickerItems.length > 0
+  ? tickerItems.map((a, idx) => (
+      <a
+        key={`${a.id || idx}-${idx}`}
+        className={`announceTickerItem ${a?.type === "table_booking" ? "announceTickerItemBooking" : ""}`}
+        href={a.link || "#"}
+        onClick={(e) => {
+          if (tickerTouchMoved.current || !a.link) {
+            e.preventDefault();
+          }
+        }}
+      >
+        {a.text}
+      </a>
+    ))
+  : (
+      <span className="announceTickerItem">No announcements yet.</span>
+    )}
+      </div>
+    </div>
+  </div>
+</div>
+      
+            <section
   className="refHero"
   style={{
+    marginTop: 2,
     backgroundImage: `linear-gradient(180deg, rgba(7,10,18,.30), rgba(7,10,18,.68)),
       radial-gradient(900px 320px at 20% 0%, rgba(56,211,159,.10), transparent 60%),
       radial-gradient(900px 420px at 90% 10%, rgba(212,175,55,.10), transparent 60%),
       url("${heroImage}")`,
-    backgroundSize: "contain",
-    backgroundPosition: "center top",
-    backgroundRepeat: "no-repeat",
-    backgroundColor: "#050814",
-    transition: "background-image 0.25s ease-in-out",
+    backgroundSize: "cover",
+backgroundPosition: "center center",
+backgroundRepeat: "no-repeat",
+backgroundColor: "#050814",
+transition: "background-image 0.45s ease-in-out",
   }}
 >
         <div className="refHeroTopBar">
   <div className="refHeroActionRow">
-  <Link className="btn neonGreen refHeroActionBtn" to="/book">
-  Book Table
+    <Link className="btn neonGreen refHeroActionBtn" to="/book">
+  {data.club?.heroBookBtnLabel || "Book Table"}
 </Link>
 
   <Link className="btn neonGreen refHeroActionBtn" to="/membership">
-  Membership
+  {data.club?.heroMembershipBtnLabel || "Membership"}
 </Link>
 
-  <Link
+<Link
   className="btn neonGreen refHeroActionBtn"
-  to="/offer"
-  
+  to="/shop"
 >
-  The Q Lounge
+  {data.club?.heroShopBtnLabel || "The Q Shop"}
 </Link>
 </div>
 
@@ -4062,7 +4575,7 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
       onClick={prevHeroImage}
       aria-label="Previous image"
     >
-      ←
+      â†
     </button>
     <button
       className="btn"
@@ -4070,12 +4583,12 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
       onClick={nextHeroImage}
       aria-label="Next image"
     >
-      →
+      â†’
     </button>
   </div>
 </div>
 
-        <div className="refHeroSpacer" />
+                <div className="refHeroSpacer" style={{ minHeight: 120 }} />
 
         <div className="refHeroBottom">
           <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
@@ -4089,10 +4602,10 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
 
           <div className="refHeroSubtitle">
             {data.club?.tagline2 ||
-              "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
+              "Snooker â€¢ Pool â€¢ Air Hockey â€¢ Foosball â€¢ Massage Chair â€¢ Tea & Coffee"}
           </div>{admin && (
   <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
-    <button
+        <button
       className="btn"
       type="button"
       onClick={() => {
@@ -4102,9 +4615,27 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
         const tagline2 = prompt(
           "Hero subtitle:",
           data.club?.tagline2 ||
-            "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"
+            "Snooker â€¢ Pool â€¢ Air Hockey â€¢ Foosball â€¢ Massage Chair â€¢ Tea & Coffee"
         );
         if (!tagline2) return;
+
+        const heroBookBtnLabel = prompt(
+          "Hero button 1 label:",
+          data.club?.heroBookBtnLabel || "Book Table"
+        );
+        if (heroBookBtnLabel === null) return;
+
+        const heroMembershipBtnLabel = prompt(
+          "Hero button 2 label:",
+          data.club?.heroMembershipBtnLabel || "Membership"
+        );
+        if (heroMembershipBtnLabel === null) return;
+
+        const heroShopBtnLabel = prompt(
+          "Hero button 3 label:",
+          data.club?.heroShopBtnLabel || "The Q Shop"
+        );
+        if (heroShopBtnLabel === null) return;
 
         commit({
           ...data,
@@ -4112,6 +4643,9 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
             ...data.club,
             name,
             tagline2,
+            heroBookBtnLabel: heroBookBtnLabel.trim(),
+            heroMembershipBtnLabel: heroMembershipBtnLabel.trim(),
+            heroShopBtnLabel: heroShopBtnLabel.trim(),
           },
         });
       }}
@@ -4144,95 +4678,9 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
       </section>
 
       <section className="refInfoGrid">
-  <div className="refGlassCard" style={{ gridColumn: "1 / -1", overflow: "hidden" }}>
-    <div className="refInfoLabel" style={{ marginBottom: 10 }}>Announcements</div>
-
-    <div className="announceTicker">
-      <div
-  className="announceTickerTrack"
-  style={{
-    animationDuration: `${data.club?.tickerSpeed || 28}s`,
-  }}
->
-        {(data.announcements || []).length > 0
-          ? [...(data.announcements || []), ...(data.announcements || [])].map((a, idx) => (
-              <a
-  key={`${a.id || idx}-${idx}`}
-  className="announceTickerItem"
-  href={a.link || "#"}
-  onClick={(e) => {
-    if (!a.link) e.preventDefault();
-  }}
->
-  {a.text}
-</a>
-            ))
-          : (
-              <span className="announceTickerItem">No announcements yet.</span>
-            )}
-      </div>
-    </div>
-  </div>
-  {admin && (
-  <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-    <button className="btn" type="button" onClick={addAnnouncement}>
-      + Add Announcement
-    </button>
-    <div className="row" style={{ gap: 6, alignItems: "center" }}>
-  <span className="muted">Ticker Speed</span>
-  <input
-    type="number"
-    min="10"
-    max="120"
-    step="1"
-    value={data.club?.tickerSpeed || 28}
-    onChange={(e) =>
-      commit({
-        ...data,
-        club: {
-          ...data.club,
-          tickerSpeed: safeNum(e.target.value, 28),
-        },
-      })
-    }
-    style={{
-      width: 90,
-      padding: "8px 10px",
-      borderRadius: 10,
-      border: "1px solid rgba(255,255,255,.12)",
-      background: "rgba(255,255,255,.04)",
-      color: "#eaf0ff",
-    }}
-  />
-</div>
-    <div
-  className="announceTickerTrack"
-  style={{
-    animationDuration: `${data.club?.tickerSpeed || 28}s`,
-  }}
-></div>
-
-    {(data.announcements || []).map((a) => (
-      <div key={a.id} className="row" style={{ gap: 6 }}>
-        <button
-          className="btn secondary"
-          type="button"
-          onClick={() => editAnnouncement(a.id)}
-        >
-          Edit
-        </button>
-
-        <button
-          className="btn danger"
-          type="button"
-          onClick={() => deleteAnnouncement(a.id)}
-        >
-          Delete
-        </button>
-      </div>
-    ))}
-  </div>
-)}
+  
+  
+    
 <BeyondTablesSection />
 </section>
 
@@ -4327,7 +4775,7 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
           "0 10px 24px rgba(255,70,20,.30), 0 0 16px rgba(255,90,40,.22), inset 0 1px 0 rgba(255,255,255,.18)",
       }}
     >
-      🔥 Register Now
+      ðŸ”¥ Register Now
     </Link>
 
     <a
@@ -4353,7 +4801,7 @@ const disclaimerContent = data.club?.tournamentDisclaimerContent || defaultData(
         WebkitBackdropFilter: "blur(6px)",
       }}
     >
-      📺 Watch Live
+      ðŸ“º Watch Live
     </a>
   </div>
 </div>
@@ -4411,7 +4859,7 @@ function MembersPage({ data, admin, commit }) {
   const manualMemberAnnouncement = {
   id: uid(),
   text: `${name.trim()} joins as the latest Q Club member !`,
-  link: "/members",
+  link: "/membership",
   createdAt: Date.now(),
 };
 
@@ -4816,6 +5264,31 @@ function Offers({ data, admin, commit, startPayment }) {
   const [showCheckout, setShowCheckout] = React.useState(false);
   const [customerName, setCustomerName] = React.useState("");
   const [customerPhone, setCustomerPhone] = React.useState("");
+  const [foodLightbox, setFoodLightbox] = React.useState(null);
+  function editFoodDrinksPageText() {
+  if (!admin) return;
+
+  const pageTitle = prompt(
+    "Food & Drinks page title:",
+    data.foodPage?.title || "Food & Drinks"
+  );
+  if (pageTitle === null) return;
+
+  const pageSubtitle = prompt(
+    "Food & Drinks page subtitle:",
+    data.foodPage?.subtitle || "The Q Lounge Menu"
+  );
+  if (pageSubtitle === null) return;
+
+  commit({
+    ...data,
+    foodPage: {
+      ...(data.foodPage || {}),
+      title: pageTitle.trim(),
+      subtitle: pageSubtitle.trim(),
+    },
+  });
+}
   const touchStartX = React.useRef(null);
   const touchEndX = React.useRef(null);
 
@@ -5082,47 +5555,47 @@ function Offers({ data, admin, commit, startPayment }) {
   }
 
   return (
-    <div className="container">
-      <div className="sectionTitle">
-        <span className="dot" />
-        <span>The Q Lounge Menu</span>
-      </div>
+  <>
+    <PageShell
+  title={data.foodPage?.title || "Food & Drinks"}
+  subtitle={data.foodPage?.subtitle || "The Q Lounge Menu"}
+/>
 
-      <h1 style={{ marginBottom: 18 }}>Food & Drinks</h1>
+        <div className="container foodPageContainer">
 
-      <div className="offersStickyBar">
-        <p className="muted" style={{ marginBottom: 20 }}>
-          Browse by Category
-        </p>
-
-        <div className="swipeHint">
-          ← Swipe to browse categories →
+      <div className="offersStickyBar foodCategoryDock">
+        <div className="foodCategoryTop">
+          <div>
+            <div className="foodSectionKicker">Order from the lounge</div>
+            <div className="foodSectionTitle">Browse the menu</div>
+          </div>
+          <div className="swipeHint foodSwipeHint">{items.length} items in {category.title || "this category"}</div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+                <div className="foodCategoryRow">
           {categories.map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
-              style={{
-                padding: "10px 14px",
-                borderRadius: "999px",
-                border: "1px solid rgba(255,255,255,.12)",
-                background: activeCategory === cat ? "rgba(16,185,129,.18)" : "rgba(255,255,255,.04)",
-                color: activeCategory === cat ? "#d7fff1" : "#eaf0ff",
-                fontWeight: 700,
-                cursor: "pointer"
-              }}
+              className={activeCategory === cat ? "foodCatChip active" : "foodCatChip"}
             >
-              {menu[cat].title}
+              {menu[cat].image ? (
+                <span className="foodCatThumb">
+                  <img src={menu[cat].image} alt={menu[cat].title} />
+                </span>
+              ) : null}
+
+              <span className="foodCatLabel">
+                {menu[cat].title}
+              </span>
             </button>
           ))}
         </div>
       </div>
 
-      {!admin && (
-        <div className="card" style={{ marginBottom: 20 }}>
+      {!admin && cartItems.length > 0 && showCheckout && (
+        <div className="card foodCartCard" style={{ marginBottom: 20 }}>
           <h3 style={{ marginTop: 0 }}>Your Cart</h3>
 
           {cartItems.length === 0 ? (
@@ -5177,7 +5650,7 @@ function Offers({ data, admin, commit, startPayment }) {
   onClick={() => removeFromCart(found)}
   style={{ minWidth: 32, height: 32, padding: "0 10px" }}
 >
-  −
+  âˆ’
 </button>
 
                           <div style={{ fontWeight: 800, minWidth: 16, textAlign: "center", fontSize: "0.95rem" }}>
@@ -5260,42 +5733,57 @@ function Offers({ data, admin, commit, startPayment }) {
                           return;
                         }
 
-                        const foodOrderItems = cartItems
-                          .map((id) => {
-                            const found = Object.values(menu)
-                              .flatMap((cat) => cat.items || [])
-                              .find((x) => x.id === id);
-
-                            return found
-                              ? {
-                                  id: found.id,
-                                  name: found.name,
-                                  qty: cart[id],
-                                  price: found.price,
-                                  lineTotal: found.price * cart[id],
-                                }
-                              : null;
-                          })
-                          .filter(Boolean);
-
                         localStorage.setItem("qclub_payment_context", "food");
                         localStorage.setItem("qclub_payment_name", customerName.trim());
                         localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
                         localStorage.setItem(
                           "qclub_food_cart",
-                          JSON.stringify(foodOrderItems)
-                        );
-                        localStorage.setItem("qclub_food_total", String(cartTotal));
+                          JSON.stringify(
+                            cartItems
+                              .map((id) => {
+                                const found = Object.values(menu)
+                                  .flatMap((cat) => cat.items || [])
+                                  .find((x) => x.id === id);
 
-                        startPayment(cartTotal, customerPhone, customerName.trim(), {
-                          context: "food",
-                          customer_name: customerName.trim(),
-                          mobile: customerPhone.trim(),
-                          food_items: foodOrderItems
-                            .map((item) => `${item.name} x ${item.qty}`)
-                            .join(", "),
-                          food_items_json: JSON.stringify(foodOrderItems),
-                        });
+                                return found
+                                  ? {
+                                      id: found.id,
+                                      name: found.name,
+                                      qty: cart[id],
+                                      price: found.price,
+                                      lineTotal: found.price * cart[id],
+                                    }
+                                  : null;
+                              })
+                              .filter(Boolean)
+                          )
+                        );
+                                                localStorage.setItem("qclub_food_total", String(cartTotal));
+                        localStorage.setItem("qclub_food_order_started_at", new Date().toISOString());
+
+                        const foodItemsForOrderTags = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]")
+  .map((item, index) => {
+    const itemName = String(item?.name || "").trim();
+    const qty = Number(item?.qty || 0);
+    if (!itemName) return "";
+    return `${index + 1}. ${itemName}${qty > 0 ? ` x ${qty}` : ""}`;
+  })
+  .filter(Boolean)
+  .join("\n");
+
+startPayment(
+  cartTotal,
+  customerPhone.trim(),
+  customerName.trim(),
+  {
+    context: "food",
+    customer_name: customerName.trim(),
+    mobile: customerPhone.trim(),
+    food_items: foodItemsForOrderTags || "Food items",
+    food_items_json: localStorage.getItem("qclub_food_cart") || "[]",
+    food_total: String(cartTotal),
+  }
+);
                       }}
                     >
                       Pay ₹{cartTotal}
@@ -5313,6 +5801,9 @@ function Offers({ data, admin, commit, startPayment }) {
           <button className="btn" type="button" onClick={addCategory}>
             + Add Category
           </button>
+          <button className="btn secondary" type="button" onClick={editFoodDrinksPageText}>
+  Edit Food & Drinks Title
+</button>
 
           {activeCategory && (
             <>
@@ -5342,25 +5833,8 @@ function Offers({ data, admin, commit, startPayment }) {
         </div>
       )}
 
-      {category.image && (
-        <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
-          <img
-            src={category.image}
-            alt={category.title || "Menu category"}
-            style={{
-              width: "100%",
-              maxHeight: "280px",
-              objectFit: "cover",
-              display: "block"
-            }}
-          />
-          <div style={{ padding: 16 }}>
-            <h2 style={{ margin: 0 }}>{category.title}</h2>
-          </div>
-        </div>
-      )}
-
       <div
+        className="foodMenuGrid"
         onTouchStart={(e) => {
           touchStartX.current = e.changedTouches[0].screenX;
         }}
@@ -5368,60 +5842,53 @@ function Offers({ data, admin, commit, startPayment }) {
           touchEndX.current = e.changedTouches[0].screenX;
           handleCategorySwipe();
         }}
-        style={{
-          display: "grid",
-          gridTemplateColumns: window.innerWidth < 700
-            ? "repeat(2, 1fr)"
-            : "repeat(auto-fit, minmax(220px, 280px))",
-          gap: 18
-        }}
       >
         {items.map((item) => (
-          <div key={item.id} className="card" style={{ padding: 14 }}>
-            <img
-              src={item.image}
-              alt={item.name}
-              style={{
-                width: "100%",
-                height: "110px",
-                objectFit: "contain",
-                backgroundColor: "rgba(255,255,255,0.03)",
-                borderRadius: "12px",
-                marginBottom: "12px"
+                    <div key={item.id} className="card foodItemCard">
+            <button
+              type="button"
+              className="foodCardImageBtn"
+              onClick={() => {
+                if (!item.image) return;
+                setFoodLightbox({ title: item.name, image: item.image });
               }}
-            />
-
-            <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: 10,
-                marginBottom: 4
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                margin: 0,
+                width: "100%",
+                cursor: item.image ? "zoom-in" : "default",
+                textAlign: "left",
               }}
             >
-              <h3 style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.15 }}>{item.name}</h3>
+              <div className="foodItemImageWrap compact">
+                <img src={item.image} alt={item.name} />
+                <div className="foodImageOverlay" />
+              </div>
+            </button>
 
-              <div style={{ fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
-                ₹{item.price}
+            <div className="foodItemBody">
+              <div className="foodItemTopline">
+                <div className="foodItemEyebrow">
+                  {category.title || "Q Lounge"}
+                </div>
+                <div className="foodItemPrice">₹{item.price}</div>
+              </div>
+
+              <h3 className="foodItemTitle" style={{ margin: 0 }}>
+                {item.name}
+              </h3>
+
+              <div className="muted foodItemDesc">
+                {item.description || "Freshly prepared at The Q Lounge."}
               </div>
             </div>
 
-            <div
-              className="muted"
-              style={{
-                marginBottom: 8,
-                fontSize: "0.9rem",
-                lineHeight: "1.2em",
-                height: "2.4em",
-                overflow: "hidden"
-              }}
-            >
-              {item.description}
-            </div>
+            
 
             {admin ? (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div className="foodAdminActions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button
                   className="btn secondary"
                   type="button"
@@ -5470,16 +5937,14 @@ function Offers({ data, admin, commit, startPayment }) {
                 </button>
               </div>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button className="btn secondary" onClick={() => removeFromCart(item)}>
-                  −
+              <div className="foodQuickActions">
+                <button className="btn secondary" type="button" onClick={() => removeFromCart(item)}>
+                  âˆ’
                 </button>
 
-                <div style={{ fontWeight: 800, minWidth: 24, textAlign: "center" }}>
-                  {itemQty(item)}
-                </div>
+                <div className="foodQtyPill">{itemQty(item)}</div>
 
-                <button className="btn" onClick={() => addToCart(item)}>
+                <button className="btn primary foodAddBtn" type="button" onClick={() => addToCart(item)}>
                   + Add
                 </button>
               </div>
@@ -5487,9 +5952,1692 @@ function Offers({ data, admin, commit, startPayment }) {
           </div>
         ))}
       </div>
-    </div>
+       {!admin && cartItems.length > 0 && !showCheckout ? (
+        <button
+          type="button"
+          className="foodFloatingCart"
+          onClick={() => setShowCheckout(true)}
+        >
+          <div className="foodFloatingCartLeft">
+            <div className="foodFloatingCartCount">
+              {cartItems.reduce((sum, id) => sum + (cart[id] || 0), 0)} item
+              {cartItems.reduce((sum, id) => sum + (cart[id] || 0), 0) === 1 ? "" : "s"}
+            </div>
+            <div className="foodFloatingCartTotal">₹{cartTotal}</div>
+          </div>
+
+          <div className="foodFloatingCartRight">
+            View Cart â†’
+          </div>
+        </button>
+      ) : null}
+
+      {foodLightbox ? (
+        <div
+          onClick={() => setFoodLightbox(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(3,8,18,.88)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(860px, 96vw)",
+              borderRadius: 24,
+              border: "1px solid rgba(255,255,255,.12)",
+              background: "linear-gradient(180deg, rgba(24,32,54,.96), rgba(10,16,30,.96))",
+              boxShadow: "0 24px 80px rgba(0,0,0,.45)",
+              padding: 16,
+            }}
+          >
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{foodLightbox.title}</div>
+              <button className="iconBtn" type="button" onClick={() => setFoodLightbox(null)}>
+                âœ•
+              </button>
+            </div>
+            <div
+              style={{
+                borderRadius: 18,
+                overflow: "hidden",
+                background: "#09101d",
+              }}
+            >
+              <img
+                src={foodLightbox.image}
+                alt={foodLightbox.title}
+                style={{
+                  width: "100%",
+                  maxHeight: "78vh",
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+        </div>
+  </>
   );
 }
+function QShopPage({ data, admin, commit, startPayment }) {
+  const fallbackItems = [
+    {
+      id: "cue-1",
+      name: "Beginner Cue Stick",
+      desc: "Great starter cue for club and casual players",
+      price: 1111,
+      stock: 2,
+      badge: "Pre-book Open",
+      img: "/home/snooker.jpg",
+    },
+    {
+      id: "case-1",
+      name: "Cue Case",
+      desc: "Protective case for carrying your cue safely",
+      price: 1499,
+      stock: 3,
+      badge: "Pre-book Open",
+      img: "/home/foosball.jpg",
+    },
+    {
+      id: "chalk-1",
+      name: "Chalk & Accessories",
+      desc: "Chalk, tips, gloves and essential cue accessories",
+      price: 299,
+      stock: 10,
+      badge: "Coming Soon",
+      img: "/home/air-hockey.png",
+    },
+  ];
+
+  const shopItems =
+    Array.isArray(data.shopCatalog?.items) && data.shopCatalog.items.length
+      ? data.shopCatalog.items
+      : fallbackItems;
+
+  function slugify(value) {
+    return String(value || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `opt-${Date.now()}`;
+  }
+    function itemShareSlug(item) {
+  const namePart = slugify(item?.name || "item");
+  const idPart = slugify(item?.id || "id");
+  return `${namePart}-${idPart}`;
+}
+
+  function optionShareSlug(option) {
+    return slugify(option?.label || option?.id || "option");
+  }
+
+  function buildShopShareUrl(item, option = null) {
+  const params = new URLSearchParams();
+  params.set("item", itemShareSlug(item));
+
+  if (option?.label || option?.id) {
+    params.set("option", optionShareSlug(option));
+  }
+
+  const query = params.toString();
+  const hash = `shop-item-${item.id}`;
+
+  return `${window.location.origin}/shop${query ? `?${query}` : ""}#${hash}`;
+}
+
+  function uniqueNonEmpty(values) {
+    return Array.from(
+      new Set(
+        (values || [])
+          .map((x) => String(x || "").trim())
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function normalizeItem(item) {
+    const normalizedOptions = Array.isArray(item?.options)
+      ? item.options
+          .map((opt, index) => ({
+            id: String(opt?.id || `${item?.id || "item"}-opt-${index + 1}`),
+            label: String(opt?.label || "").trim(),
+            stock: Math.max(0, safeNum(opt?.stock, 0)),
+            img: String(opt?.img || "").trim(),
+          }))
+          .filter((opt) => opt.label)
+      : [];
+
+    const normalizedImages = uniqueNonEmpty([
+      ...(Array.isArray(item?.images) ? item.images : []),
+      item?.img || "",
+    ]);
+
+    return {
+      ...item,
+      optionGroupLabel: String(item?.optionGroupLabel || "").trim(),
+      options: normalizedOptions,
+      stock: Math.max(0, safeNum(item?.stock, 0)),
+      img: String(item?.img || normalizedImages[0] || "").trim(),
+      images: normalizedImages,
+    };
+  }
+
+    const normalizedShopItems = useMemo(() => {
+    return shopItems.map(normalizeItem);
+  }, [shopItems]);
+
+  function itemHasOptions(item) {
+    return Array.isArray(item?.options) && item.options.length > 0;
+  }
+
+  function currentItemOptions(item) {
+    return itemHasOptions(item) ? item.options : [];
+  }
+
+  function optionPromptString(item) {
+    if (!itemHasOptions(item)) return "";
+    return item.options
+      .map((opt) => `${opt.label}~${Math.max(0, safeNum(opt.stock, 0))}`)
+      .join(" | ");
+  }
+
+  function parseOptionsFromPrompt(raw, itemId) {
+    const text = String(raw || "").trim();
+    if (!text) return [];
+
+    return text
+      .split("|")
+      .map((part, index) => {
+        const [labelRaw, stockRaw] = String(part).split("~");
+        const label = String(labelRaw || "").trim();
+        if (!label) return null;
+
+        return {
+          id: `${itemId}_${slugify(label)}_${index + 1}`,
+          label,
+          stock: Math.max(0, safeNum(stockRaw, 0)),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function parseImagesFromPrompt(raw, fallbackMain = "") {
+    const parsed = uniqueNonEmpty(String(raw || "").split("|"));
+    if (parsed.length) return parsed;
+    return fallbackMain ? [String(fallbackMain).trim()].filter(Boolean) : [];
+  }
+
+  function cartEntryKey(itemId, optionId = "") {
+    return `${String(itemId || "")}__${String(optionId || "")}`;
+  }
+
+  function buildCartEntry(item, qty = 1, selectedOption = null) {
+    const optionLabel = selectedOption?.label ? String(selectedOption.label) : "";
+    const displayName = optionLabel ? `${item.name} - ${optionLabel}` : item.name;
+
+    return {
+      key: cartEntryKey(item.id, selectedOption?.id || ""),
+      itemId: item.id,
+      name: item.name,
+      displayName,
+      qty: Math.max(0, safeNum(qty, 0)),
+      price: safeNum(item.price, 0),
+      lineTotal: safeNum(item.price, 0) * Math.max(0, safeNum(qty, 0)),
+      selectedOptionId: selectedOption?.id || "",
+      selectedOptionLabel: optionLabel,
+    };
+  }
+
+  function normalizeSavedCart(rawCart, items) {
+    if (Array.isArray(rawCart)) {
+      return rawCart
+        .map((entry) => {
+          const item = items.find((x) => x.id === entry?.itemId);
+          if (!item) return null;
+
+          const selectedOption = itemHasOptions(item)
+            ? currentItemOptions(item).find((opt) => opt.id === entry?.selectedOptionId) || null
+            : null;
+
+          const qty = Math.max(0, safeNum(entry?.qty, 0));
+          if (qty <= 0) return null;
+
+          return buildCartEntry(item, qty, selectedOption);
+        })
+        .filter(Boolean);
+    }
+
+    if (rawCart && typeof rawCart === "object") {
+      return Object.entries(rawCart)
+        .map(([itemId, qty]) => {
+          const item = items.find((x) => x.id === itemId);
+          if (!item) return null;
+
+          const normalizedQty = Math.max(0, safeNum(qty, 0));
+          if (normalizedQty <= 0) return null;
+
+          return buildCartEntry(item, normalizedQty, null);
+        })
+        .filter(Boolean);
+    }
+
+    return [];
+  }
+  const [searchParams] = useSearchParams();
+    const location = useLocation();
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("qclub_shop_cart") || "[]");
+      return normalizeSavedCart(saved, normalizedShopItems);
+    } catch {
+      return [];
+    }
+  });
+
+  const [selectedOptions, setSelectedOptions] = useState(() => {
+    const initial = {};
+    normalizedShopItems.forEach((item) => {
+      if (itemHasOptions(item)) {
+        initial[item.id] = item.options[0]?.id || "";
+      }
+    });
+    return initial;
+  });
+
+  const [selectedImageIndex, setSelectedImageIndex] = useState(() => {
+    const initial = {};
+    normalizedShopItems.forEach((item) => {
+      initial[item.id] = 0;
+    });
+    return initial;
+  });
+
+  const [lightbox, setLightbox] = useState(null);
+    const sharedLinkHandledRef = useRef("");
+  const [showCart, setShowCart] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [customerName, setCustomerName] = useState(localStorage.getItem("qclub_payment_name") || "");
+  const [customerPhone, setCustomerPhone] = useState(localStorage.getItem("qclub_payment_mobile") || "");
+    const sharedItemSlug = String(searchParams.get("item") || "").trim().toLowerCase();
+  const sharedOptionSlug = String(searchParams.get("option") || "").trim().toLowerCase();
+
+  const normalizedWhatsappNumber = String(customerPhone || "").replace(/\D/g, "");
+  const isValidIndianWhatsappNumber = /^[6-9]\d{9}$/.test(normalizedWhatsappNumber);
+  const isCheckoutFormValid =
+    customerName.trim().length > 0 && isValidIndianWhatsappNumber;
+
+  useEffect(() => {
+    localStorage.setItem("qclub_shop_cart", JSON.stringify(cart));
+  }, [cart]);
+
+  useEffect(() => {
+    setSelectedOptions((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      normalizedShopItems.forEach((item) => {
+        if (!itemHasOptions(item)) {
+          if (next[item.id]) {
+            delete next[item.id];
+            changed = true;
+          }
+          return;
+        }
+
+        const exists = item.options.some((opt) => opt.id === next[item.id]);
+        if (!exists) {
+          next[item.id] = item.options[0]?.id || "";
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+
+    setSelectedImageIndex((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      normalizedShopItems.forEach((item) => {
+        const gallery = getGalleryImages(item, false);
+        const maxIndex = Math.max(0, gallery.length - 1);
+        const current = Number.isFinite(prev[item.id]) ? prev[item.id] : 0;
+        const safeIndex = Math.min(current, maxIndex);
+
+        if (safeIndex !== current || prev[item.id] === undefined) {
+          next[item.id] = safeIndex;
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+
+    setCart((prev) => normalizeSavedCart(prev, normalizedShopItems));
+  }, [data.shopCatalog?.items]);
+
+          useEffect(() => {
+    if (!sharedItemSlug) return;
+
+    const handleKey = `${sharedItemSlug}__${sharedOptionSlug}`;
+    if (sharedLinkHandledRef.current === handleKey) return;
+
+    const matchedItem = normalizedShopItems.find(
+      (item) => itemShareSlug(item) === sharedItemSlug
+    );
+    if (!matchedItem) return;
+
+    if (itemHasOptions(matchedItem) && sharedOptionSlug) {
+      const matchedOption = matchedItem.options.find(
+        (opt) => optionShareSlug(opt) === sharedOptionSlug
+      );
+
+      if (matchedOption) {
+        setSelectedOptions((prev) => ({
+          ...prev,
+          [matchedItem.id]: matchedOption.id,
+        }));
+      }
+    }
+
+    sharedLinkHandledRef.current = handleKey;
+  }, [sharedItemSlug, sharedOptionSlug, normalizedShopItems]);
+    useEffect(() => {
+    const hash = String(location.hash || "").replace(/^#/, "").trim();
+    if (!hash) return;
+
+    const scrollToHash = () => {
+      const el = document.getElementById(hash);
+      if (!el) return false;
+
+      const y = el.getBoundingClientRect().top + window.scrollY - 110;
+      window.scrollTo({
+        top: Math.max(0, y),
+        behavior: "auto",
+      });
+      return true;
+    };
+
+    if (scrollToHash()) return;
+
+    const timer = setTimeout(() => {
+      scrollToHash();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [location.hash, normalizedShopItems]);
+  function saveShopItems(nextItems) {
+    commit({
+      ...data,
+      shopCatalog: {
+        ...(data.shopCatalog || {}),
+        items: nextItems,
+      },
+    });
+  }
+
+  function getSelectedOption(item) {
+    if (!itemHasOptions(item)) return null;
+    const selectedId = selectedOptions[item.id] || item.options[0]?.id || "";
+    return item.options.find((opt) => opt.id === selectedId) || item.options[0] || null;
+  }
+
+  function getGalleryImages(item, includeOptionImage = true) {
+    const selectedOption = getSelectedOption(item);
+    const optionImage = includeOptionImage ? String(selectedOption?.img || "").trim() : "";
+    return uniqueNonEmpty([
+      optionImage,
+      ...(Array.isArray(item?.images) ? item.images : []),
+      item?.img || "",
+    ]);
+  }
+
+  function getDisplayImage(item) {
+    const gallery = getGalleryImages(item);
+    const currentIndex = Math.min(
+      Math.max(0, safeNum(selectedImageIndex[item.id], 0)),
+      Math.max(0, gallery.length - 1)
+    );
+    return gallery[currentIndex] || "";
+  }
+
+  function getAvailableStock(item, optionId = "") {
+    if (itemHasOptions(item)) {
+      const selectedId = optionId || getSelectedOption(item)?.id || "";
+      const option = item.options.find((opt) => opt.id === selectedId);
+      return Math.max(0, safeNum(option?.stock, 0));
+    }
+    return Math.max(0, safeNum(item?.stock, 0));
+  }
+
+  function itemQty(itemId, optionId = "") {
+    const key = cartEntryKey(itemId, optionId);
+    const entry = cart.find((x) => x.key === key);
+    return Math.max(0, safeNum(entry?.qty, 0));
+  }
+
+  function setItemImageIndex(itemId, index) {
+    setSelectedImageIndex((prev) => ({
+      ...prev,
+      [itemId]: Math.max(0, safeNum(index, 0)),
+    }));
+  }
+
+  function openLightbox(item, index = 0) {
+    const images = getGalleryImages(item);
+    if (!images.length) return;
+    setLightbox({
+      itemId: item.id,
+      title: item.name,
+      images,
+      index: Math.min(Math.max(0, safeNum(index, 0)), images.length - 1),
+    });
+  }
+
+  function closeLightbox() {
+    setLightbox(null);
+  }
+
+  function moveLightbox(step) {
+    setLightbox((prev) => {
+      if (!prev || !Array.isArray(prev.images) || !prev.images.length) return prev;
+      const total = prev.images.length;
+      const nextIndex = (prev.index + step + total) % total;
+      return { ...prev, index: nextIndex };
+    });
+  }
+
+  function addShopItem() {
+    if (!admin) return alert("Main admin only");
+
+    const name = prompt("Product name:", "New Product");
+    if (!name) return;
+
+    const desc = prompt("Description:", "") || "";
+    const price = prompt("Price in rupees:", "999");
+    if (price === null) return;
+
+    const badge = prompt("Badge text:", "Pre-book Open") || "Pre-book Open";
+    const optionGroupLabel =
+      prompt("Option type (example: Colour or Length). Leave blank for no options:", "") || "";
+
+    const newItemId = `shop_${Date.now()}`;
+
+    let options = [];
+    let stockValue = 0;
+
+    if (optionGroupLabel.trim()) {
+      const optionsRaw =
+        prompt(
+          `Enter ${optionGroupLabel.trim()} options in this format:\nBlack~2 | Brown~1 | Grey~4`,
+          ""
+        ) || "";
+      options = parseOptionsFromPrompt(optionsRaw, newItemId);
+
+      if (!options.length) {
+        alert("No valid options entered. Product will be created without options.");
+      }
+    }
+
+    if (!options.length) {
+      const stock = prompt("Available quantity / stock:", "1");
+      if (stock === null) return;
+      stockValue = Math.max(0, safeNum(stock, 0));
+    }
+
+    const imagesRaw =
+      prompt(
+        "Image URLs / paths separated by | \nExample:\n/img1.jpg | /img2.jpg | /img3.jpg",
+        "/home/snooker.jpg"
+      ) || "/home/snooker.jpg";
+
+    const images = parseImagesFromPrompt(imagesRaw, "/home/snooker.jpg");
+    const mainImg = images[0] || "/home/snooker.jpg";
+        const amazonUrl =
+      prompt("Amazon compare link (optional):", "") || "";
+
+    saveShopItems([
+      {
+        id: newItemId,
+        name: name.trim(),
+        desc: desc.trim(),
+        price: safeNum(price, 0),
+        stock: options.length ? 0 : stockValue,
+        badge: badge.trim(),
+        img: mainImg,
+        images,
+        optionGroupLabel: options.length ? optionGroupLabel.trim() : "",
+                amazonUrl: amazonUrl.trim(),
+        options,
+      },
+      ...normalizedShopItems,
+    ]);
+  }
+
+  function editShopItem(id) {
+    if (!admin) return alert("Main admin only");
+
+    const current = normalizedShopItems.find((x) => x.id === id);
+    if (!current) return;
+
+    const name = prompt("Edit product name:", current.name || "");
+    if (name === null) return;
+
+    const desc = prompt("Edit description:", current.desc || "");
+    if (desc === null) return;
+
+    const price = prompt("Edit price in rupees:", String(current.price ?? 0));
+    if (price === null) return;
+
+    const badge = prompt("Edit badge text:", current.badge || "");
+if (badge === null) return;
+
+const amazonUrl = prompt(
+  "Edit Amazon compare link (optional):",
+  current.amazonUrl || ""
+);
+if (amazonUrl === null) return;
+
+    const optionGroupLabel =
+      prompt(
+        "Edit option type (example: Colour or Length). Leave blank for no options:",
+        current.optionGroupLabel || ""
+      ) || "";
+
+    let nextOptions = [];
+    let nextStock = Math.max(0, safeNum(current.stock, 0));
+
+    if (optionGroupLabel.trim()) {
+      const optionsRaw =
+        prompt(
+          `Edit options in this format:\nBlack~2 | Brown~1 | Grey~4`,
+          optionPromptString(current)
+        ) || "";
+      nextOptions = parseOptionsFromPrompt(optionsRaw, current.id);
+
+      if (!nextOptions.length) {
+        alert("No valid options entered. Product will be converted to normal stock item.");
+      }
+    }
+
+    if (!nextOptions.length) {
+      const stock = prompt("Edit available quantity / stock:", String(current.stock ?? 0));
+      if (stock === null) return;
+      nextStock = Math.max(0, safeNum(stock, 0));
+    }
+
+    const imagesRaw =
+      prompt(
+        "Edit image URLs / paths separated by |",
+        uniqueNonEmpty(current.images || [current.img]).join(" | ")
+      ) || "";
+
+    const nextImages = parseImagesFromPrompt(imagesRaw, current.img || "");
+    const nextMainImg = nextImages[0] || current.img || "";
+
+    saveShopItems(
+      normalizedShopItems.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              name: name.trim(),
+              desc: desc.trim(),
+              price: safeNum(price, 0),
+              stock: nextOptions.length ? 0 : nextStock,
+              badge: badge.trim(),
+              img: nextMainImg,
+              images: nextImages,
+              optionGroupLabel: nextOptions.length ? optionGroupLabel.trim() : "",
+                            amazonUrl: amazonUrl.trim(),
+              options: nextOptions,
+            }
+          : x
+      )
+    );
+
+    setCart((prev) => prev.filter((entry) => entry.itemId !== id));
+    setSelectedImageIndex((prev) => ({ ...prev, [id]: 0 }));
+  }
+
+  function deleteShopItem(id) {
+    if (!admin) return alert("Main admin only");
+    if (!confirm("Delete this shop item?")) return;
+
+    saveShopItems(normalizedShopItems.filter((x) => x.id !== id));
+    setCart((prev) => prev.filter((entry) => entry.itemId !== id));
+  }
+
+  async function uploadShopItemImage(itemId, file) {
+    if (!admin) return alert("Main admin only");
+    if (!file) return;
+
+    try {
+      const uploaded = await uploadImageToStorage(file, "shop-items");
+
+      saveShopItems(
+        normalizedShopItems.map((x) => {
+          if (x.id !== itemId) return x;
+
+          const nextImages = uniqueNonEmpty([
+            ...(Array.isArray(x.images) ? x.images : []),
+            uploaded.url,
+            x.img,
+          ]);
+
+          return {
+            ...x,
+            img: nextImages[0] || uploaded.url,
+            images: nextImages,
+            imagePath: uploaded.path,
+          };
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload shop item image.");
+    }
+  }
+
+  function deleteCurrentShopItemImage(itemId) {
+    if (!admin) return alert("Main admin only");
+
+    const current = normalizedShopItems.find((x) => x.id === itemId);
+    if (!current) return;
+
+    const gallery = getGalleryImages(current, false);
+    const currentIndex = Math.min(
+      Math.max(0, safeNum(selectedImageIndex[itemId], 0)),
+      Math.max(0, gallery.length - 1)
+    );
+
+    if (gallery.length <= 1) {
+      alert("At least one image must remain.");
+      return;
+    }
+
+    const imageToDelete = gallery[currentIndex];
+    if (!imageToDelete) return;
+
+    const confirmed = confirm("Delete the currently selected image?");
+    if (!confirmed) return;
+
+    const nextImages = gallery.filter((img, idx) => idx !== currentIndex);
+    const nextMainImg =
+      String(current.img || "").trim() === String(imageToDelete).trim()
+        ? nextImages[0] || ""
+        : current.img;
+
+    saveShopItems(
+      normalizedShopItems.map((x) =>
+        x.id === itemId
+          ? {
+              ...x,
+              img: nextMainImg,
+              images: nextImages,
+            }
+          : x
+      )
+    );
+
+    setSelectedImageIndex((prev) => ({
+      ...prev,
+      [itemId]: Math.max(0, Math.min(currentIndex, nextImages.length - 1)),
+    }));
+  }
+
+  function clearShopItemImages(itemId) {
+    if (!admin) return alert("Main admin only");
+    const current = normalizedShopItems.find((x) => x.id === itemId);
+    if (!current) return;
+
+    const confirmed = confirm("Remove all extra gallery images and keep only the current main image?");
+    if (!confirmed) return;
+
+    const keep = String(current.img || "").trim();
+
+    saveShopItems(
+      normalizedShopItems.map((x) =>
+        x.id === itemId
+          ? {
+              ...x,
+              images: keep ? [keep] : [],
+              img: keep,
+            }
+          : x
+      )
+    );
+  }
+
+  function changeSelectedOption(itemId, optionId) {
+    setSelectedOptions((prev) => ({
+      ...prev,
+      [itemId]: optionId,
+    }));
+    setSelectedImageIndex((prev) => ({
+      ...prev,
+      [itemId]: 0,
+    }));
+  }
+
+  function addToCart(itemId) {
+    const item = normalizedShopItems.find((x) => x.id === itemId);
+    if (!item) return;
+
+    const selectedOption = getSelectedOption(item);
+    const optionId = selectedOption?.id || "";
+    const maxStock = getAvailableStock(item, optionId);
+
+    setCart((prev) => {
+      const key = cartEntryKey(item.id, optionId);
+      const existing = prev.find((x) => x.key === key);
+      const currentQty = Math.max(0, safeNum(existing?.qty, 0));
+
+      if (currentQty >= maxStock) return prev;
+
+      if (existing) {
+        return prev.map((entry) =>
+          entry.key === key
+            ? {
+                ...entry,
+                qty: currentQty + 1,
+                lineTotal: safeNum(entry.price, 0) * (currentQty + 1),
+              }
+            : entry
+        );
+      }
+
+      return [...prev, buildCartEntry(item, 1, selectedOption)];
+    });
+  }
+
+  function removeFromCart(itemId, optionId = "") {
+    const key = cartEntryKey(itemId, optionId);
+
+    setCart((prev) => {
+      const existing = prev.find((x) => x.key === key);
+      if (!existing) return prev;
+
+      const nextQty = Math.max(0, safeNum(existing.qty, 0) - 1);
+
+      if (nextQty <= 0) {
+        return prev.filter((x) => x.key !== key);
+      }
+
+      return prev.map((entry) =>
+        entry.key === key
+          ? {
+              ...entry,
+              qty: nextQty,
+              lineTotal: safeNum(entry.price, 0) * nextQty,
+            }
+          : entry
+      );
+    });
+  }
+
+  function cartTotal() {
+    return cart.reduce((sum, entry) => {
+      return sum + safeNum(entry.lineTotal, 0);
+    }, 0);
+  }
+
+  function buySingleItem(item) {
+  const amount = safeNum(item.price, 0);
+  if (!amount || amount <= 0) {
+    alert("Please set a valid product price first.");
+    return;
+  }
+
+  if (!customerName.trim()) {
+    alert("Please enter your name.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  if (!customerPhone.trim()) {
+    alert("Please enter your WhatsApp number.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  if (!isValidIndianWhatsappNumber) {
+    alert("Please enter a valid Indian 10-digit WhatsApp number.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  const selectedOption = getSelectedOption(item);
+  const singleCart = [buildCartEntry(item, 1, selectedOption)];
+
+  localStorage.setItem("qclub_payment_context", "shop");
+  localStorage.setItem("qclub_payment_name", customerName.trim());
+  localStorage.setItem("qclub_payment_mobile", normalizedWhatsappNumber);
+  localStorage.setItem("qclub_shop_cart", JSON.stringify(singleCart));
+  localStorage.setItem("qclub_shop_total", String(amount));
+
+  startPayment(
+  amount,
+  normalizedWhatsappNumber,
+  customerName.trim(),
+  {
+    context: "shop",
+    customer_name: customerName.trim(),
+    mobile: normalizedWhatsappNumber,
+    shop_items: singleCart
+      .map((entry) => `${entry.displayName || entry.name} x ${safeNum(entry.qty, 1)}`)
+      .join(", "),
+    shop_items_json: JSON.stringify(singleCart),
+    shop_total: String(amount),
+  }
+);
+}
+
+  function buyCartNow() {
+  const total = cartTotal();
+
+  if (!total || total <= 0) {
+    alert("Your cart is empty.");
+    return;
+  }
+
+  if (!customerName.trim()) {
+    alert("Please enter your name.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  if (!customerPhone.trim()) {
+    alert("Please enter your WhatsApp number.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  if (!isValidIndianWhatsappNumber) {
+    alert("Please enter a valid Indian 10-digit WhatsApp number.");
+    setShowCart(true);
+    setShowCheckout(true);
+    return;
+  }
+
+  localStorage.setItem("qclub_payment_context", "shop");
+  localStorage.setItem("qclub_retry_path", "/shop");
+  localStorage.setItem("qclub_payment_name", customerName.trim());
+  localStorage.setItem("qclub_payment_mobile", normalizedWhatsappNumber);
+  localStorage.setItem("qclub_shop_total", String(total));
+  localStorage.setItem("qclub_shop_cart", JSON.stringify(cart));
+
+  startPayment(
+  total,
+  normalizedWhatsappNumber,
+  customerName.trim(),
+  {
+    context: "shop",
+    customer_name: customerName.trim(),
+    mobile: normalizedWhatsappNumber,
+    shop_items: cart
+      .map((entry) => `${entry.displayName || entry.name} x ${safeNum(entry.qty, 1)}`)
+      .join(", "),
+    shop_items_json: JSON.stringify(cart),
+    shop_total: String(total),
+  }
+);
+}
+
+  function editShopHeader() {
+    if (!admin) return alert("Main admin only");
+
+    const topLabel = prompt(
+      "Top small label:",
+      data.shopCatalog?.topLabel || "Q Shop"
+    );
+    if (topLabel === null) return;
+
+    const heading = prompt(
+      "Main heading:",
+      data.shopCatalog?.heading || "Cue Sticks & Accessories"
+    );
+    if (heading === null) return;
+
+    const description = prompt(
+      "Description:",
+      data.shopCatalog?.description ||
+        "Fresh stock has been ordered and is expected soon. You can keep this page live now for display, enquiries, and pre-booking of cue sticks, cue cases, chalk, gloves, tips, and other accessories."
+    );
+    if (description === null) return;
+
+    const badge1 = prompt(
+      "Badge 1 text:",
+      data.shopCatalog?.badge1 || "Stock Arriving Soon"
+    );
+    if (badge1 === null) return;
+
+    const badge2 = prompt(
+      "Badge 2 text:",
+      data.shopCatalog?.badge2 || "Pre-booking Open"
+    );
+    if (badge2 === null) return;
+
+    commit({
+      ...data,
+      shopCatalog: {
+        ...(data.shopCatalog || {}),
+        topLabel: topLabel.trim(),
+        heading: heading.trim(),
+        description: description.trim(),
+        badge1: badge1.trim(),
+        badge2: badge2.trim(),
+        items: normalizedShopItems,
+      },
+    });
+  }
+
+  return (
+    <>
+      <PageShell
+        title={data.club?.shopPageTitle || "The Q Shop"}
+        subtitle={data.club?.shopPageSubtitle || "Cue sticks, cases and accessories arriving soon"}
+        right={
+          admin ? (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  const shopPageTitle = prompt(
+                    "Q Shop page title:",
+                    data.club?.shopPageTitle || "The Q Shop"
+                  );
+                  if (shopPageTitle === null) return;
+
+                  const shopPageSubtitle = prompt(
+                    "Q Shop page subtitle:",
+                    data.club?.shopPageSubtitle || "Cue sticks, cases and accessories"
+                  );
+                  if (shopPageSubtitle === null) return;
+
+                  commit({
+                    ...data,
+                    club: {
+                      ...data.club,
+                      shopPageTitle: shopPageTitle.trim(),
+                      shopPageSubtitle: shopPageSubtitle.trim(),
+                    },
+                  });
+                }}
+              >
+                Edit Page Text
+              </button>
+
+              <button className="btn" type="button" onClick={editShopHeader}>
+                Edit Header
+              </button>
+
+              <button className="btn primary" type="button" onClick={addShopItem}>
+                + Add Shop Item
+              </button>
+            </div>
+          ) : null
+        }
+      />
+
+            <div className="container shopPageContainer" style={{ marginTop: -14 }}>
+        <div className="card shopHeroCard">
+          <div className="muted" style={{ lineHeight: 1.6, marginBottom: 10 }}>
+            {data.shopCatalog?.description ||
+              "Fresh stock has been ordered and is expected soon. You can keep this page live now for display, enquiries, and pre-booking of cue sticks, cue cases, chalk, gloves, tips, and other accessories."}
+          </div>
+
+          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <span className="badge">
+              <span className="dot" />
+              {data.shopCatalog?.badge1 || "Stock Arriving Soon"}
+            </span>
+            <span className="badge">
+              <span className="dot" />
+              {data.shopCatalog?.badge2 || "Pre-booking Open"}
+            </span>
+          </div>
+        </div>
+
+                {!admin && (showCart || showCheckout) && cart.length > 0 ? (
+          <div className="card shopCartCard" style={{ marginBottom: 18 }}>
+            <button
+              type="button"
+              onClick={() => setShowCart((v) => !v)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                background: "transparent",
+                border: "none",
+                color: "#eaf0ff",
+                padding: 0,
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0 }}>View Cart</h2>
+                <div style={{ fontWeight: 800, fontSize: "1.1rem", marginTop: 8 }}>
+                  Total: ₹{cartTotal()}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  minWidth: 34,
+                  height: 34,
+                  borderRadius: 999,
+                  display: "grid",
+                  placeItems: "center",
+                  border: "1px solid rgba(255,255,255,.10)",
+                  background: "rgba(255,255,255,.04)",
+                  fontSize: 18,
+                  fontWeight: 800,
+                }}
+              >
+                {showCart ? "âˆ’" : "+"}
+              </div>
+            </button>
+
+            {showCart ? (
+              <div style={{ marginTop: 16 }}>
+                {cart.length === 0 ? (
+                  <div className="muted">Cart is empty.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {cart.map((entry) => (
+                      <div
+                        key={entry.key}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "10px 0",
+                          borderBottom: "1px solid rgba(255,255,255,.08)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: 700 }}>{entry.displayName || entry.name}</div>
+                          <div className="muted" style={{ marginTop: 4 }}>
+                            ₹{safeNum(entry.price, 0)} each
+                          </div>
+                        </div>
+
+                        <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => removeFromCart(entry.itemId, entry.selectedOptionId)}
+                          >
+                            âˆ’
+                          </button>
+
+                          <div style={{ minWidth: 24, textAlign: "center", fontWeight: 800 }}>
+                            {Math.max(0, safeNum(entry.qty, 0))}
+                          </div>
+
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => addToCart(entry.itemId)}
+                            disabled={
+                              Math.max(0, safeNum(entry.qty, 0)) >=
+                              getAvailableStock(
+                                normalizedShopItems.find((x) => x.id === entry.itemId),
+                                entry.selectedOptionId
+                              )
+                            }
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <div style={{ minWidth: 90, textAlign: "right", fontWeight: 800 }}>
+                          ₹{safeNum(entry.lineTotal, 0)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="row" style={{ marginTop: 16, gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => setShowCheckout((v) => !v)}
+                  >
+                    {showCheckout ? "Hide Checkout" : "Proceed to Checkout"}
+                  </button>
+
+                  <button
+                    className="btn danger"
+                    type="button"
+                    onClick={() => setCart([])}
+                  >
+                    Empty Cart
+                  </button>
+                </div>
+
+                {showCheckout ? (
+                  <div className="card" style={{ marginTop: 14 }}>
+                    <h3 style={{ marginTop: 0 }}>Checkout</h3>
+
+                    <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                      <input
+                        className="input"
+                        placeholder="Your Name"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                      />
+
+                      <input
+                        className="input"
+                        placeholder="WhatsApp Number"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={customerPhone}
+                        onChange={(e) =>
+                          setCustomerPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+                        }
+                      />
+
+                      {customerPhone.trim() && !isValidIndianWhatsappNumber ? (
+                        <div
+                          className="muted"
+                          style={{ color: "#ff8a8a", fontSize: 13 }}
+                        >
+                          Enter a valid Indian 10-digit WhatsApp number.
+                        </div>
+                      ) : null}
+
+                      <button
+                        className="btn primary"
+                        type="button"
+                        onClick={buyCartNow}
+                        disabled={!isCheckoutFormValid}
+                        style={{
+                          opacity: isCheckoutFormValid ? 1 : 0.55,
+                          cursor: isCheckoutFormValid ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        Pay Now
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="shopProductGrid">
+          {normalizedShopItems.map((item) => {
+            const selectedOption = getSelectedOption(item);
+            const selectedOptionId = selectedOption?.id || "";
+            const availableStock = getAvailableStock(item, selectedOptionId);
+            const currentQty = itemQty(item.id, selectedOptionId);
+            const galleryImages = getGalleryImages(item);
+            const currentImageIndex = Math.min(
+              Math.max(0, safeNum(selectedImageIndex[item.id], 0)),
+              Math.max(0, galleryImages.length - 1)
+            );
+            const currentImage = galleryImages[currentImageIndex] || "";
+
+            return (
+              <div
+  key={item.id}
+  id={`shop-item-${item.id}`}
+  className="card shopProductCard"
+>
+                <button
+                  type="button"
+                  onClick={() => openLightbox(item, currentImageIndex)}
+                  style={{
+                    width: "100%",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    background: "transparent",
+                    cursor: currentImage ? "zoom-in" : "default",
+                  }}
+                >
+                  <img
+                    src={currentImage}
+                    alt={item.name}
+                    className="shopProductMainImage"
+                    style={{
+                      width: "100%",
+                      height: 156,
+                      objectFit: "contain",
+                      objectPosition: "center",
+                      borderRadius: 16,
+                      marginBottom: 10,
+                      background: "#0b1020",
+                      padding: 8,
+                      display: "block",
+                    }}
+                  />
+                </button>
+
+                {galleryImages.length > 1 ? (
+                  <div className="shopGalleryThumbRow">
+                    {galleryImages.map((imgSrc, imgIndex) => (
+                      <button
+                        key={`${item.id}_thumb_${imgIndex}`}
+                        type="button"
+                        onClick={() => setItemImageIndex(item.id, imgIndex)}
+                        className="shopGalleryThumbBtn"
+                        style={{
+                          flex: "0 0 auto",
+                          width: 46,
+                          height: 46,
+                          padding: 3,
+                          borderRadius: 10,
+                          border:
+                            imgIndex === currentImageIndex
+                              ? "1px solid rgba(56,211,159,.7)"
+                              : "1px solid rgba(255,255,255,.12)",
+                          background:
+                            imgIndex === currentImageIndex
+                              ? "rgba(56,211,159,.10)"
+                              : "rgba(255,255,255,.03)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <img
+                          src={imgSrc}
+                          alt={`${item.name} ${imgIndex + 1}`}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            borderRadius: 8,
+                            display: "block",
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                  <h3 style={{ margin: 0 }}>{item.name}</h3>
+                  <span className="badge">{item.badge}</span>
+                </div>
+
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {item.desc}
+                </div>
+
+                {itemHasOptions(item) ? (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="muted" style={{ marginBottom: 8 }}>
+                      Select {item.optionGroupLabel || "Option"}:
+                    </div>
+
+                    <div className="row shopOptionRow" style={{ gap: 8, flexWrap: "wrap" }}>
+                      {item.options.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className="btn"
+                          onClick={() => changeSelectedOption(item.id, opt.id)}
+                          style={{
+                            borderColor:
+                              selectedOptionId === opt.id
+                                ? "rgba(56,211,159,.6)"
+                                : "rgba(255,255,255,.12)",
+                            background:
+                              selectedOptionId === opt.id
+                                ? "rgba(56,211,159,.12)"
+                                : "rgba(255,255,255,.04)",
+                            opacity: Math.max(0, safeNum(opt.stock, 0)) > 0 ? 1 : 0.55,
+                          }}
+                        >
+                          {opt.label} ({Math.max(0, safeNum(opt.stock, 0))})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div style={{ marginTop: 14, fontWeight: 800, fontSize: "1.05rem" }}>
+                  ₹{safeNum(item.price, 0)}
+                </div>
+
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Stock: {availableStock}
+                </div>
+                                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={async () => {
+                      const shareUrl = buildShopShareUrl(item, selectedOption);
+                      try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        alert("Product link copied.");
+                      } catch {
+                        prompt("Copy this product link:", shareUrl);
+                      }
+                    }}
+                  >
+                    Copy Product Link
+                  </button>
+                </div>
+                                {String(item.amazonUrl || "").trim() ? (
+                  <div style={{ marginTop: 12 }}>
+                    <a
+                      className="btn"
+                      href={String(item.amazonUrl || "").trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        width: "100%",
+                        justifyContent: "center",
+                        textAlign: "center",
+                      }}
+                    >
+                      Compare with Amazon
+                    </a>
+                  </div>
+                ) : null}
+
+                {!admin ? (
+                  <div
+                    className="row"
+                    style={{ marginTop: 14, gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                  >
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => removeFromCart(item.id, selectedOptionId)}
+                    >
+                      âˆ’
+                    </button>
+
+                    <div style={{ minWidth: 24, textAlign: "center", fontWeight: 800 }}>
+                      {currentQty}
+                    </div>
+
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => addToCart(item.id)}
+                      disabled={currentQty >= availableStock}
+                    >
+                      +
+                    </button>
+
+                    <button
+                      className="btn primary"
+                      type="button"
+                      onClick={() => addToCart(item.id)}
+                      disabled={availableStock <= 0 || currentQty >= availableStock}
+                    >
+                      Add to Cart
+                    </button>
+                  </div>
+                ) : (
+                  <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+                                      <button
+                      className="btn"
+                      type="button"
+                      onClick={async () => {
+                        const shareUrl = buildShopShareUrl(item, selectedOption);
+                        try {
+                          await navigator.clipboard.writeText(shareUrl);
+                          alert("Product link copied.");
+                        } catch {
+                          prompt("Copy this product link:", shareUrl);
+                        }
+                      }}
+                    >
+                      Copy Link
+                    </button>
+                    <label className="btn secondary" style={{ cursor: "pointer" }}>
+                      Upload Image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => uploadShopItemImage(item.id, e.target.files?.[0])}
+                      />
+                    </label>
+
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => editShopItem(item.id)}
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      className="btn warn"
+                      type="button"
+                      onClick={() => deleteCurrentShopItemImage(item.id)}
+                    >
+                      Delete Current Image
+                    </button>
+
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => clearShopItemImages(item.id)}
+                    >
+                      Reset Gallery
+                    </button>
+
+                    <button
+                      className="btn danger"
+                      type="button"
+                      onClick={() => deleteShopItem(item.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        
+      </div>
+            {!admin && cart.length > 0 && !(showCart || showCheckout) ? (
+        <button
+          type="button"
+          className="shopFloatingCart"
+          onClick={() => {
+            setShowCart(true);
+            setShowCheckout(true);
+            requestAnimationFrame(() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            });
+          }}
+        >
+          <div className="shopFloatingCartLeft">
+            <div className="shopFloatingCartCount">
+              {cart.reduce((sum, entry) => sum + Math.max(0, safeNum(entry.qty, 0)), 0)} item
+              {cart.reduce((sum, entry) => sum + Math.max(0, safeNum(entry.qty, 0)), 0) === 1 ? "" : "s"}
+            </div>
+            <div className="shopFloatingCartTotal">₹{cartTotal()}</div>
+          </div>
+
+          <div className="shopFloatingCartRight">
+            View Cart â†’
+          </div>
+        </button>
+      ) : null}
+
+      {lightbox ? (
+        <div
+          onClick={closeLightbox}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(3, 8, 18, 0.88)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(980px, 96vw)",
+              maxHeight: "92vh",
+              borderRadius: 24,
+              border: "1px solid rgba(255,255,255,.12)",
+              background: "linear-gradient(180deg, rgba(24,32,54,.96), rgba(10,16,30,.96))",
+              boxShadow: "0 24px 80px rgba(0,0,0,.45)",
+              padding: 16,
+              overflow: "hidden",
+            }}
+          >
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{lightbox.title}</div>
+              <button className="iconBtn" type="button" onClick={closeLightbox}>
+                âœ•
+              </button>
+            </div>
+
+            <div
+              style={{
+                position: "relative",
+                borderRadius: 18,
+                overflow: "hidden",
+                background: "#09101d",
+                minHeight: 320,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <img
+                src={lightbox.images[lightbox.index]}
+                alt={`${lightbox.title} ${lightbox.index + 1}`}
+                style={{
+                  width: "100%",
+                  maxHeight: "68vh",
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+
+              {lightbox.images.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => moveLightbox(-1)}
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                    }}
+                  >
+                    â†
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => moveLightbox(1)}
+                    style={{
+                      position: "absolute",
+                      right: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                    }}
+                  >
+                    â†’
+                  </button>
+                </>
+              ) : null}
+            </div>
+
+            {lightbox.images.length > 1 ? (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  overflowX: "auto",
+                  paddingTop: 14,
+                }}
+              >
+                {lightbox.images.map((imgSrc, idx) => (
+                  <button
+                    key={`lightbox_thumb_${idx}`}
+                    type="button"
+                    onClick={() => setLightbox((prev) => ({ ...prev, index: idx }))}
+                    style={{
+                      flex: "0 0 auto",
+                      width: 72,
+                      height: 72,
+                      padding: 4,
+                      borderRadius: 12,
+                      border:
+                        idx === lightbox.index
+                          ? "1px solid rgba(56,211,159,.7)"
+                          : "1px solid rgba(255,255,255,.12)",
+                      background:
+                        idx === lightbox.index
+                          ? "rgba(56,211,159,.10)"
+                          : "rgba(255,255,255,.03)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <img
+                      src={imgSrc}
+                      alt={`${lightbox.title} thumbnail ${idx + 1}`}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        borderRadius: 8,
+                        display: "block",
+                      }}
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function normalizedClubUpiId(value) {
   return String(value || "").trim();
 }
@@ -5544,28 +7692,58 @@ const WHATSAPP_SETTINGS_KEY = "qclub_whatsapp_settings";
 function getWhatsappSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(WHATSAPP_SETTINGS_KEY) || "{}");
-        return {
+
+    return {
       provider: String(saved?.provider || "msg91").trim() || "msg91",
       authKey: String(saved?.authKey || "").trim(),
       senderNumber: String(saved?.senderNumber || "").trim(),
       senderLabel: String(saved?.senderLabel || "").trim(),
-      membershipTemplate: String(saved?.membershipTemplate || "").trim(),
-      tournamentTemplate: String(saved?.tournamentTemplate || "").trim(),
-      foodTemplate: String(saved?.foodTemplate || "").trim(),
-      bookingTemplate: String(saved?.bookingTemplate || "").trim(),
+
+      qshopSuccessTemplate: String(saved?.qshopSuccessTemplate || "").trim(),
+      qshopFailedTemplate: String(saved?.qshopFailedTemplate || "").trim(),
+
+      bookingSuccessTemplate: String(saved?.bookingSuccessTemplate || "").trim(),
+      bookingFailedTemplate: String(saved?.bookingFailedTemplate || "").trim(),
+
+      membershipSuccessTemplate: String(saved?.membershipSuccessTemplate || "").trim(),
+      membershipFailedTemplate: String(saved?.membershipFailedTemplate || "").trim(),
+
       otpTemplate: String(saved?.otpTemplate || "").trim(),
+
+      tournamentSuccessTemplate: String(
+        saved?.tournamentSuccessTemplate || saved?.tournamentTemplate || ""
+      ).trim(),
+      tournamentFailedTemplate: String(saved?.tournamentFailedTemplate || "").trim(),
+
+      foodSuccessTemplate: String(
+        saved?.foodSuccessTemplate || saved?.foodTemplate || ""
+      ).trim(),
+      foodFailedTemplate: String(saved?.foodFailedTemplate || "").trim(),
     };
   } catch {
-        return {
+    return {
       provider: "msg91",
       authKey: "",
       senderNumber: "",
       senderLabel: "",
-      membershipTemplate: "",
-      tournamentTemplate: "",
-      foodTemplate: "",
-      bookingTemplate: "",
+
+      qshopSuccessTemplate: "",
+      qshopFailedTemplate: "",
+
+      bookingSuccessTemplate: "",
+      bookingFailedTemplate: "",
+
+      membershipSuccessTemplate: "",
+      membershipFailedTemplate: "",
+
       otpTemplate: "",
+
+      tournamentSuccessTemplate: "",
+      tournamentFailedTemplate: "",
+
+      foodSuccessTemplate: "",
+      foodFailedTemplate: "",
+      jobApplicationReceivedTemplate: "",
     };
   }
 }
@@ -5573,41 +7751,107 @@ function getWhatsappSettings() {
 function saveWhatsappSettings(next) {
   const current = getWhatsappSettings();
 
-    const merged = {
+  const merged = {
     provider: String(next?.provider ?? current.provider ?? "msg91").trim() || "msg91",
     authKey: String(next?.authKey ?? current.authKey ?? "").trim(),
     senderNumber: String(next?.senderNumber ?? current.senderNumber ?? "").trim(),
     senderLabel: String(next?.senderLabel ?? current.senderLabel ?? "").trim(),
-    membershipTemplate: String(next?.membershipTemplate ?? current.membershipTemplate ?? "").trim(),
-    tournamentTemplate: String(next?.tournamentTemplate ?? current.tournamentTemplate ?? "").trim(),
-    foodTemplate: String(next?.foodTemplate ?? current.foodTemplate ?? "").trim(),
-    bookingTemplate: String(next?.bookingTemplate ?? current.bookingTemplate ?? "").trim(),
+
+    qshopSuccessTemplate: String(
+      next?.qshopSuccessTemplate ?? current.qshopSuccessTemplate ?? ""
+    ).trim(),
+    qshopFailedTemplate: String(
+      next?.qshopFailedTemplate ?? current.qshopFailedTemplate ?? ""
+    ).trim(),
+
+    bookingSuccessTemplate: String(
+      next?.bookingSuccessTemplate ?? current.bookingSuccessTemplate ?? ""
+    ).trim(),
+    bookingFailedTemplate: String(
+      next?.bookingFailedTemplate ?? current.bookingFailedTemplate ?? ""
+    ).trim(),
+
+    membershipSuccessTemplate: String(
+      next?.membershipSuccessTemplate ?? current.membershipSuccessTemplate ?? ""
+    ).trim(),
+    membershipFailedTemplate: String(
+      next?.membershipFailedTemplate ?? current.membershipFailedTemplate ?? ""
+    ).trim(),
+
     otpTemplate: String(next?.otpTemplate ?? current.otpTemplate ?? "").trim(),
+
+    tournamentSuccessTemplate: String(
+      next?.tournamentSuccessTemplate ?? current.tournamentSuccessTemplate ?? ""
+    ).trim(),
+    tournamentFailedTemplate: String(
+      next?.tournamentFailedTemplate ?? current.tournamentFailedTemplate ?? ""
+    ).trim(),
+
+    foodSuccessTemplate: String(
+      next?.foodSuccessTemplate ?? current.foodSuccessTemplate ?? ""
+    ).trim(),
+    foodFailedTemplate: String(
+      next?.foodFailedTemplate ?? current.foodFailedTemplate ?? ""
+    ).trim(),
   };
 
   localStorage.setItem(WHATSAPP_SETTINGS_KEY, JSON.stringify(merged));
   return merged;
 }
+
 function getWhatsappTemplateForLabel(label = "", settings = getWhatsappSettings()) {
   const cleanLabel = String(label || "").trim().toLowerCase();
 
   if (cleanLabel === "membership_success") {
-    return settings.membershipTemplate || "";
+    return settings.membershipSuccessTemplate || "";
   }
 
-  if (cleanLabel === "tournament_success") {
-    return settings.tournamentTemplate || "";
-  }
-
-  if (cleanLabel === "food_success") {
-    return settings.foodTemplate || "";
+  if (cleanLabel === "membership_failed") {
+    return settings.membershipFailedTemplate || "";
   }
 
   if (cleanLabel === "booking_success") {
-    return settings.bookingTemplate || "";
+    return settings.bookingSuccessTemplate || "";
   }
 
-  if (cleanLabel === "otp" || cleanLabel === "guest_otp" || cleanLabel === "otp_success") {
+  if (cleanLabel === "booking_failed") {
+    return settings.bookingFailedTemplate || "";
+  }
+
+  if (cleanLabel === "qshop_order_success" || cleanLabel === "shop_success") {
+    return settings.qshopSuccessTemplate || "";
+  }
+
+  if (cleanLabel === "qshop_order_failed" || cleanLabel === "shop_failed") {
+    return settings.qshopFailedTemplate || "";
+  }
+
+  if (cleanLabel === "food_success") {
+  // Food success must always use the approved ITEMS template.
+  // Do not depend on Admin Panel/localStorage setting here.
+  return "food_success_items";
+}
+
+
+
+  if (cleanLabel === "food_failed") {
+    return settings.foodFailedTemplate || "";
+  }
+
+  if (cleanLabel === "tournament_success") {
+    return settings.tournamentSuccessTemplate || "";
+  }
+
+  if (cleanLabel === "tournament_failed") {
+    return settings.tournamentFailedTemplate || "";
+  }
+
+  if (
+    cleanLabel === "otp" ||
+    cleanLabel === "guest_otp" ||
+    cleanLabel === "otp_success" ||
+    cleanLabel === "guest_access_otp"
+  ) {
     return settings.otpTemplate || "";
   }
 
@@ -5617,12 +7861,25 @@ function buildMsg91WhatsappPayload(draft, settings = getWhatsappSettings()) {
   const phone = normalizeWhatsappNumber(draft?.phone || "");
   const templateName = String(draft?.templateName || "").trim();
   const senderNumber = String(settings?.senderNumber || draft?.senderNumber || "").trim();
-  const senderLabel = String(settings?.senderLabel || draft?.senderLabel || "").trim();
+
+  const templateParams = Array.isArray(draft?.templateParams)
+  ? draft.templateParams
+      .map((x) => String(x ?? "").trim())
+      .filter((x) => x.length > 0)
+  : draft?.label === "food_success"
+  ? [
+      String(draft?.name || draft?.customerName || "Customer").trim() || "Customer",
+      String(draft?.orderNo || draft?.orderNumber || "—").trim() || "—",
+      String(draft?.itemListText || "Food items").trim() || "Food items",
+      String(draft?.total || draft?.amount || "0").trim() || "0",
+    ]
+  : [];
 
   return {
     integrated_number: senderNumber,
     content_type: "template",
     payload: {
+      to: phone,
       messaging_product: "whatsapp",
       type: "template",
       template: {
@@ -5631,12 +7888,18 @@ function buildMsg91WhatsappPayload(draft, settings = getWhatsappSettings()) {
           code: "en",
           policy: "deterministic",
         },
-        components: [],
+        components: templateParams.length
+          ? [
+              {
+                type: "body",
+                parameters: templateParams.map((value) => ({
+                  type: "text",
+                  text: value,
+                })),
+              },
+            ]
+          : [],
       },
-    },
-    recipient: {
-      phone,
-      name: senderLabel || "Q Club Customer",
     },
     meta: {
       label: String(draft?.label || "").trim(),
@@ -5650,11 +7913,18 @@ function getWhatsappMode() {
   const saved = String(localStorage.getItem(WHATSAPP_MODE_KEY) || "draft_only").trim();
 
   if (saved === "disabled") return "disabled";
+  if (saved === "live") return "live";
   return "draft_only";
 }
 
 function setWhatsappMode(mode) {
-  const nextMode = mode === "disabled" ? "disabled" : "draft_only";
+  const nextMode =
+    mode === "disabled"
+      ? "disabled"
+      : mode === "live"
+      ? "live"
+      : "draft_only";
+
   localStorage.setItem(WHATSAPP_MODE_KEY, nextMode);
   return nextMode;
 }
@@ -5693,6 +7963,80 @@ function storeLatestWhatsappDraft(draft) {
   localStorage.setItem("qclub_last_whatsapp_draft", JSON.stringify(draft));
   return true;
 }
+
+async function sendMsg91WhatsappMessage(draft, settings = getWhatsappSettings()) {
+  const authKey = String(settings?.authKey || "").trim();
+  const senderNumber = String(settings?.senderNumber || "").trim();
+  const senderLabel = String(settings?.senderLabel || "").trim();
+  const templateName = String(draft?.templateName || "").trim();
+  const phone = normalizeWhatsappNumber(draft?.phone || "");
+
+  if (!authKey) {
+    return { ok: false, error: "Missing MSG91 auth key." };
+  }
+
+  if (!senderNumber) {
+    return { ok: false, error: "Missing MSG91 sender number." };
+  }
+
+  if (!templateName) {
+    return { ok: false, error: "Missing MSG91 template name." };
+  }
+
+  if (!phone) {
+    return { ok: false, error: "Missing recipient phone number." };
+  }
+
+  try {
+    const res = await fetch("/api/whatsapp-send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        authKey,
+        senderNumber,
+        senderLabel,
+        phone,
+        templateName,
+        templateParams: Array.isArray(draft?.templateParams)
+          ? draft.templateParams
+          : [],
+        label: String(draft?.label || "").trim(),
+        text: String(draft?.text || "").trim(),
+      }),
+    });
+
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          json?.error ||
+          json?.message ||
+          `API route failed with status ${res.status}.`,
+        response: json,
+      };
+    }
+
+    return {
+      ok: true,
+      response: json,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || "API route request failed.",
+    };
+  }
+}
+
 function handleWhatsappNotification({
   label = "",
   phone = "",
@@ -5741,11 +8085,46 @@ function handleWhatsappNotification({
         : null,
   };
 
+  const stored = storeLatestWhatsappDraft(finalDraft);
+
   if (mode === "draft_only") {
-    return storeLatestWhatsappDraft(finalDraft);
+    return stored;
   }
 
-  return false;
+  if ((settings.provider || "msg91") !== "msg91") {
+    return stored;
+  }
+
+  sendMsg91WhatsappMessage(finalDraft, settings)
+    .then((result) => {
+      localStorage.setItem(
+        "qclub_last_whatsapp_send_result",
+        JSON.stringify({
+          ok: !!result?.ok,
+          error: result?.error || "",
+          sentAt: new Date().toISOString(),
+          label: finalDraft.label || "",
+          phone: finalDraft.phone || "",
+          templateName: finalDraft.templateName || "",
+          response: result?.response || null,
+        })
+      );
+    })
+    .catch((error) => {
+      localStorage.setItem(
+        "qclub_last_whatsapp_send_result",
+        JSON.stringify({
+          ok: false,
+          error: error?.message || "Unknown WhatsApp send error.",
+          sentAt: new Date().toISOString(),
+          label: finalDraft.label || "",
+          phone: finalDraft.phone || "",
+          templateName: finalDraft.templateName || "",
+        })
+      );
+    });
+
+  return stored;
 }
 
 function buildMembershipWhatsappText({
@@ -5809,6 +8188,13 @@ function buildFoodWhatsappText({
         })
         .filter(Boolean)
     : [];
+    const itemListText = itemLines.length
+  ? itemLines
+      .map((line, index) => `${index + 1}. ${line.replace(/^-+\s*/, "")}`)
+      .join("\n")
+  : itemCount
+  ? `${itemCount} item(s)`
+  : "Food items";
 
   const lines = [
     `Hello ${safeName},`,
@@ -5865,6 +8251,7 @@ function BookTable({ data, admin, commit, startPayment }) {
   const [itemId, setItemId] = useState(data.booking?.tables?.[0]?.id || "");
   const [bookingDate, setBookingDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState("");
+  const [durationHours, setDurationHours] = useState(1);
   const [note, setNote] = useState("");
   const [submittedId, setSubmittedId] = useState("");
 
@@ -5899,6 +8286,16 @@ const memberOptions = [...registryMembers, ...membersPageEntries].filter(
     ) === idx
 );
   const selectedTable = tables.find((t) => t.id === itemId) || tables[0] || null;
+  function bookingTableDisplayLabel(table, type = "nonmember") {
+  if (!table) return "—";
+
+  const amount =
+    type === "member"
+      ? safeNum(table.memberPricePerHour, safeNum(table.pricePerHour, 0))
+      : safeNum(table.pricePerHour, 0);
+
+  return `${table.label || "Table"} — ₹${amount} / hour`;
+}
 
 const blockedEntries = (data.booking?.blockedSlots || []).filter(
   (x) =>
@@ -5907,37 +8304,49 @@ const blockedEntries = (data.booking?.blockedSlots || []).filter(
     x.bookingDate === bookingDate
 );
 
-const blockedSlotValues = blockedEntries.map((x) => x.timeSlot);
-const slots = bookingTimeSlots(bookingDate, blockedSlotValues);
+const activeRequestEntries = (data.booking?.requests || []).filter(
+  (x) =>
+    x &&
+    isActiveBookingStatus(x.status) &&
+    x.itemId === selectedTable?.id &&
+    x.bookingDate === bookingDate
+);
 
-const amount = bookingAmountFor(
+const blockedSlotValues = [
+  ...blockedEntries.map((x) => x.timeSlot),
+  ...activeRequestEntries.map((x) => x.slotLabel || bookingSlotLabel(x.timeSlot || "", x.durationHours || 1)),
+];
+
+const slots = bookingTimeSlots(bookingDate, blockedSlotValues, durationHours);
+
+const amount = bookingTotalAmount(
   selectedTable,
-  bookingType === "member" ? "member" : "nonmember"
+  bookingType === "member" ? "member" : "nonmember",
+  durationHours
 );
 
   useEffect(() => {
-    const firstAvailable = slots.find((s) => !s.disabled)?.value || "";
-    if (!slots.some((s) => s.value === timeSlot && !s.disabled)) {
-      setTimeSlot(firstAvailable);
-    }
-  }, [bookingDate]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  const firstAvailable = slots.find((s) => !s.disabled)?.value || "";
+  if (!slots.some((s) => s.value === timeSlot && !s.disabled)) {
+    setTimeSlot(firstAvailable);
+  }
+}, [bookingDate, itemId, durationHours, blockedSlotValues.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
   const upiId = normalizedClubUpiId(data.club?.upiId);
   const upiName = data.club?.upiName || data.club?.name || "The Q Club";
   const upiLink = upiDeepLink({
-    pa: upiId,
-    pn: upiName,
-    am: amount,
-    tn:
-      bookingType === "member"
-        ? `Q Club Booking - ${selectedTable?.label || "Table"} - Member`
-        : `Q Club Booking - ${selectedTable?.label || "Table"}`,
-  });
+  pa: upiId,
+  pn: upiName,
+  am: amount,
+  tn:
+    bookingType === "member"
+      ? `Q Club Booking - ${selectedTable?.label || "Table"} - ${bookingSlotLabel(timeSlot, durationHours)} - Member`
+      : `Q Club Booking - ${selectedTable?.label || "Table"} - ${bookingSlotLabel(timeSlot, durationHours)}`,
+});
 
   const qr = qrUrl(upiLink, 280);
 
   function submitBooking() {
-  if (bookingType === "non-member") {
+  if (bookingType === "nonmember") {
   if (!name.trim()) {
     alert("Please enter name");
     return false;
@@ -5972,9 +8381,24 @@ if (bookingType === "member") {
   }
 
   if (!timeSlot) {
-    alert("Please select a time slot");
-    return false;
-  }
+  alert("Please select a time slot");
+  return false;
+}
+
+const selectedSlotMeta = slots.find((s) => s.value === timeSlot);
+
+if (selectedSlotMeta?.blocked) {
+  alert("This slot is currently blocked. Please unblock it first.");
+  return false;
+}
+
+const requestedEndTime = bookingEndTime(timeSlot, durationHours);
+const requestedEndMinutes = timeToMinutes(requestedEndTime);
+
+if (!requestedEndTime || !Number.isFinite(requestedEndMinutes) || requestedEndMinutes > 23 * 60) {
+  alert("Selected booking duration goes beyond closing time. Please choose an earlier slot or shorter duration.");
+  return false;
+}
   if (bookingType === "member") {
   const selectedMember = memberOptions.find((m) => m.name === name.trim());
 
@@ -5993,6 +8417,9 @@ if (bookingType === "member") {
   itemLabel: selectedTable.label,
   bookingDate,
   timeSlot,
+  durationHours,
+  endTime: bookingEndTime(timeSlot, durationHours),
+  slotLabel: bookingSlotLabel(timeSlot, durationHours),
   note: note.trim(),
   amount,
   status: "pending",
@@ -6006,31 +8433,20 @@ if (bookingType === "member") {
     return false;
   }
 
-  const bookingAnnouncement = {
-  id: uid(),
-  text: `${selectedTable.label} booked by ${name.trim()} for ${
-    bookingDate === todayIso() ? "today" : bookingDate
-  } at ${timeSlot}.`,
-  link: "/book",
-  createdAt: Date.now(),
-};
-
-commit({
+  commit({
   ...data,
   booking: {
     ...(data.booking || {}),
     tables,
     requests: [req, ...(data.booking?.requests || [])],
   },
-  announcements: [
-    bookingAnnouncement,
-    ...(data.announcements || []),
-  ].slice(0, 20),
 });
 
   setSubmittedId(req.id);
   setName("");
   setMobile("");
+  setTimeSlot("");
+  setDurationHours(1);
   
   setNote("");
   alert("Booking request submitted. Please complete payment / verification.");
@@ -6042,13 +8458,17 @@ function addBookingTable() {
   const label = prompt("Table / Game name:", "New Table");
   if (!label) return;
 
-  const price = prompt("Hourly rate:", "0");
-  if (price === null) return;
+  const nonMemberPrice = prompt("NON-MEMBER hourly rate:", "0");
+  if (nonMemberPrice === null) return;
+
+  const memberPrice = prompt("MEMBER hourly rate:", nonMemberPrice);
+  if (memberPrice === null) return;
 
   const nextTable = {
     id: `tbl_${Date.now()}`,
     label: label.trim(),
-    pricePerHour: safeNum(price, 0),
+    pricePerHour: safeNum(nonMemberPrice, 0),
+    memberPricePerHour: safeNum(memberPrice, 0),
   };
 
   const nextTables = [...tables, nextTable];
@@ -6072,12 +8492,26 @@ function editBookingTable(tableId) {
   const label = prompt("Edit table / game name:", current.label || "");
   if (!label) return;
 
-  const price = prompt("Edit hourly rate:", String(current.pricePerHour ?? 0));
-  if (price === null) return;
+  const nonMemberPrice = prompt(
+    "Edit NON-MEMBER hourly rate:",
+    String(current.pricePerHour ?? 0)
+  );
+  if (nonMemberPrice === null) return;
+
+  const memberPrice = prompt(
+    "Edit MEMBER hourly rate:",
+    String(current.memberPricePerHour ?? current.pricePerHour ?? 0)
+  );
+  if (memberPrice === null) return;
 
   const nextTables = tables.map((t) =>
     t.id === tableId
-      ? { ...t, label: label.trim(), pricePerHour: safeNum(price, 0) }
+      ? {
+          ...t,
+          label: label.trim(),
+          pricePerHour: safeNum(nonMemberPrice, 0),
+          memberPricePerHour: safeNum(memberPrice, 0),
+        }
       : t
   );
 
@@ -6089,7 +8523,6 @@ function editBookingTable(tableId) {
     },
   });
 }
-
 function deleteBookingTable(tableId) {
   if (!admin) return alert("Admin only");
 
@@ -6119,11 +8552,11 @@ function blockSelectedSlot() {
   if (!timeSlot) return alert("Please select a time slot first.");
 
   const alreadyBlocked = (data.booking?.blockedSlots || []).some(
-    (x) =>
-      x.itemId === selectedTable.id &&
-      x.bookingDate === bookingDate &&
-      x.timeSlot === timeSlot
-  );
+  (x) =>
+    x.itemId === selectedTable.id &&
+    x.bookingDate === bookingDate &&
+    x.timeSlot === bookingSlotLabel(timeSlot, durationHours)
+);
 
   if (alreadyBlocked) {
     alert("This slot is already blocked.");
@@ -6137,41 +8570,42 @@ function blockSelectedSlot() {
     ) || "Blocked for tournament / reserve";
 
   commit({
-    ...data,
-    booking: {
-      ...(data.booking || {}),
-      tables,
-      requests: data.booking?.requests || [],
-      blockedSlots: [
-        {
-          id: uid(),
-          itemId: selectedTable.id,
-          itemLabel: selectedTable.label,
-          bookingDate,
-          timeSlot,
-          reason: reason.trim(),
-          createdAt: Date.now(),
-        },
-        ...(data.booking?.blockedSlots || []),
-      ],
-    },
-  });
-
+  ...data,
+  booking: {
+    ...(data.booking || {}),
+    tables,
+    requests: data.booking?.requests || [],
+    blockedSlots: [
+      {
+        id: uid(),
+        itemId: selectedTable.id,
+        itemLabel: selectedTable.label,
+        bookingDate,
+        timeSlot: bookingSlotLabel(timeSlot, durationHours),
+        durationHours,
+        endTime: bookingEndTime(timeSlot, durationHours),
+        reason: reason.trim(),
+        createdAt: Date.now(),
+      },
+      ...(data.booking?.blockedSlots || []),
+    ],
+  },
+});
   alert("Slot blocked successfully.");
 }
 
-function unblockSelectedSlot(slotValue = timeSlot) {
+function unblockSelectedSlot(slotValue = bookingSlotLabel(timeSlot, durationHours)) {
   if (!admin) return alert("Admin only");
   if (!selectedTable) return alert("Please select a table first.");
   if (!bookingDate) return alert("Please select a booking date first.");
   if (!slotValue) return alert("Please select a time slot first.");
 
   const exists = (data.booking?.blockedSlots || []).some(
-    (x) =>
-      x.itemId === selectedTable.id &&
-      x.bookingDate === bookingDate &&
-      x.timeSlot === slotValue
-  );
+  (x) =>
+    x.itemId === selectedTable.id &&
+    x.bookingDate === bookingDate &&
+    x.timeSlot === slotValue
+);
 
   if (!exists) {
     alert("This slot is not blocked.");
@@ -6250,23 +8684,56 @@ function unblockSelectedSlot(slotValue = timeSlot) {
     });
   }
 
-  const requests = data.booking?.requests || [];
+  const requests = (data.booking?.requests || []).filter(
+  (r) => !["failed", "booking_failed", "member_rejected", "rejected"].includes(String(r?.status || "").toLowerCase())
+);
 
   return (
     <>
-      <PageShell
-        title="Book Table"
-        subtitle="Quick Booking + Secure Online Payment"
+            <PageShell
+        title={data.club?.bookPageTitle || "Book Table"}
+        subtitle={data.club?.bookPageSubtitle || "Quick Booking + Secure Online Payment"}
         right={
           admin ? (
-            <Link className="btn" to="/admin-panel">
-              Open Admin Panel
-            </Link>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  const bookPageTitle = prompt(
+                    "Book page title:",
+                    data.club?.bookPageTitle || "Book Table"
+                  );
+                  if (bookPageTitle === null) return;
+
+                  const bookPageSubtitle = prompt(
+                    "Book page subtitle:",
+                    data.club?.bookPageSubtitle || "Quick Booking + Secure Online Payment"
+                  );
+                  if (bookPageSubtitle === null) return;
+
+                  commit({
+                    ...data,
+                    club: {
+                      ...data.club,
+                      bookPageTitle: bookPageTitle.trim(),
+                      bookPageSubtitle: bookPageSubtitle.trim(),
+                    },
+                  });
+                }}
+              >
+                Edit Page Text
+              </button>
+
+              <Link className="btn" to="/admin-panel">
+                Open Admin Panel
+              </Link>
+            </div>
           ) : null
         }
       />
 
-      <div className="container">
+            <div className="container" style={{ marginTop: -14 }}>
         <div className="grid">
           <div className="card cols-7">
             <h2>Booking Form</h2>
@@ -6386,7 +8853,7 @@ function unblockSelectedSlot(slotValue = timeSlot) {
                 >
                   {tables.map((t) => (
   <option value={t.id} key={t.id}>
-    {`${t.label.split("₹")[0].trim()} – ₹${bookingAmountFor(
+    {`${t.label.split("₹")[0].trim()} â€“ ₹${bookingAmountFor(
       t,
       bookingType === "member" ? "member" : "nonmember"
     )} / hour`}
@@ -6415,13 +8882,67 @@ function unblockSelectedSlot(slotValue = timeSlot) {
                   onChange={(e) => setTimeSlot(e.target.value)}
                 >
                   {slots.map((s) => (
-                    <option key={s.value} value={s.value} disabled={s.disabled}>
-                      {s.label}
-                      {s.disabled ? " (Unavailable)" : ""}
-                    </option>
-                  ))}
+  <option
+    key={s.value}
+    value={s.value}
+    disabled={admin ? (s.disabled && !s.blocked) : s.disabled}
+  >
+    {bookingSlotLabel(s.label, durationHours)}
+    {s.disabled ? " (Unavailable)" : ""}
+    {admin && s.blocked ? " (Blocked)" : ""}
+  </option>
+))}
                 </select>
               </div>
+              <div className="cols-6">
+  <label className="lbl">Duration</label>
+  <select
+    value={durationHours}
+    onChange={(e) => setDurationHours(Number(e.target.value))}
+  >
+    <option value={1}>1 hour</option>
+    <option value={2}>2 hours</option>
+    <option value={3}>3 hours</option>
+    <option value={4}>4 hours</option>
+    <option value={5}>5 hours</option>
+  </select>
+</div>
+<div className="cols-12">
+  <div
+    style={{
+      marginTop: 4,
+      padding: 12,
+      border: "1px solid rgba(255,255,255,.10)",
+      borderRadius: 14,
+      background: "rgba(255,255,255,.03)",
+      display: "grid",
+      gap: 6,
+    }}
+  >
+    <div style={{ fontWeight: 800 }}>
+      Booking Window: {timeSlot ? bookingSlotLabel(timeSlot, durationHours) : "Select start time"}
+    </div>
+
+    <div className="muted">
+      Duration: {durationHours} {durationHours === 1 ? "hour" : "hours"}
+    </div>
+
+    <div className="muted">
+      Payable Amount: ₹{amount}
+    </div>
+
+    <div
+      style={{
+        marginTop: 4,
+        fontSize: 13,
+        lineHeight: 1.5,
+        color: "rgba(255,220,160,.92)",
+      }}
+    >
+      Unless there is a technical issue at the Club&apos;s end, bookings are non-refundable.
+    </div>
+  </div>
+</div>
 
               <div className="cols-12">
   {admin && selectedTable ? (
@@ -6443,16 +8964,16 @@ function unblockSelectedSlot(slotValue = timeSlot) {
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {blockedEntries.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              className="btn secondary"
-              onClick={() => unblockSelectedSlot(entry.timeSlot)}
-              title={entry.reason || "Blocked slot"}
-            >
-              {entry.timeSlot} ×
-            </button>
-          ))}
+  <button
+    key={entry.id}
+    type="button"
+    className="btn secondary"
+    onClick={() => unblockSelectedSlot(entry.timeSlot)}
+    title={entry.reason || "Blocked slot"}
+  >
+    {entry.timeSlot || bookingSlotLabel(entry.startTime || "", entry.durationHours || 1)} ×
+  </button>
+))}
         </div>
       )}
     </div>
@@ -6493,20 +9014,28 @@ function unblockSelectedSlot(slotValue = timeSlot) {
   localStorage.setItem("qclub_payment_mobile", mobile.trim());
   localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
   localStorage.setItem("qclub_booking_date", bookingDate || "");
-  localStorage.setItem("qclub_booking_slot", timeSlot || "");
+  localStorage.setItem(
+  "qclub_booking_slot",
+  timeSlot ? bookingSlotLabel(timeSlot, durationHours) : ""
+);
   localStorage.setItem("qclub_booking_amount", String(amount || ""));
   const ok = submitBooking();
   if (!ok) return;
 
-  startPayment(amount, mobile.trim(), name.trim(), {
+  startPayment(
+  amount,
+  mobile.trim(),
+  name.trim(),
+  {
     context: "booking",
     customer_name: name.trim(),
     mobile: mobile.trim(),
     table_label: selectedTable?.label || "",
     booking_date: bookingDate || "",
-    booking_slot: timeSlot || "",
+    booking_slot: timeSlot ? bookingSlotLabel(timeSlot, durationHours) : "",
     booking_amount: String(amount || ""),
-  });
+  }
+);
 }}
   type="button"
 >
@@ -6559,7 +9088,10 @@ function unblockSelectedSlot(slotValue = timeSlot) {
                 <td>{r.bookingType === "member" ? "Member" : "Non-member"}</td>
                 <td>{r.itemLabel}</td>
                 <td>{r.bookingDate || "—"}</td>
-                <td>{r.timeSlot || "—"}</td>
+                {r.slotLabel || bookingSlotLabel(r.timeSlot || "", r.durationHours || 1)}
+                <div className="muted">
+  Duration: {r.durationHours || 1} {(r.durationHours || 1) === 1 ? "hour" : "hours"} â€¢ Amount: ₹{r.amount || 0}
+</div>
                 <td>₹{r.amount}</td>
                 <td>
                   <span className="badge">
@@ -6605,11 +9137,13 @@ function Membership({ data, admin, commit, startPayment }) {
   const [selectedTierId, setSelectedTierId] = useState("");
   const [applicantName, setApplicantName] = useState("");
   const [mobile, setMobile] = useState("");
-  const [memberRef, setMemberRef] = useState("");
+    const [memberRef, setMemberRef] = useState("");
   const [tshirtSize, setTshirtSize] = useState("M");
   const [submittedId, setSubmittedId] = useState("");
   const [showMembershipPopup, setShowMembershipPopup] = useState(false);
   const [membershipError, setMembershipError] = useState("");
+  const [showMembershipNote, setShowMembershipNote] = useState(false);
+  const [openMembershipTiers, setOpenMembershipTiers] = useState({});
 
   const tiers = data.memberships || [];
   const selectedTier =
@@ -6617,7 +9151,7 @@ function Membership({ data, admin, commit, startPayment }) {
 
     const membershipNote =
     data.club?.membershipNote ||
-    "PLEASE NOTE : Membership at The Q Club provides access to club facilities and member privileges during the validity period. Membership is personal and non-transferable. Member privileges reset daily at 00:00 hours. Access to game tables is subject to availability. Complimentary play sessions may be offered to members at the discretion of the club. Pool table: up to 15 minutes. Mini Snooker: up to 20 minutes. Snooker table: up to 30 minutes. Complimentary sessions are generally available during 11:00 AM – 5:00 PM depending on table availability. The Q Club reserves the right to modify membership privileges, availability, or timings.";
+    "PLEASE NOTE : Membership at The Q Club provides access to club facilities and member privileges during the validity period. Membership is personal and non-transferable. Member privileges reset daily at 00:00 hours. Access to game tables is subject to availability. Complimentary play sessions may be offered to members at the discretion of the club. Pool table: up to 15 minutes. Mini Snooker: up to 20 minutes. Snooker table: up to 30 minutes. Complimentary sessions are generally available during 11:00 AM â€“ 5:00 PM depending on table availability. The Q Club reserves the right to modify membership privileges, availability, or timings.";
 
   function editMembershipNote() {
     if (!admin) return alert("Admin only");
@@ -6728,16 +9262,51 @@ function Membership({ data, admin, commit, startPayment }) {
       ? `Q Club Membership - ${selectedTier.tier}`
       : "Q Club Membership",
   });
-  const qr = qrUrl(upiLink, 280);
+    const qr = qrUrl(upiLink, 280);
+
+  function toggleTierOpen(id) {
+    setOpenMembershipTiers((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }
 
   return (
     <>
-      <PageShell
-        title="Membership"
-        subtitle="Apply for Membership with Secure Online Payment"
+            <PageShell
+        title={data.club?.membershipPageTitle || "Membership"}
+        subtitle={data.club?.membershipPageSubtitle || "Apply for Membership with Secure Online Payment"}
         right={
           admin ? (
-            <div className="row">
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  const membershipPageTitle = prompt(
+                    "Membership page title:",
+                    data.club?.membershipPageTitle || "Membership"
+                  );
+                  if (membershipPageTitle === null) return;
+
+                  const membershipPageSubtitle = prompt(
+                    "Membership page subtitle:",
+                    data.club?.membershipPageSubtitle || "Apply for Membership with Secure Online Payment"
+                  );
+                  if (membershipPageSubtitle === null) return;
+
+                  commit({
+                    ...data,
+                    club: {
+                      ...data.club,
+                      membershipPageTitle: membershipPageTitle.trim(),
+                      membershipPageSubtitle: membershipPageSubtitle.trim(),
+                    },
+                  });
+                }}
+              >
+                Edit Page Text
+              </button>
+
               <button className="btn" onClick={editMembershipNote}>
                 Edit Note
               </button>
@@ -6750,63 +9319,145 @@ function Membership({ data, admin, commit, startPayment }) {
       />
 
       <div className="container">
-        <div className="membershipNoteBar">
-          <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                <div className="membershipNoteBar">
+          <button
+            type="button"
+            onClick={() => setShowMembershipNote((v) => !v)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 12,
+              background: "transparent",
+              border: "none",
+              color: "#eaf0ff",
+              padding: 0,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
             <div>
               <div className="membershipNoteLabel">Please Note</div>
-              <div className="membershipNoteText">{membershipNote}</div>
+              <div className="muted" style={{ marginTop: 6 }}>
+                Membership note, rules and member privileges
+              </div>
             </div>
 
-            {admin ? (
-              <button className="btn" onClick={editMembershipNote}>
-                Edit
-              </button>
-            ) : null}
-          </div>
+            <div
+              style={{
+                minWidth: 34,
+                height: 34,
+                borderRadius: 999,
+                display: "grid",
+                placeItems: "center",
+                border: "1px solid rgba(255,255,255,.10)",
+                background: "rgba(255,255,255,.04)",
+                fontSize: 18,
+                fontWeight: 800,
+              }}
+            >
+              {showMembershipNote ? "âˆ’" : "+"}
+            </div>
+          </button>
+
+          {showMembershipNote ? (
+            <div style={{ marginTop: 14 }}>
+              <div className="membershipNoteText">{membershipNote}</div>
+
+              {admin ? (
+                <div style={{ marginTop: 12 }}>
+                  <button className="btn" onClick={editMembershipNote}>
+                    Edit
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
-        <div className="grid" style={{ marginTop: 14 }}>
-          {(tiers || []).map((tier) => (
-            <div className="card cols-6 membershipTierCard" key={tier.id}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <h2 style={{ marginBottom: 8 }}>{tier.tier}</h2>
-                  <div className="badge">
-                    <span className="dot" /> ₹{safeNum(tier.price, 0)} (fixed)
+                <div className="grid" style={{ marginTop: 14 }}>
+          {(tiers || []).map((tier) => {
+            const isOpen = !!openMembershipTiers[tier.id];
+
+            return (
+              <div className="card cols-6 membershipTierCard" key={tier.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleTierOpen(tier.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    background: "transparent",
+                    border: "none",
+                    color: "#eaf0ff",
+                    padding: 0,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <div>
+                    <h2 style={{ marginBottom: 8 }}>{tier.tier}</h2>
+                    <div className="badge">
+                      <span className="dot" /> ₹{safeNum(tier.price, 0)} (fixed)
+                    </div>
                   </div>
-                </div>
 
-                <div className="row">
-                  <button
-  className="btn"
-  onClick={() => {
-    setSelectedTierId(tier.id);
-    setShowMembershipPopup(true);
-  }}
->
-  Apply Now
-</button>
+                  <div
+                    style={{
+                      minWidth: 34,
+                      height: 34,
+                      borderRadius: 999,
+                      display: "grid",
+                      placeItems: "center",
+                      border: "1px solid rgba(255,255,255,.10)",
+                      background: "rgba(255,255,255,.04)",
+                      fontSize: 18,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {isOpen ? "âˆ’" : "+"}
+                  </div>
+                </button>
 
-                  {admin ? (
-                    <>
-                      <button className="btn" onClick={() => editTier(tier.id)}>
-                        Edit
+                {isOpen ? (
+                  <>
+                    <ul style={{ marginTop: 14 }}>
+                      {(tier.perks || []).map((perk) => (
+                        <li key={perk}>{perk}</li>
+                      ))}
+                    </ul>
+
+                    <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setSelectedTierId(tier.id);
+                          setShowMembershipPopup(true);
+                        }}
+                      >
+                        Apply Now
                       </button>
-                      <button className="btn danger" onClick={() => deleteTier(tier.id)}>
-                        Delete
-                      </button>
-                    </>
-                  ) : null}
-                </div>
+
+                      {admin ? (
+                        <>
+                          <button className="btn" onClick={() => editTier(tier.id)}>
+                            Edit
+                          </button>
+                          <button className="btn danger" onClick={() => deleteTier(tier.id)}>
+                            Delete
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
               </div>
-
-              <ul style={{ marginTop: 14 }}>
-                {(tier.perks || []).map((perk) => (
-                  <li key={perk}>{perk}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
+            );
+          })}
 
           {showMembershipPopup ? (
   <div className="modalBackdrop" onClick={() => setShowMembershipPopup(false)}>
@@ -6910,18 +9561,25 @@ localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
 
   try {
     
-    await startPayment(
-      selectedTier ? safeNum(selectedTier.price, 0) : 0,
-      mobile.trim(),
-      applicantName.trim(),
-      {
-        context: "membership",
-        customer_name: applicantName.trim(),
-        mobile: mobile.trim(),
-        tier: selectedTier?.tier || "",
-        tshirt_size: tshirtSize || "",
-      }
-    );
+    const membershipValidUntil = (() => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+})();
+
+await startPayment(
+  selectedTier ? safeNum(selectedTier.price, 0) : 0,
+  mobile.trim(),
+  applicantName.trim(),
+  {
+    context: "membership",
+    customer_name: applicantName.trim(),
+    mobile: mobile.trim(),
+    tier: selectedTier?.tier || "",
+    tshirt_size: tshirtSize || "",
+    valid_until: membershipValidUntil,
+  }
+);
     } catch (err) {
       setShowMembershipPopup(true);
       setMembershipError("Unable to start payment. Please try again.");
@@ -7122,15 +9780,20 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
     localStorage.setItem("qclub_tournament_fee", String(registrationFee));
     localStorage.setItem("qclub_tournament_player_id", playerId || "");
 
-    startPayment(registrationFee, mobile.trim(), playerName.trim(), {
-      context: "tournament",
-      customer_name: playerName.trim(),
-      mobile: mobile.trim(),
-      tournament_id: currentTournament.id || "",
-      tournament_name: currentTournament.name || "",
-      tournament_fee: String(registrationFee || 0),
-      tournament_player_id: playerId || "",
-    });
+    startPayment(
+  registrationFee,
+  mobile.trim(),
+  playerName.trim(),
+  {
+    context: "tournament",
+    customer_name: playerName.trim(),
+    mobile: mobile.trim(),
+    tournament_id: currentTournament.id || "",
+    tournament_name: currentTournament.name || "",
+    tournament_fee: String(registrationFee || 0),
+    tournament_player_id: playerId || "",
+  }
+);
   }
 
   return (
@@ -8150,7 +10813,7 @@ committeeNotes: "",
         </div>
 
         <button className="iconBtn" onClick={() => setSelectedPlayerId("")}>
-          ✕
+          âœ•
         </button>
       </div>
 
@@ -8486,7 +11149,7 @@ function Tournaments({ data, admin, commit }) {
     </>
   );
 }
-function Fixtures({ data, admin, commit, onOpenPlayer }) {
+function Fixtures({ data, admin, staffAdmin, commit, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   
   const location = useLocation();
@@ -8521,6 +11184,7 @@ const eligiblePlayers = selectedTournament
     const tournamentPlayers = (selectedTournament?.participantIds || [])
   .map((id) => players.find((p) => p.id === id))
   .filter(Boolean);
+const canPrintFixtures = admin || staffAdmin;
 
   function toggleParticipant(playerId) {
     if (!admin || !selectedTournament) return;
@@ -8937,8 +11601,26 @@ function updateMatchStatus(matchId, status) {
               <div className="card cols-12">
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <h2 style={{ margin: 0 }}>Matches</h2>
-                  <div className="muted">
-                    {selectedTournament.matches?.length || 0} fixtures
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <div className="muted">
+                      {selectedTournament.matches?.length || 0} fixtures
+                    </div>
+                    {canPrintFixtures ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() =>
+                          printFixtureSlip({
+                            tournament: selectedTournament,
+                            matches: selectedTournament.matches || [],
+                            players,
+                          })
+                        }
+                        disabled={!selectedTournament.matches?.length}
+                      >
+                        Print Fixtures
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -9206,6 +11888,141 @@ function updateMatchStatus(matchId, status) {
   );
 }
 
+
+function fixtureThermalPrintHtml({ tournament = null, matches = [], players = [] }) {
+  const safeTournamentName = String(tournament?.name || "Tournament Fixtures").trim() || "Tournament Fixtures";
+  const safeGame = tournamentGameKey(tournament?.game) === "pool" ? "Pool" : "Snooker";
+  const printedAt = new Date().toLocaleString();
+
+  function resolvePlayerName(id) {
+    return players.find((p) => p.id === id)?.name || "TBD";
+  }
+
+  const sortedMatches = [...(matches || [])].sort((a, b) => {
+    const roundDiff = Number(a?.round || 0) - Number(b?.round || 0);
+    if (roundDiff !== 0) return roundDiff;
+    return Number(a?.matchNo || 0) - Number(b?.matchNo || 0);
+  });
+
+  const grouped = sortedMatches.reduce((acc, match) => {
+    const round = Number(match?.round || 1) || 1;
+    if (!acc[round]) acc[round] = [];
+    acc[round].push(match);
+    return acc;
+  }, {});
+
+  const roundsHtml = Object.keys(grouped)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((roundKey) => {
+      const roundMatches = grouped[roundKey] || [];
+      const matchHtml = roundMatches
+        .map((match, index) => {
+          const left = resolvePlayerName(match?.p1);
+          const right = resolvePlayerName(match?.p2);
+          const matchLabel = match?.matchNo ? `Match ${match.matchNo}` : `Match ${index + 1}`;
+          const noteBits = [];
+          if (safeGame === "Snooker") {
+            const h1 = Number(match?.handicap1 || 0);
+            const h2 = Number(match?.handicap2 || 0);
+            if (h1 || h2) noteBits.push(`HC ${h1}-${h2}`);
+          }
+          if (String(match?.notes || "").trim()) {
+            noteBits.push(String(match.notes).trim());
+          }
+          const noteHtml = noteBits.length
+            ? `<div class="sub">${noteBits.join(" â€¢ ")}</div>`
+            : "";
+          return `
+            <div class="match">
+              <div class="matchLabel">${matchLabel}</div>
+              <div class="pair">${left}</div>
+              <div class="vs">vs</div>
+              <div class="pair">${right}</div>
+              ${noteHtml}
+            </div>
+          `;
+        })
+        .join("");
+
+      return `
+        <div class="roundBlock">
+          <div class="roundTitle">Round ${roundKey}</div>
+          ${matchHtml}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+  <html>
+    <head>
+      <title>${safeTournamentName}</title>
+      <style>
+        @page { size: 80mm auto; margin: 4mm; }
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: #fff;
+          color: #111;
+          font-family: Arial, sans-serif;
+          width: 72mm;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        .wrap { padding: 4mm; }
+        .center { text-align: center; }
+        .title { font-size: 18px; font-weight: 700; }
+        .subline { font-size: 12px; margin-top: 2px; }
+        .line { border-top: 1px dashed #888; margin: 8px 0; }
+        .meta { font-size: 12px; margin: 3px 0; }
+        .roundBlock { margin-top: 10px; }
+        .roundTitle { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+        .match { padding: 6px 0; border-bottom: 1px dashed #cfcfcf; }
+        .match:last-child { border-bottom: none; }
+        .matchLabel { font-size: 11px; font-weight: 700; margin-bottom: 3px; }
+        .pair { font-size: 13px; font-weight: 700; line-height: 1.35; }
+        .vs { font-size: 11px; margin: 2px 0; }
+        .sub { font-size: 10px; margin-top: 4px; color: #444; }
+        .footer { margin-top: 12px; font-size: 11px; text-align: center; }
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="center title">The Q Club</div>
+        <div class="center subline">Pasighat</div>
+        <div class="line"></div>
+        <div class="center" style="font-size:15px;font-weight:700;">${safeTournamentName}</div>
+        <div class="center subline">${safeGame} Fixtures</div>
+        <div class="meta"><b>Printed:</b> ${printedAt}</div>
+        <div class="meta"><b>Total Fixtures:</b> ${(matches || []).length}</div>
+        <div class="line"></div>
+        ${roundsHtml || '<div class="meta">No fixtures generated yet.</div>'}
+        <div class="line"></div>
+        <div class="footer">Best of luck to all players</div>
+      </div>
+    </body>
+  </html>`;
+}
+
+function printFixtureSlip({ tournament = null, matches = [], players = [] }) {
+  const html = fixtureThermalPrintHtml({ tournament, matches, players });
+  const win = window.open("", "_blank", "width=420,height=760");
+
+  if (!win) {
+    alert("Popup blocked. Please allow popups for printing.");
+    return;
+  }
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+
+  win.onload = () => {
+    win.focus();
+    win.print();
+  };
+}
+
 function LeaderboardAll({ data, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
@@ -9453,6 +12270,1064 @@ function LeaderboardAll({ data, onOpenPlayer }) {
     </>
   );
 }
+function StaffWalkinBookings({ data, admin, staffAdmin, commit }) {
+  if (!admin && !staffAdmin) {
+    return (
+      <>
+        <PageShell title="Walk-in Bookings" subtitle="Restricted access" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Access denied.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+  const tables = data.booking?.tables || [];
+const requests = data.booking?.requests || [];
+
+const blockedSlots = data.booking?.blockedSlots || [];
+const today = todayIso();
+const [walkinName, setWalkinName] = useState("");
+const [walkinMobile, setWalkinMobile] = useState("");
+const [walkinItemId, setWalkinItemId] = useState(data.booking?.tables?.[0]?.id || "");
+const [walkinDate, setWalkinDate] = useState(todayIso());
+const [walkinTimeSlot, setWalkinTimeSlot] = useState("");
+const [walkinDurationHours, setWalkinDurationHours] = useState(1);
+const [walkinNote, setWalkinNote] = useState("");
+const [walkinBookingType, setWalkinBookingType] = useState("nonmember");
+const [walkinMemberName, setWalkinMemberName] = useState("");
+const activeRegistryMembers = Array.isArray(data.memberRegistry)
+  ? data.memberRegistry.filter((m) => {
+      const statusOk = String(m.status || "").toLowerCase() === "active";
+      const dateOk = !m.validUntil || String(m.validUntil) >= today;
+      return statusOk && dateOk;
+    })
+  : [];
+
+const membersPageEntries = Array.isArray(data.membersPage)
+  ? data.membersPage.map((m) => ({
+      id: `memberpage_${m.id}`,
+      name: m.name || "",
+      tier: m.tier || "",
+      joinedOn: m.joinedOn || "",
+      status: "active",
+    }))
+  : [];
+
+const memberOptions = [...activeRegistryMembers, ...membersPageEntries].filter(
+  (m, idx, arr) =>
+    String(m.name || "").trim() &&
+    arr.findIndex(
+      (x) =>
+        String(x.name || "").trim().toLowerCase() ===
+        String(m.name || "").trim().toLowerCase()
+    ) === idx
+);
+const selectedWalkinItem =
+  tables.find((t) => t.id === walkinItemId) || tables[0] || null;
+  function bookingTableDisplayLabel(table, type = "nonmember") {
+  if (!table) return "—";
+
+  const amount =
+    type === "member"
+      ? safeNum(table.memberPricePerHour, safeNum(table.pricePerHour, 0))
+      : safeNum(table.pricePerHour, 0);
+
+  return `${table.label || "Table"} — ₹${amount} / hour`;
+}
+
+const walkinBlockedEntries = blockedSlots.filter(
+  (x) =>
+    x &&
+    x.itemId === selectedWalkinItem?.id &&
+    x.bookingDate === walkinDate
+);
+
+const walkinActiveRequestEntries = requests.filter(
+  (x) =>
+    x &&
+    isActiveBookingStatus(x.status) &&
+    x.itemId === selectedWalkinItem?.id &&
+    x.bookingDate === walkinDate
+);
+
+const walkinBlockedSlotValues = [
+  ...walkinBlockedEntries.map((x) => x.timeSlot),
+  ...walkinActiveRequestEntries.map(
+    (x) => x.slotLabel || bookingSlotLabel(x.timeSlot || "", x.durationHours || 1)
+  ),
+];
+
+const walkinSlots = bookingTimeSlots(
+  walkinDate,
+  walkinBlockedSlotValues,
+  walkinDurationHours
+);
+
+const walkinAmount = bookingTotalAmount(
+  selectedWalkinItem,
+  walkinBookingType === "member" ? "member" : "nonmember",
+  walkinDurationHours
+);
+useEffect(() => {
+  const firstAvailable = walkinSlots.find((s) => !s.disabled)?.value || "";
+
+  if (!walkinSlots.some((s) => s.value === walkinTimeSlot && !s.disabled)) {
+    setWalkinTimeSlot(firstAvailable);
+  }
+}, [
+  walkinDate,
+  walkinItemId,
+  walkinDurationHours,
+  walkinBlockedSlotValues.join("|"),
+]); // eslint-disable-line react-hooks/exhaustive-deps
+function saveWalkinBooking() {
+  if (walkinBookingType === "member") {
+  if (!walkinMemberName.trim()) {
+    alert("Please select a member.");
+    return;
+  }
+} else {
+  if (!walkinName.trim()) {
+    alert("Please enter customer name.");
+    return;
+  }
+}
+
+  if (!walkinMobile.trim()) {
+    alert("Please enter mobile number");
+    return false;
+  }
+
+  if (!selectedWalkinItem) {
+    alert("Please select a table / game");
+    return false;
+  }
+
+  if (!walkinDate) {
+    alert("Please select date");
+    return false;
+  }
+
+  if (walkinDate < todayIso()) {
+    alert("Past dates are not allowed");
+    return false;
+  }
+
+  if (!walkinTimeSlot) {
+    alert("Please select a start time");
+    return false;
+  }
+
+  const requestedEndTime = bookingEndTime(walkinTimeSlot, walkinDurationHours);
+  const requestedEndMinutes = timeToMinutes(requestedEndTime);
+
+  if (
+    !requestedEndTime ||
+    !Number.isFinite(requestedEndMinutes) ||
+    requestedEndMinutes > 23 * 60
+  ) {
+    alert("Selected booking duration goes beyond closing time.");
+    return false;
+  }
+
+  const req = {
+    id: uid(),
+    name:
+  walkinBookingType === "member"
+    ? walkinMemberName.trim()
+    : walkinName.trim(),
+mobile: walkinMobile.trim(),
+memberId:
+  walkinBookingType === "member"
+    ? walkinMemberName.trim()
+    : "",
+bookingType:
+  walkinBookingType === "member" ? "member" : "nonmember",
+    source: "staff_walkin",
+    createdBy: admin ? "admin" : "staff",
+    paymentStatus: "unpaid",
+    itemId: selectedWalkinItem.id,
+    itemLabel: selectedWalkinItem.label,
+    bookingDate: walkinDate,
+    timeSlot: walkinTimeSlot,
+    durationHours: walkinDurationHours,
+    endTime: bookingEndTime(walkinTimeSlot, walkinDurationHours),
+    slotLabel: bookingSlotLabel(walkinTimeSlot, walkinDurationHours),
+    note: walkinNote.trim(),
+    amount: walkinAmount,
+    status: "verified",
+    createdAt: Date.now(),
+  };
+
+  if (hasBookingConflict(requests, req)) {
+    alert("This slot is already booked / blocked for this item.");
+    return false;
+  }
+
+  const walkinWhatsappDraft = buildWhatsappDraft({
+    phone: req.mobile,
+    label: "booking_success",
+    text: buildBookingWhatsappText({
+      name: req.name,
+      table: req.itemLabel,
+      bookedAt: new Date().toISOString(),
+      bookingDate: req.bookingDate,
+      bookingSlot: req.slotLabel,
+      amount: req.amount,
+    }),
+  });
+
+  walkinWhatsappDraft.templateParams = [
+    req.name || "Customer",
+    `WI-${String(req.id || "").slice(-5)}`,
+    req.itemLabel || "Booked Table",
+    req.bookingDate || "—",
+    req.slotLabel || "—",
+  ];
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables,
+      requests: [req, ...(data.booking?.requests || [])],
+      blockedSlots,
+    },
+    whatsappJobs: [
+      ...(data.whatsappJobs || []),
+      createWhatsappJob("booking_success", walkinWhatsappDraft),
+    ],
+  });
+
+  setWalkinBookingType("nonmember");
+setWalkinMemberName("");
+setWalkinName("");
+setWalkinMobile("");
+setWalkinDate(today);
+setWalkinTimeSlot("");
+setWalkinDurationHours(1);
+setWalkinNote("");
+
+  alert("Walk-in booking saved successfully.");
+  return true;
+}
+const todaysRequests = requests.filter(
+  (r) =>
+    String(r?.bookingDate || "") === today &&
+    String(r?.source || "") === "staff_walkin"
+);
+function updateWalkinPaymentStatus(id, paymentStatus) {
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables,
+      blockedSlots,
+      requests: requests.map((r) =>
+        r.id === id ? { ...r, paymentStatus } : r
+      ),
+    },
+  });
+}
+function printWalkinReceipt(entry) {
+  if (!entry) return;
+
+  const receiptNo = `WALKIN-${String(entry.id || "").slice(-6).toUpperCase()}`;
+  const bookingWindow =
+    entry.slotLabel ||
+    bookingSlotLabel(entry.timeSlot || "", entry.durationHours || 1) ||
+    "—";
+
+  const paidLabel =
+    entry.paymentStatus === "paid_cash"
+      ? "Paid by Cash"
+      : entry.paymentStatus === "paid_upi"
+      ? "Paid by UPI"
+      : "Unpaid";
+
+  const bookingTypeLabel =
+    entry.bookingType === "member" ? "Member Booking" : "Walk-in Booking";
+
+  const nowText = new Date().toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const html = `
+  <html>
+    <head>
+      <title>${receiptNo}</title>
+      <style>
+        @page {
+          size: 80mm auto;
+          margin: 4mm;
+        }
+
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: #fff;
+          color: #111;
+          font-family: Arial, sans-serif;
+          width: 72mm;
+        }
+
+        body {
+          padding: 0;
+        }
+
+        .receipt {
+          width: 72mm;
+          margin: 0 auto;
+          padding: 2mm 0 4mm;
+          box-sizing: border-box;
+        }
+
+        .topline {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10px;
+          font-weight: 700;
+          margin-bottom: 6px;
+        }
+
+        .brand {
+          text-align: center;
+          margin-bottom: 8px;
+        }
+
+        .brand .title {
+          font-size: 24px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          line-height: 1.05;
+        }
+
+        .brand .sub {
+          font-size: 16px;
+          font-weight: 800;
+          margin-top: 2px;
+        }
+
+        .brand .tag {
+          font-size: 11px;
+          margin-top: 3px;
+          color: #333;
+        }
+
+        .rule {
+          border-top: 2px solid #111;
+          margin: 8px 0;
+        }
+
+        .sectionTitle {
+          font-size: 18px;
+          font-weight: 900;
+          text-align: left;
+          margin: 2px 0;
+        }
+
+        .sectionSub {
+          font-size: 11px;
+          color: #333;
+          margin-bottom: 4px;
+        }
+
+        .row {
+          margin: 5px 0;
+          font-size: 13px;
+          line-height: 1.35;
+          word-break: break-word;
+        }
+
+        .label {
+          font-weight: 800;
+        }
+
+        .amount {
+          font-size: 18px;
+          font-weight: 900;
+          margin-top: 8px;
+        }
+
+        .payment {
+          font-size: 14px;
+          font-weight: 800;
+          margin-top: 4px;
+        }
+
+        .footer {
+          margin-top: 10px;
+          padding-top: 8px;
+          border-top: 1px dashed #777;
+          text-align: center;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .strong {
+          font-weight: 900;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="receipt">
+        <div class="topline">
+          <span>${entry.bookingDate || "-"}</span>
+          <span>${receiptNo}</span>
+        </div>
+
+        <div class="brand">
+          <div class="title">THE Q CLUB</div>
+          <div class="sub">PASIGHAT</div>
+          <div class="tag">Premium Indoor Gaming Lounge</div>
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="sectionTitle">BOOKING RECEIPT</div>
+        <div class="sectionSub">${bookingTypeLabel}</div>
+
+        <div class="rule"></div>
+
+        <div class="row"><span class="label">Printed:</span> ${nowText}</div>
+        <div class="row"><span class="label">Name:</span> ${entry.name || "-"}</div>
+        <div class="row"><span class="label">Mobile:</span> ${entry.mobile || "-"}</div>
+        <div class="row"><span class="label">Date:</span> ${entry.bookingDate || "-"}</div>
+        <div class="row"><span class="label">Time:</span> ${bookingWindow}</div>
+        <div class="row"><span class="label">Table/Game:</span> ${entry.itemLabel || "-"}</div>
+        <div class="row"><span class="label">Duration:</span> ${entry.durationHours || 1} hour(s)</div>
+        <div class="row"><span class="label">Notes:</span> ${entry.note || "—"}</div>
+
+        <div class="amount">AMOUNT: ₹${entry.amount || 0}</div>
+        <div class="payment">PAYMENT: ${paidLabel}</div>
+
+        <div class="footer">
+          <div>Thank you for visiting <span class="strong">The Q Club</span></div>
+          <div>Please keep this receipt</div>
+          <div>Have a great game</div>
+        </div>
+      </div>
+    </body>
+  </html>
+`;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+  return (
+    <>
+      <PageShell
+        title="Walk-in Bookings"
+        subtitle="Staff booking and session management"
+      />
+
+      <div className="container">
+        <div className="card">
+  <h2 style={{ marginTop: 0 }}>Walk-in Bookings</h2>
+  <div className="muted" style={{ marginBottom: 14 }}>
+    Staff booking and session management using the same shared booking database.
+  </div>
+
+  <div className="grid">
+    <div className="cols-3">
+  <label className="lbl">Booking Type</label>
+  <select
+    value={walkinBookingType}
+    onChange={(e) => {
+      const nextType = e.target.value;
+      setWalkinBookingType(nextType);
+      setWalkinMemberName("");
+      setWalkinName("");
+      setWalkinMobile("");
+    }}
+  >
+    <option value="nonmember">Non-member</option>
+    <option value="member">Member</option>
+  </select>
+</div>
+
+<div className="cols-9">
+  <label className="lbl">
+    {walkinBookingType === "member" ? "Member" : "Customer Name"}
+  </label>
+
+  {walkinBookingType === "member" ? (
+    <select
+      value={walkinMemberName}
+      onChange={(e) => {
+        const selectedName = e.target.value;
+        setWalkinMemberName(selectedName);
+
+        const found = memberOptions.find(
+          (m) => String(m.name || "").trim() === selectedName
+        );
+
+        setWalkinName(selectedName || "");
+        setWalkinMobile(found?.mobile || "");
+      }}
+    >
+      <option value="">Select member</option>
+      {memberOptions.map((m) => (
+        <option key={m.id} value={m.name}>
+          {m.name}
+          {m.tier ? ` — ${m.tier}` : ""}
+        </option>
+      ))}
+    </select>
+  ) : (
+    <input
+      value={walkinName}
+      onChange={(e) => setWalkinName(e.target.value)}
+      placeholder="Walk-in customer name"
+    />
+  )}
+</div>
+
+    <div className="cols-6">
+  <label className="lbl">Mobile Number</label>
+  <input
+    value={walkinMobile}
+    onChange={(e) => setWalkinMobile(e.target.value)}
+    placeholder={
+      walkinBookingType === "member"
+        ? "Member mobile"
+        : "Customer mobile"
+    }
+  />
+</div>
+
+    <div className="cols-6">
+      <label className="lbl">Table / Game</label>
+      <select
+        value={walkinItemId}
+        onChange={(e) => setWalkinItemId(e.target.value)}
+      >
+        {tables.map((t) => (
+  <option key={t.id} value={t.id}>
+    {bookingTableDisplayLabel(t, walkinBookingType)}
+  </option>
+))}
+      </select>
+    </div>
+
+    <div className="cols-3">
+      <label className="lbl">Date</label>
+      <input
+        type="date"
+        value={walkinDate}
+        onChange={(e) => setWalkinDate(e.target.value)}
+      />
+    </div>
+
+    <div className="cols-3">
+      <label className="lbl">Duration</label>
+      <select
+        value={walkinDurationHours}
+        onChange={(e) => setWalkinDurationHours(Number(e.target.value))}
+      >
+        <option value={1}>1 hour</option>
+        <option value={2}>2 hours</option>
+        <option value={3}>3 hours</option>
+        <option value={4}>4 hours</option>
+        <option value={5}>5 hours</option>
+      </select>
+    </div>
+
+    <div className="cols-6">
+      <label className="lbl">Start Time</label>
+      <select
+        value={walkinTimeSlot}
+        onChange={(e) => setWalkinTimeSlot(e.target.value)}
+      >
+        {walkinSlots.map((s) => (
+          <option key={s.value} value={s.value} disabled={s.disabled}>
+            {bookingSlotLabel(s.label, walkinDurationHours)}
+            {s.disabled ? " (Unavailable)" : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div className="cols-6">
+      <label className="lbl">Notes</label>
+      <input
+        value={walkinNote}
+        onChange={(e) => setWalkinNote(e.target.value)}
+        placeholder="Optional note"
+      />
+    </div>
+
+    <div className="cols-12">
+      <div
+        style={{
+          marginTop: 4,
+          padding: 12,
+          border: "1px solid rgba(255,255,255,.10)",
+          borderRadius: 14,
+          background: "rgba(255,255,255,.03)",
+          display: "grid",
+          gap: 6,
+        }}
+      >
+        <div className="cols-12">
+  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+    <button
+      className="btn primary"
+      type="button"
+      onClick={saveWalkinBooking}
+    >
+      Save Walk-in Booking
+    </button>
+  </div>
+</div>
+        <div style={{ fontWeight: 800 }}>
+          Booking Window:{" "}
+          {walkinTimeSlot
+            ? bookingSlotLabel(walkinTimeSlot, walkinDurationHours)
+            : "Select start time"}
+        </div>
+
+        <div className="muted">
+          Duration: {walkinDurationHours}{" "}
+          {walkinDurationHours === 1 ? "hour" : "hours"}
+        </div>
+
+        <div className="muted">
+          Payable Amount: ₹{walkinAmount}
+        </div>
+      </div>
+    </div>
+
+    <div className="card cols-4">
+      <div className="infoLabel">Booking Items</div>
+      <div className="infoValue">{tables.length}</div>
+    </div>
+
+    <div className="card cols-4">
+      <div className="infoLabel">Booking Requests</div>
+      <div className="infoValue">{requests.length}</div>
+    </div>
+
+    <div className="card cols-4">
+      <div className="infoLabel">Blocked Slots</div>
+      <div className="infoValue">{blockedSlots.length}</div>
+    </div>
+  </div>
+</div>
+<div className="card" style={{ marginTop: 16 }}>
+  <h3 style={{ marginTop: 0 }}>Today&apos;s Shared Booking Records</h3>
+
+  {todaysRequests.length === 0 ? (
+    <div className="muted">No booking records for today.</div>
+  ) : (
+    <table>
+      <thead>
+  <tr>
+    <th>Name</th>
+    <th>Item</th>
+    <th>Window</th>
+    <th>Status</th>
+    <th>Payment</th>
+    <th>Source</th>
+    <th>Amount</th>
+    <th>Admin</th>
+  </tr>
+</thead>
+      <tbody>
+        {todaysRequests.map((r) => (
+          <tr key={r.id}>
+  <td>{r.name || "—"}</td>
+  <td>{r.itemLabel || "—"}</td>
+  <td>{r.slotLabel || bookingSlotLabel(r.timeSlot || "", r.durationHours || 1)}</td>
+  <td>{bookingStatusLabel(r.status)}</td>
+  <td>
+    <select
+      value={r.paymentStatus || "unpaid"}
+      onChange={(e) => updateWalkinPaymentStatus(r.id, e.target.value)}
+    >
+      <option value="unpaid">unpaid</option>
+      <option value="paid_cash">paid_cash</option>
+      <option value="paid_upi">paid_upi</option>
+    </select>
+  </td>
+  <td>{r.source || "—"}</td>
+<td>₹{r.amount || 0}</td>
+<td>
+  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+    <button
+      className="btn"
+      type="button"
+      onClick={() => printWalkinReceipt(r)}
+    >
+      Print Receipt
+    </button>
+
+    {admin ? (
+      <button
+        className="btn danger"
+        type="button"
+        onClick={() => deleteWalkinBooking(r.id)}
+      >
+        Delete
+      </button>
+    ) : (
+      "—"
+    )}
+  </div>
+</td>
+</tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</div>
+      </div>
+    </>
+  );
+}
+function deleteWalkinBooking(id) {
+  const ok = confirm("Delete this walk-in booking?");
+  if (!ok) return;
+
+  commit({
+    ...data,
+    booking: {
+      ...(data.booking || {}),
+      tables,
+      blockedSlots,
+      requests: requests.filter((r) => r.id !== id),
+    },
+  });
+}
+function InventoryMaintenance({ data, admin, staffAdmin, commit }) {
+  if (!admin && !staffAdmin) {
+    return (
+      <>
+        <PageShell title="Inventory" subtitle="Restricted access" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Access denied.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+const inventoryItems = Array.isArray(data.inventoryItems) ? data.inventoryItems : [];
+const [itemName, setItemName] = useState("");
+const [itemCategory, setItemCategory] = useState("");
+const [itemUnit, setItemUnit] = useState("");
+const [itemQty, setItemQty] = useState("");
+const [itemMinQty, setItemMinQty] = useState("");
+const [itemNote, setItemNote] = useState("");
+const [qtyDrafts, setQtyDrafts] = useState({});
+function saveInventoryItem() {
+  if (!itemName.trim()) {
+    alert("Please enter item name");
+    return false;
+  }
+
+  const nextItem = {
+  id: uid(),
+  name: itemName.trim(),
+  category: itemCategory.trim(),
+  unit: itemUnit.trim(),
+  qty: safeNum(itemQty, 0),
+  minQty: safeNum(itemMinQty, 0),
+  note: itemNote.trim(),
+  createdAt: Date.now(),
+  movements: [
+    {
+      id: uid(),
+      type: "opening",
+      qty: safeNum(itemQty, 0),
+      note: "Opening stock",
+      createdAt: Date.now(),
+    },
+  ],
+};
+
+  commit({
+    ...data,
+    inventoryItems: [nextItem, ...inventoryItems],
+  });
+
+  setItemName("");
+  setItemCategory("");
+  setItemUnit("");
+  setItemQty("");
+  setItemMinQty("");
+  setItemNote("");
+
+  alert("Inventory item saved.");
+  return true;
+}
+function deleteInventoryItem(id) {
+  const ok = confirm("Delete this inventory item?");
+  if (!ok) return;
+
+  commit({
+    ...data,
+    inventoryItems: inventoryItems.filter((item) => item.id !== id),
+  });
+}
+function updateInventoryQty(id, nextQty) {
+  const currentItem = inventoryItems.find((item) => item.id === id);
+  if (!currentItem) return;
+
+  const previousQty = safeNum(currentItem.qty, 0);
+  const updatedQty = safeNum(nextQty, 0);
+
+  if (previousQty === updatedQty) return;
+
+  const ok = confirm(
+    `Confirm stock change for "${currentItem.name || "item"}"?\n\nCurrent Qty: ${previousQty}\nNew Qty: ${updatedQty}\n\nOnce confirmed, staff cannot reverse this action. In case of mistake, contact main admin.`
+  );
+  if (!ok) return;
+
+  const delta = updatedQty - previousQty;
+
+  commit({
+    ...data,
+    inventoryItems: inventoryItems.map((item) => {
+      if (item.id !== id) return item;
+
+      return {
+        ...item,
+        qty: updatedQty,
+        movements: [
+          {
+            id: uid(),
+            type: delta > 0 ? "stock_in" : "stock_out",
+            qty: Math.abs(delta),
+            note: "Confirmed qty update",
+            createdAt: Date.now(),
+          },
+          ...(Array.isArray(item.movements) ? item.movements : []),
+        ],
+      };
+    }),
+  });
+}
+function updateInventoryMinQty(id, nextMinQty) {
+  commit({
+    ...data,
+    inventoryItems: inventoryItems.map((item) =>
+      item.id === id
+        ? { ...item, minQty: safeNum(nextMinQty, 0) }
+        : item
+    ),
+  });
+}
+
+
+return (
+    <>
+      <PageShell
+        title="Inventory"
+        subtitle="Staff inventory maintenance"
+      />
+
+      <div className="container">
+        <div className="card">
+  <h2 style={{ marginTop: 0 }}>Inventory Maintenance</h2>
+  <div className="muted" style={{ marginBottom: 14 }}>
+    Track stock items for staff use and leakage control.
+  </div>
+
+  <div className="grid">
+    <div className="cols-6">
+      <label className="lbl">Item Name</label>
+      <input
+        value={itemName}
+        onChange={(e) => setItemName(e.target.value)}
+        placeholder="Example: Tea Cups"
+      />
+    </div>
+
+    <div className="cols-6">
+      <label className="lbl">Category</label>
+      <input
+        value={itemCategory}
+        onChange={(e) => setItemCategory(e.target.value)}
+        placeholder="Example: Beverage / Food / Cleaning"
+      />
+    </div>
+
+    <div className="cols-4">
+      <label className="lbl">Unit</label>
+      <input
+        value={itemUnit}
+        onChange={(e) => setItemUnit(e.target.value)}
+        placeholder="pcs / bottles / packs / kg"
+      />
+    </div>
+
+    <div className="cols-4">
+      <label className="lbl">Current Qty</label>
+      <input
+        value={itemQty}
+        onChange={(e) => setItemQty(e.target.value)}
+        placeholder="0"
+      />
+    </div>
+
+    <div className="cols-4">
+      <label className="lbl">Minimum Qty Alert</label>
+      <input
+        value={itemMinQty}
+        onChange={(e) => setItemMinQty(e.target.value)}
+        placeholder="0"
+      />
+    </div>
+
+    <div className="cols-12">
+      <label className="lbl">Notes</label>
+      <input
+        value={itemNote}
+        onChange={(e) => setItemNote(e.target.value)}
+        placeholder="Optional notes"
+      />
+    </div>
+<div className="cols-12">
+  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+    <button
+      className="btn primary"
+      type="button"
+      onClick={saveInventoryItem}
+    >
+      Save Inventory Item
+    </button>
+  </div>
+</div>
+    <div className="card cols-4">
+      <div className="infoLabel">Inventory Items</div>
+      <div className="infoValue">{inventoryItems.length}</div>
+    </div>
+  </div>
+</div>
+<div className="card" style={{ marginTop: 16 }}>
+  <h3 style={{ marginTop: 0 }}>Inventory Records</h3>
+
+  {inventoryItems.length === 0 ? (
+    <div className="muted">No inventory items saved yet.</div>
+  ) : (
+    <table>
+      <thead>
+  <tr>
+    <th>Item</th>
+    <th>Category</th>
+    <th>Unit</th>
+    <th>Qty</th>
+    <th>Min Qty</th>
+    <th>Last Movement</th>
+    <th>Notes</th>
+    <th>Admin</th>
+  </tr>
+</thead>
+      <tbody>
+        {inventoryItems.map((item) => (
+         <tr
+  key={item.id}
+  style={
+    Number(item.qty ?? 0) <= Number(item.minQty ?? 0)
+      ? { background: "rgba(255, 77, 77, 0.10)" }
+      : undefined
+  }
+>
+  <td>{item.name || "—"}</td>
+  <td>{item.category || "—"}</td>
+  <td>{item.unit || "—"}</td>
+  <td>
+  <input
+    value={
+      Object.prototype.hasOwnProperty.call(qtyDrafts, item.id)
+        ? qtyDrafts[item.id]
+        : String(item.qty ?? 0)
+    }
+    onChange={(e) =>
+      setQtyDrafts((prev) => ({
+        ...prev,
+        [item.id]: e.target.value,
+      }))
+    }
+    onBlur={(e) => {
+      updateInventoryQty(item.id, e.target.value);
+      setQtyDrafts((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }}
+    style={{ width: 90 }}
+  />
+</td>
+  <td>
+  {admin ? (
+    <input
+      value={item.minQty ?? 0}
+      onChange={(e) => updateInventoryMinQty(item.id, e.target.value)}
+      style={{ width: 90 }}
+    />
+  ) : (
+    item.minQty ?? 0
+  )}
+</td>
+<td>
+  {(() => {
+    const mv = Array.isArray(item.movements) ? item.movements[0] : null;
+    if (!mv) return "—";
+    return `${mv.type || "update"} â€¢ ${mv.qty ?? 0}`;
+  })()}
+</td>
+<td>
+  {admin ? (
+    <input
+      value={item.note || ""}
+      onChange={(e) => updateInventoryNote(item.id, e.target.value)}
+      placeholder="Notes"
+    />
+  ) : (
+    item.note || "—"
+  )}
+</td>
+  <td>
+    {admin ? (
+  <button
+    className="btn danger"
+    type="button"
+    onClick={() => deleteInventoryItem(item.id)}
+  >
+    Delete
+  </button>
+) : (
+  "—"
+)}
+  </td>
+</tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</div>
+      </div>
+    </>
+  );
+}
+
 function HallOfFame({ data, admin, commit }) {
 
   const entries = data.hallOfFame || [];
@@ -10061,9 +13936,9 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                     <div>
                       <div className="badge"><span className="dot red" />LIVE</div>
                       <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
-                      <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} • {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
+                      <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} â€¢ {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
                       <div className="muted" style={{ marginTop: 6 }}>
-                        Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • Duration: {calcDurationLabel(row.start_time, row.end_time || nowTimeValue())}
+                        Date: {formatDateLabel(row.match_date)} â€¢ Start: {formatTimeLabel(row.start_time)} â€¢ Duration: {calcDurationLabel(row.start_time, row.end_time || nowTimeValue())}
                       </div>
                     </div>
                     {admin ? (
@@ -10138,7 +14013,7 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                         <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
                         <div className="muted">{teamLabel(row, 1)} vs {teamLabel(row, 2)}</div>
                         <div className="muted" style={{ marginTop: 6 }}>
-                          Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • End: {formatTimeLabel(row.end_time)} • Total: {calcDurationLabel(row.start_time, row.end_time)}
+                          Date: {formatDateLabel(row.match_date)} â€¢ Start: {formatTimeLabel(row.start_time)} â€¢ End: {formatTimeLabel(row.end_time)} â€¢ Total: {calcDurationLabel(row.start_time, row.end_time)}
                         </div>
                       </div>
                       <div style={{ fontSize: 28, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
@@ -10226,7 +14101,7 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                             <div style={{ fontSize: 22, fontWeight: 900, marginTop: 8 }}>{winner?.label || "—"}</div>
                             <div className="muted" style={{ marginTop: 6 }}>
                               Final Score: {safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}
-                              {row.game === "snooker" ? ` • Highest Break: ${winner?.breakValue || 0}` : ""}
+                              {row.game === "snooker" ? ` â€¢ Highest Break: ${winner?.breakValue || 0}` : ""}
                             </div>
                           </div>
                         </div>
@@ -10255,2497 +14130,502 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
     </>
   );
 }
-
-
-function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
-  const [selectedTvTournamentId, setSelectedTvTournamentId] = useState(
-  activeTournament?.id || data.tournaments?.[0]?.id || ""
-);
-
-const tvTournament =
-  (data.tournaments || []).find((t) => t.id === selectedTvTournamentId) ||
-  activeTournament ||
-  null;
-
-const tvMatches = tvTournament?.matches || [];
-const matches = tvMatches;
-const isSnooker = tournamentGameKey(tvTournament?.game) === "snooker";
-
-const [tvMode, setTvMode] = useState("showcase"); // showcase | fixtures | auto
-const [slideIndex, setSlideIndex] = useState(0);
-const [fixturePage, setFixturePage] = useState(0);
-const [autoPhase, setAutoPhase] = useState("showcase"); // showcase | fixtures
-const [showFixtureBanner, setShowFixtureBanner] = useState(false);
-const tvSlideFileInputRef = useRef(null);
-
-const [fixtureRevealStage, setFixtureRevealStage] = useState("idle");
-// idle | closed | generating | locked | ready | done
-const [hasPlayedFixtureReveal, setHasPlayedFixtureReveal] = useState(false);
-const [revealedPairCount, setRevealedPairCount] = useState(0);
-
-const leaderboard = tvTournament
-  ? calcLeaderboard(playersForTournament(tvTournament, data.players || []), tvTournament)
-  : [];
-
-const tournamentPlayersForTv = tvTournament
-  ? playersForTournament(tvTournament, data.players || [])
-  : [];
-
-const nextMatches = matches.filter((m) => m.status !== "done");
-const doneMatches = matches.filter((m) => m.status === "done");
-
-function playerById(id) {
-  return (players || []).find((x) => x.id === id) || null;
-}
-
-function playerName(id) {
-  return playerById(id)?.name || "Player";
-}
-
-function playerPhoto(id) {
-  return playerById(id)?.photo || "";
-}
-
-function scoreText(m) {
-  const s1 = m?.score1 === "" || m?.score1 == null ? "-" : m.score1;
-  const s2 = m?.score2 === "" || m?.score2 == null ? "-" : m.score2;
-  return `${s1} : ${s2}`;
-}
-
-function chunkItems(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-const fixturePages = chunkItems(nextMatches.length ? nextMatches : doneMatches, 4);
-const currentFixturePage = fixturePages[fixturePage] || [];
-
-const highestBreakPlayer = isSnooker
-  ? (players || []).slice().sort((a, b) => (b.bestBreak || 0) - (a.bestBreak || 0))[0]
-  : null;
-
-useEffect(() => {
-  setFixturePage(0);
-  setFixtureRevealStage("idle");
-  setHasPlayedFixtureReveal(false);
-  setShowFixtureBanner(false);
-  setRevealedPairCount(0);
-}, [selectedTvTournamentId]);
-
-useEffect(() => {
-  if (!showFixtureBanner) return;
-  const t = setTimeout(() => setShowFixtureBanner(false), 4500);
-  return () => clearTimeout(t);
-}, [showFixtureBanner]);
-
-useEffect(() => {
-  const slidesExist = true;
-  if (!slidesExist) return;
-
-  const t = setInterval(() => {
-    setSlideIndex((prev) => prev + 1);
-  }, 7000);
-
-  return () => clearInterval(t);
-}, []);
-
-useEffect(() => {
-  if (fixturePages.length <= 1) return;
-
-  const shouldRotateFixtures =
-    tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
-
-  if (!shouldRotateFixtures) return;
-
-  const t = setInterval(() => {
-    setFixturePage((prev) => (prev + 1) % fixturePages.length);
-  }, 10000);
-
-  return () => clearInterval(t);
-}, [fixturePages.length, tvMode, autoPhase]);
-
-useEffect(() => {
-  if (tvMode !== "auto") return;
-
-  setAutoPhase("showcase");
-
-  const t = setInterval(() => {
-    setAutoPhase((prev) => {
-      if (prev === "showcase") {
-        return matches.length ? "fixtures" : "showcase";
-      }
-      return "showcase";
-    });
-  }, 15000);
-
-  return () => clearInterval(t);
-}, [tvMode, matches.length]);
-
-useEffect(() => {
-  let t;
-
-  if (fixtureRevealStage === "closed") {
-    t = setTimeout(() => setFixtureRevealStage("generating"), 700);
-  } else if (fixtureRevealStage === "generating") {
-    t = setTimeout(() => setFixtureRevealStage("locked"), 1100);
-  } else if (fixtureRevealStage === "locked") {
-    t = setTimeout(() => setFixtureRevealStage("ready"), 1200);
-  } else if (fixtureRevealStage === "ready") {
-    t = setTimeout(() => {
-      setFixtureRevealStage("done");
-      setHasPlayedFixtureReveal(true);
-      setTvMode("fixtures");
-    }, 1200);
-  }
-
-  return () => {
-    if (t) clearTimeout(t);
-  };
-}, [fixtureRevealStage]);
-
-useEffect(() => {
-  if (fixtureRevealStage !== "locked" && fixtureRevealStage !== "ready") return;
-
-  const maxPairs = Math.min(8, matches.length);
-  if (maxPairs <= 0) return;
-
-  setRevealedPairCount(1);
-
-  const t = setInterval(() => {
-    setRevealedPairCount((prev) => {
-      if (prev >= maxPairs) {
-        clearInterval(t);
-        return prev;
-      }
-      return prev + 1;
-    });
-  }, 450);
-
-  return () => clearInterval(t);
-}, [fixtureRevealStage, matches.length]);
-
-function triggerFixtureReveal() {
-  setFixturePage(0);
-  setShowFixtureBanner(false);
-  setHasPlayedFixtureReveal(false);
-  setRevealedPairCount(0);
-  setTvMode("showcase");
-  setFixtureRevealStage("idle");
-
-  setTimeout(() => {
-    setShowFixtureBanner(true);
-    setFixtureRevealStage("closed");
-  }, 40);
-}
-
-  const heroSlides = (data.club?.heroSlides || []).filter(Boolean).map((url, idx) => ({
-    id: `hero_${idx}`,
-    kind: "image",
-    title: idx === 0 ? "Welcome to The Q Club" : "Premium Gaming Lounge",
-    subtitle:
-      idx === 0
-        ? "Snooker • Pool • Air Hockey • Foosball • Tea • Coffee • Lounge"
-        : "The coolest place in the oldest town.",
-    image: url,
-  }));
-
-  const gallerySlides = (data.photos || [])
-    .map((p, idx) => ({
-      id: p.id || `gallery_${idx}`,
-      kind: "image",
-      title: p.title || "Club Gallery",
-      subtitle: p.caption || "Moments from The Q Club",
-      image: p.url || p.dataUrl || "",
-    }))
-    .filter((x) => x.image)
-    .slice(0, 8);
-
-  const memberSlides = (players || [])
-    .filter((p) => p.photo)
-    .map((p) => ({
-      id: `player_${p.id}`,
-      kind: "image",
-      title: p.name || "Member Spotlight",
-      subtitle: p.city ? `${p.city} • Q Club Player` : "Q Club Player",
-      image: p.photo,
-    }))
-    .slice(0, 8);
-
-  const hallOfFameSlides = (data.hallOfFame || [])
-    .filter((h) => h.photo)
-    .map((h) => ({
-      id: `hof_${h.id}`,
-      kind: "image",
-      title: h.title || h.name || "Hall of Fame",
-      subtitle: h.note || h.category || "Club Highlight",
-      image: h.photo,
-    }))
-    .slice(0, 6);
-
-  const textSlides = [
-    {
-      id: "amenities",
-      kind: "text",
-      title: "Club Amenities",
-      subtitle:
-        "2 Full-size 12x6 Snooker Tables • Mini Snooker • American Pool • Air Hockey • Foosball • Massage Chair",
-    },
-    {
-      id: "beverages",
-      kind: "text",
-      title: "Food & Beverage",
-      subtitle: "Tea • Coffee • Mocktails • Momos • Sausages • Chicken • More at The Q Club",
-    },
-    {
-      id: "memberships",
-      kind: "text",
-      title: "Membership Open",
-      subtitle: "Join Bronze • Silver • Gold • Platinum for member perks and special rates",
-    },
-    {
-      id: "booking",
-      kind: "text",
-      title: "Book Your Table",
-      subtitle: "Scan and book at theqclubpasighat.com",
-    },
-    {
-      id: "tournament",
-      kind: "text",
-      title: tvTournament ? tournamentDisplay(tvTournament) : "Monthly Club Tournaments",
-      subtitle: tvTournament?.registrationNote || "Skill-based club tournaments, fixtures, rankings, and more.",
-    },
-  ];
-
-  const customSlides = (data.club?.tvCustomSlides || []).map((s, idx) => ({
-    id: s.id || `custom_${idx}`,
-    kind: s.kind || "text",
-    title: s.title || "Showcase Slide",
-    subtitle: s.subtitle || "",
-    image: s.image || "",
-    isCustom: true,
-  }));
-
-  const editableSlides = [...textSlides, ...customSlides];
-  const tvShowcaseMode = data.club?.tvShowcaseMode === "custom_only" ? "custom_only" : "mixed";
-
-  const showcaseSlides =
-    tvShowcaseMode === "custom_only"
-      ? customSlides.length
-        ? customSlides
-        : [
-            {
-              id: "custom_only_empty",
-              kind: "text",
-              title: "No Custom TV Slides Yet",
-              subtitle: "Add or upload custom slides to use Custom Slides Only mode.",
-            },
-          ]
-      : [...heroSlides, ...editableSlides, ...memberSlides, ...gallerySlides, ...hallOfFameSlides];
-
-  const safeSlides = showcaseSlides.length
-    ? showcaseSlides
-    : [
-        {
-          id: "fallback",
-          kind: "text",
-          title: "Welcome to The Q Club",
-          subtitle: "Premium gaming lounge • Snooker • Pool • Air Hockey • Lounge",
-        },
-      ];
-
-  const activeSlide = safeSlides[slideIndex % safeSlides.length];
-  const canEditTvSlides = admin || staffAdmin;
-
-  function setTvShowcaseMode(nextMode) {
-    if (!canEditTvSlides) return;
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        tvCustomSlides: data.club?.tvCustomSlides || [],
-        tvShowcaseMode: nextMode === "custom_only" ? "custom_only" : "mixed",
-      },
-    });
-  }
-
-  function triggerTvSlideImagePicker() {
-    if (!canEditTvSlides) return;
-    if (!tvSlideFileInputRef.current) return;
-    tvSlideFileInputRef.current.value = "";
-    tvSlideFileInputRef.current.click();
-  }
-
-  function handleTvSlideImageFileChange(e) {
-    if (!canEditTvSlides) return;
-
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      if (!dataUrl) return;
-
-      const title = prompt("Slide title:", "The Q Club Showcase");
-      if (title === null) return;
-
-      const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
-      if (subtitle === null) return;
-
-      commit({
-        ...data,
-        club: {
-          ...(data.club || {}),
-          tvCustomSlides: [
-            ...(data.club?.tvCustomSlides || []),
-            {
-              id: uid(),
-              kind: "image",
-              title: title.trim(),
-              subtitle: subtitle.trim(),
-              image: dataUrl,
-            },
-          ],
-        },
-      });
-    };
-
-    reader.readAsDataURL(file);
-  }
-
-  function moveCurrentTvSlide(direction) {
-    if (!canEditTvSlides) return;
-    if (!activeSlide?.isCustom) {
-      alert("Only custom TV slides can be reordered.");
-      return;
-    }
-
-    const slides = [...(data.club?.tvCustomSlides || [])];
-    const idx = slides.findIndex((s) => s.id === activeSlide.id);
-    if (idx === -1) return;
-
-    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
-    if (targetIdx < 0 || targetIdx >= slides.length) return;
-
-    const temp = slides[idx];
-    slides[idx] = slides[targetIdx];
-    slides[targetIdx] = temp;
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        tvCustomSlides: slides,
-      },
-    });
-  }
-
-  function addCustomTvSlide() {
-    if (!canEditTvSlides) return;
-
-    const title = prompt("Slide title:", "Welcome to The Q Club");
-    if (title === null) return;
-
-    const subtitle = prompt("Slide subtitle:", "Premium gaming lounge in Pasighat.");
-    if (subtitle === null) return;
-
-    const image = prompt("Optional image URL / data URL:", "");
-    if (image === null) return;
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        tvCustomSlides: [
-          ...(data.club?.tvCustomSlides || []),
-          {
-            id: uid(),
-            kind: image.trim() ? "image" : "text",
-            title: title.trim(),
-            subtitle: subtitle.trim(),
-            image: image.trim(),
-          },
-        ],
-      },
-    });
-  }
-
-  function editCurrentTvSlide() {
-    if (!canEditTvSlides) return;
-    if (!activeSlide?.isCustom) {
-      alert("Only custom TV slides are editable. Built-in slides are automatic.");
-      return;
-    }
-
-    const current = (data.club?.tvCustomSlides || []).find((s) => s.id === activeSlide.id);
-    if (!current) return;
-
-    const title = prompt("Edit slide title:", current.title || "");
-    if (title === null) return;
-
-    const subtitle = prompt("Edit slide subtitle:", current.subtitle || "");
-    if (subtitle === null) return;
-
-    const image = prompt("Edit image URL / data URL:", current.image || "");
-    if (image === null) return;
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        tvCustomSlides: (data.club?.tvCustomSlides || []).map((s) =>
-          s.id === current.id
-            ? {
-                ...s,
-                title: title.trim(),
-                subtitle: subtitle.trim(),
-                image: image.trim(),
-                kind: image.trim() ? "image" : "text",
-              }
-            : s
-        ),
-      },
-    });
-  }
-
-  function deleteCurrentTvSlide() {
-    if (!canEditTvSlides) return;
-    if (!activeSlide?.isCustom) {
-      alert("Only custom TV slides can be deleted.");
-      return;
-    }
-    if (!confirm("Delete this custom TV slide?")) return;
-
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        tvCustomSlides: (data.club?.tvCustomSlides || []).filter(
-          (s) => s.id !== activeSlide.id
-        ),
-      },
-    });
-  }
-
-  const showFixtureView =
-    tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
-
-  function renderSlide(slide) {
-    const bgImage = slide?.image || "";
-
-    return (
-      <div
-        style={{
-          position: "relative",
-          minHeight: "64vh",
-          borderRadius: 24,
-          overflow: "hidden",
-          background: bgImage
-            ? `linear-gradient(180deg, rgba(4,8,18,.20), rgba(4,8,18,.80)), url(${bgImage}) center/cover no-repeat`
-            : "linear-gradient(135deg, rgba(8,12,24,.98), rgba(18,31,58,.98))",
-          border: "1px solid rgba(255,255,255,.08)",
-          boxShadow: "0 20px 60px rgba(0,0,0,.35)",
-          display: "flex",
-          alignItems: "flex-end",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "linear-gradient(180deg, rgba(0,0,0,.08) 0%, rgba(0,0,0,.30) 45%, rgba(0,0,0,.78) 100%)",
-          }}
-        />
-
-        <div
-          style={{
-            position: "relative",
-            zIndex: 1,
-            width: "100%",
-            padding: "28px",
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              display: "inline-flex",
-              width: "fit-content",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 14px",
-              borderRadius: 999,
-              background: "rgba(255,255,255,.10)",
-              border: "1px solid rgba(255,255,255,.14)",
-              fontWeight: 800,
-              fontSize: 14,
-            }}
-          >
-            <span className="dot" />
-            Showcase Mode
-          </div>
-
-          <div
-            style={{
-              fontSize: "clamp(34px, 5vw, 68px)",
-              fontWeight: 900,
-              lineHeight: 1.02,
-              maxWidth: 980,
-              textShadow: "0 4px 24px rgba(0,0,0,.35)",
-            }}
-          >
-            {slide?.title}
-          </div>
-
-          <div
-            style={{
-              fontSize: "clamp(16px, 2vw, 28px)",
-              lineHeight: 1.35,
-              color: "rgba(255,255,255,.88)",
-              maxWidth: 960,
-            }}
-          >
-            {slide?.subtitle}
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              flexWrap: "wrap",
-              marginTop: 8,
-            }}
-          >
-            {safeSlides.slice(0, Math.min(safeSlides.length, 10)).map((s, idx) => (
-              <span
-                key={s.id}
-                style={{
-                  width: idx === (slideIndex % safeSlides.length) ? 28 : 10,
-                  height: 10,
-                  borderRadius: 999,
-                  background:
-                    idx === (slideIndex % safeSlides.length)
-                      ? "rgba(255,255,255,.95)"
-                      : "rgba(255,255,255,.30)",
-                  transition: "all .25s ease",
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function renderFixtureCard(m) {
-    const p1 = playerById(m.p1);
-    const p2 = playerById(m.p2);
-
-    return (
-      <div
-        key={m.id}
-        style={{
-          borderRadius: 22,
-          padding: 20,
-          background: "linear-gradient(180deg, rgba(14,22,38,.96), rgba(8,12,22,.96))",
-          border: "1px solid rgba(255,255,255,.08)",
-          boxShadow: "0 12px 34px rgba(0,0,0,.22)",
-        }}
-      >
-        <div className="row" style={{ justifyContent: "space-between", marginBottom: 16, gap: 8 }}>
-          <span className="badge">
-            <span className="dot" />
-            Round {m.round || 1}
-          </span>
-          <span className="badge">
-            <span className={m.status === "live" ? "dot warn" : "dot"} />
-            {m.status === "done" ? "Completed" : m.status === "live" ? "Live" : "Upcoming"}
-          </span>
-        </div>
-
-        <div style={{ display: "grid", gap: 16 }}>
-          {[
-            { p: p1, name: playerName(m.p1), score: m?.score1 === "" || m?.score1 == null ? "-" : m.score1 },
-            { p: p2, name: playerName(m.p2), score: m?.score2 === "" || m?.score2 == null ? "-" : m.score2 },
-          ].map((row, idx) => (
-            <div
-              key={idx}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "72px 1fr auto",
-                gap: 14,
-                alignItems: "center",
-              }}
-            >
-              {row.p?.photo ? (
-                <img
-                  src={row.p.photo}
-                  alt={row.name}
-                  style={{
-                    width: 72,
-                    height: 72,
-                    objectFit: "cover",
-                    borderRadius: 16,
-                    border: "1px solid rgba(255,255,255,.12)",
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 900,
-                    fontSize: 30,
-                    background: "rgba(255,255,255,.08)",
-                    border: "1px solid rgba(255,255,255,.12)",
-                  }}
-                >
-                  {String(row.name || "?").slice(0, 1).toUpperCase()}
-                </div>
-              )}
-
-              <div
-                style={{
-                  fontSize: "clamp(18px, 2vw, 28px)",
-                  fontWeight: 800,
-                  lineHeight: 1.1,
-                  minWidth: 0,
-                }}
-              >
-                {row.name}
-              </div>
-
-              <div
-                style={{
-                  minWidth: 54,
-                  textAlign: "center",
-                  fontSize: "clamp(22px, 3vw, 40px)",
-                  fontWeight: 900,
-                }}
-              >
-                {row.score}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  function renderFixtureView() {
-    const focusMatch = nextMatches[0] || doneMatches[0] || null;
-
-    return (
-      <div style={{ display: "grid", gap: 18 }}>
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 24,
-            background: "linear-gradient(135deg, rgba(7,13,24,.98), rgba(15,28,52,.98))",
-            border: "1px solid rgba(255,255,255,.08)",
-            boxShadow: "0 20px 60px rgba(0,0,0,.28)",
-          }}
-        >
-          <div className="row" style={{ justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 6 }}>
-                Fixture Broadcast
-              </div>
-              <div style={{ fontSize: "clamp(26px, 4vw, 48px)", fontWeight: 900, lineHeight: 1.05 }}>
-                {tvTournament ? tournamentDisplay(tvTournament) : "No Selected Tournament"}
-              </div>
-              <div className="muted" style={{ marginTop: 8, fontSize: 16 }}>
-                {focusMatch
-                  ? `Showing ${nextMatches.length ? "upcoming/live" : "completed"} fixtures`
-                  : "No fixtures available yet"}
-              </div>
-            </div>
-
-            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-              <span className="badge">
-                <span className="dot" />
-                Total: {matches.length}
-              </span>
-              <span className="badge">
-                <span className="dot warn" />
-                Pending: {nextMatches.length}
-              </span>
-              <span className="badge">
-                <span className="dot" />
-                Done: {doneMatches.length}
-              </span>
-              {fixturePages.length > 1 ? (
-                <span className="badge">
-                  <span className="dot" />
-                  Page {fixturePage + 1} / {fixturePages.length}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {focusMatch ? (
-          <div
-            style={{
-              borderRadius: 24,
-              padding: 22,
-              background: "linear-gradient(180deg, rgba(12,19,34,.96), rgba(8,12,22,.96))",
-              border: "1px solid rgba(255,255,255,.08)",
-            }}
-          >
-            <div style={{ fontSize: 14, opacity: 0.82, marginBottom: 10 }}>
-              {focusMatch.status === "live" ? "Now Playing" : "Next Featured Match"}
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "clamp(24px, 3vw, 44px)", fontWeight: 900 }}>
-                  {playerName(focusMatch.p1)}
-                </div>
-              </div>
-
-              <div style={{ fontSize: "clamp(28px, 4vw, 56px)", fontWeight: 900 }}>
-                {scoreText(focusMatch)}
-              </div>
-
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "clamp(24px, 3vw, 44px)", fontWeight: 900 }}>
-                  {playerName(focusMatch.p2)}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="card">
-            <div className="muted">Fixtures will appear here once generated.</div>
-          </div>
-        )}
-
-        {currentFixturePage.length ? (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: 16,
-            }}
-          >
-            {currentFixturePage.map(renderFixtureCard)}
-          </div>
-        ) : null}
-
-        {leaderboard.length ? (
-          <div
-            style={{
-              borderRadius: 22,
-              padding: 18,
-              background: "rgba(255,255,255,.04)",
-              border: "1px solid rgba(255,255,255,.08)",
-            }}
-          >
-            <div style={{ fontWeight: 800, marginBottom: 12 }}>Top Players</div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 12,
-              }}
-            >
-              {leaderboard.slice(0, 4).map((row, idx) => (
-                <div
-                  key={row.id}
-                  style={{
-                    borderRadius: 16,
-                    padding: 14,
-                    background: "rgba(255,255,255,.04)",
-                    border: "1px solid rgba(255,255,255,.06)",
-                  }}
-                >
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>#{idx + 1}</div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{row.name}</div>
-                  <div className="muted" style={{ marginTop: 4 }}>
-                    {row.points} pts • {row.wins} wins
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  function renderFixtureReveal() {
-  if (fixtureRevealStage === "idle" || fixtureRevealStage === "done") return null;
-
-  const revealMatches = matches.slice(0, 8);
-  const revealPlayers = tournamentPlayersForTv.slice(0, 16);
-  const visiblePairs = revealMatches.slice(0, revealedPairCount || 0);
-
-  const stageMeta = {
-    closed: {
-      kicker: "Registration Locked",
-      title: "Tournament Entry Closed",
-      subtitle:
-        tvTournament?.registrationNote ||
-        "All registered players are now being prepared for the official draw.",
-      glow: "rgba(255, 186, 64, 0.28)",
-      accent: "#ffcc66",
-    },
-    generating: {
-      kicker: "Live Draw Engine",
-      title: "Names Entering The Draw Bucket",
-      subtitle:
-        "Registered participants are flying into the draw, mixing rapidly, and forming the opening bracket.",
-      glow: "rgba(0, 200, 255, 0.26)",
-      accent: "#7ee7ff",
-    },
-    locked: {
-      kicker: "Bracket Lock",
-      title: "Round One Pairings Emerging",
-      subtitle:
-        "The shuffle is complete. Opening round pairings are now being revealed one by one.",
-      glow: "rgba(110, 150, 255, 0.26)",
-      accent: "#9ec0ff",
-    },
-    ready: {
-      kicker: "Broadcast Ready",
-      title: "Opening Round Confirmed",
-      subtitle:
-        "The opening draw is complete and ready for fixture broadcast.",
-      glow: "rgba(56, 211, 159, 0.28)",
-      accent: "#7fffd4",
-    },
-  };
-
-  const meta = stageMeta[fixtureRevealStage] || stageMeta.closed;
-  const isPairStage =
-    fixtureRevealStage === "locked" || fixtureRevealStage === "ready";
-
-  return (
-    <div
-      style={{
-        position: "relative",
-        minHeight: "72vh",
-        borderRadius: 30,
-        overflow: "hidden",
-        background:
-          "radial-gradient(circle at 50% 0%, rgba(34,70,130,.94), rgba(7,11,22,.98) 42%, rgba(3,7,15,1) 100%)",
-        border: "1px solid rgba(255,255,255,.08)",
-        boxShadow: "0 30px 90px rgba(0,0,0,.44)",
-        padding: 30,
-      }}
-    >
-      <style>{`
-        @keyframes qclubGlowPulse {
-          0%, 100% { opacity: .72; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.04); }
-        }
-
-        @keyframes qclubSweep {
-          0% { transform: translateX(-22%) skewX(-18deg); opacity: .08; }
-          50% { opacity: .58; }
-          100% { transform: translateX(122%) skewX(-18deg); opacity: .08; }
-        }
-
-        @keyframes qclubChipLeft {
-          0% { transform: translateX(-90px) translateY(-18px) scale(.90); opacity: 0; }
-          65% { opacity: 1; }
-          100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
-        }
-
-        @keyframes qclubChipRight {
-          0% { transform: translateX(90px) translateY(-18px) scale(.90); opacity: 0; }
-          65% { opacity: 1; }
-          100% { transform: translateX(0) translateY(0) scale(1); opacity: 1; }
-        }
-
-        @keyframes qclubChipFadeAway {
-          0% { opacity: 1; transform: scale(1); }
-          100% { opacity: .18; transform: scale(.94); }
-        }
-
-        @keyframes qclubBucketHum {
-          0%, 100% {
-            box-shadow:
-              0 0 0 rgba(255,255,255,0),
-              0 20px 55px rgba(0,0,0,.34);
-            transform: translateY(0);
-          }
-          50% {
-            box-shadow:
-              0 0 30px rgba(130,210,255,.10),
-              0 28px 70px rgba(0,0,0,.42);
-            transform: translateY(-2px);
-          }
-        }
-
-        @keyframes qclubPairCardIn {
-          0% { transform: translateY(34px) scale(.94); opacity: 0; }
-          100% { transform: translateY(0) scale(1); opacity: 1; }
-        }
-
-        @keyframes qclubCenterFlash {
-          0%, 100% { opacity: .18; }
-          50% { opacity: .46; }
-        }
-      `}</style>
-
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: `radial-gradient(circle at 50% 34%, ${meta.glow}, transparent 42%)`,
-          pointerEvents: "none",
-        }}
-      />
-
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,.03), transparent 20%, transparent 78%, rgba(255,255,255,.03))",
-          pointerEvents: "none",
-        }}
-      />
-
-      {(fixtureRevealStage === "generating" || fixtureRevealStage === "locked") &&
-        [0, 1, 2, 3].map((line) => (
-          <div
-            key={line}
-            style={{
-              position: "absolute",
-              left: "-24%",
-              top: `${17 + line * 18}%`,
-              width: "48%",
-              height: 14,
-              borderRadius: 999,
-              background:
-                "linear-gradient(90deg, transparent, rgba(255,255,255,.08), rgba(0,191,255,.22), rgba(255,255,255,.08), transparent)",
-              filter: "blur(1px)",
-              animationName: "qclubSweep",
-              animationDuration: "1.05s",
-              animationTimingFunction: "linear",
-              animationIterationCount: "infinite",
-              animationDelay: `${line * 0.16}s`,
-            }}
-          />
-        ))}
-
-      <div
-        style={{
-          position: "relative",
-          zIndex: 1,
-          display: "grid",
-          gap: 22,
-          minHeight: "64vh",
-          alignContent: "start",
-        }}
-      >
-        <div
-          style={{
-            display: "inline-flex",
-            width: "fit-content",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 16px",
-            borderRadius: 999,
-            background: "rgba(255,255,255,.10)",
-            border: `1px solid ${meta.accent}55`,
-            fontWeight: 900,
-            fontSize: 14,
-            letterSpacing: ".05em",
-            color: "#eef3ff",
-          }}
-        >
-          <span
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 999,
-              background: meta.accent,
-              boxShadow: `0 0 14px ${meta.accent}`,
-            }}
-          />
-          {meta.kicker}
-        </div>
-
-        <div
-          style={{
-            fontSize: "clamp(36px, 5vw, 72px)",
-            fontWeight: 900,
-            lineHeight: 1.02,
-            textShadow: "0 6px 28px rgba(0,0,0,.34)",
-            maxWidth: 1020,
-          }}
-        >
-          {meta.title}
-        </div>
-
-        <div
-          style={{
-            fontSize: "clamp(16px, 2vw, 24px)",
-            lineHeight: 1.45,
-            color: "rgba(255,255,255,.86)",
-            maxWidth: 980,
-          }}
-        >
-          {meta.subtitle}
-        </div>
-
-        <div
-          style={{
-            position: "relative",
-            borderRadius: 28,
-            padding: "22px 20px 24px",
-            background: "rgba(255,255,255,.04)",
-            border: "1px solid rgba(255,255,255,.08)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr minmax(240px, 320px) 1fr",
-              gap: 20,
-              alignItems: "start",
-            }}
-          >
-            <div style={{ display: "grid", gap: 10 }}>
-              {revealPlayers
-                .filter((_, idx) => idx % 2 === 0)
-                .slice(0, 8)
-                .map((p, idx) => (
-                  <div
-                    key={p.id || idx}
-                    style={{
-                      borderRadius: 18,
-                      padding: "13px 15px",
-                      background: "rgba(255,255,255,.05)",
-                      border: "1px solid rgba(255,255,255,.10)",
-                      fontWeight: 800,
-                      fontSize: 16,
-                      boxShadow: "0 8px 22px rgba(0,0,0,.16)",
-                      animationName: isPairStage ? "qclubChipFadeAway" : "qclubChipLeft",
-                      animationDuration: isPairStage ? ".45s" : ".48s",
-                      animationTimingFunction: "ease",
-                      animationFillMode: "forwards",
-                      animationDelay: `${idx * 0.09}s`,
-                      opacity: 0,
-                    }}
-                  >
-                    {p.name || "Player"}
-                  </div>
-                ))}
-            </div>
-
-            <div
-              style={{
-                position: "relative",
-                minHeight: 300,
-                display: "grid",
-                placeItems: "center",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  inset: "18% 18% auto 18%",
-                  height: 110,
-                  borderRadius: 999,
-                  background:
-                    "radial-gradient(circle, rgba(0,191,255,.16), rgba(255,255,255,.02), transparent 70%)",
-                  filter: "blur(12px)",
-                  animationName: "qclubCenterFlash",
-                  animationDuration: "1.3s",
-                  animationTimingFunction: "ease-in-out",
-                  animationIterationCount: "infinite",
-                }}
-              />
-
-              <div
-                style={{
-                  position: "absolute",
-                  top: 16,
-                  width: 180,
-                  height: 28,
-                  borderRadius: 999,
-                  background:
-                    "linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.04))",
-                  border: "1px solid rgba(255,255,255,.12)",
-                }}
-              />
-
-              <div
-                style={{
-                  position: "absolute",
-                  top: 36,
-                  width: 215,
-                  height: 178,
-                  clipPath: "polygon(14% 0%, 86% 0%, 100% 100%, 0% 100%)",
-                  background:
-                    "linear-gradient(180deg, rgba(255,255,255,.11), rgba(20,30,58,.62) 22%, rgba(8,12,22,.96) 100%)",
-                  border: "1px solid rgba(255,255,255,.12)",
-                  animationName: "qclubBucketHum",
-                  animationDuration: "2.1s",
-                  animationTimingFunction: "ease-in-out",
-                  animationIterationCount: "infinite",
-                }}
-              />
-
-              <div
-                style={{
-                  position: "relative",
-                  zIndex: 2,
-                  display: "grid",
-                  gap: 8,
-                  justifyItems: "center",
-                  marginTop: 16,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    letterSpacing: ".14em",
-                    textTransform: "uppercase",
-                    color: meta.accent,
-                    fontWeight: 900,
-                  }}
-                >
-                  Draw Bucket
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 28,
-                    fontWeight: 900,
-                    textAlign: "center",
-                    lineHeight: 1.12,
-                    maxWidth: 250,
-                  }}
-                >
-                  {tvTournament ? tvTournament.name : "Tournament Draw"}
-                </div>
-
-                <div
-                  className="muted"
-                  style={{
-                    textAlign: "center",
-                    maxWidth: 230,
-                    lineHeight: 1.45,
-                    fontWeight: 700,
-                  }}
-                >
-                  {fixtureRevealStage === "closed"
-                    ? "Closing entries and preparing draw"
-                    : fixtureRevealStage === "generating"
-                    ? "Mixing and shuffling players"
-                    : fixtureRevealStage === "locked"
-                    ? "Pairings now emerging"
-                    : "Opening round confirmed"}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gap: 10 }}>
-              {revealPlayers
-                .filter((_, idx) => idx % 2 === 1)
-                .slice(0, 8)
-                .map((p, idx) => (
-                  <div
-                    key={p.id || idx}
-                    style={{
-                      borderRadius: 18,
-                      padding: "13px 15px",
-                      background: "rgba(255,255,255,.05)",
-                      border: "1px solid rgba(255,255,255,.10)",
-                      fontWeight: 800,
-                      fontSize: 16,
-                      boxShadow: "0 8px 22px rgba(0,0,0,.16)",
-                      animationName: isPairStage ? "qclubChipFadeAway" : "qclubChipRight",
-                      animationDuration: isPairStage ? ".45s" : ".48s",
-                      animationTimingFunction: "ease",
-                      animationFillMode: "forwards",
-                      animationDelay: `${idx * 0.09}s`,
-                      opacity: 0,
-                    }}
-                  >
-                    {p.name || "Player"}
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
-
-        {(fixtureRevealStage === "locked" || fixtureRevealStage === "ready") && visiblePairs.length ? (
-          <div
-            style={{
-              marginTop: 4,
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: 16,
-            }}
-          >
-            {visiblePairs.map((m, idx) => (
-              <div
-                key={m.id || idx}
-                style={{
-                  borderRadius: 22,
-                  padding: 20,
-                  background:
-                    "linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03))",
-                  border: "1px solid rgba(255,255,255,.11)",
-                  boxShadow: "0 16px 38px rgba(0,0,0,.24)",
-                  animationName: "qclubPairCardIn",
-                  animationDuration: ".42s",
-                  animationTimingFunction: "ease",
-                  animationFillMode: "forwards",
-                  animationDelay: `${idx * 0.08}s`,
-                  opacity: 0,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    textTransform: "uppercase",
-                    letterSpacing: ".09em",
-                    color: meta.accent,
-                    fontWeight: 900,
-                    marginBottom: 10,
-                  }}
-                >
-                  Round {m.round || 1}
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 900,
-                    lineHeight: 1.22,
-                  }}
-                >
-                  {playerName(m.p1)} <span style={{ opacity: 0.56 }}>vs</span> {playerName(m.p2)}
-                </div>
-
-                {isSnooker ? (
-                  <div
-                    className="muted"
-                    style={{
-                      marginTop: 10,
-                      fontWeight: 700,
-                    }}
-                  >
-                    Handicap: {Number(m.handicap1 || 0)} - {Number(m.handicap2 || 0)}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
-          {["closed", "generating", "locked", "ready"].map((stage, idx) => {
-            const active =
-              ["closed", "generating", "locked", "ready"].indexOf(fixtureRevealStage) >= idx;
-
-            return (
-              <span
-                key={stage}
-                style={{
-                  width: active ? 46 : 14,
-                  height: 14,
-                  borderRadius: 999,
-                  background: active ? "rgba(255,255,255,.96)" : "rgba(255,255,255,.20)",
-                  transition: "all .25s ease",
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-  return (
-    <>
-      <PageShell
-        title="TV Display"
-        subtitle={tvTournament ? `${tvTournament.name} • ${tvTournament.month || ""}` : "Live tournament fixtures"}
-        right={
-          (admin || staffAdmin) ? (
-            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <select
-                value={selectedTvTournamentId}
-                onChange={(e) => setSelectedTvTournamentId(e.target.value)}
-              >
-                {(data.tournaments || []).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {tournamentDisplay(t)}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => {
-  if (!tvTournament) {
-    alert("Please select a tournament first.");
-    return;
-  }
-
-  const ok = generateKnockoutForTournamentSilently(data, commit, tvTournament.id);
-  if (!ok) {
-    alert("Need at least 2 registered players to generate fixtures.");
-    return;
-  }
-
-  setTimeout(() => {
-    triggerFixtureReveal();
-  }, 80);
-}}
-              >
-                Generate Fixtures
-              </button>
-            </div>
-          ) : null
-        }
-      />
-
-      <div className="container">
-        <input
-          ref={tvSlideFileInputRef}
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
-          onChange={handleTvSlideImageFileChange}
-        />
-
-        {(data.announcements || []).length > 0 && (
-          <div
-            style={{
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-              marginBottom: 16,
-              borderRadius: 14,
-              background: "rgba(0,0,0,0.68)",
-              padding: "8px 14px",
-              border: "1px solid rgba(255,255,255,.08)",
-            }}
-          >
-            <div
-              className="announceTickerTrack"
-              style={{
-                animationDuration: `${data.club?.tickerSpeed || 40}s`,
-                fontSize: "clamp(18px, 2vw, 30px)",
-                fontWeight: 800,
-                padding: "14px 0",
-                letterSpacing: "0.4px",
-              }}
-            >
-              {(data.announcements || []).map((a) => (
-                <span key={a.id} style={{ marginRight: 80 }}>
-                  {a.text}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {showFixtureBanner ? (
-          <div
-            style={{
-              marginBottom: 16,
-              padding: "14px 22px",
-              borderRadius: 14,
-              display: "inline-block",
-              background: "linear-gradient(90deg, rgba(56,211,159,.20), rgba(0,191,255,.18))",
-              border: "1px solid rgba(56, 211, 159, 0.45)",
-              fontWeight: 800,
-              fontSize: "22px",
-              color: "#7fffd4",
-              boxShadow: "0 0 18px rgba(56,211,159,.28)",
-              animation: "pulseGlow 1.4s infinite",
-              letterSpacing: "0.3px",
-            }}
-          >
-            🎯 Fixtures Generated for {tvTournament?.name || "Selected Tournament"}
-          </div>
-        ) : null}
-
-        <div className="card">
-          <div
-            className="row"
-            style={{
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 16,
-              flexWrap: "wrap",
-              marginBottom: 16,
-            }}
-          >
-            <div>
-              <h2 style={{ marginBottom: 6 }}>
-                {tvTournament ? tournamentDisplay(tvTournament) : "The Q Club TV Mode"}
-              </h2>
-              <div className="muted">
-                {tvMode === "showcase"
-                  ? `Showcase Mode • ${
-                      tvShowcaseMode === "custom_only" ? "Custom Slides Only" : "Mixed Showcase"
-                    }${activeSlide?.isCustom ? " • Custom Slide" : " • Auto Slide"}`
-                  : tvMode === "fixtures"
-                  ? "Fixture Broadcast"
-                  : `Auto Mode • ${autoPhase === "fixtures" ? "Showing Fixtures" : "Showing Showcase"}`}
-              </div>
-            </div>
-
-            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                className={tvMode === "showcase" ? "btn primary" : "btn secondary"}
-                onClick={() => setTvMode("showcase")}
-              >
-                Showcase Mode
-              </button>
-
-              <button
-                type="button"
-                className={tvMode === "fixtures" ? "btn primary" : "btn secondary"}
-                onClick={() => setTvMode("fixtures")}
-              >
-                Fixture Broadcast
-              </button>
-
-              <button
-                type="button"
-                className={tvMode === "auto" ? "btn primary" : "btn secondary"}
-                onClick={() => setTvMode("auto")}
-              >
-                Auto Mode
-              </button>
-
-              {(admin || staffAdmin) && tvMode === "showcase" ? (
-                <>
-                  <button
-                    type="button"
-                    className={tvShowcaseMode === "mixed" ? "btn primary" : "btn secondary"}
-                    onClick={() => setTvShowcaseMode("mixed")}
-                  >
-                    Mixed Showcase
-                  </button>
-
-                  <button
-                    type="button"
-                    className={tvShowcaseMode === "custom_only" ? "btn primary" : "btn secondary"}
-                    onClick={() => setTvShowcaseMode("custom_only")}
-                  >
-                    Custom Slides Only
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={addCustomTvSlide}
-                  >
-                    + Add Slide
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={triggerTvSlideImagePicker}
-                  >
-                    Upload Slide Image
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={editCurrentTvSlide}
-                  >
-                    Edit Current Slide
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => moveCurrentTvSlide("up")}
-                  >
-                    Move Up
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => moveCurrentTvSlide("down")}
-                  >
-                    Move Down
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn danger"
-                    onClick={deleteCurrentTvSlide}
-                  >
-                    Delete Current Slide
-                  </button>
-                </>
-              ) : null}
-
-              {(admin || staffAdmin) && matches.length ? (
-                <button
-                  type="button"
-                  className="btn secondary"
-                  onClick={triggerFixtureReveal}
-                >
-                  Replay Reveal
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          {fixtureRevealStage !== "idle" && fixtureRevealStage !== "done"
-            ? renderFixtureReveal()
-            : showFixtureView
-            ? renderFixtureView()
-            : renderSlide(activeSlide)}
-        </div>
-      </div>
-    </>
-  );
-}
-function AdminPanel({ data, admin, commit, activeTournament }) {
-  if (!admin) {
-    return (
-      <>
-        <PageShell title="Admin Panel" />
-        <div className="container">
-          <div className="card">
-            <div className="muted">Admin access required.</div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  const bookingCount = data.booking?.requests?.length || 0;
-  const playersCount = data.players?.length || 0;
-  const tournamentsCount = data.tournaments?.length || 0;
-
-  function toggleClubOpen() {
-    commit({
-      ...data,
-      club: {
-        ...(data.club || {}),
-        isOpenNow: !(data.club?.isOpenNow ?? true),
-      },
-    });
-  }
-
-  function setCurrentTournament(tournamentId) {
-    commit({
-      ...data,
-      tournaments: (data.tournaments || []).map((t) => ({
-        ...t,
-        isCurrent: t.id === tournamentId,
-      })),
-    });
-  }
-  function editHeroSlides() {
-  const current = (data.club?.heroSlides || []).join(" | ");
-  const next = prompt("Edit hero slides (separate by |):", current);
-
-  if (!next) return;
-
-  const slides = next.split("|").map((x) => x.trim()).filter(Boolean);
-
-  commit({
-    ...data,
-    club: {
-      ...(data.club || {}),
-      heroSlides: slides,
-    },
-  });
-}
-  const lastWhatsappDraft = (() => {
+function FoodPrintBridge({ data, admin, staffAdmin, commit }) {
+  const [query, setQuery] = useState("");
+  const [expandedOrderId, setExpandedOrderId] = useState("");
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+    const printOrderId = "";
+
+  function lockBridge() {
     try {
-      return JSON.parse(localStorage.getItem("qclub_last_whatsapp_draft") || "null");
-    } catch {
-      return null;
-    }
-  })();
-
-  const hasWhatsappDraft =
-    lastWhatsappDraft &&
-    typeof lastWhatsappDraft === "object" &&
-    (lastWhatsappDraft.phone || lastWhatsappDraft.text || lastWhatsappDraft.url);
-      const currentDraftPhone = normalizeWhatsappNumber(lastWhatsappDraft?.phone || "");
-  const currentDraftIsOptedOut = currentDraftPhone
-    ? isWhatsappOptedOut(currentDraftPhone)
-    : false;
-      const whatsappOptOuts = getWhatsappOptOuts();
-        const whatsappMode = getWhatsappMode();
-          const whatsappSettings = getWhatsappSettings();
-              function createMembershipTestDraft() {
-    const demoDraft = buildWhatsappDraft({
-      phone: "9774219051",
-      label: "membership_success",
-      text: buildMembershipWhatsappText({
-        name: "WhatsApp Test User",
-        tier: "Bronze",
-        validUntil: "2026-04-30",
-      }),
-    });
-
-    handleWhatsappNotification({
-      draft: demoDraft,
-    });
-
-    alert("Membership test WhatsApp draft created.");
+      sessionStorage.removeItem("qclub_admin_role");
+      localStorage.removeItem("qclub_admin_role");
+    } catch {}
     window.location.reload();
   }
 
-  function createTournamentTestDraft() {
-    const demoDraft = buildWhatsappDraft({
-      phone: "9774219051",
-      label: "tournament_success",
-      text: buildTournamentWhatsappText({
-        name: "WhatsApp Test User",
-        tournamentName: "9 Ball Battle",
-        fee: "99",
-      }),
-    });
+  const isBridgeActive = admin || staffAdmin;
 
-    handleWhatsappNotification({
-      draft: demoDraft,
-    });
+  const activeOrders = Array.isArray(data.foodOrders)
+    ? [...data.foodOrders].sort((a, b) => Number(b?.time || 0) - Number(a?.time || 0))
+    : [];
 
-    alert("Tournament test WhatsApp draft created.");
-    window.location.reload();
-  }
+  const orderToPrint = printOrderId
+    ? activeOrders.find((order) => String(order?.id || "") === String(printOrderId))
+    : null;
 
-  function createFoodTestDraft() {
-    const demoDraft = buildWhatsappDraft({
-      phone: "9774219051",
-      label: "food_success",
-      text: buildFoodWhatsappText({
-        name: "WhatsApp Test User",
-        orderNo: "QC-TEST-001",
-        total: "198",
-        items: [
-          { name: "Blue Lagoon", qty: 1 },
-          { name: "Virgin Mojito", qty: 1 },
-        ],
-      }),
-    });
+  const receiptToPrint = orderToPrint
+    ? buildFoodReceiptRecord(orderToPrint, data.club || {})
+    : null;
 
-    handleWhatsappNotification({
-      draft: demoDraft,
-    });
+    useEffect(() => {
+    if (!isBridgeActive) return;
+    if (!printOrderId) return;
 
-    alert("Food test WhatsApp draft created.");
-    window.location.reload();
-  }
-
-  function createBookingTestDraft() {
-    const demoDraft = buildWhatsappDraft({
-      phone: "9774219051",
-      label: "booking_success",
-      text: buildBookingWhatsappText({
-        name: "WhatsApp Test User",
-        table: "Snooker Table 12x6",
-        bookingDate: "2026-04-01",
-        bookingSlot: "18:00-19:00",
-        amount: "300",
-      }),
-    });
-
-    handleWhatsappNotification({
-      draft: demoDraft,
-    });
-
-    alert("Booking test WhatsApp draft created.");
-    window.location.reload();
-  }
-    async function copyMsg91Payload() {
-    if (!lastWhatsappDraft?.msg91Payload) {
-      alert("No MSG91 payload available to copy.");
+    if (!orderToPrint) {
+      navigate("/food-print-bridge", { replace: true });
       return;
     }
 
-    const text = JSON.stringify(lastWhatsappDraft.msg91Payload, null, 2);
+    const alreadyPrinted =
+      Boolean(orderToPrint?.printMeta?.printedAt) ||
+      orderToPrint?.printMeta?.status === "printed";
+
+    if (alreadyPrinted) {
+      navigate("/food-print-bridge", { replace: true });
+      return;
+    }
 
     try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        alert("MSG91 payload copied.");
-        return;
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const msg = new SpeechSynthesisUtterance(
+          "New food order received. New food order received."
+        );
+        msg.lang = "en-IN";
+        msg.rate = 0.9;
+        msg.pitch = 1;
+        msg.volume = 1;
+        window.speechSynthesis.speak(msg);
       }
     } catch {}
 
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.setAttribute("readonly", "true");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      alert("MSG91 payload copied.");
-    } catch {
-      alert("Unable to copy payload automatically.");
-    }
-  }
-    async function sendCurrentDraftToDryRunApi() {
-    if (!lastWhatsappDraft) {
-      alert("No saved WhatsApp draft found.");
-      return;
-    }
+    const printTimer = setTimeout(() => {
+      try {
+        window.focus();
+        window.print();
+      } catch {}
+    }, 3500);
 
-    const payload =
-      lastWhatsappDraft.msg91Payload || {
-        phone: lastWhatsappDraft.phone || "",
-        provider: lastWhatsappDraft.provider || "msg91",
-        templateName: lastWhatsappDraft.templateName || "",
-        label: lastWhatsappDraft.label || "",
-      };
+    const markPrintedTimer = setTimeout(() => {
+      const currentOrders = Array.isArray(data.foodOrders) ? data.foodOrders : [];
 
-    try {
-      const res = await fetch("/api/whatsapp-send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+      commit({
+        ...data,
+        foodOrders: currentOrders.map((order) =>
+          order.id === orderToPrint.id
+            ? {
+                ...order,
+                printMeta: {
+                  ...(order.printMeta || {}),
+                  status: "printed",
+                  printedAt: order.printMeta?.printedAt || new Date().toISOString(),
+                  printedByRole: admin ? "main" : "staff",
+                },
+              }
+            : order
+        ),
       });
 
-      const json = await res.json();
+      navigate("/food-print-bridge", { replace: true });
+    }, 9000);
 
-      alert(
-        json?.ok
-          ? "Dry run API accepted the current draft."
-          : `Dry run API rejected it: ${json?.error || "Unknown error"}`
-      );
+    return () => {
+      clearTimeout(printTimer);
+      clearTimeout(markPrintedTimer);
+    };
+  }, [
+    isBridgeActive,
+    printOrderId,
+    orderToPrint?.id,
+    orderToPrint?.printMeta?.printedAt,
+    orderToPrint?.printMeta?.status,
+    data,
+    admin,
+    commit,
+    navigate,
+  ]);
 
-      console.log("WhatsApp dry run response:", json);
-    } catch (error) {
-      console.error("WhatsApp dry run request failed:", error);
-      alert("Dry run API request failed.");
-    }
+  if (!isBridgeActive) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          padding: 16,
+          background: "#ffffff",
+          color: "#111827",
+        }}
+      >
+        <div style={{ maxWidth: 520, margin: "40px auto", border: "1px solid #ddd", borderRadius: 16, padding: 18 }}>
+          <h2 style={{ marginTop: 0 }}>Food Print Bridge Locked</h2>
+          <p>
+            Enter Staff PIN or Main Admin PIN from the normal Q Club admin login first.
+            After that, reopen this page on the spare Android print phone.
+          </p>
+          <a className="btn primary" href="/">
+            Open Q Club Login
+          </a>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <>
-      <PageShell title="Admin Panel" subtitle="Club management overview" />
+  if (receiptToPrint) {
+    const createdText = receiptToPrint.createdAt
+      ? new Date(receiptToPrint.createdAt).toLocaleString("en-IN", {
+          year: "numeric",
+          month: "short",
+          day: "2-digit",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : "—";
 
-      <div className="container">
-        <div className="grid">
-          <div className="card cols-4">
-            <h2>Bookings</h2>
-            <div className="bigStat">{bookingCount}</div>
-            <div className="muted">Total booking requests</div>
-            <div style={{ marginTop: 14 }}>
-              <Link className="btn primary" to="/book">
-                Open Bookings
-              </Link>
-            </div>
-          </div>
-
-          <div className="card cols-4">
-            <h2>Players</h2>
-            <div className="bigStat">{playersCount}</div>
-            <div className="muted">Registered players</div>
-            <div style={{ marginTop: 14 }}>
-              <Link className="btn primary" to="/players">
-                Manage Players
-              </Link>
-            </div>
-          </div>
-
-          <div className="card cols-4">
-            <h2>Tournaments</h2>
-            <div className="bigStat">{tournamentsCount}</div>
-            <div className="muted">Total tournaments</div>
-            <div style={{ marginTop: 14 }}>
-              <Link className="btn primary" to="/tournaments">
-                Manage Tournaments
-              </Link>
-            </div>
-          </div>
-
-          <div className="card cols-6">
-            <h2>Club Status</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Toggle whether the club is currently open or closed.
-            </div>
-
-            <div className="row">
-              <span className="badge">
-                <span className={data.club?.isOpenNow ? "dot" : "dot red"} />
-                {data.club?.isOpenNow ? "OPEN NOW" : "CLOSED NOW"}
-              </span>
-
-              <button className="btn primary" onClick={toggleClubOpen} type="button">
-                Toggle Open / Closed
-              </button>
-            </div>
-          </div>
-
-          <div className="card cols-6">
-            <h2>Current Highlight</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Choose which tournament should appear as the current homepage highlight.
-            </div>
-
-            <select
-              value={activeTournament?.id || ""}
-              onChange={(e) => setCurrentTournament(e.target.value)}
-            >
-              {(data.tournaments || []).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {tournamentDisplay(t)}
-                </option>
-              ))}
-            </select>
-
-            <div style={{ marginTop: 12 }}>
-              <span className="badge">
-                <span className="dot" />
-                {activeTournament ? tournamentDisplay(activeTournament) : "No current tournament"}
-              </span>
-            </div>
-          </div>
-          <div className="card cols-12">
-  <h2>Homepage Hero Slider</h2>
-  <div className="muted" style={{ marginBottom: 12 }}>
-    Upload hero slider images shown on the homepage.
-  </div>
-
-  <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-    <label className="btn">
-      Upload Hero Slide
-      <input
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-
-          try {
-            const uploaded = await uploadImageToStorage(file, "hero-slides");
-
-            commit({
-              ...data,
-              club: {
-                ...(data.club || {}),
-                heroSlides: [
-                  ...((data.club?.heroSlides || []).filter(Boolean)),
-                  uploaded.url,
-                ],
-              },
-            });
-
-            e.target.value = "";
-          } catch (err) {
-            console.error(err);
-            alert("Failed to upload hero slide.");
-          }
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#ffffff",
+          color: "#111111",
+          padding: "4mm",
+          fontFamily: "Arial, sans-serif",
         }}
-      />
-    </label>
-    <button className="btn" onClick={editHeroSlides}>
-  Edit Hero Slides
-</button>
+      >
+        <style>{`
+          @page { size: 80mm auto; margin: 4mm; }
+          @media print {
+            html, body {
+              background: #ffffff !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            .qclub-receipt-wrap {
+              width: 72mm !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              box-shadow: none !important;
+              border: 0 !important;
+            }
+          }
+        `}</style>
 
-    <span className="badge">
-      <span className="dot" />
-      {(data.club?.heroSlides || []).length} custom slide(s)
-    </span>
-  </div>
-
-  <div className="muted" style={{ marginTop: 12 }}>
-    Uploaded images will be added directly to the homepage hero slider.
-  </div>
-
-  {(data.club?.heroSlides || []).length > 0 ? (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-        gap: 12,
-        marginTop: 16,
-      }}
-    >
-      {(data.club?.heroSlides || []).map((src, idx) => (
-        <div
-          key={`${src}-${idx}`}
-          className="card"
-          style={{ margin: 0, padding: 10 }}
-        >
-          <img
-            src={src}
-            alt={`Hero Slide ${idx + 1}`}
-            style={{
-              width: "100%",
-              height: 120,
-              objectFit: "cover",
-              borderRadius: 12,
-              display: "block",
-              marginBottom: 10,
+               <div className="no-print" style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            className="btn"
+            onClick={() => {
+              try {
+                window.print();
+              } catch {}
             }}
-          />
+          >
+            Print Receipt
+          </button>
 
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <span className="muted">Slide {idx + 1}</span>
-
-            <button
-              className="btn danger"
-              onClick={() => {
-                if (!confirm("Delete this hero slide?")) return;
-
-                commit({
-                  ...data,
-                  club: {
-                    ...(data.club || {}),
-                    heroSlides: (data.club?.heroSlides || []).filter((_, i) => i !== idx),
-                  },
-                });
-              }}
-            >
-              Delete
-            </button>
-          </div>
+          <button
+            className="btn"
+            onClick={() => {
+              navigate("/food-print-bridge", { replace: true });
+            }}
+          >
+            Back to Bridge
+          </button>
         </div>
-      ))}
-    </div>
-  ) : null}
-</div>
 
-                              <div className="card cols-12">
-            <h2>WhatsApp Settings</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Local provider settings for future API integration. No live sending yet.
-            </div>
-
-            <div className="grid" style={{ marginTop: 8 }}>
-              <div className="cols-3">
-                <div className="muted">Provider</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.provider || "msg91"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Sender Number</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.senderNumber || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Sender Label</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.senderLabel || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Auth Key</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.authKey ? "Saved" : "Not set"}
-                </div>
-              </div>
-                            <div className="cols-3">
-                <div className="muted">Membership Template</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.membershipTemplate || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Tournament Template</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.tournamentTemplate || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Food Template</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.foodTemplate || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">Booking Template</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.bookingTemplate || "—"}
-                </div>
-              </div>
-
-              <div className="cols-3">
-                <div className="muted">OTP Template</div>
-                <div style={{ fontWeight: 800, marginTop: 6 }}>
-                  {whatsappSettings.otpTemplate || "—"}
-                </div>
-              </div>
-            </div>
-
-            <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => {
-                  const provider = prompt(
-                    "WhatsApp provider:",
-                    whatsappSettings.provider || "msg91"
-                  );
-                  if (provider === null) return;
-
-                  const senderNumber = prompt(
-                    "Sender WhatsApp number:",
-                    whatsappSettings.senderNumber || ""
-                  );
-                  if (senderNumber === null) return;
-
-                  const senderLabel = prompt(
-                    "Sender label / business display name:",
-                    whatsappSettings.senderLabel || ""
-                  );
-                  if (senderLabel === null) return;
-
-                  const authKey = prompt(
-                    "Provider auth key / API key:",
-                    whatsappSettings.authKey || ""
-                  );
-                  if (authKey === null) return;
-
-                                    const membershipTemplate = prompt(
-                    "Membership template name / ID:",
-                    whatsappSettings.membershipTemplate || ""
-                  );
-                  if (membershipTemplate === null) return;
-
-                  const tournamentTemplate = prompt(
-                    "Tournament template name / ID:",
-                    whatsappSettings.tournamentTemplate || ""
-                  );
-                  if (tournamentTemplate === null) return;
-
-                  const foodTemplate = prompt(
-                    "Food template name / ID:",
-                    whatsappSettings.foodTemplate || ""
-                  );
-                  if (foodTemplate === null) return;
-
-                  const bookingTemplate = prompt(
-                    "Booking template name / ID:",
-                    whatsappSettings.bookingTemplate || ""
-                  );
-                  if (bookingTemplate === null) return;
-
-                  const otpTemplate = prompt(
-                    "OTP template name / ID:",
-                    whatsappSettings.otpTemplate || ""
-                  );
-                  if (otpTemplate === null) return;
-
-                  saveWhatsappSettings({
-                    provider,
-                    senderNumber,
-                    senderLabel,
-                    authKey,
-                    membershipTemplate,
-                    tournamentTemplate,
-                    foodTemplate,
-                    bookingTemplate,
-                    otpTemplate,
-                  });
-
-                  alert("WhatsApp settings saved locally.");
-                  window.location.reload();
-                }}
-              >
-                Edit Settings
-              </button>
-
-              <button
-                className="btn danger"
-                type="button"
-                onClick={() => {
-                  localStorage.removeItem("qclub_whatsapp_settings");
-                  alert("WhatsApp settings cleared.");
-                  window.location.reload();
-                }}
-              >
-                Clear Settings
-              </button>
-            </div>
+        <div
+          className="qclub-receipt-wrap"
+          style={{
+            width: "72mm",
+            maxWidth: "100%",
+            margin: "0 auto",
+            background: "#ffffff",
+            color: "#111111",
+            fontSize: 12,
+            lineHeight: 1.35,
+          }}
+        >
+          <div style={{ textAlign: "center", fontSize: 18, fontWeight: 900 }}>
+            The Q Club
+          </div>
+          <div style={{ textAlign: "center", fontSize: 12 }}>
+            Pasighat
           </div>
 
-          <div className="card cols-12">
-            <h2>WhatsApp Draft Tester</h2>
-                        <div className="muted" style={{ marginBottom: 12 }}>
-              Preview the latest saved WhatsApp draft from successful payment actions.
-            </div>
+          <div style={{ borderTop: "1px dashed #111", margin: "8px 0" }} />
 
-            <div
-              style={{
-                marginBottom: 12,
-                padding: 12,
-                border: "1px solid rgba(255,255,255,.10)",
-                borderRadius: 14,
-                background: "rgba(255,255,255,.03)",
-              }}
-            >
-              <div className="muted">WhatsApp Mode</div>
-              <div style={{ marginTop: 6, fontWeight: 800 }}>
-                {whatsappMode === "disabled" ? "Disabled" : "Draft Only"}
-              </div>
+          <div><b>Order No:</b> {receiptToPrint.id}</div>
+          <div><b>Date & Time:</b> {createdText}</div>
+          <div><b>Name:</b> {receiptToPrint.customerName || "—"}</div>
+          <div><b>Mobile:</b> {receiptToPrint.customerMobile || "—"}</div>
+          <div><b>Status:</b> {receiptToPrint.status || "Paid"}</div>
 
-                                          <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  onClick={() => {
-                    setWhatsappMode("draft_only");
-                    alert("WhatsApp mode set to Draft Only.");
-                    window.location.reload();
-                  }}
-                >
-                  Set Draft Only
-                </button>
+          <div style={{ borderTop: "1px dashed #111", margin: "8px 0" }} />
 
-                <button
-                  className="btn warn"
-                  type="button"
-                  onClick={() => {
-                    setWhatsappMode("disabled");
-                    alert("WhatsApp mode set to Disabled.");
-                    window.location.reload();
-                  }}
-                >
-                  Disable WhatsApp
-                </button>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", borderBottom: "1px solid #111", paddingBottom: 4 }}>
+                  Item
+                </th>
+                <th style={{ textAlign: "right", borderBottom: "1px solid #111", paddingBottom: 4 }}>
+                  Amount
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {(receiptToPrint.items || []).map((item, idx) => (
+                <tr key={`${receiptToPrint.id}-${idx}`}>
+                  <td style={{ padding: "5px 0", borderBottom: "1px dashed #aaa" }}>
+                    {item.name || "Item"} × {item.qty || 0}
+                  </td>
+                  <td style={{ padding: "5px 0", textAlign: "right", borderBottom: "1px dashed #aaa" }}>
+                    ₹{safeNum(item.lineTotal, safeNum(item.price, 0) * safeNum(item.qty, 0))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={createMembershipTestDraft}
-                >
-                  Test Membership
-                </button>
+          <div style={{ borderTop: "1px dashed #111", margin: "8px 0" }} />
 
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={createTournamentTestDraft}
-                >
-                  Test Tournament
-                </button>
-
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={createFoodTestDraft}
-                >
-                  Test Food
-                </button>
-
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={createBookingTestDraft}
-                >
-                  Test Booking
-                </button>
-              </div>
-            </div>
-
-            {!hasWhatsappDraft ? (
-              <div className="muted">No saved WhatsApp draft found yet.</div>
-            ) : (
-              <>
-                <div className="grid" style={{ marginTop: 8 }}>
-                  <div className="cols-4">
-                    <div className="muted">Label</div>
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>
-                      {lastWhatsappDraft.label || "—"}
-                    </div>
-                  </div>
-
-                                    <div className="cols-3">
-                    <div className="muted">Phone</div>
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>
-                      {lastWhatsappDraft.phone || "—"}
-                    </div>
-                  </div>
-
-                  <div className="cols-3">
-                    <div className="muted">Template</div>
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>
-                      {lastWhatsappDraft.templateName || "—"}
-                    </div>
-                  </div>
-
-                                    <div className="cols-3">
-                    <div className="muted">Provider</div>
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>
-                      {lastWhatsappDraft.provider || "—"}
-                    </div>
-                  </div>
-
-                  <div className="cols-3">
-                    <div className="muted">MSG91 Payload</div>
-                    <div style={{ marginTop: 6, fontWeight: 800 }}>
-                      {lastWhatsappDraft.msg91Payload ? "Ready" : "Not ready"}
-                    </div>
-                  </div>
-                  <div className="cols-12">
-                    <div className="muted">Opt-out Status</div>
-                    <div style={{ marginTop: 6, fontWeight: 800 }}>
-                      {currentDraftIsOptedOut ? "This number is opted out" : "This number is allowed"}
-                    </div>
-                  </div>
-
-                                    <div className="cols-12">
-                    <div className="muted" style={{ marginBottom: 6 }}>Message Preview</div>
-                    <textarea
-                      readOnly
-                      value={lastWhatsappDraft.text || ""}
-                      style={{ minHeight: 140 }}
-                    />
-                  </div>
-
-                  <div className="cols-12">
-                    <div className="muted" style={{ marginBottom: 6 }}>MSG91 Payload Preview</div>
-                    <textarea
-                      readOnly
-                      value={
-                        lastWhatsappDraft.msg91Payload
-                          ? JSON.stringify(lastWhatsappDraft.msg91Payload, null, 2)
-                          : ""
-                      }
-                      style={{ minHeight: 220 }}
-                    />
-                  </div>
-                </div>
-
-                                                                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    className="btn primary"
-                    type="button"
-                    onClick={() => {
-                      if (!lastWhatsappDraft?.url) {
-                        alert("WhatsApp draft link is not ready.");
-                        return;
-                      }
-                      if (currentDraftIsOptedOut) {
-                        alert("This number is opted out from WhatsApp messages.");
-                        return;
-                      }
-                      window.open(lastWhatsappDraft.url, "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    Open in WhatsApp
-                  </button>
-
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    onClick={copyMsg91Payload}
-                  >
-                    Copy MSG91 Payload
-                  </button>
-
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    onClick={sendCurrentDraftToDryRunApi}
-                  >
-                    Send to Dry Run API
-                  </button>
-
-                  <button
-                    className="btn warn"
-                    type="button"
-                    onClick={() => {
-                      if (!currentDraftPhone) {
-                        alert("No valid WhatsApp number found.");
-                        return;
-                      }
-
-                      const optOuts = getWhatsappOptOuts();
-
-                      if (optOuts.includes(currentDraftPhone)) {
-                        saveWhatsappOptOuts(
-                          optOuts.filter((x) => x !== currentDraftPhone)
-                        );
-                        alert("Number removed from opt-out list.");
-                      } else {
-                        saveWhatsappOptOuts([...optOuts, currentDraftPhone]);
-                        alert("Number added to opt-out list.");
-                      }
-
-                      window.location.reload();
-                    }}
-                  >
-                    {currentDraftIsOptedOut ? "Remove Opt-Out" : "Opt Out This Number"}
-                  </button>
-
-                  <button
-                    className="btn danger"
-                    type="button"
-                    onClick={() => {
-                      localStorage.removeItem("qclub_last_whatsapp_draft");
-                      window.location.reload();
-                    }}
-                  >
-                    Clear Saved Draft
-                  </button>
-                </div>
-              </>
-            )}
-                    </div>
-
-          <div className="card cols-12">
-            <h2>WhatsApp Opt-Out List</h2>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Numbers in this list will not be opened or saved as WhatsApp drafts.
-            </div>
-
-            {whatsappOptOuts.length === 0 ? (
-              <div className="muted">No opted-out numbers yet.</div>
-            ) : (
-              <div className="grid" style={{ marginTop: 8 }}>
-                {whatsappOptOuts.map((phone) => (
-                  <div
-                    key={phone}
-                    className="cols-4"
-                    style={{
-                      border: "1px solid rgba(255,255,255,.10)",
-                      borderRadius: 14,
-                      padding: 12,
-                      background: "rgba(255,255,255,.03)",
-                    }}
-                  >
-                    <div className="muted">Phone</div>
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>{phone}</div>
-
-                    <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
-                      <button
-                        className="btn danger"
-                        type="button"
-                        onClick={() => {
-                          saveWhatsappOptOuts(
-                            whatsappOptOuts.filter((x) => x !== phone)
-                          );
-                          alert("Number removed from opt-out list.");
-                          window.location.reload();
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => {
-                  const phone = prompt("Enter WhatsApp number to opt out:", "");
-                  if (!phone) return;
-
-                  const normalized = normalizeWhatsappNumber(phone);
-                  if (!normalized) {
-                    alert("Invalid number.");
-                    return;
-                  }
-
-                  saveWhatsappOptOuts([...whatsappOptOuts, normalized]);
-                  alert("Number added to opt-out list.");
-                  window.location.reload();
-                }}
-              >
-                + Add Number Manually
-              </button>
-            </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 900 }}>
+            <span>Total</span>
+            <span>₹{safeNum(receiptToPrint.total, 0)}</span>
           </div>
 
-          <div className="card cols-12">
-            <h2>Quick Admin Actions</h2>
-            <div className="grid" style={{ marginTop: 12 }}>
-              <div className="cols-3">
-                <Link className="btn primary" to="/live" style={{ width: "100%" }}>
-                  Live Matches
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/book" style={{ width: "100%" }}>
-                  Bookings
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/membership" style={{ width: "100%" }}>
-                  Membership
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/players" style={{ width: "100%" }}>
-                  Players
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/photos" style={{ width: "100%" }}>
-                  Photos
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/tournaments" style={{ width: "100%" }}>
-                  Tournaments
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/fixtures" style={{ width: "100%" }}>
-                  Fixtures
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/leaderboard" style={{ width: "100%" }}>
-                  Leaderboards
-                </Link>
-              </div>
-              <div className="cols-3">
-                <Link className="btn primary" to="/" style={{ width: "100%" }}>
-                  Home
-                </Link>
-              </div>
-            </div>
+          <div style={{ borderTop: "1px dashed #111", margin: "8px 0" }} />
+
+          <div style={{ textAlign: "center", fontWeight: 700 }}>
+            Thank you for ordering at The Q Club
+          </div>
+          <div style={{ textAlign: "center", marginTop: 6 }}>
+            Please wait for up to 15 minutes.
+          </div>
+          <div style={{ textAlign: "center", marginTop: 4 }}>
+            Please collect from the counter when your name is called.
           </div>
         </div>
       </div>
-    </>
+    );
+  }
+
+  const pendingOrders = activeOrders.filter((order) => {
+    if (!order?.id) return false;
+    if (order?.printMeta?.printedAt) return false;
+    if (order?.printMeta?.status === "printed") return false;
+    return true;
+  });
+
+  const printedOrders = activeOrders.filter((order) => {
+    if (order?.printMeta?.printedAt) return true;
+    if (order?.printMeta?.status === "printed") return true;
+    return false;
+  });
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const todayOrders = activeOrders.filter((order) => {
+    const orderDate = order?.createdAt || order?.paidAt || order?.paymentTime || order?.time || "";
+    const parsedDate = orderDate ? new Date(orderDate) : null;
+    if (!parsedDate || Number.isNaN(parsedDate.getTime())) return false;
+    return parsedDate.toISOString().slice(0, 10) === todayKey;
+  });
+
+  const cleanQuery = query.trim().toLowerCase();
+
+  const visibleOrders = activeOrders.filter((order) => {
+    if (!cleanQuery) return true;
+
+    const orderDate = order?.createdAt || order?.paidAt || order?.paymentTime || order?.time || "";
+
+    const itemText = (order?.items || [])
+      .map((item) => `${item?.name || ""} ${item?.qty || ""}`)
+      .join(" ");
+
+    const haystack = [
+      order?.id,
+      order?.name,
+      order?.mobile,
+      order?.total,
+      orderDate ? new Date(orderDate).toLocaleString("en-IN") : "",
+      itemText,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(cleanQuery);
+  });
+
+  const recentOrders = visibleOrders.slice(0, 50);
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: 12,
+        background: "linear-gradient(180deg, #08111f, #020617)",
+        color: "#f8fafc",
+      }}
+    >
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div
+          className="card"
+          style={{
+            marginBottom: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Q Club Kitchen
+            </div>
+            <h2 style={{ margin: "2px 0 0" }}>Food Print Bridge</h2>
+            <div className="badge" style={{ marginTop: 8 }}>
+              <span className="dot" />
+              Active on this Android phone
+            </div>
+          </div>
+
+          <button className="btn danger" onClick={lockBridge}>
+            Lock
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
+          <div className="card" style={{ padding: 12 }}>
+            <div className="muted" style={{ fontSize: 12 }}>Pending</div>
+            <div style={{ fontSize: 28, fontWeight: 900 }}>{pendingOrders.length}</div>
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div className="muted" style={{ fontSize: 12 }}>Today</div>
+            <div style={{ fontSize: 28, fontWeight: 900 }}>{todayOrders.length}</div>
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div className="muted" style={{ fontSize: 12 }}>Printed</div>
+            <div style={{ fontSize: 28, fontWeight: 900 }}>{printedOrders.length}</div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, mobile, order no, item, date..."
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: "1px solid rgba(255,255,255,.18)",
+                background: "rgba(255,255,255,.06)",
+                color: "#fff",
+                outline: "none",
+              }}
+            />
+            {query ? (
+              <button className="btn" onClick={() => setQuery("")}>
+                Clear
+              </button>
+            ) : null}
+          </div>
+          <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+            Showing latest {recentOrders.length} matching orders. Keep this page open for auto-print.
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          {recentOrders.length ? (
+            recentOrders.map((order) => {
+              const isExpanded = expandedOrderId === order.id;
+              const printedAt = order?.printMeta?.printedAt || "";
+              const statusText = printedAt
+                ? `Printed â€¢ ${new Date(printedAt).toLocaleString("en-IN")}`
+                : order?.printMeta?.status === "printing"
+                ? "Printing..."
+                : "Pending auto print";
+
+              const orderDate = order?.createdAt || order?.paidAt || order?.paymentTime || order?.time || "";
+
+              return (
+                <div className="card" key={order.id} style={{ padding: 12 }}>
+                  <button
+                    className="btn"
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                      textAlign: "left",
+                    }}
+                    onClick={() => setExpandedOrderId(isExpanded ? "" : order.id)}
+                  >
+                    <span>
+                      <b>#{order.id}</b>
+                      <br />
+                      <span className="muted">
+                        {order.name || "Customer"} â€¢ ₹{order.total || 0}
+                      </span>
+                    </span>
+                    <span style={{ textAlign: "right", fontSize: 12 }}>
+                      {printedAt ? "âœ… Printed" : order?.printMeta?.status === "printing" ? "ðŸ–¨ï¸ Printing" : "â³ Pending"}
+                      <br />
+                      {isExpanded ? "Hide" : "View"}
+                    </span>
+                  </button>
+
+                  {isExpanded ? (
+                    <div style={{ marginTop: 12 }}>
+                      <div><b>Name:</b> {order.name || "—"}</div>
+                      <div><b>Mobile:</b> {order.mobile || "—"}</div>
+                      <div><b>Total:</b> ₹{order.total || 0}</div>
+                      <div>
+                        <b>Time:</b>{" "}
+                        {orderDate ? new Date(orderDate).toLocaleString("en-IN") : "—"}
+                      </div>
+                      <div><b>Receipt:</b> {statusText}</div>
+
+                      <div className="hr" />
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {(order.items || []).map((item, idx) => (
+                          <div
+                            key={`${order.id}-${idx}`}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              borderBottom: "1px dashed rgba(255,255,255,.14)",
+                              paddingBottom: 6,
+                            }}
+                          >
+                            <span>{item.name} × {item.qty}</span>
+                            <span>₹{item.lineTotal}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          ) : (
+            <div className="card">
+              <p className="muted" style={{ margin: 0 }}>
+                No matching food orders found.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 function FoodOrdersAdmin({ data, admin, staffAdmin, commit }) {
@@ -12804,6 +14684,15 @@ function FoodOrdersAdmin({ data, admin, staffAdmin, commit }) {
       archivedFoodOrders: updatedArchived,
     });
   }
+  function deleteArchivedFoodOrder(orderId) {
+  if (!admin) return;
+  if (!confirm("Delete this archived order permanently?")) return;
+
+  commit({
+    ...data,
+    archivedFoodOrders: (data.archivedFoodOrders || []).filter((o) => o.id !== orderId),
+  });
+}
 
   return (
     <div className="container">
@@ -12841,8 +14730,22 @@ function FoodOrdersAdmin({ data, admin, staffAdmin, commit }) {
                   <div><b>Name:</b> {order.name || "—"}</div>
                   <div><b>Mobile:</b> {order.mobile || "—"}</div>
                   <div><b>Status:</b> {order.status || "Paid"}</div>
+                  <div>
+                    <b>Receipt Print:</b>{" "}
+                    {order?.printMeta?.printedAt
+                      ? `Printed â€¢ ${new Date(order.printMeta.printedAt).toLocaleString("en-IN")}`
+                      : "Pending auto print"}
+                  </div>
 
                   <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      className="btn"
+                      onClick={() =>
+                        printFoodReceipt(buildFoodReceiptRecord(order, data.club || {}))
+                      }
+                    >
+                      Print Receipt
+                    </button>
                     <button
                       className="btn"
                       style={{ background: "#facc15", color: "#111", borderColor: "#facc15" }}
@@ -12938,6 +14841,15 @@ function FoodOrdersArchive({ data, admin, staffAdmin, commit }) {
       archivedFoodOrders: updatedArchived,
     });
   }
+  function deleteArchivedFoodOrder(orderId) {
+  if (!admin) return;
+  if (!confirm("Delete this archived order permanently?")) return;
+
+  commit({
+    ...data,
+    archivedFoodOrders: (data.archivedFoodOrders || []).filter((o) => o.id !== orderId),
+  });
+}
 
   return (
     <div className="container">
@@ -12995,9 +14907,24 @@ function FoodOrdersArchive({ data, admin, staffAdmin, commit }) {
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <button className="btn" onClick={() => restoreFoodOrder(order.id)}>
-                  Restore
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+  <button
+    className="btn"
+    onClick={() => restoreFoodOrder(order.id)}
+  >
+    Restore
+  </button>
+
+  {admin && (
+    <button
+      className="btn"
+      style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }}
+      onClick={() => deleteArchivedFoodOrder(order.id)}
+    >
+      Delete
+    </button>
+  )}
+</div>
               </div>
             </div>
           ))}
@@ -13006,39 +14933,1106 @@ function FoodOrdersArchive({ data, admin, staffAdmin, commit }) {
     </div>
   );
 }
+
+function foodReceiptCreatedText(value) {
+  if (!value) return "—";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function buildFoodReceiptRecord(order = {}, club = {}) {
+  const cleanItems = Array.isArray(order?.items) ? order.items : [];
+  return {
+    id: String(order?.id || `FOOD-${String(uid()).slice(-8).toUpperCase()}`),
+    customerName: String(order?.name || "").trim(),
+    customerMobile: String(order?.mobile || "").trim(),
+    items: cleanItems,
+    total: safeNum(order?.total, 0),
+    status: String(order?.status || "Paid"),
+    createdAt: String(order?.time || order?.createdAt || new Date().toISOString()),
+    clubName: String(club?.name || "The Q Club"),
+    clubLocation: String(club?.location || "Pasighat"),
+    logoUrl: String(club?.logoUrl || ""),
+  };
+}
+
+function foodReceiptHtml(receipt, options = {}) {
+  if (!receipt) return "";
+
+  const createdText = foodReceiptCreatedText(receipt.createdAt);
+  const autoClose = options?.autoClose ? "true" : "false";
+  const escapedLogoUrl = String(receipt.logoUrl || "").replace(/"/g, "&quot;");
+
+  const itemsHtml =
+    Array.isArray(receipt.items) && receipt.items.length
+      ? receipt.items
+          .map(
+            (item) => `
+              <tr>
+                <td style="padding:4px 0;border-bottom:1px dashed #bbb;">${item.name || "Item"} × ${safeNum(item.qty, 0)}</td>
+                <td style="padding:4px 0;border-bottom:1px dashed #bbb;text-align:right;">₹${safeNum(
+                  item.lineTotal,
+                  safeNum(item.price, 0) * safeNum(item.qty, 0)
+                )}</td>
+              </tr>
+            `
+          )
+          .join("")
+      : `<tr><td colspan="2" style="padding:4px 0;">No items found.</td></tr>`;
+
+  return `
+  <html>
+    <head>
+      <title>${receipt.id}</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        @page { size: 80mm auto; margin: 4mm; }
+
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: #fff;
+          color: #111;
+          font-family: Arial, sans-serif;
+        }
+
+        body { width: 80mm; }
+
+        .sheet {
+          width: 72mm;
+          margin: 0 auto;
+          padding: 4mm;
+          box-sizing: border-box;
+        }
+
+        .center { text-align: center; }
+        .line { border-top: 1px dashed #888; margin: 8px 0; }
+        .tiny { font-size: 11px; }
+        .small { font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        .logoWrap { margin-bottom: 6px; }
+        .logoWrap img {
+          max-width: 46mm;
+          max-height: 18mm;
+          object-fit: contain;
+          display: block;
+          margin: 0 auto 6px;
+        }
+
+        @media screen {
+          body {
+            background: #f3f3f3;
+            padding: 8px 0;
+          }
+          .sheet {
+            background: #fff;
+            box-shadow: 0 8px 24px rgba(0,0,0,.12);
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="sheet">
+        <div class="logoWrap center">
+          ${escapedLogoUrl ? `<img src="${escapedLogoUrl}" alt="The Q Club Logo" />` : ""}
+          <div style="font-size:18px;font-weight:900;letter-spacing:.5px;">${receipt.clubName || "The Q Club"}</div>
+          <div class="small">${receipt.clubLocation || "Pasighat"}</div>
+        </div>
+
+        <div class="line"></div>
+        <div class="small"><b>Order No:</b> ${receipt.id}</div>
+        <div class="small"><b>Date & Time:</b> ${createdText}</div>
+        <div class="small"><b>Name:</b> ${receipt.customerName || "—"}</div>
+        <div class="small"><b>Mobile:</b> ${receipt.customerMobile || "—"}</div>
+        <div class="small"><b>Status:</b> ${receipt.status || "Paid"}</div>
+        <div class="line"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;padding-bottom:6px;border-bottom:2px solid #111;">Item</th>
+              <th style="text-align:right;padding-bottom:6px;border-bottom:2px solid #111;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+
+        <div class="line"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;">
+          <span>Total</span><span>₹${safeNum(receipt.total, 0)}</span>
+        </div>
+
+        <div class="line"></div>
+        <div class="center tiny" style="font-weight:700;">Thank you for ordering at The Q Club</div>
+        <div class="center tiny" style="margin-top:6px;">Please wait for up to 15 minutes.</div>
+        <div class="center tiny" style="margin-top:4px;">Please collect from the counter when your name is called.</div>
+
+        <script>
+          (function () {
+            function runPrint() {
+              try {
+                window.focus();
+                window.print();
+              } catch (e) {}
+            }
+
+            if (document.readyState === "complete") {
+              setTimeout(runPrint, 120);
+            } else {
+              window.addEventListener("load", function () {
+                setTimeout(runPrint, 120);
+              });
+            }
+
+            window.addEventListener("afterprint", function () {
+              if (${autoClose}) {
+                setTimeout(function () {
+                  try { window.close(); } catch (e) {}
+                }, 150);
+              }
+            });
+          })();
+        </script>
+      </div>
+    </body>
+  </html>`;
+}
+
+function printHtmlViaHiddenFrame(html, { onAfterPrint } = {}) {
+  if (!html) return false;
+
+    const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.setAttribute("title", "Q Club Receipt Print Frame");
+  iframe.style.position = "fixed";
+  iframe.style.inset = "0";
+  iframe.style.width = "100vw";
+  iframe.style.height = "100vh";
+  iframe.style.border = "0";
+  iframe.style.opacity = "1";
+  iframe.style.background = "#fff";
+  iframe.style.zIndex = "2147483647";
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
+    setTimeout(() => {
+      try {
+        iframe.remove();
+      } catch {}
+    }, 300);
+  };
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) {
+    cleanup();
+    return false;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const trigger = () => {
+    const win = iframe.contentWindow;
+    if (!win) {
+      cleanup();
+      return;
+    }
+
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      try {
+        onAfterPrint?.();
+      } catch {}
+      cleanup();
+    };
+
+            try {
+      win.onafterprint = done;
+      setTimeout(done, 2500);
+      win.focus();
+      setTimeout(() => {
+        try {
+          win.print();
+        } catch {
+          done();
+        }
+      }, 150);
+    } catch {
+      done();
+    }
+  };
+
+  setTimeout(trigger, 120);
+  return true;
+}
+
+function printFoodReceipt(receipt, options = {}) {
+  if (!receipt) return false;
+  return printHtmlViaHiddenFrame(foodReceiptHtml(receipt, options), {
+    onAfterPrint: options?.onAfterPrint,
+  });
+}
+
+function buildShopReceiptRecord({
+  orderId = "",
+  name = "",
+  mobile = "",
+  items = [],
+  total = 0,
+  paymentStatus = "Paid",
+  createdAt = new Date().toISOString(),
+}) {
+  const cleanItems = Array.isArray(items) ? items : [];
+  return {
+    id: `QSHOP-${String(orderId || uid()).slice(-8).toUpperCase()}`,
+    gatewayOrderId: String(orderId || ""),
+    customerName: String(name || "").trim(),
+    customerMobile: String(mobile || "").trim(),
+    items: cleanItems,
+    total: safeNum(total, 0),
+    paymentStatus: paymentStatus || "Paid",
+    createdAt,
+  };
+}
+
+function shopReceiptHtml(receipt) {
+  if (!receipt) return "";
+
+  const createdText = receipt.createdAt
+    ? new Date(receipt.createdAt).toLocaleString("en-IN", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+    : "—";
+
+  const itemsHtml =
+    Array.isArray(receipt.items) && receipt.items.length
+      ? receipt.items
+          .map(
+            (item) => `
+              <tr>
+                <td style="padding:6px 0;border-bottom:1px dashed #bbb;">${item.name || "Item"} × ${safeNum(item.qty, 0)}</td>
+                <td style="padding:6px 0;border-bottom:1px dashed #bbb;text-align:right;">₹${safeNum(
+                  item.lineTotal,
+                  safeNum(item.price, 0) * safeNum(item.qty, 0)
+                )}</td>
+              </tr>
+            `
+          )
+          .join("")
+      : `<tr><td colspan="2" style="padding:6px 0;">No items found.</td></tr>`;
+
+  const returnUrl = `${window.location.origin}/shop/successful-order-receipts`;
+
+  return `
+  <html>
+    <head>
+      <title>${receipt.id}</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        @page { size: 80mm auto; margin: 4mm; }
+
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: #f5f5f5;
+          color: #111;
+          font-family: Arial, sans-serif;
+        }
+
+        .toolbar {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          padding: 12px;
+          background: #ffffff;
+          border-bottom: 1px solid #ddd;
+        }
+
+        .toolbar button {
+          appearance: none;
+          border: 1px solid #ccc;
+          background: #111;
+          color: #fff;
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .toolbar button.secondary {
+          background: #fff;
+          color: #111;
+        }
+
+        .page {
+          padding: 12px;
+        }
+
+        .wrap {
+          width: 72mm;
+          max-width: 100%;
+          margin: 0 auto;
+          background: #fff;
+          padding: 4mm;
+          box-sizing: border-box;
+        }
+
+        .center { text-align: center; }
+        .line { border-top: 1px dashed #888; margin: 8px 0; }
+        table { width: 100%; border-collapse: collapse; }
+
+        @media print {
+          html, body {
+            background: #fff;
+          }
+
+          .toolbar {
+            display: none !important;
+          }
+
+          .page {
+            padding: 0;
+          }
+
+          .wrap {
+            margin: 0;
+            width: 72mm;
+            max-width: none;
+            box-shadow: none;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="toolbar">
+        <button class="secondary" onclick="
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.close();
+              return;
+            }
+          } catch (e) {}
+          window.location.href='${returnUrl}';
+        ">â† Back</button>
+
+        <button onclick="window.print()">Print</button>
+
+        <button class="secondary" onclick="
+          try {
+            window.close();
+          } catch (e) {}
+          setTimeout(function () {
+            window.location.href='${returnUrl}';
+          }, 150);
+        ">Close</button>
+      </div>
+
+      <div class="page">
+        <div class="wrap">
+          <div class="center" style="font-size:18px;font-weight:700;">The Q Club</div>
+          <div class="center" style="font-size:12px;">Pasighat</div>
+          <div class="line"></div>
+          <div style="font-size:12px;"><b>Receipt:</b> ${receipt.id}</div>
+          <div style="font-size:12px;"><b>Time:</b> ${createdText}</div>
+          <div style="font-size:12px;"><b>Name:</b> ${receipt.customerName || "—"}</div>
+          <div style="font-size:12px;"><b>Mobile:</b> ${receipt.customerMobile || "—"}</div>
+          <div class="line"></div>
+          <table>${itemsHtml}</table>
+          <div class="line"></div>
+          <div class="center" style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;">
+            <span>Total</span><span>₹${safeNum(receipt.total, 0)}</span>
+          </div>
+          <div style="margin-top:10px;font-size:11px;" class="center">Thank you for shopping at The Q Club</div>
+        </div>
+      </div>
+    </body>
+  </html>`;
+}
+
+function downloadShopReceipt(receipt) {
+  if (!receipt) return;
+
+  const html = shopReceiptHtml(receipt);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${receipt.id || "qshop-receipt"}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function printShopReceipt(receipt) {
+  if (!receipt) return;
+
+  const html = shopReceiptHtml(receipt);
+  const win = window.open("", "_blank", "width=420,height=760");
+
+  if (!win) {
+    alert("Popup blocked. Please allow popups for printing.");
+    return;
+  }
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+
+  win.onload = () => {
+    win.focus();
+    win.print();
+  };
+}
+
+function ShopSuccessfulOrderReceipts({ data, admin, staffAdmin, commit }) {
+  const [searchText, setSearchText] = useState("");
+  const [testFilter, setTestFilter] = useState("real");
+  const [dateFilter, setDateFilter] = useState("all");
+
+  if (!(admin || staffAdmin)) {
+    return (
+      <>
+        <PageShell title="Shop Receipts" subtitle="Restricted access" />
+        <div className="container">
+          <div className="card">
+            <div className="muted">Access denied.</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const allReceipts = Array.isArray(data.shopReceipts) ? [...data.shopReceipts] : [];
+
+  function getReceiptDate(receipt) {
+    const rawDate = receipt?.createdAt || receipt?.time || "";
+    const parsed = rawDate ? new Date(rawDate) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  }
+
+  function isSameDay(dateA, dateB) {
+    return (
+      dateA.getFullYear() === dateB.getFullYear() &&
+      dateA.getMonth() === dateB.getMonth() &&
+      dateA.getDate() === dateB.getDate()
+    );
+  }
+
+  function passesDateFilter(receipt) {
+    if (dateFilter === "all") return true;
+
+    const receiptDate = getReceiptDate(receipt);
+    if (!receiptDate) return false;
+
+    const now = new Date();
+
+    if (dateFilter === "today") {
+      return isSameDay(receiptDate, now);
+    }
+
+    if (dateFilter === "last7") {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(now.getDate() - 7);
+      return receiptDate >= sevenDaysAgo;
+    }
+
+    if (dateFilter === "month") {
+      return (
+        receiptDate.getFullYear() === now.getFullYear() &&
+        receiptDate.getMonth() === now.getMonth()
+      );
+    }
+
+    return true;
+  }
+
+  function passesTestFilter(receipt) {
+    if (testFilter === "all") return true;
+    if (testFilter === "test") return Boolean(receipt?.isTest);
+    return !receipt?.isTest;
+  }
+
+  function passesSearch(receipt) {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return true;
+
+    const itemText = (receipt.items || [])
+      .map((item) => `${item.name || ""} ${item.displayName || ""}`)
+      .join(" ")
+      .toLowerCase();
+
+    const haystack = [
+      receipt.id,
+      receipt.customerName,
+      receipt.customerMobile,
+      receipt.paymentStatus,
+      receipt.pickupStatus,
+      itemText,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(query);
+  }
+
+  const receipts = allReceipts
+    .filter(passesDateFilter)
+    .filter(passesTestFilter)
+    .filter(passesSearch)
+    .reverse();
+
+  const visibleTotal = receipts.reduce((sum, receipt) => sum + safeNum(receipt.total, 0), 0);
+
+  const visibleItemCount = receipts.reduce(
+    (sum, receipt) =>
+      sum +
+      (receipt.items || []).reduce((itemSum, item) => itemSum + safeNum(item.qty, 0), 0),
+    0
+  );
+
+  function updateShopReceipt(receiptId, patch) {
+    commit({
+      ...data,
+      shopReceipts: allReceipts.map((receipt) =>
+        receipt.id === receiptId
+          ? {
+              ...receipt,
+              ...patch,
+              updatedAt: new Date().toISOString(),
+            }
+          : receipt
+      ),
+    });
+  }
+
+  function deleteShopReceipt(receiptId) {
+    if (!admin) {
+      alert("Only MAIN ADMIN can delete shop receipts.");
+      return;
+    }
+
+    const receipt = allReceipts.find((item) => item.id === receiptId);
+
+    const confirmText = receipt
+      ? `Delete this shop receipt?\n\n${receipt.id}\nName: ${receipt.customerName || "—"}\nTotal: ₹${safeNum(receipt.total, 0)}\n\nThis only removes the receipt record. It will NOT restore stock and will NOT change payment records.`
+      : "Delete this shop receipt?";
+
+    if (!window.confirm(confirmText)) return;
+
+    commit({
+      ...data,
+      shopReceipts: allReceipts.filter((item) => item.id !== receiptId),
+    });
+  }
+
+  function markReceiptAsTest(receiptId) {
+    if (!admin) {
+      alert("Only MAIN ADMIN can mark test receipts.");
+      return;
+    }
+
+    updateShopReceipt(receiptId, { isTest: true });
+  }
+
+  function markReceiptAsReal(receiptId) {
+    if (!admin) {
+      alert("Only MAIN ADMIN can mark receipts as real.");
+      return;
+    }
+
+    updateShopReceipt(receiptId, { isTest: false });
+  }
+
+  function printShopSalesSummary() {
+    const rows = receipts
+      .map((receipt) => {
+        const pickupStatus = receipt.pickupStatus || "Pending Pickup";
+        const typeLabel = receipt.isTest ? "TEST" : "REAL";
+
+        return `
+          <tr>
+            <td>${receipt.id || "—"}</td>
+            <td>${receipt.customerName || "—"}</td>
+            <td>${receipt.customerMobile || "—"}</td>
+            <td>${typeLabel}</td>
+            <td>${pickupStatus}</td>
+            <td style="text-align:right;">₹${safeNum(receipt.total, 0)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Q Shop Sales Summary</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 18px;
+              color: #111;
+            }
+            h2, p {
+              margin: 0 0 8px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 14px;
+              font-size: 12px;
+            }
+            th, td {
+              border: 1px solid #999;
+              padding: 6px;
+              text-align: left;
+            }
+            th {
+              background: #eee;
+            }
+            .summary {
+              margin-top: 12px;
+              font-weight: 700;
+            }
+          </style>
+        </head>
+        <body>
+          <h2>The Q Club Pasighat</h2>
+          <p>Q Shop Sales Summary</p>
+          <p>Printed: ${new Date().toLocaleString("en-IN")}</p>
+          <p>Receipts shown: ${receipts.length}</p>
+          <p>Total items: ${visibleItemCount}</p>
+          <p class="summary">Total sales shown: ₹${visibleTotal}</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Receipt</th>
+                <th>Name</th>
+                <th>Mobile</th>
+                <th>Type</th>
+                <th>Pickup</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || `<tr><td colspan="6">No receipts found</td></tr>`}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const win = window.open("", "_blank", "width=900,height=700");
+
+    if (!win) {
+      alert("Popup blocked. Please allow popups for printing.");
+      return;
+    }
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    win.onload = () => {
+      win.focus();
+      win.print();
+    };
+  }
+
+  return (
+    <>
+      <PageShell title="Successful Shop Receipts" subtitle="Staff and main admin access" />
+      <div className="container">
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <h3 style={{ margin: "0 0 6px" }}>Receipt Controls</h3>
+                <div className="muted">
+                  Showing {receipts.length} receipt(s), {visibleItemCount} item(s), total ₹{visibleTotal}
+                </div>
+              </div>
+
+              <button className="btn" type="button" onClick={printShopSalesSummary}>
+                Print Sales Summary
+              </button>
+            </div>
+
+            <input
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="Search by receipt ID, name, mobile, or item..."
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,.18)",
+                background: "rgba(255,255,255,.06)",
+                color: "inherit",
+              }}
+            />
+
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button className="btn" type="button" onClick={() => setTestFilter("real")} style={{ opacity: testFilter === "real" ? 1 : 0.65 }}>
+                Real Only
+              </button>
+              <button className="btn" type="button" onClick={() => setTestFilter("test")} style={{ opacity: testFilter === "test" ? 1 : 0.65 }}>
+                Test Only
+              </button>
+              <button className="btn" type="button" onClick={() => setTestFilter("all")} style={{ opacity: testFilter === "all" ? 1 : 0.65 }}>
+                Show All
+              </button>
+            </div>
+
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button className="btn" type="button" onClick={() => setDateFilter("all")} style={{ opacity: dateFilter === "all" ? 1 : 0.65 }}>
+                All Dates
+              </button>
+              <button className="btn" type="button" onClick={() => setDateFilter("today")} style={{ opacity: dateFilter === "today" ? 1 : 0.65 }}>
+                Today
+              </button>
+              <button className="btn" type="button" onClick={() => setDateFilter("last7")} style={{ opacity: dateFilter === "last7" ? 1 : 0.65 }}>
+                Last 7 Days
+              </button>
+              <button className="btn" type="button" onClick={() => setDateFilter("month")} style={{ opacity: dateFilter === "month" ? 1 : 0.65 }}>
+                This Month
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {receipts.length === 0 ? (
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>No matching shop receipts</h3>
+            <div className="muted">
+              Try changing search, date filter, or test/real filter.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 16 }}>
+            {receipts.map((receipt) => {
+              const pickupStatus = receipt.pickupStatus || "Pending Pickup";
+              const isPickedUp = pickupStatus === "Picked Up";
+
+              return (
+                <div key={receipt.id} className="card">
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <h3 style={{ margin: "0 0 8px" }}>
+                        {receipt.id}
+                        {receipt.isTest ? (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              fontSize: 12,
+                              padding: "3px 8px",
+                              borderRadius: 999,
+                              background: "rgba(255,193,7,.18)",
+                              border: "1px solid rgba(255,193,7,.45)",
+                            }}
+                          >
+                            TEST
+                          </span>
+                        ) : null}
+                      </h3>
+                      <div><b>Name:</b> {receipt.customerName || "—"}</div>
+                      <div><b>Mobile:</b> {receipt.customerMobile || "—"}</div>
+                      <div><b>Status:</b> {receipt.paymentStatus || "Paid"}</div>
+                      <div>
+                        <b>Pickup:</b>{" "}
+                        <span style={{ color: isPickedUp ? "#22c55e" : "#facc15" }}>
+                          {pickupStatus}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div><b>Total:</b> ₹{safeNum(receipt.total, 0)}</div>
+                      <div className="muted" style={{ marginTop: 6 }}>
+                        {getReceiptDate(receipt)
+                          ? getReceiptDate(receipt).toLocaleString("en-IN")
+                          : "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 14 }}>
+                    <b>Items:</b>
+                    <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                      {(receipt.items || []).map((item, idx) => (
+                        <div
+                          key={`${receipt.id}-${idx}`}
+                          style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+                        >
+                          <span>{item.displayName || item.name || "Item"} × {safeNum(item.qty, 0)}</span>
+                          <span>
+                            ₹{safeNum(
+                              item.lineTotal,
+                              safeNum(item.price, 0) * safeNum(item.qty, 0)
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ marginTop: 16, gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn" type="button" onClick={() => printShopReceipt(receipt)}>
+                      Print Receipt
+                    </button>
+
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() =>
+                        updateShopReceipt(receipt.id, {
+                          pickupStatus: isPickedUp ? "Pending Pickup" : "Picked Up",
+                          pickedUpAt: isPickedUp ? "" : new Date().toISOString(),
+                        })
+                      }
+                    >
+                      {isPickedUp ? "Mark Pending Pickup" : "Mark Picked Up"}
+                    </button>
+
+                    {admin ? (
+                      <>
+                        {receipt.isTest ? (
+                          <button className="btn" type="button" onClick={() => markReceiptAsReal(receipt.id)}>
+                            Mark Real
+                          </button>
+                        ) : (
+                          <button className="btn" type="button" onClick={() => markReceiptAsTest(receipt.id)}>
+                            Mark Test
+                          </button>
+                        )}
+
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => deleteShopReceipt(receipt.id)}
+                          style={{
+                            background: "linear-gradient(135deg, #ef4444, #991b1b)",
+                            borderColor: "rgba(255,255,255,.22)",
+                          }}
+                        >
+                          Delete Receipt
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function PaymentStatus({ data, commit }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const processedRef = useRef(false);
   const [status, setStatus] = useState("checking");
+    const [orderSaved, setOrderSaved] = useState(false);
   const [trustedPayment, setTrustedPayment] = useState(null);
-  const [statusMessage, setStatusMessage] = useState("Checking payment...");
+  const processedRef = useRef(false);
+  const [paymentPageLoadedAt] = useState(() => new Date().toISOString());
 
-  const params = new URLSearchParams(location.search);
-  const orderIdFromUrl = params.get("order_id") || "";
-  const trustedTags = trustedPayment?.fulfillment?.orderTags || {};
-  const paymentContext = trustedPayment?.context || trustedTags.context || "";
-  const trustedCustomer = trustedPayment?.customer || {};
-  const trustedAmount = Number(trustedPayment?.amount || 0);
-  const trustedOrderNo =
-    trustedPayment?.fulfillment?.orderNo ||
-    `QC-${String(orderIdFromUrl).slice(-6)}`;
+  function parseTrustedArray(value, fallback = []) {
+    if (Array.isArray(value)) return value;
+    if (!value) return fallback;
 
-  function parseTrustedFoodItems() {
     try {
-      const parsed = JSON.parse(trustedTags.food_items_json || "[]");
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : fallback;
     } catch {
-      return [];
+      return fallback;
     }
   }
 
-  function retryPath() {
-    if (paymentContext === "food") return "/offer";
-    if (paymentContext === "membership") return "/membership";
-    if (paymentContext === "tournament") return "/tournament-register";
-    return "/book";
+  const localFoodCart = parseTrustedArray(localStorage.getItem("qclub_food_cart") || "[]");
+  const localShopCart = parseTrustedArray(localStorage.getItem("qclub_shop_cart") || "[]");
+  const trustedTags = trustedPayment?.fulfillment?.orderTags || {};
+  const trustedCustomer = trustedPayment?.customer || {};
+  const trustedAmount = Number(trustedPayment?.amount || 0);
+  const paymentContext = String(
+    trustedPayment?.context ||
+      trustedTags.context ||
+      localStorage.getItem("qclub_payment_context") ||
+      ""
+  ).toLowerCase();
+  const foodCart = parseTrustedArray(trustedTags.food_items_json, localFoodCart);
+  const foodTotal = String(trustedAmount || trustedTags.food_total || localStorage.getItem("qclub_food_total") || "0");
+  const shopCartRaw = parseTrustedArray(trustedTags.shop_items_json, localShopCart);
+  const shopTotal = String(trustedAmount || trustedTags.shop_total || localStorage.getItem("qclub_shop_total") || "0");
+  const paymentMobile =
+    trustedCustomer.phone || trustedTags.mobile || localStorage.getItem("qclub_payment_mobile") || "";
+  const paymentName =
+    trustedCustomer.name || trustedTags.customer_name || localStorage.getItem("qclub_payment_name") || "";
+  const paymentTier = trustedTags.tier || localStorage.getItem("qclub_membership_tier") || "Member";
+  const params = new URLSearchParams(location.search);
+  const orderIdFromUrl = params.get("order_id") || "";
+    const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
+    const existingFoodOrder = (data.foodOrders || []).find(
+    (order) =>
+      String(order?.id || "") === displayOrderNo ||
+      String(order?.gatewayOrderId || "") === String(orderIdFromUrl || "")
+  );
+  const foodOrderTimeKey = `qclub_food_order_time_${displayOrderNo}`;
+  const foodOrderProcessedKey = `qclub_food_order_processed_${displayOrderNo}`;
+  const foodOrderMadeAt =
+    existingFoodOrder?.time ||
+    localStorage.getItem(foodOrderTimeKey) ||
+    localStorage.getItem("qclub_food_order_started_at") ||
+    paymentPageLoadedAt;
+  const displayTime = new Date(foodOrderMadeAt).toLocaleString();
+  const shopItems = Array.isArray(data.shopCatalog?.items) ? data.shopCatalog.items : [];
+
+  function normalizeShopCatalogItem(item) {
+    const normalizedOptions = Array.isArray(item?.options)
+      ? item.options
+          .map((opt, index) => ({
+            id: String(opt?.id || `${item?.id || "item"}-opt-${index + 1}`),
+            label: String(opt?.label || "").trim(),
+            stock: Math.max(0, safeNum(opt?.stock, 0)),
+            img: String(opt?.img || "").trim(),
+          }))
+          .filter((opt) => opt.label)
+      : [];
+
+    return {
+      ...item,
+      stock: Math.max(0, safeNum(item?.stock, 0)),
+      options: normalizedOptions,
+      optionGroupLabel: String(item?.optionGroupLabel || "").trim(),
+    };
   }
+
+  const normalizedShopItems = shopItems.map(normalizeShopCatalogItem);
+
+  function normalizeShopCartEntries(rawCart) {
+    if (Array.isArray(rawCart)) {
+      return rawCart
+        .map((entry) => {
+          const found = normalizedShopItems.find((item) => item.id === entry?.itemId);
+          if (!found) {
+            const qty = Math.max(0, safeNum(entry?.qty, 0));
+            if (qty <= 0) return null;
+
+            const price = safeNum(entry?.price, 0);
+            const itemId = String(entry?.itemId || entry?.id || "");
+            const baseName = String(entry?.name || entry?.displayName || "Item").trim();
+            const optionLabel = String(entry?.selectedOptionLabel || "").trim();
+
+            return {
+              id: itemId,
+              itemId,
+              name: baseName,
+              displayName: String(entry?.displayName || baseName).trim(),
+              qty,
+              price,
+              lineTotal: safeNum(entry?.lineTotal ?? price * qty),
+              selectedOptionId: String(entry?.selectedOptionId || ""),
+              selectedOptionLabel: optionLabel,
+            };
+          }
+
+          const selectedOption = Array.isArray(found.options)
+            ? found.options.find((opt) => opt.id === entry?.selectedOptionId) || null
+            : null;
+
+          const qty = Math.max(0, safeNum(entry?.qty, 0));
+          if (qty <= 0) return null;
+
+          const baseName = String(found.name || entry?.name || "Item").trim();
+          const optionLabel =
+            String(entry?.selectedOptionLabel || selectedOption?.label || "").trim();
+          const displayName = optionLabel ? `${baseName} - ${optionLabel}` : baseName;
+          const price = safeNum(entry?.price, safeNum(found.price, 0));
+
+          return {
+            id: found.id,
+            itemId: found.id,
+            name: baseName,
+            displayName,
+            qty,
+            price,
+            lineTotal: price * qty,
+            selectedOptionId: String(entry?.selectedOptionId || selectedOption?.id || ""),
+            selectedOptionLabel: optionLabel,
+          };
+        })
+        .filter(Boolean);
+    }
+
+    if (rawCart && typeof rawCart === "object") {
+      return Object.entries(rawCart)
+        .map(([itemId, qty]) => {
+          const found = normalizedShopItems.find((item) => item.id === itemId);
+          if (!found) return null;
+
+          const normalizedQty = Math.max(0, safeNum(qty, 0));
+          if (normalizedQty <= 0) return null;
+
+          return {
+            id: found.id,
+            itemId: found.id,
+            name: found.name,
+            displayName: found.name,
+            qty: normalizedQty,
+            price: safeNum(found.price, 0),
+            lineTotal: safeNum(found.price, 0) * normalizedQty,
+            selectedOptionId: "",
+            selectedOptionLabel: "",
+          };
+        })
+        .filter(Boolean);
+    }
+
+    return [];
+  }
+
+  const shopCart = normalizeShopCartEntries(shopCartRaw);
+
+  const shopReceiptPreview = buildShopReceiptRecord({
+    orderId: orderIdFromUrl,
+    name: paymentName,
+    mobile: paymentMobile,
+    items: shopCart,
+    total: shopTotal,
+    paymentStatus: "Paid",
+    createdAt: new Date().toISOString(),
+  });
+
+  const shopDisplayOrderNo =
+    shopReceiptPreview?.orderNo ||
+    `QSHOP-${String(orderIdFromUrl || "").slice(-8)}`;
 
   async function postPaymentAction(action, result = {}) {
     const response = await fetch("/api/get-order-status", {
@@ -13057,6 +16051,7 @@ function PaymentStatus({ data, commit }) {
     if (!response.ok) {
       throw new Error(json?.error || `Payment action failed with status ${response.status}`);
     }
+
     return json;
   }
 
@@ -13064,86 +16059,257 @@ function PaymentStatus({ data, commit }) {
     const context = String(payment?.context || "").trim().toLowerCase();
     const tags = payment?.fulfillment?.orderTags || {};
     const customer = payment?.customer || {};
-    const orderNo =
-      payment?.fulfillment?.orderNo ||
-      `QC-${String(payment?.order_id || "").slice(-6)}`;
-    const amount = Number(payment?.amount || 0);
+    const orderId = String(payment?.order_id || orderIdFromUrl || "");
     const customerName = String(customer.name || tags.customer_name || "Customer").trim() || "Customer";
     const customerPhone = String(customer.phone || tags.mobile || tags.phone || "").trim();
+    const amount = String(payment?.amount || 0);
+    const qcOrderNo = payment?.fulfillment?.orderNo || `QC-${String(orderId).slice(-6)}`;
 
     if (context === "food") {
-      let items = [];
-      try {
-        const parsed = JSON.parse(tags.food_items_json || "[]");
-        items = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        items = [];
-      }
+      const items = parseTrustedArray(tags.food_items_json, []);
+      if (!items.length) throw new Error("Trusted food order items are missing.");
 
-      if (!items.length) {
-        throw new Error("Trusted food order items are missing.");
-      }
-
-      const exists = (data.foodOrders || []).some(
+      const alreadyExists = (data.foodOrders || []).some(
         (order) =>
-          String(order?.gatewayOrderId || "") === String(payment.order_id || "") ||
-          String(order?.id || "") === orderNo
+          String(order?.id || "") === qcOrderNo ||
+          String(order?.gatewayOrderId || "") === orderId
       );
 
-      if (!exists) {
+      const orderedAt = new Date().toISOString();
+      localStorage.setItem(`qclub_food_order_time_${qcOrderNo}`, orderedAt);
+      localStorage.setItem(`qclub_food_order_processed_${qcOrderNo}`, "yes");
+
+      if (!alreadyExists) {
+        const foodWhatsappDraft = buildWhatsappDraft({
+          phone: customerPhone,
+          label: "food_success",
+          text: buildFoodWhatsappText({
+            name: customerName,
+            orderNo: qcOrderNo,
+            orderedAt,
+            total: amount,
+            items,
+          }),
+        });
+
+        const foodItemsForWhatsapp = items
+          .map((item, index) => {
+            const itemName = String(item?.name || "").trim();
+            const qty = Number(item?.qty || 0);
+            if (!itemName) return "";
+            return `${index + 1}. ${itemName}${qty > 0 ? ` x ${qty}` : ""}`;
+          })
+          .filter(Boolean)
+          .join("\n");
+
+        foodWhatsappDraft.name = customerName;
+        foodWhatsappDraft.customerName = customerName;
+        foodWhatsappDraft.orderNo = qcOrderNo;
+        foodWhatsappDraft.itemListText = foodItemsForWhatsapp || "Food items";
+        foodWhatsappDraft.total = amount;
+        foodWhatsappDraft.templateParams = [
+          foodWhatsappDraft.customerName,
+          foodWhatsappDraft.orderNo,
+          foodWhatsappDraft.itemListText,
+          foodWhatsappDraft.total,
+        ];
+
         commit({
           ...data,
           foodOrders: [
             ...(data.foodOrders || []),
             {
-              id: orderNo,
-              gatewayOrderId: payment.order_id,
+              id: qcOrderNo,
+              gatewayOrderId: orderId,
               name: customerName,
               mobile: customerPhone,
               items,
               total: amount,
-              time: new Date().toISOString(),
+              time: orderedAt,
               status: "Paid",
+              printMeta: {
+                status: "pending_auto_print",
+                requestedAt: new Date().toISOString(),
+                printedAt: "",
+              },
             },
+          ],
+          speakerAlerts: [
+            ...(data.speakerAlerts || []),
+            {
+              id: uid(),
+              type: "food_order",
+              text: "New food order received. New food order received.",
+              createdAt: Date.now(),
+              playedAt: "",
+            },
+          ],
+          whatsappJobs: [
+            ...(data.whatsappJobs || []),
+            createWhatsappJob("food_success", {
+              ...foodWhatsappDraft,
+              orderNo: qcOrderNo,
+              orderNumber: qcOrderNo,
+            }),
           ],
         });
       }
 
-      return { context, orderNo, inserted: !exists };
+      setOrderSaved(true);
+      return { context, orderNo: qcOrderNo, inserted: !alreadyExists };
+    }
+
+    if (context === "shop") {
+      const trustedShopCart = normalizeShopCartEntries(parseTrustedArray(tags.shop_items_json, []));
+      if (!trustedShopCart.length) throw new Error("Trusted shop order items are missing.");
+
+      const createdAt = new Date().toISOString();
+      const receipt = buildShopReceiptRecord({
+        orderId,
+        name: customerName,
+        mobile: customerPhone,
+        items: trustedShopCart,
+        total: amount,
+        paymentStatus: "Paid",
+        createdAt,
+      });
+
+      const existingShopReceipt = (data.shopReceipts || []).find(
+        (r) => String(r.gatewayOrderId || "") === orderId
+      );
+      const stockAlreadyAdjusted = existingShopReceipt?.stockAdjusted === true;
+      const receiptWithStockMarker = {
+        ...receipt,
+        stockAdjusted: true,
+        stockAdjustedAt: createdAt,
+      };
+      const nextShopReceipts = existingShopReceipt
+        ? (data.shopReceipts || []).map((r) =>
+            String(r.gatewayOrderId || "") === orderId
+              ? {
+                  ...r,
+                  stockAdjusted: true,
+                  stockAdjustedAt: r.stockAdjustedAt || createdAt,
+                }
+              : r
+          )
+        : [...(data.shopReceipts || []), receiptWithStockMarker];
+
+      const nextShopItems = stockAlreadyAdjusted
+        ? normalizedShopItems
+        : normalizedShopItems.map((item) => {
+            const purchasesForItem = trustedShopCart.filter((x) => x.itemId === item.id);
+            if (!purchasesForItem.length) return item;
+
+            if (Array.isArray(item.options) && item.options.length > 0) {
+              return {
+                ...item,
+                options: item.options.map((opt) => {
+                  const purchasedQty = purchasesForItem
+                    .filter((x) => x.selectedOptionId === opt.id)
+                    .reduce((sum, x) => sum + safeNum(x.qty, 0), 0);
+
+                  return purchasedQty > 0
+                    ? { ...opt, stock: Math.max(0, safeNum(opt.stock, 0) - purchasedQty) }
+                    : opt;
+                }),
+              };
+            }
+
+            const purchasedQty = purchasesForItem.reduce(
+              (sum, x) => sum + safeNum(x.qty, 0),
+              0
+            );
+
+            return {
+              ...item,
+              stock: Math.max(0, safeNum(item.stock, 0) - purchasedQty),
+            };
+          });
+
+      commit({
+        ...data,
+        shopReceipts: nextShopReceipts,
+        shopCatalog: {
+          ...(data.shopCatalog || {}),
+          items: nextShopItems,
+        },
+      });
+
+      setOrderSaved(true);
+      return {
+        context,
+        orderNo: receipt.orderNo || `QSHOP-${String(orderId).slice(-8)}`,
+        inserted: !existingShopReceipt,
+      };
     }
 
     if (context === "booking") {
-      let changed = false;
-      const nextRequests = (data.booking?.requests || []).map((request) => {
-        const isMatch =
-          String(request?.mobile || "").trim() === customerPhone &&
-          String(request?.itemLabel || "").trim() === String(tags.table_label || "").trim() &&
-          String(request?.bookingDate || "").trim() === String(tags.booking_date || "").trim() &&
-          String(request?.timeSlot || request?.slotLabel || "").trim() ===
-            String(tags.booking_slot || "").trim() &&
-          ["pending", "pending_member_verification"].includes(String(request?.status || "").toLowerCase());
-
-        if (!isMatch) return request;
-        changed = true;
-        return {
-          ...request,
-          status: request.bookingType === "member" ? "member_verified" : "verified",
-          gatewayOrderId: payment.order_id,
-          paidAt: new Date().toISOString(),
-        };
+      const bookingTable = String(tags.table_label || "").trim();
+      const bookingDateValue = String(tags.booking_date || "").trim();
+      const bookingSlotValue = String(tags.booking_slot || "").trim();
+      const bookingAmountValue = String(tags.booking_amount || amount || "0");
+      const bookingReference = `BK-${String(orderId).slice(-5)}`;
+      const bookingWhatsappDraft = buildWhatsappDraft({
+        phone: customerPhone,
+        label: "booking_success",
+        text: buildBookingWhatsappText({
+          name: customerName,
+          table: bookingTable,
+          bookedAt: new Date().toISOString(),
+          bookingDate: bookingDateValue,
+          bookingSlot: bookingSlotValue,
+          amount: bookingAmountValue,
+        }),
       });
 
-      if (changed) {
-        commit({
-          ...data,
-          booking: {
-            ...(data.booking || {}),
-            requests: nextRequests,
-          },
-        });
-      }
+      bookingWhatsappDraft.templateParams = [
+        customerName,
+        bookingReference,
+        bookingTable || "Booked Table",
+        bookingDateValue || "—",
+        bookingSlotValue || "—",
+      ];
 
-      return { context, orderNo, bookingUpdated: changed };
+      const bookingSpeakerText =
+        `${bookingTable || "Booked table"} booked by ${customerName || "customer"} ` +
+        `on ${bookingDateValue || "the selected date"} ` +
+        `from ${bookingSlotValue || "the booked slot"}.`;
+
+      commit({
+        ...data,
+        announcements: [
+          {
+            id: uid(),
+            type: "table_booking",
+            text:
+              `${bookingTable || "Booked table"} booked by ${customerName || "Customer"} ` +
+              `on ${bookingDateValue || "the selected date"} ` +
+              `from ${bookingSlotValue || "the booked slot"}.`,
+            link: "/book",
+            createdAt: Date.now(),
+            expiresAt: bookingAnnouncementExpiresAt(bookingDateValue, bookingSlotValue),
+          },
+          ...(data.announcements || []),
+        ].slice(0, 20),
+        speakerAlerts: [
+          ...(data.speakerAlerts || []),
+          {
+            id: uid(),
+            type: "booking_success",
+            text: bookingSpeakerText,
+            createdAt: Date.now(),
+            playedAt: "",
+          },
+        ],
+        whatsappJobs: [
+          ...(data.whatsappJobs || []),
+          createWhatsappJob("booking_success", bookingWhatsappDraft),
+        ],
+      });
+
+      setOrderSaved(true);
+      return { context, orderNo: bookingReference, bookingUpdated: true };
     }
 
     if (context === "membership") {
@@ -13153,27 +16319,25 @@ function PaymentStatus({ data, commit }) {
         String(tags.valid_until || "").trim() ||
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const normalizedName = customerName.toLowerCase();
-      const existing = (data.memberRegistry || []).find((member) => {
-        const memberName = String(member?.name || "").trim().toLowerCase();
-        const memberMobile = String(member?.mobile || "").trim();
+      const existing = (data.memberRegistry || []).find((m) => {
+        const memberName = String(m?.name || "").trim().toLowerCase();
+        const memberMobile = String(m?.mobile || "").trim();
         return memberName === normalizedName && memberMobile === customerPhone;
       });
-
       const nextRegistry = existing
-        ? (data.memberRegistry || []).map((member) => {
-            const memberName = String(member?.name || "").trim().toLowerCase();
-            const memberMobile = String(member?.mobile || "").trim();
+        ? (data.memberRegistry || []).map((m) => {
+            const memberName = String(m?.name || "").trim().toLowerCase();
+            const memberMobile = String(m?.mobile || "").trim();
             return memberName === normalizedName && memberMobile === customerPhone
               ? {
-                  ...member,
+                  ...m,
                   name: customerName,
                   mobile: customerPhone,
-                  tier,
                   validUntil,
                   status: "active",
-                  gatewayOrderId: payment.order_id,
+                  tier,
                 }
-              : member;
+              : m;
           })
         : [
             ...(data.memberRegistry || []),
@@ -13186,24 +16350,22 @@ function PaymentStatus({ data, commit }) {
               validUntil,
               status: "active",
               notes: "Auto-created after verified payment",
-              gatewayOrderId: payment.order_id,
             },
           ];
 
-      const memberPageExists = (data.membersPage || []).some(
-        (member) => String(member?.name || "").trim().toLowerCase() === normalizedName
-      );
-      const nextMembersPage = memberPageExists
-        ? (data.membersPage || []).map((member) =>
-            String(member?.name || "").trim().toLowerCase() === normalizedName
+      const nextMembersPage = (data.membersPage || []).some(
+        (m) => String(m?.name || "").trim().toLowerCase() === normalizedName
+      )
+        ? (data.membersPage || []).map((m) =>
+            String(m?.name || "").trim().toLowerCase() === normalizedName
               ? {
-                  ...member,
+                  ...m,
                   name: customerName,
                   tier,
-                  joinedOn: member.joinedOn || today,
-                  note: member.note || "Member",
+                  joinedOn: m.joinedOn || today,
+                  note: m.note || "Member",
                 }
-              : member
+              : m
           )
         : [
             ...(data.membersPage || []),
@@ -13216,6 +16378,26 @@ function PaymentStatus({ data, commit }) {
             },
           ];
 
+      const membershipWhatsappDraft = buildWhatsappDraft({
+        phone: customerPhone,
+        label: "membership_success",
+        text: buildMembershipWhatsappText({
+          name: customerName,
+          tier,
+          activatedAt: new Date().toISOString(),
+          validUntil,
+        }),
+      });
+
+      membershipWhatsappDraft.templateName =
+        getWhatsappTemplateForLabel("membership_success", getWhatsappSettings());
+      membershipWhatsappDraft.templateParams = [
+        customerName,
+        tier,
+        formatWhatsappDateTime(new Date()),
+        validUntil || "—",
+      ];
+
       commit({
         ...data,
         memberRegistry: nextRegistry,
@@ -13224,33 +16406,44 @@ function PaymentStatus({ data, commit }) {
           {
             id: uid(),
             text: `${customerName} joins as the latest Q Club member !`,
+            link: "/membership",
             createdAt: Date.now(),
           },
           ...(data.announcements || []),
         ].slice(0, 20),
+        speakerAlerts: [
+          ...(data.speakerAlerts || []),
+          {
+            id: uid(),
+            type: "membership_success",
+            text: `${customerName || "Member"} joined as the latest ${tier || "Q Club"} member.`,
+            createdAt: Date.now(),
+            playedAt: "",
+          },
+        ],
+        whatsappJobs: [
+          ...(data.whatsappJobs || []),
+          createWhatsappJob("membership_success", membershipWhatsappDraft),
+        ],
       });
 
-      return { context, orderNo, membershipUpserted: true };
+      setOrderSaved(true);
+      return { context, orderNo: `MEM-${String(orderId).slice(-6)}`, membershipUpserted: true };
     }
 
     if (context === "tournament") {
       const tournamentId = String(tags.tournament_id || "").trim();
       const tournamentName = String(tags.tournament_name || "Current Tournament").trim();
+      const tournamentFee = String(tags.tournament_fee || amount || "0");
       const existingPlayerId = String(tags.tournament_player_id || "").trim();
-
-      if (!tournamentId || !customerName) {
-        throw new Error("Trusted tournament registration details are missing.");
-      }
+      if (!tournamentId || !customerName) throw new Error("Trusted tournament details are missing.");
 
       let nextPlayers = [...(data.players || [])];
       let finalPlayerId = existingPlayerId;
-
       if (!finalPlayerId) {
         const existingPlayer = nextPlayers.find(
-          (player) =>
-            String(player.name || "").trim().toLowerCase() === customerName.toLowerCase()
+          (p) => String(p.name || "").trim().toLowerCase() === customerName.toLowerCase()
         );
-
         if (existingPlayer) {
           finalPlayerId = existingPlayer.id;
         } else {
@@ -13266,18 +16459,32 @@ function PaymentStatus({ data, commit }) {
         }
       }
 
-      const nextTournaments = (data.tournaments || []).map((tournament) => {
-        if (tournament.id !== tournamentId) return tournament;
-        const currentIds = Array.isArray(tournament.participantIds)
-          ? tournament.participantIds
-          : [];
+      const nextTournaments = (data.tournaments || []).map((t) => {
+        if (t.id !== tournamentId) return t;
+        const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
         return {
-          ...tournament,
+          ...t,
           participantIds: currentIds.includes(finalPlayerId)
             ? currentIds
             : [...currentIds, finalPlayerId],
         };
       });
+
+      const tournamentWhatsappDraft = buildWhatsappDraft({
+        phone: customerPhone,
+        label: "tournament_success",
+        text: buildTournamentWhatsappText({
+          name: customerName,
+          tournamentName,
+          registeredAt: new Date().toISOString(),
+          fee: tournamentFee,
+        }),
+      });
+      tournamentWhatsappDraft.templateParams = [
+        customerName || "Player",
+        tournamentName || "Tournament",
+        String(tournamentFee || "0"),
+      ];
 
       commit({
         ...data,
@@ -13292,9 +16499,24 @@ function PaymentStatus({ data, commit }) {
           },
           ...(data.announcements || []),
         ].slice(0, 20),
+        speakerAlerts: [
+          ...(data.speakerAlerts || []),
+          {
+            id: uid(),
+            type: "tournament_success",
+            text: `${customerName || "Player"} successfully registered for ${tournamentName || "the tournament"}.`,
+            createdAt: Date.now(),
+            playedAt: "",
+          },
+        ],
+        whatsappJobs: [
+          ...(data.whatsappJobs || []),
+          createWhatsappJob("tournament_success", tournamentWhatsappDraft),
+        ],
       });
 
-      return { context, orderNo, tournamentRegistered: true };
+      setOrderSaved(true);
+      return { context, orderNo: `TOUR-${String(orderId).slice(-6)}`, tournamentRegistered: true };
     }
 
     throw new Error("Unsupported trusted payment context.");
@@ -13303,10 +16525,9 @@ function PaymentStatus({ data, commit }) {
   useEffect(() => {
     let cancelled = false;
 
-    async function verifyPayment() {
+    async function verifyAndFulfil() {
       if (!orderIdFromUrl) {
         setStatus("failed");
-        setStatusMessage("Missing payment order id.");
         return;
       }
 
@@ -13317,19 +16538,16 @@ function PaymentStatus({ data, commit }) {
         const orderData = await response.json().catch(() => null);
 
         if (cancelled) return;
+        setTrustedPayment(orderData || null);
 
         if (!response.ok || !orderData?.verified) {
-          setTrustedPayment(orderData || null);
-          setStatus(orderData?.order_status === "ACTIVE" ? "pending" : "failed");
-          setStatusMessage(orderData?.error || "Payment is not verified yet.");
+          setStatus(orderData?.order_status === "ACTIVE" ? "checking" : "failed");
           return;
         }
 
-        setTrustedPayment(orderData);
-
         if (orderData.fulfilled) {
+          setOrderSaved(true);
           setStatus("success");
-          setStatusMessage("Payment already fulfilled.");
           return;
         }
 
@@ -13338,60 +16556,97 @@ function PaymentStatus({ data, commit }) {
 
         const claim = await postPaymentAction("claim_fulfillment");
         if (cancelled) return;
+        setTrustedPayment(claim || orderData);
 
-        if (claim?.claimAccepted === false && !claim?.fulfilled) {
-          setTrustedPayment(claim || orderData);
-          setStatus("pending");
-          setStatusMessage("This payment is already being fulfilled. Please refresh in a minute.");
+        if (claim?.fulfilled) {
+          setOrderSaved(true);
+          setStatus("success");
           return;
         }
 
-        if (!claim?.verified || claim?.fulfilled) {
-          setTrustedPayment(claim || orderData);
-          setStatus(claim?.fulfilled ? "success" : "failed");
-          setStatusMessage(claim?.fulfilled ? "Payment already fulfilled." : "Payment could not be claimed.");
+        if (claim?.claimAccepted === false) {
+          setStatus("checking");
+          return;
+        }
+
+        if (!claim?.verified) {
+          setStatus("failed");
           return;
         }
 
         const result = fulfilTrustedPayment(claim);
-        let acknowledged = claim;
-        try {
-          acknowledged = await postPaymentAction("acknowledge_fulfillment", result);
-        } catch (ackError) {
-          console.warn("Payment acknowledgement failed:", ackError);
-        }
+        const acknowledged = await postPaymentAction("acknowledge_fulfillment", result);
 
         if (cancelled) return;
-
         setTrustedPayment(acknowledged || claim);
         setStatus("success");
-        setStatusMessage("Payment verified successfully.");
       } catch (error) {
-        if (cancelled) return;
-        setStatus("failed");
-        setStatusMessage(error?.message || "Payment verification failed.");
+        console.error("Payment verification error:", error);
+        if (!cancelled) setStatus("failed");
       }
     }
 
-    verifyPayment();
+    verifyAndFulfil();
 
     return () => {
       cancelled = true;
     };
   }, [location.search]);
 
-  function downloadFoodReceiptPdf() {
-    const items = parseTrustedFoodItems();
-    const nowText = new Date().toLocaleString();
-    const itemsHtml = items.length
-      ? items
+
+
+  useEffect(() => {
+  // Auto-print for food orders is handled only by the counter PC admin/staff watcher.
+  // Keep success-page printing manual to avoid duplicate receipts.
+}, [status, paymentContext, orderIdFromUrl]);
+
+  function retryPath() {
+  if (paymentContext === "food") return "/offer";
+  if (paymentContext === "shop") return "/shop";
+  if (paymentContext === "membership") return "/membership";
+  if (paymentContext === "tournament") return "/tournament-register";
+  if (paymentContext === "booking") return "/book";
+
+  const savedRetryPath = localStorage.getItem("qclub_retry_path") || "";
+  if (savedRetryPath) return savedRetryPath;
+
+  const savedShopCart = localStorage.getItem("qclub_shop_cart") || "";
+  const savedShopTotal = localStorage.getItem("qclub_shop_total") || "";
+
+  if (savedShopCart || savedShopTotal) return "/shop";
+
+  return "/book";
+}
+
+  const savedName = paymentName || localStorage.getItem("qclub_payment_name") || "";
+  const savedMobile = paymentMobile || localStorage.getItem("qclub_payment_mobile") || "";
+  const table = trustedTags.table_label || localStorage.getItem("qclub_booking_table") || "";
+  const bookingDate = trustedTags.booking_date || localStorage.getItem("qclub_booking_date") || "";
+  const bookingSlot = trustedTags.booking_slot || localStorage.getItem("qclub_booking_slot") || "";
+  const tier = trustedTags.tier || localStorage.getItem("qclub_membership_tier") || "";
+  const tshirtSize = trustedTags.tshirt_size || localStorage.getItem("qclub_tshirt_size") || "";
+  const tournamentName =
+    trustedTags.tournament_name ||
+    localStorage.getItem("qclub_tournament_name") ||
+    "Current Tournament";
+  const tournamentFee =
+    trustedTags.tournament_fee || String(trustedAmount || "") || localStorage.getItem("qclub_tournament_fee") || "";
+
+    function downloadFoodReceiptPdf() {
+    const params = new URLSearchParams(location.search);
+    const orderIdFromUrl = params.get("order_id") || "";
+    const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
+    const nowText = displayTime;
+
+    const itemsHtml = foodCart.length
+      ? foodCart
           .map(
             (item) => `
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #ddd;">${item.name} × ${item.qty}</td>
-                <td style="padding:8px 0;border-bottom:1px solid #ddd;text-align:right;">₹${item.lineTotal}</td>
-              </tr>
-            `
+            <tr>
+              <td style="padding:8px 0;border-bottom:1px solid #ddd;">${item.name} × ${item.qty}</td>
+              <td style="padding:8px 0;border-bottom:1px solid #ddd;text-align:right;">₹${item.lineTotal}</td>
+            </tr>
+          `
           )
           .join("")
       : `<tr><td colspan="2" style="padding:8px 0;">No items found.</td></tr>`;
@@ -13399,14 +16654,15 @@ function PaymentStatus({ data, commit }) {
     const html = `
       <html>
         <head>
-          <title>${trustedOrderNo} Receipt</title>
+          <title>${displayOrderNo} Receipt</title>
         </head>
         <body style="font-family:Arial,sans-serif;padding:24px;color:#111;">
           <h2 style="margin:0 0 12px;">The Q Club Pasighat</h2>
-          <div style="margin-bottom:8px;"><b>Order No:</b> ${trustedOrderNo}</div>
+          <div style="margin-bottom:8px;"><b>Order No:</b> ${displayOrderNo}</div>
           <div style="margin-bottom:8px;"><b>Time:</b> ${nowText}</div>
-          <div style="margin-bottom:8px;"><b>Name:</b> ${trustedCustomer.name || "-"}</div>
-          <div style="margin-bottom:16px;"><b>Mobile:</b> ${trustedCustomer.phone || "-"}</div>
+          <div style="margin-bottom:8px;"><b>Name:</b> ${paymentName || "-"}</div>
+          <div style="margin-bottom:16px;"><b>Mobile:</b> ${paymentMobile || "-"}</div>
+
           <table style="width:100%;border-collapse:collapse;margin-top:12px;">
             <thead>
               <tr>
@@ -13414,15 +16670,21 @@ function PaymentStatus({ data, commit }) {
                 <th style="text-align:right;padding-bottom:8px;border-bottom:2px solid #111;">Amount</th>
               </tr>
             </thead>
-            <tbody>${itemsHtml}</tbody>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
           </table>
-          <div style="margin-top:18px;font-size:18px;font-weight:700;">Total Paid: ₹${trustedAmount}</div>
+
+          <div style="margin-top:18px;font-size:18px;font-weight:700;">
+            Total Paid: ₹${foodTotal}
+          </div>
         </body>
       </html>
     `;
 
     const win = window.open("", "_blank");
     if (!win) return;
+
     win.document.open();
     win.document.write(html);
     win.document.close();
@@ -13430,496 +16692,19 @@ function PaymentStatus({ data, commit }) {
     win.print();
   }
 
-  const foodItems = parseTrustedFoodItems();
+  function downloadShopReceiptPdf() {
+    const receipt = buildShopReceiptRecord({
+      orderId: orderIdFromUrl,
+      name: paymentName,
+      mobile: paymentMobile,
+      items: shopCart,
+      total: shopTotal,
+      paymentStatus: "Paid",
+      createdAt: new Date().toISOString(),
+    });
 
-  return (
-    <div className="container">
-      <div className="card" style={{ maxWidth: 600, margin: "40px auto" }}>
-        {status === "checking" && (
-          <>
-            <h2>Checking payment...</h2>
-            <p className="muted">{statusMessage}</p>
-          </>
-        )}
-
-        {status === "pending" && (
-          <>
-            <h2>Payment Pending</h2>
-            <p className="muted">{statusMessage}</p>
-            <button className="btn primary" onClick={() => navigate(retryPath())}>
-              Back
-            </button>
-          </>
-        )}
-
-        {status === "success" && (
-          <>
-            {paymentContext === "membership" ? (
-              <>
-                <h2>Welcome to The Q Club Membership</h2>
-                <div className="card" style={{ marginTop: 14 }}>
-                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
-                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
-                  <div><b>Membership Tier:</b> {trustedTags.tier || "—"}</div>
-                  <div><b>T-Shirt Size:</b> {trustedTags.tshirt_size || "—"}</div>
-                </div>
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn primary" onClick={() => navigate("/")}>Enter The Q Club</button>
-                  <button className="btn" onClick={() => navigate("/membership")}>Membership Page</button>
-                </div>
-              </>
-            ) : paymentContext === "food" ? (
-              <>
-                <h2>Order Placed Successfully</h2>
-                <div style={{ marginTop: 10, marginBottom: 14 }}>
-                  <div><b>Order No:</b> {trustedOrderNo}</div>
-                  <div><b>Status:</b> Verified</div>
-                </div>
-                <div className="card" style={{ marginTop: 14 }}>
-                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
-                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
-                  <div style={{ marginTop: 12 }}><b>Items:</b></div>
-                  {foodItems.length > 0 ? (
-                    foodItems.map((item) => (
-                      <div key={`${item.id}-${item.name}`} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                        <span>{item.name} × {item.qty}</span>
-                        <span>₹{item.lineTotal}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="muted">No items found.</div>
-                  )}
-                  <div style={{ marginTop: 10, fontWeight: 700 }}>Total Paid: ₹{trustedAmount}</div>
-                  <p className="muted" style={{ marginTop: 12 }}>
-                    Please give us up to 15 minutes to prepare your order. Please collect your order from the counter when called.
-                  </p>
-                </div>
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn primary" onClick={() => navigate("/offer")}>Order More</button>
-                  <button className="btn" onClick={downloadFoodReceiptPdf}>Download PDF</button>
-                  <button className="btn" onClick={() => navigate("/")}>Home</button>
-                </div>
-              </>
-            ) : paymentContext === "tournament" ? (
-              <>
-                <h2>Thank You for Registering</h2>
-                <p>Thank you for registering for <strong>{trustedTags.tournament_name || "the tournament"}</strong>.</p>
-                <div className="card" style={{ marginTop: 12 }}>
-                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
-                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
-                  <div><b>Registration Fee:</b> ₹{trustedAmount}</div>
-                </div>
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn primary" onClick={() => navigate("/")}>Go Home</button>
-                  <button className="btn" onClick={() => navigate("/fixtures")}>View Fixtures</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2>Table Booked Successfully</h2>
-                <p>Your table booking at <strong>The Q Club</strong> is confirmed.</p>
-                <div className="card" style={{ marginTop: 14 }}>
-                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
-                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
-                  <div><b>Table:</b> {trustedTags.table_label || "—"}</div>
-                  <div><b>Date:</b> {trustedTags.booking_date || "—"}</div>
-                  <div><b>Time Slot:</b> {trustedTags.booking_slot || "—"}</div>
-                </div>
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn primary" onClick={() => navigate("/book")}>Book Another</button>
-                  <button className="btn" onClick={() => navigate("/")}>Home</button>
-                </div>
-              </>
-            )}
-          </>
-        )}
-
-        {status === "failed" && (
-          <>
-            <h2>Payment Not Verified</h2>
-            <p className="muted">{statusMessage}</p>
-            <button className="btn primary" onClick={() => navigate(retryPath())}>
-              Try Again
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LegacyPaymentStatusUnused({ data, commit }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [status, setStatus] = useState("checking");
-  const [orderSaved, setOrderSaved] = useState(false);
-
-  const paymentContext = localStorage.getItem("qclub_payment_context") || "";
-  const foodCart = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
-  const foodTotal = localStorage.getItem("qclub_food_total") || "0";
-  const paymentMobile = localStorage.getItem("qclub_payment_mobile") || "";
-  const paymentName = localStorage.getItem("qclub_payment_name") || "";
-  const params = new URLSearchParams(location.search);
-const orderIdFromUrl = params.get("order_id") || "";
-const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
-const displayTime = new Date().toLocaleString();
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const order_id = params.get("order_id");
-
-    if (!order_id) {
-      setStatus("failed");
-      return;
-    }
-
-    fetch(`/api/get-order-status?order_id=${order_id}`)
-      .then((res) => res.json())
-      .then((orderData) => {
-  if (orderData.order_status === "PAID") {
-
-        if (paymentContext === "food" && !orderSaved) {
-
-      const newOrder = {
-        id: displayOrderNo,
-        name: paymentName,
-        mobile: paymentMobile,
-        items: foodCart,
-        total: foodTotal,
-        time: new Date().toISOString(),
-        status: "Paid"
-      };
-
-      const foodWhatsappDraft = buildWhatsappDraft({
-  phone: paymentMobile,
-  label: "food_success",
-  text: buildFoodWhatsappText({
-    name: paymentName,
-    orderNo: displayOrderNo,
-    orderedAt: new Date().toISOString(),
-    total: foodTotal,
-    items: Array.isArray(foodCart) ? foodCart : [],
-  }),
-});
-
-      commit({
-  ...data,
-  foodOrders: [...(data.foodOrders || []), newOrder]
-});
-
-                        handleWhatsappNotification({
-              draft: foodWhatsappDraft,
-            });
-
-      setOrderSaved(true);
-    }
-        if (paymentContext === "booking" && !orderSaved) {
-      const bookingWhatsappDraft = buildWhatsappDraft({
-        phone: localStorage.getItem("qclub_payment_mobile") || "",
-        label: "booking_success",
-        text: buildBookingWhatsappText({
-  name: localStorage.getItem("qclub_payment_name") || "",
-  table: localStorage.getItem("qclub_booking_table") || "",
-  bookedAt: new Date().toISOString(),
-  bookingDate: localStorage.getItem("qclub_booking_date") || "",
-  bookingSlot: localStorage.getItem("qclub_booking_slot") || "",
-  amount:
-    localStorage.getItem("qclub_booking_amount") ||
-    localStorage.getItem("qclub_booking_fee") ||
-    "",
-}),
-      });
-
-                        handleWhatsappNotification({
-              draft: bookingWhatsappDraft,
-            });
-
-      setOrderSaved(true);
-    }
-        // MEMBERSHIP SUCCESS → CREATE / UPDATE MEMBER
-        if (paymentContext === "membership" && !orderSaved) {
-      const name = (localStorage.getItem("qclub_payment_name") || "").trim();
-      const mobile = (localStorage.getItem("qclub_payment_mobile") || "").trim();
-      const tier = localStorage.getItem("qclub_membership_tier") || "Member";
-
-      const today = todayIso();
-
-      // default validity: 30 days (you can upgrade later per plan)
-      const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .slice(0, 10);
-
-      const normalizedName = name.toLowerCase();
-
-      const existing = (data.memberRegistry || []).find((m) => {
-        const memberName = String(m?.name || "").trim().toLowerCase();
-        const memberMobile = String(m?.mobile || "").trim();
-        return memberName === normalizedName && memberMobile === mobile;
-      });
-
-      let nextRegistry;
-
-      if (existing) {
-        // RENEW SAME MEMBER
-        nextRegistry = (data.memberRegistry || []).map((m) => {
-          const memberName = String(m?.name || "").trim().toLowerCase();
-          const memberMobile = String(m?.mobile || "").trim();
-
-          return memberName === normalizedName && memberMobile === mobile
-            ? {
-                ...m,
-                name,
-                mobile,
-                validUntil,
-                status: "active",
-                tier,
-              }
-            : m;
-        });
-      } else {
-        // NEW MEMBER
-        nextRegistry = [
-          ...(data.memberRegistry || []),
-          {
-            id: `reg_${Date.now()}`,
-            name,
-            mobile,
-            tier,
-            joinedOn: today,
-            validUntil,
-            status: "active",
-            notes: "Auto-created after payment",
-          },
-        ];
-      }
-
-      // UPDATE PUBLIC MEMBERS PAGE IF SAME NAME EXISTS, ELSE ADD NEW
-      const existingMembersPageEntry = (data.membersPage || []).find(
-        (m) => String(m?.name || "").trim().toLowerCase() === normalizedName
-      );
-
-      const nextMembersPage = existingMembersPageEntry
-        ? (data.membersPage || []).map((m) =>
-            String(m?.name || "").trim().toLowerCase() === normalizedName
-              ? {
-                  ...m,
-                  name,
-                  tier,
-                  joinedOn: m.joinedOn || today,
-                  note: m.note || "Member",
-                }
-              : m
-          )
-        : [
-            ...(data.membersPage || []),
-            {
-              id: `mem_${Date.now()}`,
-              name,
-              tier,
-              joinedOn: today,
-              note: "Member",
-            },
-          ];
-
-            const membershipAnnouncement = {
-        id: uid(),
-        text: `${name} joins as the latest Q Club member !`,
-        createdAt: Date.now(),
-      };
-
-      const membershipWhatsappDraft = buildWhatsappDraft({
-        phone: mobile,
-        label: "membership_success",
-        text: buildMembershipWhatsappText({
-  name: paymentName,
-  tier: paymentTier,
-  activatedAt: new Date().toISOString(),
-  validUntil: validUntilValue,
-}),
-      });
-
-      commit({
-        ...data,
-        memberRegistry: nextRegistry,
-        membersPage: nextMembersPage,
-        announcements: [
-          membershipAnnouncement,
-          ...(data.announcements || []),
-        ].slice(0, 20),
-      });
-
-                        handleWhatsappNotification({
-              draft: membershipWhatsappDraft,
-            });
-
-      setOrderSaved(true);
-    }
-    
-
-    if (paymentContext === "tournament" && !orderSaved) {
-      const tournamentId = localStorage.getItem("qclub_tournament_id") || "";
-      const tournamentName = localStorage.getItem("qclub_tournament_name") || "";
-      const name = localStorage.getItem("qclub_payment_name") || "";
-      const mobile = localStorage.getItem("qclub_payment_mobile") || "";
-      const existingPlayerId = localStorage.getItem("qclub_tournament_player_id") || "";
-
-      if (tournamentId && name.trim()) {
-        let nextPlayers = [...(data.players || [])];
-        let finalPlayerId = existingPlayerId;
-
-        if (!finalPlayerId) {
-          const existingPlayer = nextPlayers.find(
-            (p) => String(p.name || "").trim().toLowerCase() === name.trim().toLowerCase()
-          );
-
-          if (existingPlayer) {
-            finalPlayerId = existingPlayer.id;
-          } else {
-            const newPlayer = {
-              id: `pl_${Date.now()}`,
-              name: name.trim(),
-              mobile: mobile.trim(),
-              city: "Pasighat",
-              createdAt: Date.now(),
-            };
-            nextPlayers = [...nextPlayers, newPlayer];
-            finalPlayerId = newPlayer.id;
-          }
-        }
-
-        const nextTournaments = (data.tournaments || []).map((t) => {
-          if (t.id !== tournamentId) return t;
-
-          const currentIds = Array.isArray(t.participantIds) ? t.participantIds : [];
-          const nextIds = currentIds.includes(finalPlayerId)
-            ? currentIds
-            : [...currentIds, finalPlayerId];
-
-          return {
-            ...t,
-            participantIds: nextIds,
-          };
-        });
-
-                const tournamentAnnouncement = {
-          id: uid(),
-          text: `${name.trim()} registered for ${tournamentName || "the current tournament"} ! Register now`,
-          link: `/tournament-register?id=${tournamentId}`,
-          createdAt: Date.now(),
-        };
-
-        const tournamentWhatsappDraft = buildWhatsappDraft({
-          phone: mobile,
-          label: "tournament_success",
-          text: buildTournamentWhatsappText({
-  name,
-  tournamentName,
-  registeredAt: new Date().toISOString(),
-  fee: localStorage.getItem("qclub_tournament_fee") || "",
-}),
-        });
-
-        commit({
-          ...data,
-          players: nextPlayers,
-          tournaments: nextTournaments,
-          announcements: [
-            tournamentAnnouncement,
-            ...(data.announcements || []),
-          ].slice(0, 20),
-        });
-
-                                handleWhatsappNotification({
-                  draft: tournamentWhatsappDraft,
-                });
-
-        setOrderSaved(true);
-      }
-    }
-
-    setStatus("success");
-
-  } else {
-    setStatus("failed");
+    printShopReceipt(receipt);
   }
-})
-      .catch(() => setStatus("failed"));
-  }, [location.search]);
-
-  function retryPath() {
-    if (paymentContext === "food") return "/offer";
-    if (paymentContext === "membership") return "/membership";
-    return "/book";
-  }
-
-  const savedName = localStorage.getItem("qclub_payment_name") || "";
-  const savedMobile = localStorage.getItem("qclub_payment_mobile") || "";
-  const table = localStorage.getItem("qclub_booking_table") || "";
-  const bookingDate = localStorage.getItem("qclub_booking_date") || "";
-  const bookingSlot = localStorage.getItem("qclub_booking_slot") || "";
-  const tier = localStorage.getItem("qclub_membership_tier") || "";
-  const tshirtSize = localStorage.getItem("qclub_tshirt_size") || "";
-  const tournamentName = localStorage.getItem("qclub_tournament_name") || "Current Tournament";
-const tournamentFee = localStorage.getItem("qclub_tournament_fee") || "";
-  function downloadFoodReceiptPdf() {
-  const params = new URLSearchParams(location.search);
-  const orderIdFromUrl = params.get("order_id") || "";
-  const displayOrderNo = `QC-${String(orderIdFromUrl).slice(-6)}`;
-  const nowText = new Date().toLocaleString();
-
-  const itemsHtml = foodCart.length
-    ? foodCart
-        .map(
-          (item) => `
-            <tr>
-              <td style="padding:8px 0;border-bottom:1px solid #ddd;">${item.name} × ${item.qty}</td>
-              <td style="padding:8px 0;border-bottom:1px solid #ddd;text-align:right;">₹${item.lineTotal}</td>
-            </tr>
-          `
-        )
-        .join("")
-    : `<tr><td colspan="2" style="padding:8px 0;">No items found.</td></tr>`;
-
-  const html = `
-    <html>
-      <head>
-        <title>${displayOrderNo} Receipt</title>
-      </head>
-      <body style="font-family:Arial,sans-serif;padding:24px;color:#111;">
-        <h2 style="margin:0 0 12px;">The Q Club Pasighat</h2>
-        <div style="margin-bottom:8px;"><b>Order No:</b> ${displayOrderNo}</div>
-        <div style="margin-bottom:8px;"><b>Time:</b> ${nowText}</div>
-        <div style="margin-bottom:8px;"><b>Name:</b> ${paymentName || "-"}</div>
-        <div style="margin-bottom:16px;"><b>Mobile:</b> ${paymentMobile || "-"}</div>
-
-        <table style="width:100%;border-collapse:collapse;margin-top:12px;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding-bottom:8px;border-bottom:2px solid #111;">Item</th>
-              <th style="text-align:right;padding-bottom:8px;border-bottom:2px solid #111;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHtml}
-          </tbody>
-        </table>
-
-        <div style="margin-top:18px;font-size:18px;font-weight:700;">
-          Total Paid: ₹${foodTotal}
-        </div>
-      </body>
-    </html>
-  `;
-
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
-}
 
   return (
     <div className="container">
@@ -13959,9 +16744,9 @@ const tournamentFee = localStorage.getItem("qclub_tournament_fee") || "";
               <>
                 <h2>Order Placed Successfully</h2>
                 <div style={{ marginTop: 10, marginBottom: 14 }}>
-  <div><b>Order No:</b> {displayOrderNo}</div>
-  <div><b>Time:</b> {displayTime}</div>
-</div>
+                  <div><b>Order No:</b> {displayOrderNo}</div>
+                  <div><b>Time:</b> {displayTime}</div>
+                </div>
 
                 <div className="card" style={{ marginTop: 14 }}>
                   <div><b>Name:</b> {paymentName || "—"}</div>
@@ -13987,52 +16772,156 @@ const tournamentFee = localStorage.getItem("qclub_tournament_fee") || "";
                     Total Paid: ₹{foodTotal}
                   </div>
                   <p className="muted" style={{ marginTop: 12 }}>
-  Please give us up to 15 minutes to prepare your order. Please collect your order from the counter when called.
-</p>
+                    Please give us up to 15 minutes to prepare your order. Please collect your order from the counter when called.
+                  </p>
                 </div>
 
                 <div className="row" style={{ marginTop: 16 }}>
                   <button className="btn primary" onClick={() => navigate("/offer")}>
                     Order More
                   </button>
+                  <button
+                    className="btn"
+                    onClick={() =>
+                                            printFoodReceipt(
+                        buildFoodReceiptRecord(
+                          {
+                            id: displayOrderNo,
+                            name: paymentName,
+                            mobile: paymentMobile,
+                            items: foodCart,
+                            total: foodTotal,
+                            time: foodOrderMadeAt,
+                            status: "Paid",
+                          },
+                          data.club || {}
+                        )
+                      )
+                    }
+                  >
+                    Print Receipt
+                  </button>
                   <button className="btn" onClick={downloadFoodReceiptPdf}>
-  Download PDF
-</button>
+                    Download PDF
+                  </button>
+                  <button className="btn" onClick={() => navigate("/")}>
+                    Home
+                  </button>
+                </div>
+              </>
+            ) : paymentContext === "shop" ? (
+              <>
+                <h2>Thank You for Shopping at The Q Club</h2>
+                <div style={{ marginTop: 10, marginBottom: 14 }}>
+                  <div><b>Order No:</b> {shopDisplayOrderNo}</div>
+                  <div><b>Time:</b> {displayTime}</div>
+                </div>
+
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {paymentName || "—"}</div>
+                  <div><b>Mobile:</b> {paymentMobile || "—"}</div>
+
+                  <div style={{ marginTop: 12 }}><b>Items:</b></div>
+
+                  {shopCart.length > 0 ? (
+                    shopCart.map((item, index) => (
+                      <div
+                        key={`${item.itemId || item.id}-${item.selectedOptionId || "base"}-${index}`}
+                        style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+                      >
+                        <span>{item.displayName || item.name} × {item.qty}</span>
+                        <span>₹{item.lineTotal}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="muted">No items found.</div>
+                  )}
+
+                  <div style={{ marginTop: 10, fontWeight: 700 }}>
+                    Total Paid: ₹{shopTotal}
+                  </div>
+                </div>
+
+                <div className="row" style={{ marginTop: 16, gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn primary" onClick={() => navigate("/shop")}>
+                    Continue Shopping
+                  </button>
+
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() =>
+                      downloadShopReceipt(
+                        buildShopReceiptRecord({
+                          orderId: orderIdFromUrl,
+                          name: paymentName,
+                          mobile: paymentMobile,
+                          items: shopCart,
+                          total: shopTotal,
+                          paymentStatus: "Paid",
+                          createdAt: new Date().toISOString(),
+                        })
+                      )
+                    }
+                  >
+                    Download Receipt
+                  </button>
+
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() =>
+                      printShopReceipt(
+                        buildShopReceiptRecord({
+                          orderId: orderIdFromUrl,
+                          name: paymentName,
+                          mobile: paymentMobile,
+                          items: shopCart,
+                          total: shopTotal,
+                          paymentStatus: "Paid",
+                          createdAt: new Date().toISOString(),
+                        })
+                      )
+                    }
+                  >
+                    Print Receipt
+                  </button>
+
                   <button className="btn" onClick={() => navigate("/")}>
                     Home
                   </button>
                 </div>
               </>
             ) : paymentContext === "tournament" ? (
-  <>
-    <h2>Thank You for Registering 🏆</h2>
+              <>
+                <h2>Thank You for Registering 🏆</h2>
 
-    <p>
-      Thank you for registering for <strong>{tournamentName}</strong>.
-    </p>
+                <p>
+                  Thank you for registering for <strong>{tournamentName}</strong>.
+                </p>
 
-    <div className="card" style={{ marginTop: 12 }}>
-      <div><b>Name:</b> {savedName || "—"}</div>
-      <div><b>Mobile:</b> {savedMobile || "—"}</div>
-      <div><b>Registration Fee:</b> ₹{tournamentFee}</div>
-    </div>
+                <div className="card" style={{ marginTop: 12 }}>
+                  <div><b>Name:</b> {savedName || "—"}</div>
+                  <div><b>Mobile:</b> {savedMobile || "—"}</div>
+                  <div><b>Registration Fee:</b> ₹{tournamentFee}</div>
+                </div>
 
-    <p style={{ marginTop: 14 }}>
-      Tournament will begin at <strong>6:00 PM sharp</strong>. Fixtures will be generated shortly after registration closes.
-    </p>
+                <p style={{ marginTop: 14 }}>
+                  Tournament will begin at <strong>6:00 PM sharp</strong>. Fixtures will be generated shortly after registration closes.
+                </p>
 
-    <div className="row" style={{ marginTop: 16 }}>
-      <button className="btn primary" onClick={() => navigate("/")}>
-        Go Home
-      </button>
-      <button className="btn" onClick={() => navigate("/fixtures")}>
-        View Fixtures
-      </button>
-    </div>
-  </>
-) : (
-  <>
-    <h2>Table Booked Successfully</h2>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/")}>
+                    Go Home
+                  </button>
+                  <button className="btn" onClick={() => navigate("/fixtures")}>
+                    View Fixtures
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Table Booked Successfully</h2>
 
                 <p>
                   Your table booking at <strong>The Q Club</strong> is confirmed.
@@ -14064,17 +16953,393 @@ const tournamentFee = localStorage.getItem("qclub_tournament_fee") || "";
           <>
             <h2>Payment Not Completed</h2>
             <p>Your payment was cancelled or failed.</p>
+            <p className="muted">Please try again to complete your order.</p>
 
-            <button className="btn primary" onClick={() => navigate(retryPath())}>
-              Try Again
-            </button>
+            <div className="row" style={{ marginTop: 16, gap: 8, flexWrap: "wrap" }}>
+              <button className="btn primary" onClick={() => navigate(retryPath())}>
+                Try Again
+              </button>
+              <button className="btn" onClick={() => navigate("/")}>
+                Home
+              </button>
+            </div>
           </>
         )}
       </div>
     </div>
   );
 }
+function JobApplicationPage({ data, commit }) {
+  const acceptingApplications = data?.jobSettings?.acceptingApplications !== false;
 
+  const [form, setForm] = useState({
+    position: "",
+    name: "",
+    age: "",
+    phone: "",
+    email: "",
+    address: "",
+    education: "",
+    experience: "",
+    languages: "",
+    aadhaarNumber: "",
+    panNumber: "",
+    techComfort: "",
+    eveningDuty: "",
+    cleaningDuty: "",
+    tobaccoUse: "",
+    reason: "",
+    contractAccepted: false,
+    tobaccoPolicyAccepted: false,
+  });
+
+  const [photoFile, setPhotoFile] = useState(null);
+  const [aadhaarFile, setAadhaarFile] = useState(null);
+  const [panFile, setPanFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const update = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const validateFile = (file, allowedTypes, maxMb, label) => {
+    if (!file) throw new Error(`${label} is required.`);
+
+    const type = String(file.type || "").toLowerCase();
+    const okType = allowedTypes.some((allowed) => type.includes(allowed));
+
+    if (!okType) {
+      throw new Error(`${label} must be in allowed format.`);
+    }
+
+    if (file.size > maxMb * 1024 * 1024) {
+      throw new Error(`${label} must be below ${maxMb} MB.`);
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!acceptingApplications) {
+      alert("Applications are currently closed.");
+      return;
+    }
+    if (!form.position) return alert("Please select position applied for.");
+
+    if (!form.name.trim()) return alert("Full name is required.");
+    if (!form.age.trim()) return alert("Age is required.");
+    if (!form.phone.trim()) return alert("Phone / WhatsApp number is required.");
+    if (!form.address.trim()) return alert("Address is required.");
+    if (!form.aadhaarNumber.trim()) return alert("Aadhaar number is required.");
+
+const cleanAadhaar = form.aadhaarNumber.trim().replace(/\s+/g, "");
+const aadhaarOk = /^[0-9]{12}$/.test(cleanAadhaar);
+if (!aadhaarOk) return alert("Enter a valid 12-digit Aadhaar number.");
+
+if (!form.panNumber.trim()) return alert("PAN number is required.");
+    const cleanPan = form.panNumber.trim().toUpperCase();
+const panOk = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(cleanPan);
+if (!panOk) return alert("Enter a valid PAN number. Example: ABCDE1234F");
+
+if (!form.techComfort) return alert("Please select smartphone/computer comfort.");
+if (!form.eveningDuty) return alert("Please select evening duty comfort.");
+if (!form.cleaningDuty) return alert("Please select cleaning duty comfort.");
+if (!form.tobaccoUse) return alert("Please select tobacco/gutka/pan masala answer.");
+    if (!form.contractAccepted) return alert("Please accept the 12-month notarized contract condition.");
+    if (!form.tobaccoPolicyAccepted) return alert("Please accept the tobacco-free workplace policy.");
+
+    try {
+      validateFile(photoFile, ["jpeg", "jpg", "png"], 2, "Recent photograph");
+      validateFile(aadhaarFile, ["jpeg", "jpg", "png", "pdf"], 3, "Aadhaar upload");
+      validateFile(panFile, ["jpeg", "jpg", "png", "pdf"], 3, "PAN upload");
+
+      setBusy(true);
+
+      const photoUpload = await uploadImageToStorage(photoFile, "job-applications/photos");
+      const aadhaarUpload = await uploadImageToStorage(aadhaarFile, "job-applications/aadhaar");
+      const panUpload = await uploadImageToStorage(panFile, "job-applications/pan");
+
+      const nextSerial = (data.jobApplications || []).length + 1;
+const applicationId = `JOB-${new Date().getFullYear()}-${String(nextSerial).padStart(4, "0")}`;
+
+const application = {
+  id: uid(),
+  applicationId,
+  createdAt: new Date().toISOString(),
+  status: "new",
+        ...form,
+        photo: photoUpload,
+        aadhaarFile: aadhaarUpload,
+        panFile: panUpload,
+      };
+
+           const jobTemplate =
+  (data.whatsappPersistence?.customTemplates || []).find(
+    (template) => template.key === "job_application_received"
+  )?.templateName ||
+  data.whatsappPersistence?.settings?.jobApplicationReceivedTemplate ||
+  "job_application_received";
+
+const jobWhatsappDraft = {
+  label: "job_application_received",
+  phone: normalizeWhatsappNumber(form.phone),
+  text: `Hello ${form.name}, your employment application at The Q Club Pasighat has been received successfully. Application ID: ${applicationId}`,
+  templateName: jobTemplate,
+  templateParams: [form.name, applicationId],
+};
+
+commit({
+  ...data,
+  jobApplications: [application, ...(data.jobApplications || [])],
+});
+
+try {
+  const whatsappSettings = data.whatsappPersistence?.settings || {};
+
+  await fetch("/api/whatsapp-send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      authKey: whatsappSettings.authKey,
+      senderNumber: whatsappSettings.senderNumber,
+      senderLabel: whatsappSettings.senderLabel,
+      phone: normalizeWhatsappNumber(form.phone),
+      templateName: jobTemplate,
+      templateParams: [form.name, applicationId],
+      label: "job_application_received",
+      text: jobWhatsappDraft.text,
+    }),
+  });
+} catch (waError) {
+  console.warn("Job application WhatsApp send failed:", waError);
+}
+
+      alert("Application submitted successfully. The Q Club will contact shortlisted candidates.");
+      setForm({
+        position: "",
+        name: "",
+        age: "",
+        phone: "",
+          email: "",
+        address: "",
+        education: "",
+        experience: "",
+        languages: "",
+        aadhaarNumber: "",
+        panNumber: "",
+        techComfort: "",
+        eveningDuty: "",
+        cleaningDuty: "",
+        tobaccoUse: "",
+        reason: "",
+        contractAccepted: false,
+        tobaccoPolicyAccepted: false,
+      });
+      setPhotoFile(null);
+      setAadhaarFile(null);
+      setPanFile(null);
+      event.target.reset();
+    } catch (error) {
+      alert(error?.message || "Unable to submit application.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!acceptingApplications) {
+    return (
+      <>
+        <PageShell title="Job Applications" />
+        <div className="container">
+          <div className="card">
+            <h2>Applications Closed</h2>
+            <p className="muted">
+              Applications are currently closed. Thank you for your interest in The Q Club Pasighat.
+            </p>
+          </div>
+        </div>
+        <BottomPadding />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageShell
+  title="Career Opportunities at The Q Club Pasighat"
+  subtitle="Join one of Arunachal Pradesh's most modern premium recreation and entertainment clubs."
+/>
+      <div className="container">
+        <form className="card grid" onSubmit={handleSubmit}>
+          <div className="cols-12">
+            <h2>Join The Q Club Team</h2>
+<p className="muted">
+  Smart â€¢ Professional â€¢ Tech-Friendly â€¢ Growth-Oriented
+</p>
+<p className="muted">
+  Please fill the form carefully. Photograph, Aadhaar and PAN uploads are mandatory.
+</p>
+          </div>
+<label className="cols-12">
+  Position Applied For *
+  <select
+    value={form.position}
+    onChange={(e) => update("position", e.target.value)}
+  >
+    <option value="">Select position</option>
+    {(data?.jobSettings?.positions || []).map((position) => (
+      <option key={position} value={position}>
+        {position}
+      </option>
+    ))}
+  </select>
+</label>
+          <label className="cols-6">
+            Full Name *
+            <input value={form.name} onChange={(e) => update("name", e.target.value)} />
+          </label>
+
+          <label className="cols-6">
+            Age *
+            <input value={form.age} onChange={(e) => update("age", e.target.value)} />
+          </label>
+
+          <label className="cols-6">
+            Phone / WhatsApp *
+            <input value={form.phone} onChange={(e) => update("phone", e.target.value)} />
+          </label>
+          <label className="cols-6">
+  Email
+  <input value={form.email} onChange={(e) => update("email", e.target.value)} />
+</label>
+
+          <label className="cols-6">
+            Education
+            <input value={form.education} onChange={(e) => update("education", e.target.value)} />
+          </label>
+
+          <label className="cols-12">
+            Address *
+            <textarea value={form.address} onChange={(e) => update("address", e.target.value)} />
+          </label>
+
+          <label className="cols-6">
+            Aadhaar Number *
+            <input value={form.aadhaarNumber} onChange={(e) => update("aadhaarNumber", e.target.value)} />
+          </label>
+
+          <label className="cols-6">
+            PAN Number *
+            <input value={form.panNumber} onChange={(e) => update("panNumber", e.target.value.toUpperCase())} />
+          </label>
+
+          <label className="cols-6">
+            Recent Photograph * (JPG/PNG, max 2 MB)
+            <input type="file" accept="image/jpeg,image/png" onChange={(e) => setPhotoFile(e.target.files?.[0] || null)} />
+          </label>
+
+          <label className="cols-6">
+            Aadhaar Upload * (JPG/PNG/PDF, max 3 MB)
+            <input type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => setAadhaarFile(e.target.files?.[0] || null)} />
+          </label>
+
+          <label className="cols-6">
+            PAN Upload * (JPG/PNG/PDF, max 3 MB)
+            <input type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => setPanFile(e.target.files?.[0] || null)} />
+          </label>
+
+          <label className="cols-6">
+            Languages Known
+            <input value={form.languages} onChange={(e) => update("languages", e.target.value)} />
+          </label>
+
+          <label className="cols-12">
+            Previous Work Experience
+            <textarea value={form.experience} onChange={(e) => update("experience", e.target.value)} />
+          </label>
+
+          <label className="cols-6">
+            Comfortable using smartphone/computer?
+            <select value={form.techComfort} onChange={(e) => update("techComfort", e.target.value)}>
+              <option value="">Select</option>
+              <option>Yes</option>
+              <option>No</option>
+            </select>
+          </label>
+
+          <label className="cols-6">
+            Comfortable with evening duty?
+            <select value={form.eveningDuty} onChange={(e) => update("eveningDuty", e.target.value)}>
+              <option value="">Select</option>
+              <option>Yes</option>
+              <option>No</option>
+            </select>
+          </label>
+
+          <label className="cols-6">
+            Comfortable with cleaning duties?
+            <select value={form.cleaningDuty} onChange={(e) => update("cleaningDuty", e.target.value)}>
+              <option value="">Select</option>
+              <option>Yes</option>
+              <option>No</option>
+            </select>
+          </label>
+
+          <label className="cols-6">
+            Do you currently consume tobacco/gutka/pan masala?
+            <select value={form.tobaccoUse} onChange={(e) => update("tobaccoUse", e.target.value)}>
+              <option value="">Select</option>
+              <option>No</option>
+              <option>Gutka / Pan Masala</option>
+              <option>Tobacco</option>
+              <option>Cigarettes</option>
+              <option>Other</option>
+            </select>
+          </label>
+
+          <label className="cols-12">
+            Why do you want to work at The Q Club?
+            <textarea value={form.reason} onChange={(e) => update("reason", e.target.value)} />
+          </label>
+
+          <label className="cols-12" style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <input
+              type="checkbox"
+              checked={form.contractAccepted}
+              onChange={(e) => update("contractAccepted", e.target.checked)}
+              style={{ width: "auto", marginTop: 4 }}
+            />
+            <span>
+              I understand that a notarized 12-month employment contract must be signed before joining,
+              and I should proceed only if I am comfortable with this condition.
+            </span>
+          </label>
+
+          <label className="cols-12" style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <input
+              type="checkbox"
+              checked={form.tobaccoPolicyAccepted}
+              onChange={(e) => update("tobaccoPolicyAccepted", e.target.checked)}
+              style={{ width: "auto", marginTop: 4 }}
+            />
+            <span>
+              I agree to follow The Q Club Pasighat's tobacco-free and professional workplace policy.
+            </span>
+          </label>
+
+          <div className="cols-12">
+            <button className="btn primary" type="submit" disabled={busy}>
+              {busy ? "Submitting..." : "Submit Application"}
+            </button>
+          </div>
+        </form>
+      </div>
+      <BottomPadding />
+    </>
+  );
+}
 function NotFound() {
   return (
     <>
@@ -14094,3 +17359,6 @@ function NotFound() {
     </>
   );
 }
+
+
+

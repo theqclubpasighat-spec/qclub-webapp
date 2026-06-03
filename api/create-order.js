@@ -5,7 +5,7 @@ const TABLE = "qclub_state";
 const KEY = "main";
 const CURRENCY = "INR";
 const MAX_PAYMENT_ORDERS = 500;
-const ALLOWED_PAYMENT_CONTEXTS = new Set(["food", "booking", "membership", "tournament"]);
+const ALLOWED_PAYMENT_CONTEXTS = new Set(["food", "shop", "booking", "membership", "tournament"]);
 
 function env(name = "") {
   return String(process.env[name] || "").trim();
