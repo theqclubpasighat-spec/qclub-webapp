@@ -1503,7 +1503,12 @@ function closePlayerModal() {
     () => calcAutoRankingBoard(data.players || [], data.tournaments || [], "pool"),
     [data.players, data.tournaments]
   );
-    async function startPayment(amount, customerPhone = "9999999999") {
+    async function startPayment(
+  amount,
+  customerPhone = "9999999999",
+  customerName = "",
+  orderTags = {}
+) {
     try {
       const res = await fetch("/api/create-order", {
         method: "POST",
@@ -1513,6 +1518,8 @@ function closePlayerModal() {
         body: JSON.stringify({
           amount,
           customer_phone: customerPhone,
+          customer_name: customerName,
+          order_tags: orderTags && typeof orderTags === "object" ? orderTags : {},
         }),
       });
 
@@ -5253,34 +5260,42 @@ function Offers({ data, admin, commit, startPayment }) {
                           return;
                         }
 
+                        const foodOrderItems = cartItems
+                          .map((id) => {
+                            const found = Object.values(menu)
+                              .flatMap((cat) => cat.items || [])
+                              .find((x) => x.id === id);
+
+                            return found
+                              ? {
+                                  id: found.id,
+                                  name: found.name,
+                                  qty: cart[id],
+                                  price: found.price,
+                                  lineTotal: found.price * cart[id],
+                                }
+                              : null;
+                          })
+                          .filter(Boolean);
+
                         localStorage.setItem("qclub_payment_context", "food");
                         localStorage.setItem("qclub_payment_name", customerName.trim());
                         localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
                         localStorage.setItem(
                           "qclub_food_cart",
-                          JSON.stringify(
-                            cartItems
-                              .map((id) => {
-                                const found = Object.values(menu)
-                                  .flatMap((cat) => cat.items || [])
-                                  .find((x) => x.id === id);
-
-                                return found
-                                  ? {
-                                      id: found.id,
-                                      name: found.name,
-                                      qty: cart[id],
-                                      price: found.price,
-                                      lineTotal: found.price * cart[id],
-                                    }
-                                  : null;
-                              })
-                              .filter(Boolean)
-                          )
+                          JSON.stringify(foodOrderItems)
                         );
                         localStorage.setItem("qclub_food_total", String(cartTotal));
 
-                        startPayment(cartTotal, customerPhone);
+                        startPayment(cartTotal, customerPhone, customerName.trim(), {
+                          context: "food",
+                          customer_name: customerName.trim(),
+                          mobile: customerPhone.trim(),
+                          food_items: foodOrderItems
+                            .map((item) => `${item.name} x ${item.qty}`)
+                            .join(", "),
+                          food_items_json: JSON.stringify(foodOrderItems),
+                        });
                       }}
                     >
                       Pay ₹{cartTotal}
@@ -6483,7 +6498,15 @@ function unblockSelectedSlot(slotValue = timeSlot) {
   const ok = submitBooking();
   if (!ok) return;
 
-  startPayment(amount, mobile.trim());
+  startPayment(amount, mobile.trim(), name.trim(), {
+    context: "booking",
+    customer_name: name.trim(),
+    mobile: mobile.trim(),
+    table_label: selectedTable?.label || "",
+    booking_date: bookingDate || "",
+    booking_slot: timeSlot || "",
+    booking_amount: String(amount || ""),
+  });
 }}
   type="button"
 >
@@ -6889,7 +6912,15 @@ localStorage.setItem("qclub_tshirt_size", tshirtSize || "");
     
     await startPayment(
       selectedTier ? safeNum(selectedTier.price, 0) : 0,
-      mobile.trim()
+      mobile.trim(),
+      applicantName.trim(),
+      {
+        context: "membership",
+        customer_name: applicantName.trim(),
+        mobile: mobile.trim(),
+        tier: selectedTier?.tier || "",
+        tshirt_size: tshirtSize || "",
+      }
     );
     } catch (err) {
       setShowMembershipPopup(true);
@@ -7091,7 +7122,15 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
     localStorage.setItem("qclub_tournament_fee", String(registrationFee));
     localStorage.setItem("qclub_tournament_player_id", playerId || "");
 
-    startPayment(registrationFee, mobile.trim());
+    startPayment(registrationFee, mobile.trim(), playerName.trim(), {
+      context: "tournament",
+      customer_name: playerName.trim(),
+      mobile: mobile.trim(),
+      tournament_id: currentTournament.id || "",
+      tournament_name: currentTournament.name || "",
+      tournament_fee: String(registrationFee || 0),
+      tournament_player_id: playerId || "",
+    });
   }
 
   return (
@@ -12968,6 +13007,548 @@ function FoodOrdersArchive({ data, admin, staffAdmin, commit }) {
   );
 }
 function PaymentStatus({ data, commit }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const processedRef = useRef(false);
+  const [status, setStatus] = useState("checking");
+  const [trustedPayment, setTrustedPayment] = useState(null);
+  const [statusMessage, setStatusMessage] = useState("Checking payment...");
+
+  const params = new URLSearchParams(location.search);
+  const orderIdFromUrl = params.get("order_id") || "";
+  const trustedTags = trustedPayment?.fulfillment?.orderTags || {};
+  const paymentContext = trustedPayment?.context || trustedTags.context || "";
+  const trustedCustomer = trustedPayment?.customer || {};
+  const trustedAmount = Number(trustedPayment?.amount || 0);
+  const trustedOrderNo =
+    trustedPayment?.fulfillment?.orderNo ||
+    `QC-${String(orderIdFromUrl).slice(-6)}`;
+
+  function parseTrustedFoodItems() {
+    try {
+      const parsed = JSON.parse(trustedTags.food_items_json || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function retryPath() {
+    if (paymentContext === "food") return "/offer";
+    if (paymentContext === "membership") return "/membership";
+    if (paymentContext === "tournament") return "/tournament-register";
+    return "/book";
+  }
+
+  async function postPaymentAction(action, result = {}) {
+    const response = await fetch("/api/get-order-status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        order_id: orderIdFromUrl,
+        action,
+        result,
+      }),
+    });
+
+    const json = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(json?.error || `Payment action failed with status ${response.status}`);
+    }
+    return json;
+  }
+
+  function fulfilTrustedPayment(payment) {
+    const context = String(payment?.context || "").trim().toLowerCase();
+    const tags = payment?.fulfillment?.orderTags || {};
+    const customer = payment?.customer || {};
+    const orderNo =
+      payment?.fulfillment?.orderNo ||
+      `QC-${String(payment?.order_id || "").slice(-6)}`;
+    const amount = Number(payment?.amount || 0);
+    const customerName = String(customer.name || tags.customer_name || "Customer").trim() || "Customer";
+    const customerPhone = String(customer.phone || tags.mobile || tags.phone || "").trim();
+
+    if (context === "food") {
+      let items = [];
+      try {
+        const parsed = JSON.parse(tags.food_items_json || "[]");
+        items = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        items = [];
+      }
+
+      if (!items.length) {
+        throw new Error("Trusted food order items are missing.");
+      }
+
+      const exists = (data.foodOrders || []).some(
+        (order) =>
+          String(order?.gatewayOrderId || "") === String(payment.order_id || "") ||
+          String(order?.id || "") === orderNo
+      );
+
+      if (!exists) {
+        commit({
+          ...data,
+          foodOrders: [
+            ...(data.foodOrders || []),
+            {
+              id: orderNo,
+              gatewayOrderId: payment.order_id,
+              name: customerName,
+              mobile: customerPhone,
+              items,
+              total: amount,
+              time: new Date().toISOString(),
+              status: "Paid",
+            },
+          ],
+        });
+      }
+
+      return { context, orderNo, inserted: !exists };
+    }
+
+    if (context === "booking") {
+      let changed = false;
+      const nextRequests = (data.booking?.requests || []).map((request) => {
+        const isMatch =
+          String(request?.mobile || "").trim() === customerPhone &&
+          String(request?.itemLabel || "").trim() === String(tags.table_label || "").trim() &&
+          String(request?.bookingDate || "").trim() === String(tags.booking_date || "").trim() &&
+          String(request?.timeSlot || request?.slotLabel || "").trim() ===
+            String(tags.booking_slot || "").trim() &&
+          ["pending", "pending_member_verification"].includes(String(request?.status || "").toLowerCase());
+
+        if (!isMatch) return request;
+        changed = true;
+        return {
+          ...request,
+          status: request.bookingType === "member" ? "member_verified" : "verified",
+          gatewayOrderId: payment.order_id,
+          paidAt: new Date().toISOString(),
+        };
+      });
+
+      if (changed) {
+        commit({
+          ...data,
+          booking: {
+            ...(data.booking || {}),
+            requests: nextRequests,
+          },
+        });
+      }
+
+      return { context, orderNo, bookingUpdated: changed };
+    }
+
+    if (context === "membership") {
+      const tier = String(tags.tier || "Member").trim() || "Member";
+      const today = todayIso();
+      const validUntil =
+        String(tags.valid_until || "").trim() ||
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const normalizedName = customerName.toLowerCase();
+      const existing = (data.memberRegistry || []).find((member) => {
+        const memberName = String(member?.name || "").trim().toLowerCase();
+        const memberMobile = String(member?.mobile || "").trim();
+        return memberName === normalizedName && memberMobile === customerPhone;
+      });
+
+      const nextRegistry = existing
+        ? (data.memberRegistry || []).map((member) => {
+            const memberName = String(member?.name || "").trim().toLowerCase();
+            const memberMobile = String(member?.mobile || "").trim();
+            return memberName === normalizedName && memberMobile === customerPhone
+              ? {
+                  ...member,
+                  name: customerName,
+                  mobile: customerPhone,
+                  tier,
+                  validUntil,
+                  status: "active",
+                  gatewayOrderId: payment.order_id,
+                }
+              : member;
+          })
+        : [
+            ...(data.memberRegistry || []),
+            {
+              id: `reg_${Date.now()}`,
+              name: customerName,
+              mobile: customerPhone,
+              tier,
+              joinedOn: today,
+              validUntil,
+              status: "active",
+              notes: "Auto-created after verified payment",
+              gatewayOrderId: payment.order_id,
+            },
+          ];
+
+      const memberPageExists = (data.membersPage || []).some(
+        (member) => String(member?.name || "").trim().toLowerCase() === normalizedName
+      );
+      const nextMembersPage = memberPageExists
+        ? (data.membersPage || []).map((member) =>
+            String(member?.name || "").trim().toLowerCase() === normalizedName
+              ? {
+                  ...member,
+                  name: customerName,
+                  tier,
+                  joinedOn: member.joinedOn || today,
+                  note: member.note || "Member",
+                }
+              : member
+          )
+        : [
+            ...(data.membersPage || []),
+            {
+              id: `mem_${Date.now()}`,
+              name: customerName,
+              tier,
+              joinedOn: today,
+              note: "Member",
+            },
+          ];
+
+      commit({
+        ...data,
+        memberRegistry: nextRegistry,
+        membersPage: nextMembersPage,
+        announcements: [
+          {
+            id: uid(),
+            text: `${customerName} joins as the latest Q Club member !`,
+            createdAt: Date.now(),
+          },
+          ...(data.announcements || []),
+        ].slice(0, 20),
+      });
+
+      return { context, orderNo, membershipUpserted: true };
+    }
+
+    if (context === "tournament") {
+      const tournamentId = String(tags.tournament_id || "").trim();
+      const tournamentName = String(tags.tournament_name || "Current Tournament").trim();
+      const existingPlayerId = String(tags.tournament_player_id || "").trim();
+
+      if (!tournamentId || !customerName) {
+        throw new Error("Trusted tournament registration details are missing.");
+      }
+
+      let nextPlayers = [...(data.players || [])];
+      let finalPlayerId = existingPlayerId;
+
+      if (!finalPlayerId) {
+        const existingPlayer = nextPlayers.find(
+          (player) =>
+            String(player.name || "").trim().toLowerCase() === customerName.toLowerCase()
+        );
+
+        if (existingPlayer) {
+          finalPlayerId = existingPlayer.id;
+        } else {
+          const newPlayer = {
+            id: `pl_${Date.now()}`,
+            name: customerName,
+            mobile: customerPhone,
+            city: "Pasighat",
+            createdAt: Date.now(),
+          };
+          nextPlayers = [...nextPlayers, newPlayer];
+          finalPlayerId = newPlayer.id;
+        }
+      }
+
+      const nextTournaments = (data.tournaments || []).map((tournament) => {
+        if (tournament.id !== tournamentId) return tournament;
+        const currentIds = Array.isArray(tournament.participantIds)
+          ? tournament.participantIds
+          : [];
+        return {
+          ...tournament,
+          participantIds: currentIds.includes(finalPlayerId)
+            ? currentIds
+            : [...currentIds, finalPlayerId],
+        };
+      });
+
+      commit({
+        ...data,
+        players: nextPlayers,
+        tournaments: nextTournaments,
+        announcements: [
+          {
+            id: uid(),
+            text: `${customerName} registered for ${tournamentName || "the current tournament"} ! Register now`,
+            link: `/tournament-register?id=${tournamentId}`,
+            createdAt: Date.now(),
+          },
+          ...(data.announcements || []),
+        ].slice(0, 20),
+      });
+
+      return { context, orderNo, tournamentRegistered: true };
+    }
+
+    throw new Error("Unsupported trusted payment context.");
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function verifyPayment() {
+      if (!orderIdFromUrl) {
+        setStatus("failed");
+        setStatusMessage("Missing payment order id.");
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/get-order-status?order_id=${encodeURIComponent(orderIdFromUrl)}`
+        );
+        const orderData = await response.json().catch(() => null);
+
+        if (cancelled) return;
+
+        if (!response.ok || !orderData?.verified) {
+          setTrustedPayment(orderData || null);
+          setStatus(orderData?.order_status === "ACTIVE" ? "pending" : "failed");
+          setStatusMessage(orderData?.error || "Payment is not verified yet.");
+          return;
+        }
+
+        setTrustedPayment(orderData);
+
+        if (orderData.fulfilled) {
+          setStatus("success");
+          setStatusMessage("Payment already fulfilled.");
+          return;
+        }
+
+        if (processedRef.current) return;
+        processedRef.current = true;
+
+        const claim = await postPaymentAction("claim_fulfillment");
+        if (cancelled) return;
+
+        if (claim?.claimAccepted === false && !claim?.fulfilled) {
+          setTrustedPayment(claim || orderData);
+          setStatus("pending");
+          setStatusMessage("This payment is already being fulfilled. Please refresh in a minute.");
+          return;
+        }
+
+        if (!claim?.verified || claim?.fulfilled) {
+          setTrustedPayment(claim || orderData);
+          setStatus(claim?.fulfilled ? "success" : "failed");
+          setStatusMessage(claim?.fulfilled ? "Payment already fulfilled." : "Payment could not be claimed.");
+          return;
+        }
+
+        const result = fulfilTrustedPayment(claim);
+        let acknowledged = claim;
+        try {
+          acknowledged = await postPaymentAction("acknowledge_fulfillment", result);
+        } catch (ackError) {
+          console.warn("Payment acknowledgement failed:", ackError);
+        }
+
+        if (cancelled) return;
+
+        setTrustedPayment(acknowledged || claim);
+        setStatus("success");
+        setStatusMessage("Payment verified successfully.");
+      } catch (error) {
+        if (cancelled) return;
+        setStatus("failed");
+        setStatusMessage(error?.message || "Payment verification failed.");
+      }
+    }
+
+    verifyPayment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search]);
+
+  function downloadFoodReceiptPdf() {
+    const items = parseTrustedFoodItems();
+    const nowText = new Date().toLocaleString();
+    const itemsHtml = items.length
+      ? items
+          .map(
+            (item) => `
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #ddd;">${item.name} × ${item.qty}</td>
+                <td style="padding:8px 0;border-bottom:1px solid #ddd;text-align:right;">₹${item.lineTotal}</td>
+              </tr>
+            `
+          )
+          .join("")
+      : `<tr><td colspan="2" style="padding:8px 0;">No items found.</td></tr>`;
+
+    const html = `
+      <html>
+        <head>
+          <title>${trustedOrderNo} Receipt</title>
+        </head>
+        <body style="font-family:Arial,sans-serif;padding:24px;color:#111;">
+          <h2 style="margin:0 0 12px;">The Q Club Pasighat</h2>
+          <div style="margin-bottom:8px;"><b>Order No:</b> ${trustedOrderNo}</div>
+          <div style="margin-bottom:8px;"><b>Time:</b> ${nowText}</div>
+          <div style="margin-bottom:8px;"><b>Name:</b> ${trustedCustomer.name || "-"}</div>
+          <div style="margin-bottom:16px;"><b>Mobile:</b> ${trustedCustomer.phone || "-"}</div>
+          <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding-bottom:8px;border-bottom:2px solid #111;">Item</th>
+                <th style="text-align:right;padding-bottom:8px;border-bottom:2px solid #111;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+          <div style="margin-top:18px;font-size:18px;font-weight:700;">Total Paid: ₹${trustedAmount}</div>
+        </body>
+      </html>
+    `;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  const foodItems = parseTrustedFoodItems();
+
+  return (
+    <div className="container">
+      <div className="card" style={{ maxWidth: 600, margin: "40px auto" }}>
+        {status === "checking" && (
+          <>
+            <h2>Checking payment...</h2>
+            <p className="muted">{statusMessage}</p>
+          </>
+        )}
+
+        {status === "pending" && (
+          <>
+            <h2>Payment Pending</h2>
+            <p className="muted">{statusMessage}</p>
+            <button className="btn primary" onClick={() => navigate(retryPath())}>
+              Back
+            </button>
+          </>
+        )}
+
+        {status === "success" && (
+          <>
+            {paymentContext === "membership" ? (
+              <>
+                <h2>Welcome to The Q Club Membership</h2>
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
+                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
+                  <div><b>Membership Tier:</b> {trustedTags.tier || "—"}</div>
+                  <div><b>T-Shirt Size:</b> {trustedTags.tshirt_size || "—"}</div>
+                </div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/")}>Enter The Q Club</button>
+                  <button className="btn" onClick={() => navigate("/membership")}>Membership Page</button>
+                </div>
+              </>
+            ) : paymentContext === "food" ? (
+              <>
+                <h2>Order Placed Successfully</h2>
+                <div style={{ marginTop: 10, marginBottom: 14 }}>
+                  <div><b>Order No:</b> {trustedOrderNo}</div>
+                  <div><b>Status:</b> Verified</div>
+                </div>
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
+                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
+                  <div style={{ marginTop: 12 }}><b>Items:</b></div>
+                  {foodItems.length > 0 ? (
+                    foodItems.map((item) => (
+                      <div key={`${item.id}-${item.name}`} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <span>{item.name} × {item.qty}</span>
+                        <span>₹{item.lineTotal}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="muted">No items found.</div>
+                  )}
+                  <div style={{ marginTop: 10, fontWeight: 700 }}>Total Paid: ₹{trustedAmount}</div>
+                  <p className="muted" style={{ marginTop: 12 }}>
+                    Please give us up to 15 minutes to prepare your order. Please collect your order from the counter when called.
+                  </p>
+                </div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/offer")}>Order More</button>
+                  <button className="btn" onClick={downloadFoodReceiptPdf}>Download PDF</button>
+                  <button className="btn" onClick={() => navigate("/")}>Home</button>
+                </div>
+              </>
+            ) : paymentContext === "tournament" ? (
+              <>
+                <h2>Thank You for Registering</h2>
+                <p>Thank you for registering for <strong>{trustedTags.tournament_name || "the tournament"}</strong>.</p>
+                <div className="card" style={{ marginTop: 12 }}>
+                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
+                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
+                  <div><b>Registration Fee:</b> ₹{trustedAmount}</div>
+                </div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/")}>Go Home</button>
+                  <button className="btn" onClick={() => navigate("/fixtures")}>View Fixtures</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Table Booked Successfully</h2>
+                <p>Your table booking at <strong>The Q Club</strong> is confirmed.</p>
+                <div className="card" style={{ marginTop: 14 }}>
+                  <div><b>Name:</b> {trustedCustomer.name || "—"}</div>
+                  <div><b>Mobile:</b> {trustedCustomer.phone || "—"}</div>
+                  <div><b>Table:</b> {trustedTags.table_label || "—"}</div>
+                  <div><b>Date:</b> {trustedTags.booking_date || "—"}</div>
+                  <div><b>Time Slot:</b> {trustedTags.booking_slot || "—"}</div>
+                </div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn primary" onClick={() => navigate("/book")}>Book Another</button>
+                  <button className="btn" onClick={() => navigate("/")}>Home</button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {status === "failed" && (
+          <>
+            <h2>Payment Not Verified</h2>
+            <p className="muted">{statusMessage}</p>
+            <button className="btn primary" onClick={() => navigate(retryPath())}>
+              Try Again
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LegacyPaymentStatusUnused({ data, commit }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState("checking");
