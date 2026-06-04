@@ -3940,18 +3940,29 @@ async function sendKittyWhatsappResult(name) {
     const json = await response.json().catch(() => null);
 
     if (!response.ok || !json?.ok) {
-      throw new Error(
-        json?.error ||
-          json?.response?.message ||
-          json?.response?.error ||
-          `WhatsApp send failed with status ${response.status}`
-      );
-    }
+  throw new Error(
+    json?.error ||
+      json?.message ||
+      json?.upstreamResponse?.message ||
+      json?.upstreamResponse?.error ||
+      json?.response?.message ||
+      json?.response?.error ||
+      `WhatsApp send failed with status ${response.status}`
+  );
+}
 
-    setKittyWhatsappSendStatus((prev) => ({
-      ...prev,
-      [key]: "sent",
-    }));
+if (json?.dryRun) {
+  throw new Error("DRY RUN ONLY - not sent to MSG91");
+}
+
+if (!json?.upstreamStatus && !json?.upstreamResponse) {
+  throw new Error("No MSG91 upstream response - not confirmed sent");
+}
+
+setKittyWhatsappSendStatus((prev) => ({
+  ...prev,
+  [key]: "accepted by MSG91",
+}));
   } catch (error) {
     console.error("Kitty WhatsApp send failed:", error);
 
