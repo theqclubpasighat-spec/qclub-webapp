@@ -173,9 +173,9 @@ const MSG91_TEMPLATE_SPECS = {
       params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
     },
     membership: {
-      envName: "MSG91_MEMBERSHIP_SUCCESS_TEMPLATE",
-      params: ["customer_name", "tier", "activated_at", "valid_until"],
-    },
+  envName: "MSG91_MEMBERSHIP_SUCCESS_TEMPLATE",
+  params: ["customer_name", "membership_id", "tier", "valid_until"],
+},
     tournament: {
       envName: "MSG91_TOURNAMENT_SUCCESS_TEMPLATE",
       params: ["customer_name", "tournament_name", "tournament_fee"],
@@ -286,12 +286,27 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
     ];
   }
 
-  if (clean === "membership") {
+    if (clean === "membership") {
+    const membershipId = safeText(
+      orderTags.membership_id ||
+        orderTags.member_id ||
+        orderTags.membershipId ||
+        `MEM-${String(orderId || "").slice(-6)}`
+    );
+
+    const membershipPlan = safeText(
+      orderTags.tier ||
+        orderTags.plan ||
+        orderTags.membership_plan ||
+        orderTags.membershipPlan ||
+        "Membership"
+    );
+
     return [
       customerName || "Member",
-      safeText(orderTags.tier || "Member"),
-      formatWhatsappDateTime(new Date()),
-      safeText(orderTags.valid_until || "—"),
+      membershipId,
+      membershipPlan,
+      safeText(orderTags.valid_until || orderTags.validTill || "—"),
     ];
   }
 
