@@ -3277,7 +3277,7 @@ subtitle="Self-scoring • Serial order draw • Live display • A4 + 80mm prin
               <div>
                 <h2 style={{ margin: 0 }}>WhatsApp Result Preview</h2>
                 <div className="muted">
-                  Template: {QCHASE_RESULT_TEMPLATE_NAME}. Review each result before sending.
+                  Template: {qChaseTemplateName()}. Review each result before sending.
                 </div>
               </div>
 
