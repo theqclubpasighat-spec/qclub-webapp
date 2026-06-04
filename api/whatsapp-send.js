@@ -64,6 +64,105 @@ function readTemplateParams(body) {
     .filter(Boolean);
 }
 
+const MSG91_TEMPLATE_PARAM_SPECS = {
+  food_success: {
+    params: ["customer_name", "food_order_no", "amount"],
+    fromInputIndexes: [0, 1, 3],
+  },
+  food_failed: {
+    params: ["customer_name", "food_order_no", "amount"],
+  },
+  qshop_order_success: {
+    params: ["customer_name", "qshop_order_no", "amount"],
+  },
+  qshop_order_failed: {
+    params: ["customer_name", "qshop_order_no", "amount"],
+  },
+  shop_success: {
+    params: ["customer_name", "qshop_order_no", "amount"],
+  },
+  shop_failed: {
+    params: ["customer_name", "qshop_order_no", "amount"],
+  },
+  booking_success: {
+    params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
+  },
+  booking_failed: {
+    params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
+  },
+  membership_success: {
+    params: ["customer_name", "tier", "activated_at", "valid_until"],
+  },
+  membership_failed: {
+    params: ["customer_name", "tier", "amount"],
+  },
+  tournament_success: {
+    params: ["customer_name", "tournament_name", "tournament_fee"],
+  },
+  tournament_failed: {
+    params: ["customer_name", "tournament_name", "tournament_fee"],
+  },
+  "q chase final result": {
+  params: [
+    "player_name",
+    "game_no",
+    "table_name",
+    "date_time",
+    "players_line",
+    "multiplier",
+    "raw_snooker_points",
+    "handicap_adjustment",
+    "adjusted_snooker_points",
+    "q_points",
+    "final_score",
+    "rank",
+    "winner_line",
+    "ranking_line",
+  ],
+},
+
+"kitty final result": {
+  params: [
+    "player_name",
+    "game_no",
+    "table_name",
+    "game_type",
+    "date",
+    "start_time",
+    "end_time",
+    "duration",
+    "winner",
+    "kitty_entry",
+    "ball_out_penalty",
+    "kitty_add_on",
+    "ball_out_pays",
+    "not_out_pays",
+    "your_result",
+    "kitty_points_won_by_winner",
+    "winner_net_kitty_points",
+    "player_summary",
+    "table_charge",
+    "final_locked_at",
+  ],
+},
+};
+
+function normalizeTemplateParamsForLabel(label = "", templateParams = []) {
+  const spec = MSG91_TEMPLATE_PARAM_SPECS[label] || null;
+  if (!spec) return templateParams;
+
+  const sourceIndexes =
+    Array.isArray(spec.fromInputIndexes) && spec.fromInputIndexes.length
+      ? spec.fromInputIndexes
+      : spec.params.map((_, index) => index);
+
+  if (label === "food_success" && templateParams.length === spec.params.length) {
+    return templateParams.map((value) => cleanText(value || "—") || "—");
+  }
+
+  return sourceIndexes.map((index) => cleanText(templateParams[index] || "—") || "—");
+}
+
 function templateAllowlist() {
   return {
     membership_success: env("MSG91_MEMBERSHIP_SUCCESS_TEMPLATE"),
@@ -84,8 +183,26 @@ function templateAllowlist() {
     job_application_received:
       env("MSG91_JOB_APPLICATION_RECEIVED_TEMPLATE") || "job_application_received",
     job_interview_call:
-      env("MSG91_JOB_INTERVIEW_CALL_TEMPLATE") || "job_interview_call",
+  env("MSG91_JOB_INTERVIEW_CALL_TEMPLATE") || "job_interview_call",
+
+"q chase final result":
+  env("MSG91_QCHASE_RESULT_HANDICAP_TEMPLATE") || "qchase_result_handicap_v2",
+  "kitty final result":
+  env("MSG91_KITTY_RESULT_TEMPLATE") || "kitty_result_settlement",
   };
+}
+
+function findParamSpecLabelForTemplateName(templateName = "") {
+  const cleanTemplateName = cleanText(templateName, 120);
+  if (!cleanTemplateName) return "";
+  if (MSG91_TEMPLATE_PARAM_SPECS[cleanTemplateName]) return cleanTemplateName;
+
+  const allowlist = templateAllowlist();
+  const found = Object.entries(allowlist).find(([, allowedTemplate]) => {
+    return allowedTemplate && allowedTemplate === cleanTemplateName;
+  });
+
+  return MSG91_TEMPLATE_PARAM_SPECS[found?.[0]] ? found[0] : "";
 }
 
 function resolveTemplateName(body) {
@@ -168,7 +285,10 @@ export default async function handler(req, res) {
     const phone = normalizePhone(body?.phone || body?.recipient?.phone || "");
     const provider = readProvider(body);
     const templateResolution = resolveTemplateName(body);
-    const templateParams = readTemplateParams(body);
+    const rawTemplateParams = readTemplateParams(body);
+    const paramSpecLabel =
+      templateResolution.label || findParamSpecLabelForTemplateName(templateResolution.templateName);
+    const templateParams = normalizeTemplateParamsForLabel(paramSpecLabel, rawTemplateParams);
     const authKey = env("MSG91_AUTH_KEY");
     const senderNumber = env("MSG91_SENDER_NUMBER");
 
@@ -194,6 +314,8 @@ export default async function handler(req, res) {
           templateName: templateResolution.templateName,
           templateSource: templateResolution.source,
           templateParamsCount: templateParams.length,
+          templateParamOrder: MSG91_TEMPLATE_PARAM_SPECS[paramSpecLabel]?.params || null,
+          rawTemplateParamsCount: rawTemplateParams.length,
           mode,
         },
       });
@@ -217,6 +339,8 @@ export default async function handler(req, res) {
           templateName: templateResolution.templateName,
           templateSource: templateResolution.source,
           templateParamsCount: templateParams.length,
+          templateParamOrder: MSG91_TEMPLATE_PARAM_SPECS[paramSpecLabel]?.params || null,
+          rawTemplateParamsCount: rawTemplateParams.length,
           mode,
         },
       });
@@ -259,6 +383,8 @@ export default async function handler(req, res) {
         templateName: templateResolution.templateName,
         templateSource: templateResolution.source,
         templateParamsCount: templateParams.length,
+        templateParamOrder: MSG91_TEMPLATE_PARAM_SPECS[paramSpecLabel]?.params || null,
+        rawTemplateParamsCount: rawTemplateParams.length,
         mode,
       },
       upstreamStatus: upstream.status,

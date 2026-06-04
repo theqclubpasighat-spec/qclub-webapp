@@ -7,7 +7,7 @@ const QCHASE_SCORESHEET_ARCHIVE_KEY = "qclub_qchase_saved_scoresheets";
 const QCHASE_PLAYER_PHONEBOOK_KEY = "qclub_qchase_player_phonebook";
 const QCHASE_RESULT_TEMPLATE_NAME = "qchase_result_final";
 const QCHASE_RESULT_HANDICAP_TEMPLATE_NAME = "qchase_result_handicap_v2";
-const USE_QCHASE_HANDICAP_TEMPLATE = false;
+const USE_QCHASE_HANDICAP_TEMPLATE = true;
 const QCHASE_MONTHLY_TEMPLATE_NAME = "qchase_monthly_report";
 const QCHASE_MONTHLY_SENT_KEY = "qclub_qchase_monthly_report_sent_log";
 
