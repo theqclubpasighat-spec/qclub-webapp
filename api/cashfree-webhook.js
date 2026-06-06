@@ -166,6 +166,7 @@ const MSG91_TEMPLATE_SPECS = {
     },
     shop: {
   envName: "MSG91_QSHOP_SUCCESS_TEMPLATE",
+  fallbackTemplate: "qshop_success_items",
   params: ["customer_name", "qshop_order_no", "qshop_items", "amount"],
 },
     booking: {
@@ -256,8 +257,12 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
   const safeAmount = String(Number.isFinite(Number(amount)) ? Number(amount) : 0);
 
   if (clean === "shop") {
+  const qshopItemsFromJson = buildShopItemsBreakupText(
+    normalizeShopPurchaseEntries(orderTags.shop_items_json || "[]")
+  );
   const qshopItemsText = safeText(
-    orderTags.shop_items ||
+    qshopItemsFromJson ||
+      orderTags.shop_items ||
       orderTags.qshop_items ||
       orderTags.items ||
       orderTags.items_text ||
@@ -767,12 +772,43 @@ export default async function handler(req, res) {
     }
 
     if (parsed.paymentStatus === "SUCCESS") {
-      if (record?.webhookWhatsapp?.successSentAt) {
-        await writePaymentPatch(supabase, state, orders, index, {
-          ...basePatch,
-          verified: true,
-          status: "verified",
+      let stateForSuccess = state;
+      let shopFulfillmentResult = null;
+      let shopFulfillmentPatch = {};
+
+      if (context === "shop") {
+        const fulfilled = fulfilQShopInState(state, {
+          orderId: parsed.orderId,
+          customerName,
+          phone,
+          amount: record.expectedAmount,
+          orderTags: trustedOrderTags,
+          now,
         });
+
+        stateForSuccess = fulfilled.state;
+        shopFulfillmentResult = fulfilled.result;
+        shopFulfillmentPatch = {
+          fulfilled: true,
+          fulfilledAt: record.fulfilledAt || now,
+          fulfillmentStatus: "fulfilled",
+          fulfillmentCompletionType: "cashfree_webhook",
+          fulfillmentResult: {
+            ...(record.fulfillmentResult || {}),
+            qshopStock: shopFulfillmentResult,
+          },
+        };
+      }
+
+      const successBasePatch = {
+        ...basePatch,
+        verified: true,
+        status: "verified",
+        ...shopFulfillmentPatch,
+      };
+
+      if (record?.webhookWhatsapp?.successSentAt) {
+        await writePaymentPatch(supabase, stateForSuccess, orders, index, successBasePatch);
 
         return res.status(200).json({
           ok: true,
@@ -788,10 +824,8 @@ export default async function handler(req, res) {
 
       const templateName = getSuccessTemplateName(context);
       if (!templateName || !phone) {
-        await writePaymentPatch(supabase, state, orders, index, {
-          ...basePatch,
-          verified: true,
-          status: "verified",
+        await writePaymentPatch(supabase, stateForSuccess, orders, index, {
+          ...successBasePatch,
           webhookWhatsapp: {
             ...(record.webhookWhatsapp || {}),
             successSkippedAt: now,
@@ -818,24 +852,42 @@ export default async function handler(req, res) {
       });
       const successSpec = getTemplateSpec("success", context);
 
-      const response = await sendMsg91Template({
-        phone,
-        templateName,
-        templateParams,
-        label: `${context}_success_webhook`,
-        textPreview: `${context} payment success for ${parsed.orderId}`,
-        expectedParamCount: successSpec?.params?.length ?? null,
-      });
+      await writePaymentPatch(supabase, stateForSuccess, orders, index, successBasePatch);
 
-      await writePaymentPatch(supabase, state, orders, index, {
-        ...basePatch,
-        verified: true,
-        status: "verified",
+      let whatsappSent = false;
+      let whatsappResponse = null;
+      let whatsappError = "";
+
+      try {
+        whatsappResponse = await sendMsg91Template({
+          phone,
+          templateName,
+          templateParams,
+          label: `${context}_success_webhook`,
+          textPreview: `${context} payment success for ${parsed.orderId}`,
+          expectedParamCount: successSpec?.params?.length ?? null,
+        });
+        whatsappSent = true;
+      } catch (msg91Error) {
+        whatsappError = msg91Error?.message || "MSG91 send failed";
+        console.error("MSG91 success WhatsApp failed, but payment fulfilment will continue:", msg91Error);
+      }
+
+      await writePaymentPatch(supabase, stateForSuccess, orders, index, {
+        ...successBasePatch,
         webhookWhatsapp: {
           ...(record.webhookWhatsapp || {}),
-          successSentAt: now,
-          successTemplateName: templateName,
-          successResponse: response,
+          ...(whatsappSent
+            ? {
+                successSentAt: now,
+                successTemplateName: templateName,
+                successResponse: whatsappResponse,
+              }
+            : {
+                successFailedAt: now,
+                successTemplateName: templateName,
+                successError: whatsappError,
+              }),
         },
       });
 
@@ -845,7 +897,8 @@ export default async function handler(req, res) {
         orderId: parsed.orderId,
         paymentStatus: parsed.paymentStatus,
         context,
-        whatsappSent: true,
+        whatsappSent,
+        whatsappError,
         templateName,
         signatureConfigured: signature.configured,
       });
