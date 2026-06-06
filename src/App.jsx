@@ -16546,10 +16546,29 @@ function PaymentStatus({ data, commit }) {
         }
 
         if (orderData.fulfilled) {
-          setOrderSaved(true);
-          setStatus("success");
-          return;
-        }
+  const fulfilledContext = String(
+    orderData?.context ||
+      orderData?.fulfillment?.orderTags?.context ||
+      ""
+  ).toLowerCase();
+
+  // Q Shop safety recovery:
+  // If Cashfree/order status already says fulfilled but the local/cloud
+  // shop receipt + stock adjustment was missed, run the same idempotent
+  // Q Shop fulfilment logic again. Existing receipt with stockAdjusted=true
+  // prevents double stock deduction.
+  if (fulfilledContext === "shop") {
+    try {
+      fulfilTrustedPayment(orderData);
+    } catch (error) {
+      console.error("Q Shop fulfilled payment recovery failed:", error);
+    }
+  }
+
+  setOrderSaved(true);
+  setStatus("success");
+  return;
+}
 
         if (processedRef.current) return;
         processedRef.current = true;

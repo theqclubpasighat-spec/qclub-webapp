@@ -165,9 +165,9 @@ const MSG91_TEMPLATE_SPECS = {
       params: ["customer_name", "food_order_no", "food_items", "amount"],
     },
     shop: {
-      envName: "MSG91_QSHOP_SUCCESS_TEMPLATE",
-      params: ["customer_name", "qshop_order_no", "amount"],
-    },
+  envName: "MSG91_QSHOP_SUCCESS_TEMPLATE",
+  params: ["customer_name", "qshop_order_no", "qshop_items", "amount"],
+},
     booking: {
       envName: "MSG91_BOOKING_SUCCESS_TEMPLATE",
       params: ["customer_name", "booking_ref", "table_label", "booking_date", "booking_slot"],
@@ -256,8 +256,21 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
   const safeAmount = String(Number.isFinite(Number(amount)) ? Number(amount) : 0);
 
   if (clean === "shop") {
-    return [customerName || "Customer", `QSHOP-${String(orderId || "").replace(/^order_/, "")}`, safeAmount];
-  }
+  const qshopItemsText = safeText(
+    orderTags.shop_items ||
+      orderTags.qshop_items ||
+      orderTags.items ||
+      orderTags.items_text ||
+      "Q Shop items"
+  );
+
+  return [
+    customerName || "Customer",
+    `QSHOP-${String(orderId || "").replace(/^order_/, "")}`,
+    qshopItemsText,
+    safeAmount,
+  ];
+}
 
     if (clean === "food") {
     const foodItemsText = safeText(

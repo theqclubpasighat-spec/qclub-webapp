@@ -73,14 +73,14 @@ const MSG91_TEMPLATE_PARAM_SPECS = {
     params: ["customer_name", "food_order_no", "amount"],
   },
   qshop_order_success: {
-    params: ["customer_name", "qshop_order_no", "amount"],
-  },
+  params: ["customer_name", "qshop_order_no", "qshop_items", "amount"],
+},
   qshop_order_failed: {
     params: ["customer_name", "qshop_order_no", "amount"],
   },
   shop_success: {
-    params: ["customer_name", "qshop_order_no", "amount"],
-  },
+  params: ["customer_name", "qshop_order_no", "qshop_items", "amount"],
+},
   shop_failed: {
     params: ["customer_name", "qshop_order_no", "amount"],
   },
