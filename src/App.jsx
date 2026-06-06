@@ -1,6 +1,6 @@
 ﻿/* ================================
    App.jsx — PART 1
-   (Beginning â†’ inside resetAll())
+   (Beginning → inside resetAll())
 ================================ */
 
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
@@ -124,7 +124,7 @@ const KittyMonthlyReportPage = lazy(() =>
   }))
 );
 /* =========================================================
-   Q CLUB â€“ Single-file WebApp (Mobile-first)
+   Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
    - Admin mode
    - Booking + "payment submitted" ping notification
@@ -501,7 +501,7 @@ Unless specified otherwise, such sessions are generally available from 11:00 AM 
 - Complaints relating to missing, wrong, or defective food items should be raised promptly with staff for review.
 
 ## 5. Tournament Registration
-- Tournament registration fees are generally non-refundable once a playerâ€™s entry has been accepted or the fixture process has begun.
+- Tournament registration fees are generally non-refundable once a player’s entry has been accepted or the fixture process has begun.
 - If a player withdraws after registration, refund is ordinarily not available.
 - If a tournament is postponed, rescheduled, or cancelled by the club, management may decide whether to carry forward the registration, reschedule participation, provide club credit, or issue refund in full or in part, depending on the circumstances.
 
@@ -510,7 +510,7 @@ Unless specified otherwise, such sessions are generally available from 11:00 AM 
 
 ## 7. Refund Review
 - If a payment is made in error or a genuine technical issue occurs during payment processing, customers may contact The Q Club Pasighat for review.
-- Any refund, if approved, may be processed within 5â€“7 working days or within a reasonable time depending on banking and payment gateway timelines.
+- Any refund, if approved, may be processed within 5–7 working days or within a reasonable time depending on banking and payment gateway timelines.
 
 ## 8. Not Covered
 Refund or exchange shall ordinarily not apply in the following cases:
@@ -680,7 +680,7 @@ tournamentDisclaimerTitle: "Tournament Legal Disclaimer",
 
 Prize money, trophies, gifts, or other rewards for tournament winners may be funded from player registration fees, sponsorship support, promotional budgets, or contributions made by the club management. Such tournaments are intended as skill-based recreational competitions and not as gambling or wagering activities conducted by the club.
 
-The Club does not organise, facilitate, or profit from any private wagering or side betting that individuals may independently engage in amongst themselves. Any such private act is not part of the Clubâ€™s official services, tournament structure, or business model.
+The Club does not organise, facilitate, or profit from any private wagering or side betting that individuals may independently engage in amongst themselves. Any such private act is not part of the Club’s official services, tournament structure, or business model.
 
 The Club charges only for lawful use of its premises, facilities, event organisation, and related services, and does not take any commission or percentage from private bets, if any, between individuals.
 
@@ -694,7 +694,7 @@ By participating in any tournament at The Q Club, players acknowledge that tourn
   rummyFinalLockPin: "8642",
 },
     announcements: [
-      { id: uid(), text: "Monthly tournaments every month ðŸ”¥ Register at counter.", createdAt: Date.now() },
+      { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
     ],
     reviewHistory: [],
     matchLedger: [],
@@ -751,10 +751,10 @@ memberRegistry: [
       },
     ],
     offers: [
-      { id: uid(), title: "Massage Chair", price: "₹99 / 10 min â€¢ ₹199 / 20 min", details: "Relax between frames." },
+      { id: uid(), title: "Massage Chair", price: "₹99 / 10 min • ₹199 / 20 min", details: "Relax between frames." },
       { id: uid(), title: "Foosball", price: "₹50 / game", details: "Best of 3 fun matches." },
       { id: uid(), title: "Air Hockey", price: "₹50 / game", details: "Fast rounds — winner stays!" },
-      { id: uid(), title: "Tea/Coffee Vending", price: "₹10â€“₹20", details: "Self-serve vending." },
+      { id: uid(), title: "Tea/Coffee Vending", price: "₹10–₹20", details: "Self-serve vending." },
     ],
     menuCatalog: {
   mocktails: {
@@ -3966,7 +3966,7 @@ latestDataRef.current = fresh;
               </div>
 
               <button className="iconBtn" onClick={closePlayerModal}>
-                âœ•
+                ✕
               </button>
             </div>
 
@@ -4075,7 +4075,7 @@ function AirHockeyPage() {
         style={{ marginBottom: "12px" }}
         onClick={() => navigate("/")}
       >
-        â† Back to Home
+         Back to Home
       </button>
       <img
         src="/home/air-hockey.png"
@@ -4094,9 +4094,9 @@ function AirHockeyPage() {
       </div>
 
       <div style={{ marginBottom: "12px" }}>
-        âš¡ 1 vs 1 or 2 vs 2 <br />
-        âš¡ Quick matches <br />
-        âš¡ High energy gameplay
+        ⚡ 1 vs 1 or 2 vs 2 <br />
+        ⚡ Quick matches <br />
+        ⚡ High energy gameplay
       </div>
 
             <button
@@ -4120,7 +4120,7 @@ function FoosballPage() {
         style={{ marginBottom: "12px" }}
         onClick={() => navigate("/")}
       >
-        â† Back to Home
+         Back to Home
       </button>
       <img
         src="/home/foosball.jpg"
@@ -4139,9 +4139,9 @@ function FoosballPage() {
       </div>
 
       <div style={{ marginBottom: "12px" }}>
-        âš½ 1 vs 1 or 2 vs 2 <br />
-        âš½ Quick and exciting matches <br />
-        âš½ Perfect for group fun
+        ⚽ 1 vs 1 or 2 vs 2 <br />
+        ⚽ Quick and exciting matches <br />
+        ⚽ Perfect for group fun
       </div>
 
       <button
@@ -4164,7 +4164,7 @@ function MassageChairPage() {
         style={{ marginBottom: "12px" }}
         onClick={() => navigate("/")}
       >
-        â† Back to Home
+         Back to Home
       </button>
 
       <img
@@ -4184,9 +4184,9 @@ function MassageChairPage() {
       </div>
 
       <div style={{ marginBottom: "12px" }}>
-        ðŸ’† Full-body relaxation <br />
-        ðŸ’† Great between matches <br />
-        ðŸ’† Premium lounge experience
+        💆 Full-body relaxation <br />
+        💆 Great between matches <br />
+        💆 Premium lounge experience
       </div>
 
       <button
@@ -4575,7 +4575,7 @@ transition: "background-image 0.45s ease-in-out",
       onClick={prevHeroImage}
       aria-label="Previous image"
     >
-      â†
+      ←
     </button>
     <button
       className="btn"
@@ -4583,7 +4583,7 @@ transition: "background-image 0.45s ease-in-out",
       onClick={nextHeroImage}
       aria-label="Next image"
     >
-      â†’
+      →
     </button>
   </div>
 </div>
@@ -4602,7 +4602,7 @@ transition: "background-image 0.45s ease-in-out",
 
           <div className="refHeroSubtitle">
             {data.club?.tagline2 ||
-              "Snooker â€¢ Pool â€¢ Air Hockey â€¢ Foosball â€¢ Massage Chair â€¢ Tea & Coffee"}
+              "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"}
           </div>{admin && (
   <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
         <button
@@ -4615,7 +4615,7 @@ transition: "background-image 0.45s ease-in-out",
         const tagline2 = prompt(
           "Hero subtitle:",
           data.club?.tagline2 ||
-            "Snooker â€¢ Pool â€¢ Air Hockey â€¢ Foosball â€¢ Massage Chair â€¢ Tea & Coffee"
+            "Snooker • Pool • Air Hockey • Foosball • Massage Chair • Tea & Coffee"
         );
         if (!tagline2) return;
 
@@ -4775,7 +4775,7 @@ transition: "background-image 0.45s ease-in-out",
           "0 10px 24px rgba(255,70,20,.30), 0 0 16px rgba(255,90,40,.22), inset 0 1px 0 rgba(255,255,255,.18)",
       }}
     >
-      ðŸ”¥ Register Now
+      🔥 Register Now
     </Link>
 
     <a
@@ -4801,7 +4801,7 @@ transition: "background-image 0.45s ease-in-out",
         WebkitBackdropFilter: "blur(6px)",
       }}
     >
-      ðŸ“º Watch Live
+      📺 Watch Live
     </a>
   </div>
 </div>
@@ -5650,7 +5650,7 @@ function Offers({ data, admin, commit, startPayment }) {
   onClick={() => removeFromCart(found)}
   style={{ minWidth: 32, height: 32, padding: "0 10px" }}
 >
-  âˆ’
+  −
 </button>
 
                           <div style={{ fontWeight: 800, minWidth: 16, textAlign: "center", fontSize: "0.95rem" }}>
@@ -5939,7 +5939,7 @@ startPayment(
             ) : (
               <div className="foodQuickActions">
                 <button className="btn secondary" type="button" onClick={() => removeFromCart(item)}>
-                  âˆ’
+                  −
                 </button>
 
                 <div className="foodQtyPill">{itemQty(item)}</div>
@@ -5967,7 +5967,7 @@ startPayment(
           </div>
 
           <div className="foodFloatingCartRight">
-            View Cart â†’
+            View Cart →
           </div>
         </button>
       ) : null}
@@ -6002,7 +6002,7 @@ startPayment(
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontWeight: 800, fontSize: 18 }}>{foodLightbox.title}</div>
               <button className="iconBtn" type="button" onClick={() => setFoodLightbox(null)}>
-                âœ•
+                ✕
               </button>
             </div>
             <div
@@ -7055,7 +7055,7 @@ if (amazonUrl === null) return;
                   fontWeight: 800,
                 }}
               >
-                {showCart ? "âˆ’" : "+"}
+                {showCart ? "−" : "+"}
               </div>
             </button>
 
@@ -7090,7 +7090,7 @@ if (amazonUrl === null) return;
                             type="button"
                             onClick={() => removeFromCart(entry.itemId, entry.selectedOptionId)}
                           >
-                            âˆ’
+                            −
                           </button>
 
                           <div style={{ minWidth: 24, textAlign: "center", fontWeight: 800 }}>
@@ -7375,7 +7375,7 @@ if (amazonUrl === null) return;
                       type="button"
                       onClick={() => removeFromCart(item.id, selectedOptionId)}
                     >
-                      âˆ’
+                      −
                     </button>
 
                     <div style={{ minWidth: 24, textAlign: "center", fontWeight: 800 }}>
@@ -7488,7 +7488,7 @@ if (amazonUrl === null) return;
           </div>
 
           <div className="shopFloatingCartRight">
-            View Cart â†’
+            View Cart →
           </div>
         </button>
       ) : null}
@@ -7525,7 +7525,7 @@ if (amazonUrl === null) return;
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontWeight: 800, fontSize: 18 }}>{lightbox.title}</div>
               <button className="iconBtn" type="button" onClick={closeLightbox}>
-                âœ•
+                ✕
               </button>
             </div>
 
@@ -7565,7 +7565,7 @@ if (amazonUrl === null) return;
                       transform: "translateY(-50%)",
                     }}
                   >
-                    â†
+                    
                   </button>
 
                   <button
@@ -7579,7 +7579,7 @@ if (amazonUrl === null) return;
                       transform: "translateY(-50%)",
                     }}
                   >
-                    â†’
+                    →
                   </button>
                 </>
               ) : null}
@@ -8853,7 +8853,7 @@ function unblockSelectedSlot(slotValue = bookingSlotLabel(timeSlot, durationHour
                 >
                   {tables.map((t) => (
   <option value={t.id} key={t.id}>
-    {`${t.label.split("₹")[0].trim()} â€“ ₹${bookingAmountFor(
+    {`${t.label.split("₹")[0].trim()} – ₹${bookingAmountFor(
       t,
       bookingType === "member" ? "member" : "nonmember"
     )} / hour`}
@@ -9090,7 +9090,7 @@ function unblockSelectedSlot(slotValue = bookingSlotLabel(timeSlot, durationHour
                 <td>{r.bookingDate || "—"}</td>
                 {r.slotLabel || bookingSlotLabel(r.timeSlot || "", r.durationHours || 1)}
                 <div className="muted">
-  Duration: {r.durationHours || 1} {(r.durationHours || 1) === 1 ? "hour" : "hours"} â€¢ Amount: ₹{r.amount || 0}
+  Duration: {r.durationHours || 1} {(r.durationHours || 1) === 1 ? "hour" : "hours"} • Amount: ₹{r.amount || 0}
 </div>
                 <td>₹{r.amount}</td>
                 <td>
@@ -9151,7 +9151,7 @@ function Membership({ data, admin, commit, startPayment }) {
 
     const membershipNote =
     data.club?.membershipNote ||
-    "PLEASE NOTE : Membership at The Q Club provides access to club facilities and member privileges during the validity period. Membership is personal and non-transferable. Member privileges reset daily at 00:00 hours. Access to game tables is subject to availability. Complimentary play sessions may be offered to members at the discretion of the club. Pool table: up to 15 minutes. Mini Snooker: up to 20 minutes. Snooker table: up to 30 minutes. Complimentary sessions are generally available during 11:00 AM â€“ 5:00 PM depending on table availability. The Q Club reserves the right to modify membership privileges, availability, or timings.";
+    "PLEASE NOTE : Membership at The Q Club provides access to club facilities and member privileges during the validity period. Membership is personal and non-transferable. Member privileges reset daily at 00:00 hours. Access to game tables is subject to availability. Complimentary play sessions may be offered to members at the discretion of the club. Pool table: up to 15 minutes. Mini Snooker: up to 20 minutes. Snooker table: up to 30 minutes. Complimentary sessions are generally available during 11:00 AM – 5:00 PM depending on table availability. The Q Club reserves the right to modify membership privileges, availability, or timings.";
 
   function editMembershipNote() {
     if (!admin) return alert("Admin only");
@@ -9357,7 +9357,7 @@ function Membership({ data, admin, commit, startPayment }) {
                 fontWeight: 800,
               }}
             >
-              {showMembershipNote ? "âˆ’" : "+"}
+              {showMembershipNote ? "−" : "+"}
             </div>
           </button>
 
@@ -9419,7 +9419,7 @@ function Membership({ data, admin, commit, startPayment }) {
                       fontWeight: 800,
                     }}
                   >
-                    {isOpen ? "âˆ’" : "+"}
+                    {isOpen ? "−" : "+"}
                   </div>
                 </button>
 
@@ -10813,7 +10813,7 @@ committeeNotes: "",
         </div>
 
         <button className="iconBtn" onClick={() => setSelectedPlayerId("")}>
-          âœ•
+          ✕
         </button>
       </div>
 
@@ -11930,7 +11930,7 @@ function fixtureThermalPrintHtml({ tournament = null, matches = [], players = []
             noteBits.push(String(match.notes).trim());
           }
           const noteHtml = noteBits.length
-            ? `<div class="sub">${noteBits.join(" â€¢ ")}</div>`
+            ? `<div class="sub">${noteBits.join(" • ")}</div>`
             : "";
           return `
             <div class="match">
@@ -13290,7 +13290,7 @@ return (
   {(() => {
     const mv = Array.isArray(item.movements) ? item.movements[0] : null;
     if (!mv) return "—";
-    return `${mv.type || "update"} â€¢ ${mv.qty ?? 0}`;
+    return `${mv.type || "update"} • ${mv.qty ?? 0}`;
   })()}
 </td>
 <td>
@@ -13936,9 +13936,9 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                     <div>
                       <div className="badge"><span className="dot red" />LIVE</div>
                       <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
-                      <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} â€¢ {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
+                      <div className="muted">{row.game === "pool" ? "Pool" : "Snooker"} • {row.match_type === "doubles" ? "Doubles" : "Singles"}</div>
                       <div className="muted" style={{ marginTop: 6 }}>
-                        Date: {formatDateLabel(row.match_date)} â€¢ Start: {formatTimeLabel(row.start_time)} â€¢ Duration: {calcDurationLabel(row.start_time, row.end_time || nowTimeValue())}
+                        Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • Duration: {calcDurationLabel(row.start_time, row.end_time || nowTimeValue())}
                       </div>
                     </div>
                     {admin ? (
@@ -14013,7 +14013,7 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                         <h2 style={{ marginTop: 8, marginBottom: 6 }}>{row.title || `${row.game === "pool" ? "Pool" : "Snooker"} ${row.match_type === "doubles" ? "Doubles" : "Singles"}`}</h2>
                         <div className="muted">{teamLabel(row, 1)} vs {teamLabel(row, 2)}</div>
                         <div className="muted" style={{ marginTop: 6 }}>
-                          Date: {formatDateLabel(row.match_date)} â€¢ Start: {formatTimeLabel(row.start_time)} â€¢ End: {formatTimeLabel(row.end_time)} â€¢ Total: {calcDurationLabel(row.start_time, row.end_time)}
+                          Date: {formatDateLabel(row.match_date)} • Start: {formatTimeLabel(row.start_time)} • End: {formatTimeLabel(row.end_time)} • Total: {calcDurationLabel(row.start_time, row.end_time)}
                         </div>
                       </div>
                       <div style={{ fontSize: 28, fontWeight: 900 }}>{safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}</div>
@@ -14101,7 +14101,7 @@ function LiveMatches({ data, admin, onOpenPlayer }) {
                             <div style={{ fontSize: 22, fontWeight: 900, marginTop: 8 }}>{winner?.label || "—"}</div>
                             <div className="muted" style={{ marginTop: 6 }}>
                               Final Score: {safeNum(row.score1, 0)} : {safeNum(row.score2, 0)}
-                              {row.game === "snooker" ? ` â€¢ Highest Break: ${winner?.breakValue || 0}` : ""}
+                              {row.game === "snooker" ? ` • Highest Break: ${winner?.breakValue || 0}` : ""}
                             </div>
                           </div>
                         </div>
@@ -14546,7 +14546,7 @@ function FoodPrintBridge({ data, admin, staffAdmin, commit }) {
               const isExpanded = expandedOrderId === order.id;
               const printedAt = order?.printMeta?.printedAt || "";
               const statusText = printedAt
-                ? `Printed â€¢ ${new Date(printedAt).toLocaleString("en-IN")}`
+                ? `Printed • ${new Date(printedAt).toLocaleString("en-IN")}`
                 : order?.printMeta?.status === "printing"
                 ? "Printing..."
                 : "Pending auto print";
@@ -14571,11 +14571,11 @@ function FoodPrintBridge({ data, admin, staffAdmin, commit }) {
                       <b>#{order.id}</b>
                       <br />
                       <span className="muted">
-                        {order.name || "Customer"} â€¢ ₹{order.total || 0}
+                        {order.name || "Customer"} • ₹{order.total || 0}
                       </span>
                     </span>
                     <span style={{ textAlign: "right", fontSize: 12 }}>
-                      {printedAt ? "âœ… Printed" : order?.printMeta?.status === "printing" ? "ðŸ–¨ï¸ Printing" : "â³ Pending"}
+                      {printedAt ? "Printed" : order?.printMeta?.status === "printing" ? "Printing" : "Pending"}
                       <br />
                       {isExpanded ? "Hide" : "View"}
                     </span>
@@ -14733,7 +14733,7 @@ function FoodOrdersAdmin({ data, admin, staffAdmin, commit }) {
                   <div>
                     <b>Receipt Print:</b>{" "}
                     {order?.printMeta?.printedAt
-                      ? `Printed â€¢ ${new Date(order.printMeta.printedAt).toLocaleString("en-IN")}`
+                      ? `Printed • ${new Date(order.printMeta.printedAt).toLocaleString("en-IN")}`
                       : "Pending auto print"}
                   </div>
 
@@ -15333,7 +15333,7 @@ function shopReceiptHtml(receipt) {
             }
           } catch (e) {}
           window.location.href='${returnUrl}';
-        ">â† Back</button>
+        "> Back</button>
 
         <button onclick="window.print()">Print</button>
 
@@ -17195,7 +17195,7 @@ try {
           <div className="cols-12">
             <h2>Join The Q Club Team</h2>
 <p className="muted">
-  Smart â€¢ Professional â€¢ Tech-Friendly â€¢ Growth-Oriented
+  Smart • Professional • Tech-Friendly • Growth-Oriented
 </p>
 <p className="muted">
   Please fill the form carefully. Photograph, Aadhaar and PAN uploads are mandatory.
