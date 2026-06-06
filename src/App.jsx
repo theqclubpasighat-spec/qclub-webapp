@@ -6183,6 +6183,22 @@ function QShopPage({ data, admin, commit, startPayment }) {
     return `${String(itemId || "")}__${String(optionId || "")}`;
   }
 
+
+  function buildShopItemsBreakupText(entries = []) {
+    return (entries || [])
+      .map((entry, index) => {
+        const name = String(entry?.displayName || entry?.name || "Item").trim() || "Item";
+        const qty = Math.max(0, safeNum(entry?.qty, 0));
+        const price = safeNum(entry?.price, 0);
+        const lineTotal = safeNum(entry?.lineTotal ?? price * qty, price * qty);
+
+        if (!qty) return "";
+        return `${index + 1}. ${name} x ${qty} = ₹${lineTotal}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
   function buildCartEntry(item, qty = 1, selectedOption = null) {
     const optionLabel = selectedOption?.label ? String(selectedOption.label) : "";
     const displayName = optionLabel ? `${item.name} - ${optionLabel}` : item.name;
@@ -6838,9 +6854,7 @@ if (amazonUrl === null) return;
     context: "shop",
     customer_name: customerName.trim(),
     mobile: normalizedWhatsappNumber,
-    shop_items: singleCart
-      .map((entry) => `${entry.displayName || entry.name} x ${safeNum(entry.qty, 1)}`)
-      .join(", "),
+    shop_items: buildShopItemsBreakupText(singleCart),
     shop_items_json: JSON.stringify(singleCart),
     shop_total: String(amount),
   }
@@ -6891,9 +6905,7 @@ if (amazonUrl === null) return;
     context: "shop",
     customer_name: customerName.trim(),
     mobile: normalizedWhatsappNumber,
-    shop_items: cart
-      .map((entry) => `${entry.displayName || entry.name} x ${safeNum(entry.qty, 1)}`)
-      .join(", "),
+    shop_items: buildShopItemsBreakupText(cart),
     shop_items_json: JSON.stringify(cart),
     shop_total: String(total),
   }
@@ -16180,52 +16192,23 @@ function PaymentStatus({ data, commit }) {
       const stockAlreadyAdjusted = existingShopReceipt?.stockAdjusted === true;
       const receiptWithStockMarker = {
         ...receipt,
-        stockAdjusted: true,
-        stockAdjustedAt: createdAt,
+        stockAdjusted: stockAlreadyAdjusted,
+        stockAdjustedAt: existingShopReceipt?.stockAdjustedAt || "",
       };
       const nextShopReceipts = existingShopReceipt
         ? (data.shopReceipts || []).map((r) =>
             String(r.gatewayOrderId || "") === orderId
               ? {
                   ...r,
-                  stockAdjusted: true,
-                  stockAdjustedAt: r.stockAdjustedAt || createdAt,
+                  ...receiptWithStockMarker,
+                  stockAdjusted: r.stockAdjusted === true,
+                  stockAdjustedAt: r.stockAdjustedAt || "",
                 }
               : r
           )
         : [...(data.shopReceipts || []), receiptWithStockMarker];
 
-      const nextShopItems = stockAlreadyAdjusted
-        ? normalizedShopItems
-        : normalizedShopItems.map((item) => {
-            const purchasesForItem = trustedShopCart.filter((x) => x.itemId === item.id);
-            if (!purchasesForItem.length) return item;
-
-            if (Array.isArray(item.options) && item.options.length > 0) {
-              return {
-                ...item,
-                options: item.options.map((opt) => {
-                  const purchasedQty = purchasesForItem
-                    .filter((x) => x.selectedOptionId === opt.id)
-                    .reduce((sum, x) => sum + safeNum(x.qty, 0), 0);
-
-                  return purchasedQty > 0
-                    ? { ...opt, stock: Math.max(0, safeNum(opt.stock, 0) - purchasedQty) }
-                    : opt;
-                }),
-              };
-            }
-
-            const purchasedQty = purchasesForItem.reduce(
-              (sum, x) => sum + safeNum(x.qty, 0),
-              0
-            );
-
-            return {
-              ...item,
-              stock: Math.max(0, safeNum(item.stock, 0) - purchasedQty),
-            };
-          });
+      const nextShopItems = normalizedShopItems;
 
       commit({
         ...data,

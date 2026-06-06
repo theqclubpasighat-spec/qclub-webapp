@@ -448,6 +448,195 @@ async function sendMsg91Template({
   return json;
 }
 
+
+function parseTrustedArray(value, fallback = []) {
+  if (Array.isArray(value)) return value;
+  if (!value) return fallback;
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeNum(value = 0) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeShopPurchaseEntries(rawCart = []) {
+  return parseTrustedArray(rawCart, [])
+    .map((entry) => {
+      const itemId = safeText(entry?.itemId || entry?.id || "", 160);
+      const qty = Math.max(0, safeNum(entry?.qty, 0));
+      const price = safeNum(entry?.price, 0);
+      const lineTotal = safeNum(entry?.lineTotal ?? price * qty, price * qty);
+      const displayName = safeText(entry?.displayName || entry?.name || "Item", 300);
+      const selectedOptionId = safeText(entry?.selectedOptionId || "", 160);
+      const selectedOptionLabel = safeText(entry?.selectedOptionLabel || "", 300);
+
+      if (!itemId || qty <= 0) return null;
+
+      return {
+        id: itemId,
+        itemId,
+        name: safeText(entry?.name || displayName || "Item", 300),
+        displayName,
+        qty,
+        price,
+        lineTotal,
+        selectedOptionId,
+        selectedOptionLabel,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildShopItemsBreakupText(entries = []) {
+  return (entries || [])
+    .map((entry, index) => {
+      const name = safeText(entry?.displayName || entry?.name || "Item", 300) || "Item";
+      const qty = Math.max(0, safeNum(entry?.qty, 0));
+      const price = safeNum(entry?.price, 0);
+      const lineTotal = safeNum(entry?.lineTotal ?? price * qty, price * qty);
+
+      if (!qty) return "";
+      return `${index + 1}. ${name} x ${qty} = ₹${lineTotal}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildWebhookShopReceipt({ orderId, customerName, phone, items, total, createdAt }) {
+  const cleanOrderId = safeText(orderId || "");
+  return {
+    id: `QSHOP-${cleanOrderId.replace(/^order_/, "")}`,
+    orderNo: `QSHOP-${cleanOrderId.replace(/^order_/, "")}`,
+    gatewayOrderId: cleanOrderId,
+    customerName: customerName || "Customer",
+    customerMobile: phone || "",
+    items,
+    total: safeNum(total, 0),
+    paymentStatus: "Paid",
+    pickupStatus: "Pending Pickup",
+    createdAt,
+    updatedAt: createdAt,
+    stockAdjusted: true,
+    stockAdjustedAt: createdAt,
+    source: "cashfree_webhook",
+  };
+}
+
+function fulfilQShopInState(state, { orderId, customerName, phone, amount, orderTags, now }) {
+  const purchases = normalizeShopPurchaseEntries(orderTags.shop_items_json || "[]");
+  if (!purchases.length) {
+    return {
+      state,
+      result: {
+        stockAdjusted: false,
+        receiptInserted: false,
+        reason: "missing_shop_items_json",
+      },
+    };
+  }
+
+  const existingReceipts = Array.isArray(state.shopReceipts) ? state.shopReceipts : [];
+  const existingReceipt = existingReceipts.find(
+    (receipt) => safeText(receipt?.gatewayOrderId || "") === safeText(orderId || "")
+  );
+
+  if (existingReceipt?.stockAdjusted === true) {
+    return {
+      state,
+      result: {
+        stockAdjusted: false,
+        receiptInserted: false,
+        duplicate: true,
+        reason: "already_stock_adjusted",
+      },
+    };
+  }
+
+  const existingItems = Array.isArray(state?.shopCatalog?.items) ? state.shopCatalog.items : [];
+
+  const nextItems = existingItems.map((item) => {
+    const itemId = safeText(item?.id || "");
+    const purchasesForItem = purchases.filter((purchase) => safeText(purchase.itemId || "") === itemId);
+
+    if (!purchasesForItem.length) return item;
+
+    if (Array.isArray(item.options) && item.options.length > 0) {
+      return {
+        ...item,
+        options: item.options.map((option) => {
+          const optionId = safeText(option?.id || "");
+          const purchasedQty = purchasesForItem
+            .filter((purchase) => safeText(purchase.selectedOptionId || "") === optionId)
+            .reduce((sum, purchase) => sum + safeNum(purchase.qty, 0), 0);
+
+          return purchasedQty > 0
+            ? {
+                ...option,
+                stock: Math.max(0, safeNum(option.stock, 0) - purchasedQty),
+              }
+            : option;
+        }),
+      };
+    }
+
+    const purchasedQty = purchasesForItem.reduce(
+      (sum, purchase) => sum + safeNum(purchase.qty, 0),
+      0
+    );
+
+    return {
+      ...item,
+      stock: Math.max(0, safeNum(item.stock, 0) - purchasedQty),
+    };
+  });
+
+  const receipt = buildWebhookShopReceipt({
+    orderId,
+    customerName,
+    phone,
+    items: purchases,
+    total: amount,
+    createdAt: now,
+  });
+
+  const nextReceipts = existingReceipt
+    ? existingReceipts.map((r) =>
+        safeText(r?.gatewayOrderId || "") === safeText(orderId || "")
+          ? {
+              ...r,
+              ...receipt,
+              stockAdjusted: true,
+              stockAdjustedAt: r.stockAdjustedAt || now,
+            }
+          : r
+      )
+    : [receipt, ...existingReceipts];
+
+  return {
+    state: {
+      ...state,
+      shopReceipts: nextReceipts,
+      shopCatalog: {
+        ...(state.shopCatalog || {}),
+        items: nextItems,
+      },
+    },
+    result: {
+      stockAdjusted: true,
+      receiptInserted: !existingReceipt,
+      itemsCount: purchases.reduce((sum, purchase) => sum + safeNum(purchase.qty, 0), 0),
+      itemsText: buildShopItemsBreakupText(purchases),
+    },
+  };
+}
+
 function isFailureLikeStatus(status = "") {
   const clean = safeText(status).toUpperCase();
 
