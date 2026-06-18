@@ -93,17 +93,31 @@ export function subscribeState(onState, onError) {
   };
 }
 
+const QCLUB_REQUIRED_APP_VERSION = "2026-06-18-live-safe-cloud-v1";
+
 export async function writeState(state) {
   if (!supabaseReady || !supabase) {
     throw new Error("Supabase env vars missing: " + getSupabaseMissingVars().join(", "));
   }
 
-  const payload = {
-    key: KEY,
-    state,
-    updated_at: new Date().toISOString(),
-  };
+  const response = await fetch("/api/qclub-state-write", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-qclub-app-version": QCLUB_REQUIRED_APP_VERSION,
+    },
+    body: JSON.stringify({
+      key: KEY,
+      state,
+      appVersion: QCLUB_REQUIRED_APP_VERSION,
+    }),
+  });
 
-  const { error } = await supabase.from(TABLE).upsert(payload, { onConflict: "key" });
-  if (error) throw error;
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result?.error || `Cloud write failed: ${response.status}`);
+  }
+
+  return result;
 }

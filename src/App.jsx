@@ -141,7 +141,7 @@ const LAST_SEEN_BOOKING_KEY = "qclub_last_seen_booking_at";
 const FOOD_AUTO_PRINT_ENABLED_KEY = "qclub_food_auto_print_enabled";
 const POLICY_SYNC_VERSION = "2026-04-19-policy-v1";
 const POLICY_SYNC_KEY = "qclub_policy_sync_version";
-const QCLUB_APP_VERSION = "2026-05-23-cache-buster-v1";
+const QCLUB_APP_VERSION = "2026-06-18-live-safe-cloud-v1";
 const QCLUB_APP_VERSION_KEY = "qclub_app_version";
 const QCLUB_UPDATE_RELOAD_KEY = "qclub_update_reload_once";
 
@@ -692,6 +692,7 @@ By participating in any tournament at The Q Club, players acknowledge that tourn
   committeePin: "9012",
   rummyPin: "2468",
   rummyFinalLockPin: "8642",
+  qChaseMasterEditPin: "456456",
 },
     announcements: [
       { id: uid(), text: "Monthly tournaments every month 🔥 Register at counter.", createdAt: Date.now() },
@@ -1076,6 +1077,15 @@ function mergeWithDefaults(remote) {
   mainPin: pickText(src?.admin?.mainPin, base.admin.mainPin),
   staffPin: pickText(src?.admin?.staffPin, base.admin.staffPin),
   committeePin: pickText(src?.admin?.committeePin, base.admin.committeePin),
+  rummyPin: pickText(src?.admin?.rummyPin, base.admin.rummyPin),
+  rummyFinalLockPin: pickText(
+    src?.admin?.rummyFinalLockPin,
+    base.admin.rummyFinalLockPin
+  ),
+  qChaseMasterEditPin: pickText(
+    src?.admin?.qChaseMasterEditPin,
+    base.admin.qChaseMasterEditPin
+  ),
 },
     announcements: Array.isArray(src.announcements) ? src.announcements : base.announcements,
     reviewHistory: Array.isArray(src.reviewHistory)
@@ -1279,7 +1289,136 @@ function mergeById(remoteList = [], localList = [], mergeItem, options = {}) {
 
   return [...mergedRemote, ...localOnly];
 }
+function qclubItemId(item = {}) {
+  return String(
+    item?.id ||
+      item?.receiptId ||
+      item?.gatewayOrderId ||
+      item?.orderId ||
+      item?.order_id ||
+      item?.paymentOrderId ||
+      item?.gameId ||
+      item?.gameNo ||
+      item?.memberId ||
+      item?.phone ||
+      item?.mobile ||
+      ""
+  ).trim();
+}
 
+function mergeAppendOnlyList(primaryList = [], secondaryList = [], mergeItem) {
+  const result = [];
+  const seen = new Map();
+
+  function add(item, source) {
+    if (!item || typeof item !== "object") return;
+
+    const id = qclubItemId(item);
+    const fallbackId = id || `${source}-${result.length}-${JSON.stringify(item).slice(0, 80)}`;
+    const key = String(fallbackId);
+
+    if (!seen.has(key)) {
+      seen.set(key, result.length);
+      result.push(item);
+      return;
+    }
+
+    const index = seen.get(key);
+    const oldItem = result[index];
+
+    result[index] =
+      typeof mergeItem === "function"
+        ? mergeItem(oldItem, item)
+        : {
+            ...oldItem,
+            ...item,
+            createdAt: oldItem?.createdAt || item?.createdAt || "",
+            updatedAt: pickLatestIso(
+              String(oldItem?.updatedAt || oldItem?.createdAt || ""),
+              String(item?.updatedAt || item?.createdAt || "")
+            ),
+          };
+  }
+
+  (primaryList || []).forEach((item) => add(item, "primary"));
+  (secondaryList || []).forEach((item) => add(item, "secondary"));
+
+  return result;
+}
+
+function mergeShopItems(primaryItems = [], secondaryItems = []) {
+  return mergeAppendOnlyList(primaryItems, secondaryItems, (oldItem, nextItem) => {
+    const oldUpdated = Date.parse(oldItem?.updatedAt || oldItem?.createdAt || "");
+    const nextUpdated = Date.parse(nextItem?.updatedAt || nextItem?.createdAt || "");
+
+    const oldDeletedAt = Date.parse(oldItem?.deletedAt || "");
+    const nextDeletedAt = Date.parse(nextItem?.deletedAt || "");
+
+    if (Number.isFinite(oldDeletedAt) || Number.isFinite(nextDeletedAt)) {
+      const preferNextDelete =
+        Number.isFinite(nextDeletedAt) &&
+        (!Number.isFinite(oldDeletedAt) || nextDeletedAt >= oldDeletedAt);
+
+      return preferNextDelete ? { ...oldItem, ...nextItem } : { ...nextItem, ...oldItem };
+    }
+
+    const preferNext =
+      Number.isFinite(nextUpdated) &&
+      (!Number.isFinite(oldUpdated) || nextUpdated >= oldUpdated);
+
+    const base = preferNext ? { ...oldItem, ...nextItem } : { ...nextItem, ...oldItem };
+
+    return {
+      ...base,
+      id: oldItem?.id || nextItem?.id || base.id,
+      updatedAt: pickLatestIso(
+        String(oldItem?.updatedAt || oldItem?.createdAt || ""),
+        String(nextItem?.updatedAt || nextItem?.createdAt || "")
+      ),
+    };
+    });
+}
+
+function protectOperationalCollections(currentState, nextState) {
+  const next = nextState && typeof nextState === "object" ? nextState : {};
+
+  // IMPORTANT:
+  // Do NOT merge old local editable data back into next state.
+  // Editable collections must obey the latest admin action:
+  // edit/delete/save must actually replace the old value.
+  return {
+    ...next,
+
+    // Append-only / audit-style data may be protected.
+    shopReceipts: Array.isArray(next.shopReceipts) ? next.shopReceipts : [],
+    foodOrders: Array.isArray(next.foodOrders) ? next.foodOrders : [],
+    reviewHistory: Array.isArray(next.reviewHistory) ? next.reviewHistory : [],
+    whatsappJobs: Array.isArray(next.whatsappJobs) ? next.whatsappJobs : [],
+    speakerAlerts: Array.isArray(next.speakerAlerts) ? next.speakerAlerts : [],
+
+    // Editable data intentionally NOT merged with old local state:
+    memberships: Array.isArray(next.memberships) ? next.memberships : [],
+    membersPage: Array.isArray(next.membersPage) ? next.membersPage : [],
+    memberRegistry: Array.isArray(next.memberRegistry) ? next.memberRegistry : [],
+    players: Array.isArray(next.players) ? next.players : [],
+    tournaments: Array.isArray(next.tournaments) ? next.tournaments : [],
+    inventoryItems: Array.isArray(next.inventoryItems) ? next.inventoryItems : [],
+    hallOfFame: Array.isArray(next.hallOfFame) ? next.hallOfFame : [],
+    jobApplications: Array.isArray(next.jobApplications) ? next.jobApplications : [],
+
+    shopCatalog: {
+      ...(next.shopCatalog || {}),
+      items: Array.isArray(next.shopCatalog?.items) ? next.shopCatalog.items : [],
+    },
+
+    booking: {
+      ...(next.booking || {}),
+      tables: Array.isArray(next.booking?.tables) ? next.booking.tables : [],
+      requests: Array.isArray(next.booking?.requests) ? next.booking.requests : [],
+      blockedSlots: Array.isArray(next.booking?.blockedSlots) ? next.booking.blockedSlots : [],
+    },
+  };
+}
 function mergeHydratedOperationalState(localState, remoteState) {
   const local = localState && typeof localState === "object" ? localState : {};
   const remote = remoteState && typeof remoteState === "object" ? remoteState : {};
@@ -1514,6 +1653,7 @@ function getQclubStateHealth(state) {
         s.admin?.committeePin,
         s.admin?.rummyPin,
         s.admin?.rummyFinalLockPin,
+        s.admin?.qChaseMasterEditPin,
       ].filter((pin) => {
         const clean = String(pin || "").trim();
         return clean && !["1234", "5678", "9012"].includes(clean);
@@ -2405,13 +2545,151 @@ function closePlayerModal() {
     alert("Payment error. Please try again.");
   }
 }
+async function saveOperationalRecord(recordType, recordKey, payload = {}) {
+  const type = String(recordType || "").trim();
+  const key = String(recordKey || "").trim();
 
- function commit(next) {
-  const merged = mergeWithDefaults(next);
+  if (!type || !key) {
+    console.warn("Skipping operational record save: missing type/key", {
+      recordType,
+      recordKey,
+    });
+    return { ok: false, skipped: true };
+  }
+
+  if (!supabaseReady || !supabase) {
+    console.warn("Skipping operational record save: Supabase not ready");
+    return { ok: false, skipped: true };
+  }
+
+  const row = {
+    record_type: type,
+    record_key: key,
+    payload: payload && typeof payload === "object" ? payload : {},
+    source: "qclub-webapp",
+    status: payload?.deletedAt ? "deleted" : payload?.status || "active",
+  };
+
+  const { error } = await supabase
+    .from("qclub_operational_records")
+    .upsert(row, {
+      onConflict: "record_type,record_key",
+    });
+
+  if (error) {
+    console.error("Operational record save failed:", {
+      recordType: type,
+      recordKey: key,
+      error,
+    });
+
+    return { ok: false, error };
+  }
+
+  return { ok: true };
+}
+function qShopReceiptRecordKey(receipt = {}) {
+  return String(
+    receipt?.receiptId ||
+      receipt?.gatewayOrderId ||
+      receipt?.orderId ||
+      receipt?.cashfreeOrderId ||
+      receipt?.id ||
+      ""
+  ).trim();
+}
+
+async function saveQShopReceiptOperationalRecord(receipt = {}) {
+  const key = qShopReceiptRecordKey(receipt);
+
+  if (!key) {
+    console.warn("Skipping Q Shop operational receipt save: missing key", receipt);
+    return { ok: false, skipped: true };
+  }
+
+  return saveOperationalRecord("qshop_receipt", key, {
+    ...receipt,
+    operationalRecordType: "qshop_receipt",
+    operationalRecordKey: key,
+    operationalSavedAt: new Date().toISOString(),
+  });
+}
+function qShopProductRecordKey(item = {}) {
+  return String(item?.id || item?.slug || item?.name || "").trim();
+}
+
+async function saveQShopProductOperationalRecord(item = {}) {
+  const key = qShopProductRecordKey(item);
+
+  if (!key) {
+    console.warn("Skipping Q Shop operational product save: missing key", item);
+    return { ok: false, skipped: true };
+  }
+
+  return saveOperationalRecord("qshop_product", key, {
+    ...item,
+    operationalRecordType: "qshop_product",
+    operationalRecordKey: key,
+    operationalSavedAt: new Date().toISOString(),
+  });
+}
+function bookingRequestRecordKey(req = {}) {
+  return String(
+    req?.id ||
+      req?.bookingId ||
+      req?.bookingRef ||
+      `${req?.itemId || "table"}-${req?.bookingDate || ""}-${req?.timeSlot || ""}-${req?.mobile || ""}`
+  ).trim();
+}
+
+async function saveBookingRequestOperationalRecord(req = {}) {
+  const key = bookingRequestRecordKey(req);
+
+  if (!key) {
+    console.warn("Skipping booking operational record save: missing key", req);
+    return { ok: false, skipped: true };
+  }
+
+  return saveOperationalRecord("booking_request", key, {
+    ...req,
+    operationalRecordType: "booking_request",
+    operationalRecordKey: key,
+    operationalSavedAt: new Date().toISOString(),
+  });
+}
+function membershipReceiptRecordKey(record = {}) {
+  return String(
+    record?.receiptId ||
+      record?.gatewayOrderId ||
+      record?.orderId ||
+      record?.membershipId ||
+      `${record?.customerMobile || record?.mobile || ""}-${record?.tier || ""}-${record?.activatedAt || record?.createdAt || ""}`
+  ).trim();
+}
+
+async function saveMembershipReceiptOperationalRecord(record = {}) {
+  const key = membershipReceiptRecordKey(record);
+
+  if (!key) {
+    console.warn("Skipping membership operational record save: missing key", record);
+    return { ok: false, skipped: true };
+  }
+
+  return saveOperationalRecord("membership_receipt", key, {
+    ...record,
+    operationalRecordType: "membership_receipt",
+    operationalRecordKey: key,
+    operationalSavedAt: new Date().toISOString(),
+  });
+}
+function commit(next) {
+  const previousLocal = latestDataRef.current || data || {};
+  const protectedNext = protectOperationalCollections(previousLocal, next);
+
+  const merged = mergeWithDefaults(protectedNext);
   const synced = syncMembersIntoPlayers(merged);
   const safeNext = hydrateLocalMediaIntoState(synced);
 
-  const previousLocal = latestDataRef.current || data || {};
 
     if (isWholeWebappCatastrophicDrop(previousLocal, safeNext)) {
     console.error("Q Club safety guard blocked dangerous whole-webapp local save", {
@@ -2671,16 +2949,16 @@ localStorage.removeItem("qclub_admin_role");
   if (!admin) return;
 
   const mode = prompt(
-    "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN\n3 for Committee PIN",
-    "2"
-  );
+  "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN\n3 for Committee PIN\n4 for QChase Master Edit PIN",
+  "4"
+);
 
   if (!mode) return;
 
-  if (mode !== "1" && mode !== "2" && mode !== "3") {
-    alert("Invalid choice");
-    return;
-  }
+  if (mode !== "1" && mode !== "2" && mode !== "3" && mode !== "4") {
+  alert("Invalid choice");
+  return;
+}
 
   if (mode === "1") {
     const current = data.admin?.mainPin || "";
@@ -2694,12 +2972,14 @@ localStorage.removeItem("qclub_admin_role");
   }
 
   const nextPin = prompt(
-    mode === "1"
-      ? "Enter new Main Admin PIN"
-      : mode === "2"
-      ? "Enter new Staff PIN"
-      : "Enter new Committee PIN"
-  );
+  mode === "1"
+    ? "Enter new Main Admin PIN"
+    : mode === "2"
+    ? "Enter new Staff PIN"
+    : mode === "3"
+    ? "Enter new Committee PIN"
+    : "Enter new QChase Master Edit PIN"
+);
 
   if (!nextPin) return;
 
@@ -2710,16 +2990,22 @@ localStorage.removeItem("qclub_admin_role");
       mainPin: mode === "1" ? nextPin : data.admin?.mainPin || "1234",
       staffPin: mode === "2" ? nextPin : data.admin?.staffPin || "5678",
       committeePin: mode === "3" ? nextPin : data.admin?.committeePin || "9012",
+      qChaseMasterEditPin:
+  mode === "4"
+    ? nextPin
+    : data.admin?.qChaseMasterEditPin || "456456",
     },
   });
 
-  alert(
-    mode === "1"
-      ? "Main Admin PIN updated"
-      : mode === "2"
-      ? "Staff PIN reset successfully"
-      : "Committee PIN reset successfully"
-  );
+ alert(
+  mode === "1"
+    ? "Main Admin PIN updated"
+    : mode === "2"
+    ? "Staff PIN reset successfully"
+    : mode === "3"
+    ? "Committee PIN reset successfully"
+    : "QChase Master Edit PIN updated successfully"
+);
 }
 
   function resetAll() {
@@ -3046,9 +3332,11 @@ useEffect(() => {
     clearTimeout(fallbackTimer);
 
     const localCurrent = latestDataRef.current || loadData();
-    const mergedRemote = mergeWithDefaults(remoteState);
-    const protectedState = mergeHydratedOperationalState(localCurrent, mergedRemote);
-    const merged = hydrateLocalMediaIntoState(protectedState);
+
+// Cloud is source of truth. Never merge stale local editable data into cloud.
+const mergedRemote = mergeWithDefaults(remoteState);
+const cloudTruth = protectOperationalCollections({}, mergedRemote);
+const merged = hydrateLocalMediaIntoState(cloudTruth);
 
     if (isWholeWebappCatastrophicDrop(localCurrent, merged)) {
       console.error("Q Club safety guard blocked dangerous remote hydration", {
@@ -3089,6 +3377,7 @@ useEffect(() => {
 }, []);
 useEffect(() => {
   function syncFromLocalStorage() {
+    if (isCloudEnabled()) return;
     try {
       const fresh = hydrateLocalMediaIntoState(
   syncMembersIntoPlayers(mergeWithDefaults(loadData()))
@@ -6135,8 +6424,10 @@ function QShopPage({ data, admin, commit, startPayment }) {
   }
 
     const normalizedShopItems = useMemo(() => {
-    return shopItems.map(normalizeItem);
-  }, [shopItems]);
+  return shopItems
+    .filter((item) => !item?.deletedAt)
+    .map(normalizeItem);
+}, [shopItems]);
 
   function itemHasOptions(item) {
     return Array.isArray(item?.options) && item.options.length > 0;
@@ -6394,15 +6685,72 @@ function QShopPage({ data, admin, commit, startPayment }) {
 
     return () => clearTimeout(timer);
   }, [location.hash, normalizedShopItems]);
-  function saveShopItems(nextItems) {
-    commit({
-      ...data,
-      shopCatalog: {
-        ...(data.shopCatalog || {}),
-        items: nextItems,
-      },
-    });
+ function qShopProductOperationalRecordKeyForShop(item = {}) {
+  return String(item?.id || item?.slug || item?.name || "").trim();
+}
+
+async function saveQShopProductOperationalRecordFromShop(item = {}) {
+  const key = qShopProductOperationalRecordKeyForShop(item);
+
+  if (!key) {
+    console.warn("Skipping Q Shop product operational save: missing key", item);
+    return { ok: false, skipped: true };
   }
+
+  if (!supabaseReady || !supabase) {
+    console.warn("Skipping Q Shop product operational save: Supabase not ready");
+    return { ok: false, skipped: true };
+  }
+
+  const { error } = await supabase
+    .from("qclub_operational_records")
+    .upsert(
+      {
+        record_type: "qshop_product",
+        record_key: key,
+        payload: {
+          ...item,
+          operationalRecordType: "qshop_product",
+          operationalRecordKey: key,
+          operationalSavedAt: new Date().toISOString(),
+        },
+        source: "qclub-webapp",
+        status: item?.deletedAt ? "deleted" : "active",
+      },
+      { onConflict: "record_type,record_key" }
+    );
+
+  if (error) {
+    console.error("Q Shop operational product save failed:", error);
+    return { ok: false, error };
+  }
+
+  return { ok: true };
+}
+  function saveShopItems(nextItems) {
+  const now = new Date().toISOString();
+
+  const stampedItems = (nextItems || []).map((item) => ({
+    ...item,
+    createdAt: item?.createdAt || now,
+    updatedAt: item?.updatedAt || now,
+  }));
+
+  commit({
+    ...data,
+    shopCatalog: {
+      ...(data.shopCatalog || {}),
+      items: stampedItems,
+      updatedAt: now,
+    },
+  });
+
+  stampedItems.forEach((item) => {
+    saveQShopProductOperationalRecordFromShop(item).catch((error) => {
+  console.warn("Q Shop operational product dual-write failed:", error);
+});
+  });
+}
 
   function getSelectedOption(item) {
     if (!itemHasOptions(item)) return null;
@@ -6603,37 +6951,57 @@ if (amazonUrl === null) return;
     const nextImages = parseImagesFromPrompt(imagesRaw, current.img || "");
     const nextMainImg = nextImages[0] || current.img || "";
 
-    saveShopItems(
-      normalizedShopItems.map((x) =>
-        x.id === id
-          ? {
-              ...x,
-              name: name.trim(),
-              desc: desc.trim(),
-              price: safeNum(price, 0),
-              stock: nextOptions.length ? 0 : nextStock,
-              badge: badge.trim(),
-              img: nextMainImg,
-              images: nextImages,
-              optionGroupLabel: nextOptions.length ? optionGroupLabel.trim() : "",
-                            amazonUrl: amazonUrl.trim(),
-              options: nextOptions,
-            }
-          : x
-      )
-    );
+    const now = new Date().toISOString();
+
+saveShopItems(
+  normalizedShopItems.map((x) =>
+    x.id === id
+      ? {
+          ...x,
+          name: name.trim(),
+          desc: desc.trim(),
+          price: safeNum(price, 0),
+          stock: nextOptions.length ? 0 : nextStock,
+          badge: badge.trim(),
+          img: nextMainImg,
+          images: nextImages,
+          optionGroupLabel: nextOptions.length ? optionGroupLabel.trim() : "",
+          amazonUrl: amazonUrl.trim(),
+          options: nextOptions,
+          updatedAt: now,
+        }
+      : x
+  )
+);
 
     setCart((prev) => prev.filter((entry) => entry.itemId !== id));
     setSelectedImageIndex((prev) => ({ ...prev, [id]: 0 }));
   }
 
   function deleteShopItem(id) {
-    if (!admin) return alert("Main admin only");
-    if (!confirm("Delete this shop item?")) return;
+  if (!admin) return alert("Main admin only");
+  if (!confirm("Delete this shop item?")) return;
 
-    saveShopItems(normalizedShopItems.filter((x) => x.id !== id));
-    setCart((prev) => prev.filter((entry) => entry.itemId !== id));
-  }
+  const now = new Date().toISOString();
+
+  saveShopItems(
+    normalizedShopItems.map((x) =>
+      x.id === id
+        ? {
+            ...x,
+            deletedAt: now,
+            updatedAt: now,
+            stock: 0,
+            options: Array.isArray(x.options)
+              ? x.options.map((opt) => ({ ...opt, stock: 0 }))
+              : [],
+          }
+        : x
+    )
+  );
+
+  setCart((prev) => prev.filter((entry) => entry.itemId !== id));
+}
 
   async function uploadShopItemImage(itemId, file) {
     if (!admin) return alert("Main admin only");
@@ -8453,7 +8821,9 @@ if (!requestedEndTime || !Number.isFinite(requestedEndMinutes) || requestedEndMi
     requests: [req, ...(data.booking?.requests || [])],
   },
 });
-
+saveBookingRequestOperationalRecord(req).catch((error) => {
+  console.warn("Booking request operational dual-write failed:", error);
+});
   setSubmittedId(req.id);
   setName("");
   setMobile("");
@@ -8646,21 +9016,30 @@ function unblockSelectedSlot(slotValue = bookingSlotLabel(timeSlot, durationHour
   function approveRequest(id) {
     if (!admin) return alert("Admin only");
 
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        requests: (data.booking?.requests || []).map((r) =>
-          r.id === id
-            ? {
-                ...r,
-                status:
-                  r.bookingType === "member" ? "member_verified" : "verified",
-              }
-            : r
-        ),
-      },
-    });
+    const nextRequests = (data.booking?.requests || []).map((r) =>
+  r.id === id
+    ? {
+        ...r,
+        status: r.bookingType === "member" ? "member_verified" : "verified",
+        updatedAt: Date.now(),
+      }
+    : r
+);
+
+commit({
+  ...data,
+  booking: {
+    ...(data.booking || {}),
+    requests: nextRequests,
+  },
+});
+
+const updatedReq = nextRequests.find((r) => r.id === id);
+if (updatedReq) {
+  saveBookingRequestOperationalRecord(updatedReq).catch((error) => {
+    console.warn("Booking approval operational dual-write failed:", error);
+  });
+}
   }
 
   function rejectRequest(id) {
@@ -8672,15 +9051,24 @@ function unblockSelectedSlot(slotValue = bookingSlotLabel(timeSlot, durationHour
     const nextStatus =
       req.bookingType === "member" ? "member_rejected" : "rejected";
 
-    commit({
-      ...data,
-      booking: {
-        ...(data.booking || {}),
-        requests: (data.booking?.requests || []).map((r) =>
-          r.id === id ? { ...r, status: nextStatus } : r
-        ),
-      },
-    });
+    const nextRequests = (data.booking?.requests || []).map((r) =>
+  r.id === id ? { ...r, status: nextStatus, updatedAt: Date.now() } : r
+);
+
+commit({
+  ...data,
+  booking: {
+    ...(data.booking || {}),
+    requests: nextRequests,
+  },
+});
+
+const updatedReq = nextRequests.find((r) => r.id === id);
+if (updatedReq) {
+  saveBookingRequestOperationalRecord(updatedReq).catch((error) => {
+    console.warn("Booking rejection operational dual-write failed:", error);
+  });
+}
   }
 
   function deleteRequest(id) {
@@ -12512,7 +12900,9 @@ bookingType:
       createWhatsappJob("booking_success", walkinWhatsappDraft),
     ],
   });
-
+saveBookingRequestOperationalRecord(req).catch((error) => {
+  console.warn("Walk-in booking operational dual-write failed:", error);
+});
   setWalkinBookingType("nonmember");
 setWalkinMemberName("");
 setWalkinName("");
@@ -12531,17 +12921,26 @@ const todaysRequests = requests.filter(
     String(r?.source || "") === "staff_walkin"
 );
 function updateWalkinPaymentStatus(id, paymentStatus) {
+  const nextRequests = requests.map((r) =>
+    r.id === id ? { ...r, paymentStatus, updatedAt: Date.now() } : r
+  );
+
   commit({
     ...data,
     booking: {
       ...(data.booking || {}),
       tables,
       blockedSlots,
-      requests: requests.map((r) =>
-        r.id === id ? { ...r, paymentStatus } : r
-      ),
+      requests: nextRequests,
     },
   });
+
+  const updatedReq = nextRequests.find((r) => r.id === id);
+  if (updatedReq) {
+    saveBookingRequestOperationalRecord(updatedReq).catch((error) => {
+      console.warn("Walk-in payment status operational dual-write failed:", error);
+    });
+  }
 }
 function printWalkinReceipt(entry) {
   if (!entry) return;
@@ -15947,7 +16346,53 @@ function PaymentStatus({ data, commit }) {
   }
 
   const normalizedShopItems = shopItems.map(normalizeShopCatalogItem);
+function deductShopStockForReceipt(items = [], cartEntries = []) {
+  const now = new Date().toISOString();
+  const cart = Array.isArray(cartEntries) ? cartEntries : [];
 
+  return (items || []).map((item) => {
+    const relatedEntries = cart.filter(
+      (entry) => String(entry?.itemId || entry?.id || "") === String(item?.id || "")
+    );
+
+    if (!relatedEntries.length) return item;
+
+    if (Array.isArray(item.options) && item.options.length) {
+      const nextOptions = item.options.map((opt) => {
+        const optionQty = relatedEntries
+          .filter(
+            (entry) =>
+              String(entry?.selectedOptionId || "") === String(opt?.id || "")
+          )
+          .reduce((sum, entry) => sum + Math.max(0, safeNum(entry?.qty, 0)), 0);
+
+        if (!optionQty) return opt;
+
+        return {
+          ...opt,
+          stock: Math.max(0, safeNum(opt.stock, 0) - optionQty),
+        };
+      });
+
+      return {
+        ...item,
+        options: nextOptions,
+        updatedAt: now,
+      };
+    }
+
+    const totalQty = relatedEntries.reduce(
+      (sum, entry) => sum + Math.max(0, safeNum(entry?.qty, 0)),
+      0
+    );
+
+    return {
+      ...item,
+      stock: Math.max(0, safeNum(item.stock, 0) - totalQty),
+      updatedAt: now,
+    };
+  });
+}
   function normalizeShopCartEntries(rawCart) {
     if (Array.isArray(rawCart)) {
       return rawCart
@@ -16190,35 +16635,49 @@ function PaymentStatus({ data, commit }) {
         (r) => String(r.gatewayOrderId || "") === orderId
       );
       const stockAlreadyAdjusted = existingShopReceipt?.stockAdjusted === true;
-      const receiptWithStockMarker = {
-        ...receipt,
-        stockAdjusted: stockAlreadyAdjusted,
-        stockAdjustedAt: existingShopReceipt?.stockAdjustedAt || "",
-      };
+      const stockAdjustedAt = stockAlreadyAdjusted
+  ? existingShopReceipt?.stockAdjustedAt || ""
+  : new Date().toISOString();
+
+const receiptWithStockMarker = {
+  ...receipt,
+  stockAdjusted: true,
+  stockAdjustedAt,
+  stockAdjustmentStatus: stockAlreadyAdjusted
+    ? "already_adjusted"
+    : "adjusted",
+};
       const nextShopReceipts = existingShopReceipt
         ? (data.shopReceipts || []).map((r) =>
             String(r.gatewayOrderId || "") === orderId
               ? {
                   ...r,
                   ...receiptWithStockMarker,
-                  stockAdjusted: r.stockAdjusted === true,
-                  stockAdjustedAt: r.stockAdjustedAt || "",
+                 stockAdjusted: true,
+stockAdjustedAt: r.stockAdjustedAt || stockAdjustedAt,
+stockAdjustmentStatus:
+  r.stockAdjusted === true ? "already_adjusted" : "adjusted",
                 }
               : r
           )
         : [...(data.shopReceipts || []), receiptWithStockMarker];
 
-      const nextShopItems = normalizedShopItems;
+      const nextShopItems = stockAlreadyAdjusted
+  ? normalizedShopItems
+  : deductShopStockForReceipt(normalizedShopItems, trustedShopCart);
 
       commit({
-        ...data,
-        shopReceipts: nextShopReceipts,
-        shopCatalog: {
-          ...(data.shopCatalog || {}),
-          items: nextShopItems,
-        },
-      });
-
+  ...data,
+  shopReceipts: nextShopReceipts,
+  shopCatalog: {
+    ...(data.shopCatalog || {}),
+    items: nextShopItems,
+    updatedAt: new Date().toISOString(),
+  },
+});
+saveQShopReceiptOperationalRecord(receiptWithStockMarker).catch((error) => {
+  console.warn("Q Shop operational receipt dual-write failed:", error);
+});
       setOrderSaved(true);
       return {
         context,
@@ -16380,6 +16839,29 @@ function PaymentStatus({ data, commit }) {
         formatWhatsappDateTime(new Date()),
         validUntil || "—",
       ];
+      const membershipOperationalRecord = {
+  receiptId: `MEM-${String(orderId || Date.now()).slice(-8)}`,
+  gatewayOrderId: String(orderId || ""),
+  orderId: String(orderId || ""),
+  customerName,
+  customerMobile: customerPhone,
+  mobile: customerPhone,
+  tier,
+  amount: safeNum(amount, 0),
+  paymentStatus: "Paid",
+  activatedAt: new Date().toISOString(),
+  validUntil,
+  memberRegistry: nextRegistry.find((m) => {
+    const memberName = String(m?.name || "").trim().toLowerCase();
+    const memberMobile = String(m?.mobile || "").trim();
+    return (
+      memberName === String(customerName || "").trim().toLowerCase() &&
+      memberMobile === String(customerPhone || "").trim()
+    );
+  }) || null,
+  source: "cashfree_membership_success",
+  createdAt: new Date().toISOString(),
+};
 
       commit({
         ...data,
@@ -16409,7 +16891,9 @@ function PaymentStatus({ data, commit }) {
           createWhatsappJob("membership_success", membershipWhatsappDraft),
         ],
       });
-
+saveMembershipReceiptOperationalRecord(membershipOperationalRecord).catch((error) => {
+  console.warn("Membership operational receipt dual-write failed:", error);
+});
       setOrderSaved(true);
       return { context, orderNo: `MEM-${String(orderId).slice(-6)}`, membershipUpserted: true };
     }
