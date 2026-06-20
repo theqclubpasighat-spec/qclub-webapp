@@ -2682,13 +2682,80 @@ async function saveMembershipReceiptOperationalRecord(record = {}) {
     operationalSavedAt: new Date().toISOString(),
   });
 }
+function cleanKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function dedupeByKey(list, keyFn) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : []).filter((item) => {
+    const key = cleanKey(keyFn(item));
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeCatalogItems(catalog) {
+  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) return catalog;
+
+  const next = {};
+
+  Object.entries(catalog).forEach(([catKey, category]) => {
+    const items = Array.isArray(category?.items) ? category.items : [];
+
+    next[catKey] = {
+      ...category,
+      items: dedupeByKey(items, (item) =>
+        item?.id || item?.sku || item?.name || item?.title
+      ),
+    };
+  });
+
+  return next;
+}
+
+function dedupeQClubState(state) {
+  const s = state && typeof state === "object" ? JSON.parse(JSON.stringify(state)) : {};
+
+  s.memberships = dedupeByKey(s.memberships, (m) => m?.tier);
+
+  s.players = dedupeByKey(s.players, (p) =>
+    p?.id || `${p?.name || ""}-${Array.isArray(p?.games) ? p.games.join(",") : ""}`
+  );
+
+  s.tournaments = dedupeByKey(s.tournaments, (t) =>
+    t?.id || `${t?.name || ""}-${t?.month || ""}-${t?.game || ""}`
+  );
+
+  if (Array.isArray(s.shopItems)) {
+    s.shopItems = dedupeByKey(s.shopItems, (item) =>
+      item?.id || item?.sku || item?.name || item?.title
+    );
+  }
+
+  if (s.shopCatalog && typeof s.shopCatalog === "object") {
+    if (Array.isArray(s.shopCatalog.items)) {
+      s.shopCatalog.items = dedupeByKey(s.shopCatalog.items, (item) =>
+        item?.id || item?.sku || item?.name || item?.title
+      );
+    } else {
+      s.shopCatalog = dedupeCatalogItems(s.shopCatalog);
+    }
+  }
+
+  s.menuCatalog = dedupeCatalogItems(s.menuCatalog);
+
+  return s;
+}
 function commit(next) {
   const previousLocal = latestDataRef.current || data || {};
   const protectedNext = protectOperationalCollections(previousLocal, next);
 
   const merged = mergeWithDefaults(protectedNext);
   const synced = syncMembersIntoPlayers(merged);
-  const safeNext = hydrateLocalMediaIntoState(synced);
+  const safeNext = dedupeQClubState(hydrateLocalMediaIntoState(synced));
 
 
     if (isWholeWebappCatastrophicDrop(previousLocal, safeNext)) {
@@ -3315,15 +3382,9 @@ useEffect(() => {
    const fallbackTimer = setTimeout(() => {
     console.warn("Q Club cloud hydration delayed. Showing local data but keeping Admin saves locked.");
 
-    const localFallbackState = hydrateLocalMediaIntoState(
-      syncMembersIntoPlayers(mergeWithDefaults(loadData()))
-    );
-
     cloudWriteLockedRef.current = true;
-    setData(localFallbackState);
-    latestDataRef.current = localFallbackState;
-    setHasHydratedFromCloud(true);
-    setCloudStatus("error");
+setHasHydratedFromCloud(false);
+setCloudStatus("error");
   }, 8000);
 
   const unsubscribe = subscribeState((remoteState) => {
@@ -3331,36 +3392,17 @@ useEffect(() => {
 
     clearTimeout(fallbackTimer);
 
-    const localCurrent = latestDataRef.current || loadData();
-
-// Cloud is source of truth. Never merge stale local editable data into cloud.
+    // Cloud is source of truth for all normal visitors and admin devices.
+// Old localStorage must never block clean cloud data from loading.
 const mergedRemote = mergeWithDefaults(remoteState);
 const cloudTruth = protectOperationalCollections({}, mergedRemote);
-const merged = hydrateLocalMediaIntoState(cloudTruth);
+const merged = hydrateLocalMediaIntoState(syncMembersIntoPlayers(cloudTruth));
 
-    if (isWholeWebappCatastrophicDrop(localCurrent, merged)) {
-      console.error("Q Club safety guard blocked dangerous remote hydration", {
-        before: getQclubStateHealth(localCurrent),
-        after: getQclubStateHealth(merged),
-      });
+cloudWriteLockedRef.current = false;
 
-      cloudWriteLockedRef.current = true;
-      setHasHydratedFromCloud(true);
-      setCloudStatus("error");
-
-      alert(
-        "Q Club safety guard blocked a dangerous cloud state from replacing this browser's data. " +
-        "Please check Supabase qclub_state before making Admin changes."
-      );
-
-      return;
-    }
-
-    cloudWriteLockedRef.current = false;
-
-    setData(merged);
-    latestDataRef.current = merged;
-    saveData(merged);
+setData(merged);
+latestDataRef.current = merged;
+saveData(merged);
 
     try {
       localStorage.setItem("qclub_state_backup", JSON.stringify(merged));
