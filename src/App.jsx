@@ -721,36 +721,67 @@ memberRegistry: [
     notes: "Founding Member"
   }
 ],
-    memberships: [
-      {
-        id: uid(),
-        tier: "Bronze",
-        price: 499,
-        perks: ["Entry access during open hours", "Member pricing on games (where applicable)"],
-        note: "Non-transferable",
-      },
-      {
-        id: uid(),
-        tier: "Silver",
-        price: 999,
-        perks: ["1 game free per day", "Unlimited water"],
-        note: "Non-transferable",
-      },
-      {
-        id: uid(),
-        tier: "Gold",
-        price: 1499,
-        perks: ["1 game free per day", "10 min massage chair/day", "1 tea/coffee/day", "Unlimited water"],
-        note: "Non-transferable",
-      },
-      {
-        id: uid(),
-        tier: "Platinum",
-        price: 1999,
-        perks: ["Priority bookings", "1 game free per day", "20 min massage chair/day", "2 tea/coffee/day", "Unlimited water"],
-        note: "Non-transferable",
-      },
+memberships: [
+  {
+    id: "membership_bronze",
+    tier: "Bronze",
+    price: 799,
+    perks: [
+      "Unrestricted Access with RFID card",
+      "Member Discount",
+      "Eligible for Ranked Matches and LeaderBoard Prizes",
+      "1 Tea/Coffee",
+      "1 Pool or 1 Mini Snooker 10REDS or 1 AirHockey/Foosball",
     ],
+    note: "Non-transferable",
+  },
+  {
+    id: "membership_silver",
+    tier: "Silver",
+    price: 1399,
+    perks: [
+      "Unrestricted Access with RFID card",
+      "Member Discount",
+      "Eligible for Ranked Matches and LeaderBoard Prizes",
+      "1 Tea/Coffee",
+      "1 Pool or 1 Mini Snooker 10REDS or 1 AirHockey/Foosball",
+      "1 6REDs Snooker@12x6Table",
+    ],
+    note: "Non-transferable",
+  },
+  {
+    id: "membership_gold",
+    tier: "Gold",
+    price: 2199,
+    perks: [
+      "Unrestricted Access with RFID card",
+      "Member Discount",
+      "Eligible for Ranked Matches and LeaderBoard Prizes",
+      "2 Tea/Coffee",
+      "1 Pool or 1 Mini Snooker 10REDS or 1 AirHockey/Foosball",
+      "1 6REDs Snooker@12x6 table",
+      "1 10 Minute Massage Chair",
+      "Avail Perks anytime",
+    ],
+    note: "Non-transferable",
+  },
+  {
+    id: "membership_platinum",
+    tier: "Platinum",
+    price: 3299,
+    perks: [
+      "Unrestricted Access with RFID card",
+      "Member Discount",
+      "Eligible for Ranked Matches and LeaderBoard Prizes",
+      "2 Tea/Coffee",
+      "1 Pool or 1 Mini Snooker or 1 AirHockey/Foosball",
+      "2 6REDs Snooker@12x6 table",
+      "1 10 Minute Massage Chair",
+      "Avail Perks anytime",
+    ],
+    note: "Non-transferable",
+  },
+],
     offers: [
       { id: uid(), title: "Massage Chair", price: "₹99 / 10 min • ₹199 / 20 min", details: "Relax between frames." },
       { id: uid(), title: "Foosball", price: "₹50 / game", details: "Best of 3 fun matches." },
@@ -947,25 +978,25 @@ committeeNotes: "",
     ],
     booking: {
   tables: [
-    {
-      id: "snk12",
-      label: "Snooker Table 12x6",
-      pricePerHour: 400,
-      memberPricePerHour: 300,
-    },
-    {
-      id: "mini10",
-      label: "Mini Snooker 10x5",
-      pricePerHour: 300,
-      memberPricePerHour: 200,
-    },
-    {
-      id: "pool9",
-      label: "American Pool",
-      pricePerHour: 300,
-      memberPricePerHour: 200,
-    },
-  ],
+  {
+    id: "snk12",
+    label: "Snooker Table 12x6",
+    pricePerHour: 600,
+    memberPricePerHour: 500,
+  },
+  {
+    id: "mini10",
+    label: "Mini Snooker 10x5",
+    pricePerHour: 500,
+    memberPricePerHour: 400,
+  },
+  {
+    id: "pool9",
+    label: "American Pool",
+    pricePerHour: 400,
+    memberPricePerHour: 300,
+  },
+],
   requests: [],
   blockedSlots: [],
   lastSeenRequestAt: 0,
@@ -1209,10 +1240,12 @@ tournaments: Array.isArray(src.tournaments) ? src.tournaments : base.tournaments
         memberPricePerHour: safeNum(
           t?.memberPricePerHour,
           t?.id === "snk12"
-            ? 300
-            : t?.id === "mini10" || t?.id === "pool9"
-            ? 200
-            : safeNum(t?.pricePerHour, 0)
+  ? 500
+  : t?.id === "mini10"
+  ? 400
+  : t?.id === "pool9"
+  ? 300
+  : safeNum(t?.pricePerHour, 0)
         ),
       }))
     : base.booking.tables,
@@ -2763,8 +2796,7 @@ function commit(next) {
   const synced = syncMembersIntoPlayers(merged);
   const safeNext = dedupeQClubState(hydrateLocalMediaIntoState(synced));
 
-
-    if (isWholeWebappCatastrophicDrop(previousLocal, safeNext)) {
+  if (isWholeWebappCatastrophicDrop(previousLocal, safeNext)) {
     console.error("Q Club safety guard blocked dangerous whole-webapp local save", {
       before: getQclubStateHealth(previousLocal),
       after: getQclubStateHealth(safeNext),
@@ -2773,23 +2805,65 @@ function commit(next) {
     setCloudStatus("error");
 
     alert(
-      "Q Club safety guard blocked a dangerous full-app overwrite before saving. " +
-      "Your current device tried to replace rich club data with weak/default data. " +
-      "Please refresh once and check Admin before saving again."
+      "Q Club safety guard blocked a dangerous full-app overwrite. Refresh once before saving again."
     );
 
     return;
   }
 
-  if (isCloudEnabled() && cloudWriteLockedRef.current) {
-    console.error("Q Club safety guard blocked save because cloud has not safely hydrated yet.");
+  if (isCloudEnabled()) {
+    if (cloudWriteLockedRef.current || !hasHydratedFromCloud) {
+      setCloudStatus("error");
+      alert(
+        "Q Club cloud is not safely loaded yet. Refresh once and wait for cloud sync before saving."
+      );
+      return;
+    }
 
-    setCloudStatus("error");
+    const cloudSafe = stripHeavyMediaForCloud(safeNext);
+    const previousCloudSafe = stripHeavyMediaForCloud(previousLocal);
 
-    alert(
-      "Q Club cloud is not safely loaded yet. Saving is blocked to protect the live website. " +
-      "Please refresh once and wait for cloud sync before making Admin changes."
-    );
+    if (isWholeWebappCatastrophicDrop(previousCloudSafe, cloudSafe)) {
+      setCloudStatus("error");
+      alert(
+        "Q Club safety guard blocked a dangerous cloud overwrite. Saved cloud data was protected."
+      );
+      return;
+    }
+
+    setCloudStatus("syncing");
+
+    writeState(cloudSafe)
+      .then((result) => {
+        const updatedAt = result?.updatedAt || new Date().toISOString();
+
+        const acceptedState = {
+          ...safeNext,
+          updated_at: updatedAt,
+          updatedAt,
+          __cloudUpdatedAt: updatedAt,
+        };
+
+        setData(acceptedState);
+        latestDataRef.current = acceptedState;
+        saveData(acceptedState);
+
+        try {
+          localStorage.setItem("qclub_state_backup", JSON.stringify(acceptedState));
+        } catch {}
+
+        setCloudStatus("synced");
+      })
+      .catch((err) => {
+        console.error("Cloud sync error:", err);
+        setCloudStatus("error");
+
+        alert(
+          String(err?.message || "").includes("Cloud changed")
+            ? "Cloud changed from another device. Your save was blocked. Refresh once before editing."
+            : err?.message || "Cloud save failed. Refresh once before editing."
+        );
+      });
 
     return;
   }
@@ -2800,40 +2874,7 @@ function commit(next) {
 
   try {
     localStorage.setItem("qclub_state_backup", JSON.stringify(safeNext));
-  } catch (e) {}
-
-  if (!isCloudEnabled()) return;
-  if (!hasHydratedFromCloud) return;
-
-  setCloudStatus("syncing");
-
-  const cloudSafe = stripHeavyMediaForCloud(safeNext);
-  const previousCloudSafe = stripHeavyMediaForCloud(previousLocal);
-
-  if (isWholeWebappCatastrophicDrop(previousCloudSafe, cloudSafe)) {
-    console.error("Q Club safety guard blocked dangerous whole-webapp cloud overwrite", {
-      before: getQclubStateHealth(previousCloudSafe),
-      after: getQclubStateHealth(cloudSafe),
-    });
-
-    setCloudStatus("error");
-
-    alert(
-      "Q Club safety guard blocked a dangerous full-app cloud overwrite. " +
-      "Saved cloud data was protected. Please refresh once and check Admin before saving again."
-    );
-
-    return;
-  }
-
-  writeState(cloudSafe)
-    .then(() => {
-      setCloudStatus("synced");
-    })
-    .catch((err) => {
-      console.error("Cloud sync error:", err);
-      setCloudStatus("error");
-    });
+  } catch {}
 }
 function updateData(path, value) {
   const keys = path.split(".");
