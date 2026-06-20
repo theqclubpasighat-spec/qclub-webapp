@@ -1,7 +1,5 @@
 import { supabase, supabaseReady, getSupabaseMissingVars } from "./supabase";
 
-// One single shared row for the whole club.
-// Change this if you ever want multiple "clubs" or "seasons".
 const TABLE = "qclub_state";
 const KEY = "main";
 const POLL_INTERVAL_MS = 5000;
@@ -22,7 +20,15 @@ async function fetchLatestState() {
     .maybeSingle();
 
   if (error) throw error;
-  return data?.state || null;
+
+  if (!data) return null;
+
+  return {
+    ...(data.state || {}),
+    updated_at: data.updated_at,
+    updatedAt: data.updated_at,
+    __cloudUpdatedAt: data.updated_at,
+  };
 }
 
 export function subscribeState(onState, onError) {
@@ -56,18 +62,24 @@ export function subscribeState(onState, onError) {
     pollTimer = setInterval(pullLatest, POLL_INTERVAL_MS);
   };
 
-  // 1) Initial fetch
   pullLatest();
 
-  // 2) Realtime updates with polling fallback
   const channel = supabase
     .channel(`qclub_state:${KEY}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: TABLE, filter: `key=eq.${KEY}` },
       (payload) => {
-        const next = payload?.new?.state;
-        if (!isClosed && next) onState(next);
+        const row = payload?.new;
+        const next = row?.state;
+        if (!isClosed && next) {
+          onState({
+            ...next,
+            updated_at: row?.updated_at || next?.updated_at || null,
+            updatedAt: row?.updated_at || next?.updatedAt || null,
+            __cloudUpdatedAt: row?.updated_at || next?.__cloudUpdatedAt || null,
+          });
+        }
       }
     )
     .subscribe((status) => {
@@ -87,17 +99,25 @@ export function subscribeState(onState, onError) {
     stopPolling();
     try {
       supabase.removeChannel(channel);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 }
 
-const QCLUB_REQUIRED_APP_VERSION = "2026-06-18-live-safe-cloud-v1";
+const QCLUB_REQUIRED_APP_VERSION = "2026-06-20-live-lock-v2";
 
 export async function writeState(state) {
   if (!supabaseReady || !supabase) {
     throw new Error("Supabase env vars missing: " + getSupabaseMissingVars().join(", "));
+  }
+
+  const baseUpdatedAt =
+    state?.__cloudUpdatedAt ||
+    state?.updated_at ||
+    state?.updatedAt ||
+    null;
+
+  if (!baseUpdatedAt) {
+    throw new Error("Cloud save blocked: missing cloud revision. Refresh once before saving.");
   }
 
   const response = await fetch("/api/qclub-state-write", {
@@ -110,6 +130,7 @@ export async function writeState(state) {
       key: KEY,
       state,
       appVersion: QCLUB_REQUIRED_APP_VERSION,
+      baseUpdatedAt,
     }),
   });
 
