@@ -2719,7 +2719,13 @@ function dedupeCatalogItems(catalog) {
 function dedupeQClubState(state) {
   const s = state && typeof state === "object" ? JSON.parse(JSON.stringify(state)) : {};
 
-  s.memberships = dedupeByKey(s.memberships, (m) => m?.tier);
+  s.memberships = Array.from(
+  new Map(
+    (Array.isArray(s.memberships) ? s.memberships : [])
+      .map((m) => [cleanKey(m?.tier), m])
+      .filter(([key]) => key)
+  ).values()
+);
 
   s.players = dedupeByKey(s.players, (p) =>
     p?.id || `${p?.name || ""}-${Array.isArray(p?.games) ? p.games.join(",") : ""}`
