@@ -5,7 +5,8 @@
 
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import CraXamPrivacyPage from "./components/CraXamPrivacyPage";\nimport CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
+import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
+import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
@@ -3909,7 +3910,8 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
-        <Route path="/craxam/privacy" element={<CraXamPrivacyPage />} />\n        <Route path="/craxam/delete-account" element={<CraXamDeleteAccountPage />} />
+        <Route path="/craxam/privacy" element={<CraXamPrivacyPage />} />
+        <Route path="/craxam/delete-account" element={<CraXamDeleteAccountPage />} />
                 <Route path="/air-hockey-info" element={<StaticPage title={data.club?.airHockeyInfoTitle || "Air Hockey at The Q Club"}><AirHockeyInfoContent
   data={data}
   admin={admin}
