@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/snooker/v1/:path*",
+      "destination": "/api/snooker-v1?path=:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },
