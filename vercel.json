@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/snooker/v1/cashfree-webhook",
+      "destination": "/api/snooker-webhook"
+    },
+    {
       "source": "/api/snooker/v1/:path*",
       "destination": "/api/snooker-v1?path=:path*"
     },
