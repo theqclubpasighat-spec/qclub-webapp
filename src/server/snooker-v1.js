@@ -102,6 +102,43 @@ async function login(req, res) {
   if (!pin) return json(res, 400, { ok: false, error: "PIN_REQUIRED" });
 
   const supabase = getSupabaseAdmin();
+  const deviceId = safeText(req.body?.device_id || "", 200);
+  const forwarded = safeText(req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || "", 300)
+    .split(",")[0]
+    .trim();
+  const ipHash = forwarded ? hashToken(`ip:${forwarded}`) : null;
+  const deviceHash = deviceId ? hashToken(`device:${deviceId}`) : null;
+  const cutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+
+  let recentFailures = 0;
+  if (ipHash) {
+    const { count } = await supabase
+      .from("snooker_auth_login_attempts")
+      .select("id", { head: true, count: "exact" })
+      .eq("ip_hash", ipHash)
+      .eq("success", false)
+      .gte("created_at", cutoff);
+    recentFailures = Math.max(recentFailures, Number(count || 0));
+  }
+  if (deviceHash) {
+    const { count } = await supabase
+      .from("snooker_auth_login_attempts")
+      .select("id", { head: true, count: "exact" })
+      .eq("device_hash", deviceHash)
+      .eq("success", false)
+      .gte("created_at", cutoff);
+    recentFailures = Math.max(recentFailures, Number(count || 0));
+  }
+
+  if (recentFailures >= 5) {
+    return json(res, 429, {
+      ok: false,
+      error: "LOGIN_RATE_LIMITED",
+      message: "Too many failed login attempts. Try again later.",
+      retry_after_seconds: 900,
+    });
+  }
+
   const admin = await legacyAdminConfig(supabase);
   const adminPins = [admin.mainPin, admin.pin, admin.committeePin].filter(Boolean).map(String);
   const staffPins = [admin.staffPin].filter(Boolean).map(String);
@@ -109,6 +146,13 @@ async function login(req, res) {
   let role = "";
   if (adminPins.some((candidate) => secureEqual(pin, candidate))) role = "ADMIN";
   else if (staffPins.some((candidate) => secureEqual(pin, candidate))) role = "STAFF";
+
+  await supabase.from("snooker_auth_login_attempts").insert({
+    ip_hash: ipHash,
+    device_hash: deviceHash,
+    success: Boolean(role),
+    role: role || null,
+  });
 
   if (!role) return json(res, 401, { ok: false, error: "INVALID_PIN" });
 
@@ -123,7 +167,7 @@ async function login(req, res) {
     role,
     staff_id: staffId,
     display_name: displayName,
-    device_id: safeText(req.body?.device_id || "", 200) || null,
+    device_id: deviceId || null,
     client_version: safeText(req.body?.client_version || req.headers?.["x-qclub-client-version"] || "", 100) || null,
     expires_at: expiresAt,
   });
