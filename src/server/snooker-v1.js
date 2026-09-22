@@ -392,6 +392,31 @@ function sessionDto(row) {
   };
 }
 
+async function listSessions(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const scope = safeText(req.query?.scope || "", 30).toLowerCase();
+  const requestedLimit = Math.floor(number(req.query?.limit, 100));
+  const limit = Math.min(250, Math.max(1, requestedLimit || 100));
+
+  let query = supabase
+    .from("snooker_sessions")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(limit);
+
+  if (scope === "active") {
+    query = query.in("status", ["ACTIVE", "PAUSED", "ENDED"]);
+  } else if (scope === "open") {
+    query = query.in("status", ["ACTIVE", "PAUSED"]);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return json(res, 200, { sessions: (data || []).map(sessionDto) });
+}
+
 async function createSession(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -923,6 +948,40 @@ async function billDetail(req, res, billId) {
   return json(res, 200, payload);
 }
 
+async function listBills(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const requestedLimit = Math.floor(number(req.query?.limit, 100));
+  const limit = Math.min(250, Math.max(1, requestedLimit || 100));
+  const { data, error } = await supabase
+    .from("snooker_bills")
+    .select("*")
+    .order("finalized_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  const bills = (data || []).map((bill) => ({
+    bill_id: bill.id,
+    id: bill.id,
+    bill_no: bill.bill_no,
+    session_id: bill.session_id,
+    game_total_inr: money(bill.game_total_inr),
+    fnb_total_inr: money(bill.fnb_total_inr),
+    discount_inr: money(bill.discount_inr),
+    total_inr: money(bill.total_inr),
+    paid_inr: money(bill.paid_inr),
+    due_inr: money(bill.due_inr),
+    status: bill.status,
+    finalized_at: bill.finalized_at,
+    created_at: bill.created_at,
+    updated_at: bill.updated_at,
+  }));
+
+  return json(res, 200, { bills });
+}
+
 async function cashPayment(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1342,6 +1401,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "catalogue") return await catalogue(req, res);
     if (method === "GET" && path === "inventory") return await inventory(req, res);
 
+    if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
     if (parts[0] === "sessions" && parts[1] && parts.length === 2 && method === "GET") return await sessionDetail(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts.length === 2 && method === "PATCH") return await updateSession(req, res, parts[1]);
@@ -1351,6 +1411,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1]);
 
+    if (method === "GET" && path === "bills") return await listBills(req, res);
     if (method === "POST" && path === "bills/finalize") return await finalizeBill(req, res);
     if (parts[0] === "bills" && parts[1] && parts.length === 2 && method === "GET") return await billDetail(req, res, parts[1]);
 
