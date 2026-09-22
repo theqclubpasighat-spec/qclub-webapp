@@ -125,6 +125,11 @@ const KittyMonthlyReportPage = lazy(() =>
     default: module.KittyMonthlyReportPage,
   }))
 );
+const QclubLedgerPage = lazy(() =>
+  import("./components/qclub-ledger-page.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
@@ -2293,6 +2298,8 @@ const scorerOnlyPaths = [
   "/kitty-records",
     "/jobs",
     "/food-print-bridge",
+    "/QclubLedger",
+    "/qclubledger",
 ];
 
 const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
@@ -4145,6 +4152,22 @@ latestDataRef.current = fresh;
   }
 />
                 <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
+        <Route
+          path="/QclubLedger"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading Q Club Ledger…</div></div></div>}>
+              <QclubLedgerPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/qclubledger"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading Q Club Ledger…</div></div></div>}>
+              <QclubLedgerPage />
+            </Suspense>
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
 
