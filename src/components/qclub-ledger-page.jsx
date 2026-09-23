@@ -778,7 +778,7 @@ export default function QclubLedgerPage() {
   function printReceipt() {
     if (!billDetail) return;
     const session = sessionLookup[billDetail.session_id];
-    const popup = window.open("", "_blank", "noopener,noreferrer");
+    const popup = window.open("", "_blank");
     if (!popup) {
       flash("Pop-up blocked. Allow pop-ups to print the receipt.", true);
       return;
@@ -842,7 +842,7 @@ export default function QclubLedgerPage() {
       "</b></div><div>Realized: <b>" + money(summary && summary.today_realized_sales_inr) + "</b></div><div>Total outstanding: <b>" +
       money(summary && summary.outstanding_all_inr) + "</b></div></div><table><thead><tr><th>Bill</th><th>Customer</th><th style='text-align:right'>Total</th><th style='text-align:right'>Paid</th><th style='text-align:right'>Due</th></tr></thead><tbody>" +
       body + "</tbody></table><script>window.onload=function(){window.print();}</script></body></html>";
-    const popup = window.open("", "_blank", "noopener,noreferrer");
+    const popup = window.open("", "_blank");
     if (!popup) {
       flash("Pop-up blocked. Allow pop-ups to print the daily closing.", true);
       return;
@@ -1155,7 +1155,7 @@ export default function QclubLedgerPage() {
                   {Number(billDetail.discount_inr) > 0 ? <div className="ql-muted" style={{ marginTop: 8 }}>Discount: {money(billDetail.discount_inr)}</div> : null}
                   <div className="ql-row" style={{ marginTop: 12 }}>
                     <button className="ql-btn" onClick={printReceipt}>Print / Save PDF</button>
-                    <button className="ql-btn" onClick={downloadReceipt}>Download Receipt</button>
+                    <button className="ql-btn" onClick={downloadReceipt}>Download Receipt HTML</button>
                     <button className="ql-btn ghost" onClick={refreshBillDetail}>Refresh Bill</button>
                   </div>
 
