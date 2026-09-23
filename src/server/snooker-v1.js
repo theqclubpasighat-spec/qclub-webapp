@@ -228,6 +228,102 @@ async function memberRegistry(supabase) {
   return Array.isArray(data?.state?.memberRegistry) ? data.state.memberRegistry : [];
 }
 
+async function legacyOperationalState(supabase) {
+  const { data, error } = await supabase
+    .from("qclub_state")
+    .select("state, updated_at")
+    .eq("key", "main")
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    state: data?.state && typeof data.state === "object" ? data.state : {},
+    updatedAt: data?.updated_at || null,
+  };
+}
+
+function operationalItems(items) {
+  return Array.isArray(items)
+    ? items.slice(0, 100).map((item) => ({
+        id: safeText(item?.id || item?.itemId || "", 160) || null,
+        name: safeText(item?.name || item?.displayName || "", 220) || null,
+        display_name: safeText(item?.displayName || item?.name || "", 220) || null,
+        quantity: Math.max(0, number(item?.qty ?? item?.quantity, 0)),
+        price_inr: money(item?.price || 0),
+        line_total_inr: money(item?.lineTotal ?? (number(item?.price, 0) * number(item?.qty ?? item?.quantity, 0))),
+      }))
+    : [];
+}
+
+async function operationalInbox(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const snapshot = await legacyOperationalState(supabase);
+  const state = snapshot.state || {};
+  const bookingRows = Array.isArray(state?.booking?.requests) ? state.booking.requests : [];
+  const foodRows = Array.isArray(state?.foodOrders) ? state.foodOrders : [];
+  const shopRows = Array.isArray(state?.shopReceipts) ? state.shopReceipts : [];
+
+  const bookings = bookingRows.slice(-100).reverse().map((row) => ({
+    id: safeText(row?.id || "", 160) || null,
+    customer_name: safeText(row?.name || "", 160) || null,
+    customer_phone: normalizePhone(row?.mobile || "") || null,
+    item_id: safeText(row?.itemId || "", 120) || null,
+    item_label: safeText(row?.itemLabel || "", 220) || null,
+    booking_date: safeText(row?.bookingDate || "", 20) || null,
+    time_slot: safeText(row?.timeSlot || "", 40) || null,
+    slot_label: safeText(row?.slotLabel || "", 120) || null,
+    duration_hours: number(row?.durationHours, 0),
+    end_time: safeText(row?.endTime || "", 40) || null,
+    amount_inr: money(row?.amount || 0),
+    status: safeText(row?.status || "pending", 40).toUpperCase(),
+    note: safeText(row?.note || "", 500) || null,
+    created_at: row?.createdAt || null,
+    updated_at: row?.updatedAt || null,
+  }));
+
+  const foodOrders = foodRows.slice(-100).reverse().map((row) => ({
+    id: safeText(row?.id || row?.orderNo || "", 160) || null,
+    order_no: safeText(row?.orderNo || row?.id || "", 160) || null,
+    gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
+    customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
+    customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
+    table_label: safeText(row?.tableLabel || "", 120) || null,
+    total_inr: money(row?.total || 0),
+    payment_status: safeText(row?.paymentStatus || row?.status || "", 80) || null,
+    print_status: safeText(row?.printStatus || row?.printMeta?.status || "", 80) || null,
+    created_at: row?.createdAt || row?.time || null,
+    items: operationalItems(row?.items),
+  }));
+
+  const shopReceipts = shopRows.slice(-100).reverse().map((row) => ({
+    id: safeText(row?.id || row?.orderNo || "", 160) || null,
+    order_no: safeText(row?.orderNo || row?.id || "", 160) || null,
+    gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
+    customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
+    customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
+    total_inr: money(row?.total || 0),
+    payment_status: safeText(row?.paymentStatus || "", 80) || null,
+    pickup_status: safeText(row?.pickupStatus || "", 80) || null,
+    created_at: row?.createdAt || null,
+    updated_at: row?.updatedAt || null,
+    items: operationalItems(row?.items),
+  }));
+
+  return json(res, 200, {
+    source: "qclub_state_bridge",
+    updated_at: snapshot.updatedAt,
+    counts: {
+      bookings: bookings.length,
+      food_orders: foodOrders.length,
+      shop_receipts: shopReceipts.length,
+    },
+    bookings,
+    food_orders: foodOrders,
+    shop_receipts: shopReceipts,
+  });
+}
+
 async function verifyMemberRecord(supabase, { phone = "", name = "" } = {}) {
   const normalizedPhone = normalizePhone(phone);
   const normalizedName = safeText(name, 160).toLowerCase().replace(/\s+/g, " ").trim();
@@ -644,7 +740,18 @@ async function createSession(req, res) {
     client_revision: safeText(req.body?.client_revision || "", 120) || null,
     idempotency_key: key || null,
   }).select("*").single();
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23505" && String(error.message || "").includes("snooker_sessions_one_open_per_table_idx")) {
+      const { data: winner } = await supabase
+        .from("snooker_sessions")
+        .select("id")
+        .eq("table_id", tableId)
+        .in("status", ["ACTIVE", "PAUSED"])
+        .maybeSingle();
+      return json(res, 409, { ok: false, error: "TABLE_ALREADY_ACTIVE", session_id: winner?.id || null });
+    }
+    throw error;
+  }
   const response = sessionDto(data);
   await rememberIdempotent(supabase, key, "create_session", data.id, response);
   return json(res, 201, response);
@@ -1667,6 +1774,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "inventory") return await inventory(req, res);
     if (method === "GET" && path === "members/verify") return await verifyMember(req, res);
     if (method === "GET" && path === "dashboard/summary") return await dashboardSummary(req, res);
+    if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
