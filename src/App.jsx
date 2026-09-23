@@ -135,6 +135,11 @@ const QclubPayPage = lazy(() =>
     default: module.default,
   }))
 );
+const QclubQrPage = lazy(() =>
+  import("./components/qclub-qr-page.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
@@ -4188,6 +4193,22 @@ latestDataRef.current = fresh;
           element={
             <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading secure payment…</div></div></div>}>
               <QclubPayPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/QclubQr"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading secure Cashfree QR…</div></div></div>}>
+              <QclubQrPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/qclubqr"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading secure Cashfree QR…</div></div></div>}>
+              <QclubQrPage />
             </Suspense>
           }
         />
