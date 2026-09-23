@@ -960,9 +960,9 @@ export default function QclubLedgerPage() {
           <>
             <div className="ql-stat-grid">
               <div className="ql-stat"><span className="ql-muted">Active tables</span><strong>{sessions.filter(function(s) { return ["ACTIVE", "PAUSED"].includes(s.status); }).length}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayBills.length}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Outstanding recent ledger</span><strong>{money(outstanding)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
             </div>
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
@@ -1009,7 +1009,19 @@ export default function QclubLedgerPage() {
                               return (
                                 <div className="ql-line ql-space" key={game.id}>
                                   <div className="ql-muted">Game #{game.game_number} • {game.player_count_snapshot} player(s) • {money(game.calculated_charge_inr)}</div>
-                                  {game.status !== "VOIDED" ? <button className="ql-btn danger" onClick={function() { voidGame(game); }}>Void</button> : <span className="ql-badge bad">VOIDED</span>}
+                                  {game.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidGame(game); }}>Void</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        {fnb.length ? (
+                          <div className="ql-list" style={{ marginTop: 9 }}>
+                            {fnb.slice(-3).map(function(line) {
+                              return (
+                                <div className="ql-line ql-space" key={line.id}>
+                                  <div className="ql-muted">{line.item_name_snapshot || "F&B"} × {line.quantity} • {money(line.line_total_inr)}</div>
+                                  {line.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidFnbLine(line); }}>Void F&B</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
                                 </div>
                               );
                             })}
@@ -1019,6 +1031,7 @@ export default function QclubLedgerPage() {
                           {rule && rule.billing_mode === "PER_PLAYER_PER_GAME" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { recordGame(session); }}>✓ Game Complete</button> : null}
                           {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                           {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
+                          <button className="ql-btn" onClick={function() { editSession(session); }}>Edit Customer</button>
                           <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setTab("fnb"); }}>+ F&B</button>
                           <button className="ql-btn primary" onClick={function() { finalizeBill(session); }}>Settle & Pay</button>
                         </div>
@@ -1086,9 +1099,34 @@ export default function QclubLedgerPage() {
         {tab === "ledger" ? (
           <div className="ql-grid">
             <div className="ql-card" style={{ gridColumn: "span 5" }}>
-              <div className="ql-space"><div><h3>Recent bills</h3><div className="ql-muted">Server ledger</div></div><span className="ql-badge">{bills.length}</span></div>
+              <div className="ql-space"><div><h3>Ledger history</h3><div className="ql-muted">Search customer, mobile or bill number</div></div><span className="ql-badge">{filteredBills.length}/{bills.length}</span></div>
+              <div className="ql-form-grid" style={{ marginTop: 12 }}>
+                <div className="full">
+                  <label className="ql-label">Search</label>
+                  <input className="ql-input" value={ledgerSearch} onChange={function(e) { setLedgerSearch(e.target.value); }} placeholder="Name, mobile, bill no." />
+                </div>
+                <div>
+                  <label className="ql-label">Status</label>
+                  <select className="ql-select" value={ledgerStatus} onChange={function(e) { setLedgerStatus(e.target.value); }}>
+                    <option value="ALL">All</option>
+                    <option value="PAID">Paid</option>
+                    <option value="UNPAID">Unpaid</option>
+                    <option value="PARTIALLY_PAID">Partially paid</option>
+                    <option value="PAYMENT_PENDING">Payment pending</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="ql-label">Business date</label>
+                  <input className="ql-input" type="date" value={ledgerDate} onChange={function(e) { setLedgerDate(e.target.value); }} />
+                </div>
+              </div>
+              <div className="ql-row" style={{ marginTop: 10 }}>
+                <button className="ql-btn" onClick={function() { exportLedgerCsv(filteredBills); }}>Export CSV</button>
+                <button className="ql-btn gold" onClick={printDailyClosing}>Print Daily Closing</button>
+                <button className="ql-btn ghost" onClick={function() { setLedgerSearch(""); setLedgerStatus("ALL"); setLedgerDate(""); }}>Clear</button>
+              </div>
               <div className="ql-list" style={{ marginTop: 12, maxHeight: "70vh", overflow: "auto" }}>
-                {bills.length ? bills.map(function(bill) {
+                {filteredBills.length ? filteredBills.map(function(bill) {
                   const session = sessionLookup[bill.session_id];
                   return (
                     <button key={bill.bill_id} className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")} style={{ color: "inherit", textAlign: "left", cursor: "pointer" }} onClick={function() { loadBill(bill.bill_id); }}>
@@ -1115,6 +1153,11 @@ export default function QclubLedgerPage() {
                     <div className="ql-stat"><span className="ql-muted">Due</span><strong>{money(billDetail.due_inr)}</strong></div>
                   </div>
                   {Number(billDetail.discount_inr) > 0 ? <div className="ql-muted" style={{ marginTop: 8 }}>Discount: {money(billDetail.discount_inr)}</div> : null}
+                  <div className="ql-row" style={{ marginTop: 12 }}>
+                    <button className="ql-btn" onClick={printReceipt}>Print / Save PDF</button>
+                    <button className="ql-btn" onClick={downloadReceipt}>Download Receipt</button>
+                    <button className="ql-btn ghost" onClick={refreshBillDetail}>Refresh Bill</button>
+                  </div>
 
                   <div className="ql-section">Payments — Cash / UPI / Split</div>
                   <div className="ql-paybox">
@@ -1135,8 +1178,8 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>WhatsApp receipt is sent by the backend through MSG91. No local WhatsApp compose screen.</div>
-                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>Send Receipt via MSG91</button>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>If money is due, the backend creates/reuses a Cashfree checkout and includes its signed payment link in the MSG91 receipt.</div>
+                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>Send Receipt + Payment Link</button>
                     </div>
                   </div>
 
@@ -1146,7 +1189,10 @@ export default function QclubLedgerPage() {
                         <div><strong>Cashfree UPI Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
-                      <div className="ql-row" style={{ marginTop: 10 }}><button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Verification</button></div>
+                      <div className="ql-row" style={{ marginTop: 10 }}>
+                        <button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Verification</button>
+                        {upiOrder.payment_url ? <a className="ql-btn gold" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Customer Pay Link</a> : null}
+                      </div>
                     </div>
                   ) : null}
 
@@ -1211,21 +1257,30 @@ export default function QclubLedgerPage() {
               </div>
               <div>
                 <label className="ql-label">Customer / Host name</label>
-                <input className="ql-input" value={startForm.customerName} onChange={function(e) { setStartForm({ ...startForm, customerName: e.target.value }); }} placeholder="Player name" />
+                <input className="ql-input" value={startForm.customerName} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerName: e.target.value, isMember: false }); }} placeholder="Player name" />
               </div>
               <div>
                 <label className="ql-label">WhatsApp mobile (10 digits)</label>
-                <input className="ql-input" inputMode="numeric" value={startForm.customerPhone} onChange={function(e) { setStartForm({ ...startForm, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10) }); }} placeholder="9876543210" />
+                <input className="ql-input" inputMode="numeric" value={startForm.customerPhone} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10), isMember: false }); }} placeholder="9876543210" />
               </div>
               <div className="full">
                 <label className="ql-label">Additional participants (comma separated)</label>
                 <input className="ql-input" value={startForm.participants} onChange={function(e) { setStartForm({ ...startForm, participants: e.target.value }); }} placeholder="Player 2, Player 3" />
               </div>
               <div className="full ql-line">
-                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={startForm.isMember} onChange={function(e) { setStartForm({ ...startForm, isMember: e.target.checked }); }} />
-                  <span><strong>Q Club Member</strong><div className="ql-muted">Use member hourly rate where configured.</div></span>
-                </label>
+                <div className="ql-space">
+                  <div>
+                    <strong>{startForm.isMember ? "✓ Verified Q Club Member" : "Membership check"}</strong>
+                    <div className="ql-muted">
+                      {memberCheck && memberCheck.verified
+                        ? ((memberCheck.member && memberCheck.member.tier ? memberCheck.member.tier + " • " : "") + "valid until " + ((memberCheck.member && memberCheck.member.valid_until) || "not specified"))
+                        : memberCheck
+                          ? "No active matching membership. Walk-in rate will be used."
+                          : "Member rate is applied only after a server-side registry match."}
+                    </div>
+                  </div>
+                  <button type="button" className={startForm.isMember ? "ql-btn gold" : "ql-btn"} disabled={busy} onClick={verifyStartMember}>Verify Member</button>
+                </div>
               </div>
             </div>
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
