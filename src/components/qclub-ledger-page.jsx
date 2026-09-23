@@ -543,7 +543,7 @@ export default function QclubLedgerPage() {
     if (!reason || !reason.trim()) return;
     setBusy(true);
     try {
-      await protectedCall("games/" + game.id + "/void", { method: "POST", body: { reason: reason.trim() } });
+      await protectedCall("games/" + game.id + "/void-admin", { method: "POST", body: { reason: reason.trim() } });
       flash("Game voided with audit reason.");
       await refreshAll();
     } catch (error) {
@@ -562,7 +562,7 @@ export default function QclubLedgerPage() {
     if (!reason || !reason.trim()) return;
     setBusy(true);
     try {
-      await protectedCall("fnb-lines/" + line.id + "/void", {
+      await protectedCall("fnb-lines/" + line.id + "/void-admin", {
         method: "POST",
         body: { reason: reason.trim(), return_stock: true },
       });
