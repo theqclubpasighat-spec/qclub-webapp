@@ -797,8 +797,8 @@ async function recordGame(req, res, sessionId) {
   return json(res, 201, response);
 }
 
-async function voidGame(req, res, gameId) {
-  const auth = await requireAuth(req, res, ["ADMIN"]);
+async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
+  const auth = await requireAuth(req, res, roles);
   if (!auth) return;
   const reason = safeText(req.body?.reason || req.body?.void_reason || "", 500);
   if (!reason) return json(res, 400, { ok: false, error: "VOID_REASON_REQUIRED" });
@@ -940,8 +940,8 @@ async function addFnb(req, res, sessionId) {
   return json(res, 201, response);
 }
 
-async function voidFnb(req, res, lineId) {
-  const auth = await requireAuth(req, res, ["ADMIN"]);
+async function voidFnb(req, res, lineId, roles = ["STAFF", "ADMIN"]) {
+  const auth = await requireAuth(req, res, roles);
   if (!auth) return;
   const reason = safeText(req.body?.reason || req.body?.void_reason || "", 500);
   if (!reason) return json(res, 400, { ok: false, error: "VOID_REASON_REQUIRED" });
@@ -1675,6 +1675,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "sessions" && parts[1] && parts[2] === "games" && method === "POST") return await recordGame(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts[2] === "fnb" && method === "POST") return await addFnb(req, res, parts[1]);
 
+    if (parts[0] === "games" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
+    if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1]);
 
