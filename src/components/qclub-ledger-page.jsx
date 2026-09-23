@@ -169,14 +169,14 @@ const CSS = [
   ".ql-table-status{font-size:11px;font-weight:900;padding:5px 8px;border-radius:999px}.ql-table-status.free{background:#0f3c26;color:#90f1b9}.ql-table-status.busy{background:#553e0d;color:#ffe08a}.ql-table-status.pause{background:#402b59;color:#ddbaff}.ql-section{margin:17px 0 9px;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#e3c968;font-weight:900}",
   ".ql-input,.ql-select{width:100%;border:1px solid #294638;background:#08150f;color:#f7fbf8;border-radius:11px;padding:11px 12px;outline:none}.ql-label{display:block;font-size:12px;color:#abc0b3;margin:0 0 5px;font-weight:700}.ql-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ql-form-grid .full{grid-column:1/-1}",
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
-  ".ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}",
+  ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;bottom:12px;z-index:70;margin-top:14px;border:1px solid #3b6b50;background:rgba(7,20,13,.96);backdrop-filter:blur(16px);box-shadow:0 18px 46px rgba(0,0,0,.4);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
   ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}",
   ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
   "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
-  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}}"
+  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}}"
 ].join("");
 
 export default function QclubLedgerPage() {
@@ -203,6 +203,8 @@ export default function QclubLedgerPage() {
   const [showUpiQrModal, setShowUpiQrModal] = useState(false);
   const [qrClock, setQrClock] = useState(Date.now());
   const [quantities, setQuantities] = useState({});
+  const [fnbSearch, setFnbSearch] = useState("");
+  const [fnbCategory, setFnbCategory] = useState("ALL");
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
@@ -432,6 +434,28 @@ export default function QclubLedgerPage() {
   const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
+
+  const fnbCategories = useMemo(function() {
+    return ["ALL"].concat(Array.from(new Set(catalogue.map(function(item) {
+      return String(item.category || "Other").trim() || "Other";
+    }))).sort(function(a, b) { return a.localeCompare(b); }));
+  }, [catalogue]);
+
+  const filteredCatalogue = useMemo(function() {
+    const query = fnbSearch.trim().toLowerCase();
+    return catalogue.filter(function(item) {
+      const category = String(item.category || "Other").trim() || "Other";
+      if (fnbCategory !== "ALL" && category !== fnbCategory) return false;
+      if (!query) return true;
+      return [item.name, category].filter(Boolean).join(" ").toLowerCase().includes(query);
+    });
+  }, [catalogue, fnbCategory, fnbSearch]);
+
+  const selectedFnbCount = Object.values(quantities).reduce(function(sum, q) { return sum + Number(q || 0); }, 0);
+  const selectedFnbTotal = catalogue.reduce(function(sum, item) {
+    const qty = Number(quantities[item.id] || 0);
+    return sum + (qty * Number(item.selling_price_inr || 0));
+  }, 0);
 
   const filteredBills = useMemo(function() {
     const query = ledgerSearch.trim().toLowerCase();
@@ -1144,8 +1168,22 @@ export default function QclubLedgerPage() {
               </div>
             </div>
             <div className="ql-section">Live catalogue</div>
+            <div className="ql-fnb-tools">
+              <div>
+                <label className="ql-label">Search food / drinks</label>
+                <input className="ql-input" value={fnbSearch} onChange={function(e) { setFnbSearch(e.target.value); }} placeholder="Type item name..." />
+              </div>
+              <div>
+                <label className="ql-label">Category</label>
+                <select className="ql-select" value={fnbCategory} onChange={function(e) { setFnbCategory(e.target.value); }}>
+                  {fnbCategories.map(function(category) {
+                    return <option key={category} value={category}>{category === "ALL" ? "All categories" : category}</option>;
+                  })}
+                </select>
+              </div>
+            </div>
             <div className="ql-fnb-grid">
-              {catalogue.map(function(item) {
+              {filteredCatalogue.map(function(item) {
                 const qty = Number(quantities[item.id] || 0);
                 const unpriced = item.requires_price_configuration || item.is_unpriced || !(Number(item.selling_price_inr) > 0);
                 const out = item.track_inventory && Number(item.current_stock || 0) <= 0;
@@ -1165,13 +1203,23 @@ export default function QclubLedgerPage() {
                   </div>
                 );
               })}
+              {!filteredCatalogue.length ? <div className="ql-empty" style={{ gridColumn: "1/-1" }}>No catalogue items match this search/category.</div> : null}
             </div>
-            <div className="ql-card full" style={{ marginTop: 14 }}>
+            <div className="ql-fnb-actionbar">
               <div className="ql-space">
-                <div><strong>{Object.values(quantities).reduce(function(sum, q) { return sum + Number(q || 0); }, 0)} item(s) selected</strong><div className="ql-muted">Server rejects unpriced or insufficient-stock items.</div></div>
-                <button className="ql-btn primary" disabled={!selectedSessionId || busy} onClick={addFnb}>Add to Table Bill</button>
+                <div>
+                  <strong>{selectedFnbCount} item(s) • {money(selectedFnbTotal)}</strong>
+                  <div className="ql-muted">Always visible on mobile. Server verifies price and stock before saving.</div>
+                </div>
+                <div className="ql-row" style={{ justifyContent: "flex-end" }}>
+                  {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
+                  <button className="ql-btn primary" disabled={!selectedSessionId || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy ? "Adding…" : "Add to Table Bill"}
+                  </button>
+                </div>
               </div>
             </div>
+            <div className="ql-fnb-spacer" aria-hidden="true" />
           </>
         ) : null}
 
