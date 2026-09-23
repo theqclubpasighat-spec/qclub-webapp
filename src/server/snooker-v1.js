@@ -258,61 +258,84 @@ async function operationalInbox(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
   const supabase = getSupabaseAdmin();
-  const snapshot = await legacyOperationalState(supabase);
-  const state = snapshot.state || {};
-  const bookingRows = Array.isArray(state?.booking?.requests) ? state.booking.requests : [];
-  const foodRows = Array.isArray(state?.foodOrders) ? state.foodOrders : [];
-  const shopRows = Array.isArray(state?.shopReceipts) ? state.shopReceipts : [];
 
-  const bookings = bookingRows.slice(-100).reverse().map((row) => ({
-    id: safeText(row?.id || "", 160) || null,
-    customer_name: safeText(row?.name || "", 160) || null,
-    customer_phone: normalizePhone(row?.mobile || "") || null,
-    item_id: safeText(row?.itemId || "", 120) || null,
-    item_label: safeText(row?.itemLabel || "", 220) || null,
-    booking_date: safeText(row?.bookingDate || "", 20) || null,
-    time_slot: safeText(row?.timeSlot || "", 40) || null,
-    slot_label: safeText(row?.slotLabel || "", 120) || null,
-    duration_hours: number(row?.durationHours, 0),
-    end_time: safeText(row?.endTime || "", 40) || null,
-    amount_inr: money(row?.amount || 0),
-    status: safeText(row?.status || "pending", 40).toUpperCase(),
-    note: safeText(row?.note || "", 500) || null,
-    created_at: row?.createdAt || null,
-    updated_at: row?.updatedAt || null,
-  }));
+  const { data: records, error } = await supabase
+    .from("qclub_operational_records")
+    .select("record_type,record_key,payload,status,source,created_at,updated_at")
+    .in("record_type", ["booking_request", "q_lounge_order", "qshop_receipt"])
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+  if (error) throw error;
 
-  const foodOrders = foodRows.slice(-100).reverse().map((row) => ({
-    id: safeText(row?.id || row?.orderNo || "", 160) || null,
-    order_no: safeText(row?.orderNo || row?.id || "", 160) || null,
-    gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
-    customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
-    customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
-    table_label: safeText(row?.tableLabel || "", 120) || null,
-    total_inr: money(row?.total || 0),
-    payment_status: safeText(row?.paymentStatus || row?.status || "", 80) || null,
-    print_status: safeText(row?.printStatus || row?.printMeta?.status || "", 80) || null,
-    created_at: row?.createdAt || row?.time || null,
-    items: operationalItems(row?.items),
-  }));
+  const rows = Array.isArray(records) ? records : [];
+  const bookingRows = rows.filter((row) => row.record_type === "booking_request");
+  const foodRows = rows.filter((row) => row.record_type === "q_lounge_order");
+  const shopRows = rows.filter((row) => row.record_type === "qshop_receipt");
 
-  const shopReceipts = shopRows.slice(-100).reverse().map((row) => ({
-    id: safeText(row?.id || row?.orderNo || "", 160) || null,
-    order_no: safeText(row?.orderNo || row?.id || "", 160) || null,
-    gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
-    customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
-    customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
-    total_inr: money(row?.total || 0),
-    payment_status: safeText(row?.paymentStatus || "", 80) || null,
-    pickup_status: safeText(row?.pickupStatus || "", 80) || null,
-    created_at: row?.createdAt || null,
-    updated_at: row?.updatedAt || null,
-    items: operationalItems(row?.items),
-  }));
+  const bookings = bookingRows.slice(0, 100).map((record) => {
+    const row = record?.payload || {};
+    return {
+      id: safeText(row?.id || record.record_key || "", 160) || null,
+      gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
+      customer_name: safeText(row?.name || row?.customerName || "", 160) || null,
+      customer_phone: normalizePhone(row?.mobile || row?.customerMobile || "") || null,
+      item_id: safeText(row?.itemId || "", 120) || null,
+      item_label: safeText(row?.itemLabel || row?.tableLabel || "", 220) || null,
+      booking_date: safeText(row?.bookingDate || "", 20) || null,
+      time_slot: safeText(row?.timeSlot || "", 40) || null,
+      slot_label: safeText(row?.slotLabel || "", 120) || null,
+      duration_hours: number(row?.durationHours, 0),
+      end_time: safeText(row?.endTime || "", 40) || null,
+      amount_inr: money(row?.amount || row?.total || 0),
+      payment_status: safeText(row?.paymentStatus || "", 80) || null,
+      status: safeText(row?.status || record.status || "pending", 40).toUpperCase(),
+      note: safeText(row?.note || "", 500) || null,
+      created_at: row?.createdAt || record.created_at || null,
+      updated_at: row?.updatedAt || record.updated_at || null,
+      source: safeText(record.source || "", 80) || null,
+    };
+  });
+
+  const foodOrders = foodRows.slice(0, 100).map((record) => {
+    const row = record?.payload || {};
+    return {
+      id: safeText(row?.id || row?.orderNo || record.record_key || "", 160) || null,
+      order_no: safeText(row?.orderNo || row?.id || record.record_key || "", 160) || null,
+      gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
+      customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
+      customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
+      table_label: safeText(row?.tableLabel || "", 120) || null,
+      total_inr: money(row?.total || 0),
+      payment_status: safeText(row?.paymentStatus || row?.status || record.status || "", 80) || null,
+      print_status: safeText(row?.printStatus || row?.printMeta?.status || "", 80) || null,
+      created_at: row?.createdAt || row?.time || record.created_at || null,
+      items: operationalItems(row?.items),
+      source: safeText(record.source || "", 80) || null,
+    };
+  });
+
+  const shopReceipts = shopRows.slice(0, 100).map((record) => {
+    const row = record?.payload || {};
+    return {
+      id: safeText(row?.id || row?.receiptId || row?.orderNo || record.record_key || "", 160) || null,
+      order_no: safeText(row?.orderNo || row?.id || record.record_key || "", 160) || null,
+      gateway_order_id: safeText(row?.gatewayOrderId || "", 180) || null,
+      customer_name: safeText(row?.customerName || row?.name || "", 160) || null,
+      customer_phone: normalizePhone(row?.customerMobile || row?.mobile || "") || null,
+      total_inr: money(row?.total || 0),
+      payment_status: safeText(row?.paymentStatus || record.status || "", 80) || null,
+      pickup_status: safeText(row?.pickupStatus || "", 80) || null,
+      created_at: row?.createdAt || record.created_at || null,
+      updated_at: row?.updatedAt || record.updated_at || null,
+      items: operationalItems(row?.items),
+      source: safeText(record.source || "", 80) || null,
+    };
+  });
 
   return json(res, 200, {
-    source: "qclub_state_bridge",
-    updated_at: snapshot.updatedAt,
+    source: "qclub_operational_records",
+    updated_at: rows[0]?.updated_at || null,
     counts: {
       bookings: bookings.length,
       food_orders: foodOrders.length,
