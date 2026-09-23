@@ -130,6 +130,11 @@ const QclubLedgerPage = lazy(() =>
     default: module.default,
   }))
 );
+const QclubPayPage = lazy(() =>
+  import("./components/qclub-pay-page.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
@@ -2300,6 +2305,8 @@ const scorerOnlyPaths = [
     "/food-print-bridge",
     "/QclubLedger",
     "/qclubledger",
+    "/QclubPay",
+    "/qclubpay",
 ];
 
 const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
@@ -4165,6 +4172,22 @@ latestDataRef.current = fresh;
           element={
             <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading Q Club Ledger…</div></div></div>}>
               <QclubLedgerPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/QclubPay"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading secure payment…</div></div></div>}>
+              <QclubPayPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/qclubpay"
+          element={
+            <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading secure payment…</div></div></div>}>
+              <QclubPayPage />
             </Suspense>
           }
         />
