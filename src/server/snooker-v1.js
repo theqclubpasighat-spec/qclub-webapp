@@ -1165,7 +1165,7 @@ async function listBills(req, res) {
     .from("snooker_bills")
     .select("*")
     .order("finalized_at", { ascending: false })
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(limit);
   if (error) throw error;
 
@@ -1182,7 +1182,7 @@ async function listBills(req, res) {
     due_inr: money(bill.due_inr),
     status: bill.status,
     finalized_at: bill.finalized_at,
-    created_at: bill.created_at,
+    created_at: bill.finalized_at || bill.updated_at,
     updated_at: bill.updated_at,
   }));
 
