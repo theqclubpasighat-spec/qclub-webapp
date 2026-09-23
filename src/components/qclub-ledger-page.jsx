@@ -9,6 +9,26 @@ function money(value) {
   return "₹" + Number(value || 0).toFixed(2);
 }
 
+function countdownLabel(expiresAt, nowMs) {
+  if (!expiresAt) return "Cashfree order expiry applies";
+  const expiry = Date.parse(expiresAt);
+  if (!Number.isFinite(expiry)) return "Cashfree order expiry applies";
+  const seconds = Math.max(0, Math.ceil((expiry - Number(nowMs || Date.now())) / 1000));
+  if (seconds <= 0) return "Expired";
+  const mins = Math.floor(seconds / 60);
+  const secs = String(seconds % 60).padStart(2, "0");
+  return "Expires in " + mins + ":" + secs;
+}
+
+function paymentStatusLabel(status) {
+  const value = String(status || "PENDING").toUpperCase();
+  if (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(value)) return "PAYMENT VERIFIED";
+  if (value === "FAILED") return "PAYMENT FAILED";
+  if (value === "EXPIRED") return "PAYMENT EXPIRED";
+  if (value === "CANCELLED") return "PAYMENT CANCELLED";
+  return "WAITING FOR PAYMENT";
+}
+
 function dateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -154,6 +174,7 @@ const CSS = [
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
   ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}",
+  ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
   "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
   "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}}"
 ].join("");
@@ -179,6 +200,8 @@ export default function QclubLedgerPage() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
+  const [showUpiQrModal, setShowUpiQrModal] = useState(false);
+  const [qrClock, setQrClock] = useState(Date.now());
   const [quantities, setQuantities] = useState({});
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
@@ -217,6 +240,7 @@ export default function QclubLedgerPage() {
     setBills([]);
     setBillDetail(null);
     setUpiOrder(null);
+    setShowUpiQrModal(false);
     if (message) flash(message, true);
   }, [flash]);
 
@@ -296,6 +320,55 @@ export default function QclubLedgerPage() {
   useEffect(function() {
     if (token) refreshAll();
   }, [token, refreshAll]);
+
+  useEffect(function() {
+    if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id) return undefined;
+    setQrClock(Date.now());
+    const clockTimer = window.setInterval(function() {
+      setQrClock(Date.now());
+    }, 1000);
+    return function() {
+      window.clearInterval(clockTimer);
+    };
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id]);
+
+  useEffect(function() {
+    if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id || String(upiOrder.status || "").toUpperCase() !== "PENDING") return undefined;
+    let stopped = false;
+
+    async function pollPayment() {
+      try {
+        const result = await protectedCall("payments/" + upiOrder.payment_id);
+        if (stopped) return;
+        setUpiOrder(function(current) {
+          if (!current || current.payment_id !== upiOrder.payment_id) return current;
+          return { ...current, ...result };
+        });
+        const nextStatus = String(result.status || "PENDING").toUpperCase();
+        if (nextStatus !== "PENDING") {
+          flash(paymentStatusLabel(nextStatus) + ".", !["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(nextStatus));
+          if (billDetail && billDetail.bill_id) {
+            try {
+              const detail = await protectedCall("bills/" + billDetail.bill_id);
+              if (!stopped) setBillDetail(detail);
+            } catch {
+              // Keep the terminal payment state visible even if bill refresh is temporarily unavailable.
+            }
+          }
+          refreshAll();
+        }
+      } catch {
+        // A transient status-check failure must not close the QR or mark payment failed.
+      }
+    }
+
+    pollPayment();
+    const pollTimer = window.setInterval(pollPayment, 3000);
+    return function() {
+      stopped = true;
+      window.clearInterval(pollTimer);
+    };
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshAll, flash]);
 
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
@@ -642,7 +715,8 @@ export default function QclubLedgerPage() {
     }
   }
 
-  async function loadBill(billId) {
+  async function loadBill(billId, options) {
+    const opts = options || {};
     setBusy(true);
     try {
       const detail = await protectedCall("bills/" + billId);
@@ -650,7 +724,10 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(detail.due_inr || 0).toFixed(2));
       setCashTendered(Number(detail.due_inr || 0).toFixed(2));
       setUpiAmount(Number(detail.due_inr || 0).toFixed(2));
-      setUpiOrder(null);
+      if (!opts.preserveUpi) {
+        setUpiOrder(null);
+        setShowUpiQrModal(false);
+      }
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -658,9 +735,9 @@ export default function QclubLedgerPage() {
     }
   }
 
-  async function refreshBillDetail() {
+  async function refreshBillDetail(options) {
     if (!billDetail || !billDetail.bill_id) return;
-    await loadBill(billDetail.bill_id);
+    await loadBill(billDetail.bill_id, options);
     await refreshAll();
   }
 
@@ -714,8 +791,10 @@ export default function QclubLedgerPage() {
         },
       });
       setUpiOrder(result);
-      flash("Cashfree UPI order created. Payment remains pending until verified.");
-      await refreshBillDetail();
+      setQrClock(Date.now());
+      setShowUpiQrModal(true);
+      flash("Cashfree UPI order created. Show the QR to the customer.");
+      await refreshBillDetail({ preserveUpi: true });
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -729,7 +808,7 @@ export default function QclubLedgerPage() {
       const result = await protectedCall("payments/" + paymentId);
       flash("Payment status: " + result.status + ".");
       if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder({ ...upiOrder, ...result });
-      await refreshBillDetail();
+      await refreshBillDetail({ preserveUpi: true });
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1190,6 +1269,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
                       <div className="ql-row" style={{ marginTop: 10 }}>
+                        <button className="ql-btn gold" onClick={function() { setQrClock(Date.now()); setShowUpiQrModal(true); }}>Show Large QR</button>
                         <button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Verification</button>
                         {upiOrder.payment_url ? <a className="ql-btn gold" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Customer Pay Link</a> : null}
                       </div>
@@ -1286,6 +1366,55 @@ export default function QclubLedgerPage() {
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setStartTable(null); }}>Cancel</button>
               <button className="ql-btn primary" disabled={busy} onClick={createSession}>Save & Start Session</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showUpiQrModal && upiOrder && upiOrder.qr_payload ? (
+        <div className="ql-modal-bg ql-pay-modal-bg">
+          <div className="ql-pay-modal" role="dialog" aria-modal="true" aria-label="Cashfree UPI payment QR">
+            <div className="ql-space" style={{ alignItems: "center" }}>
+              <div style={{ textAlign: "left" }}>
+                <div className="ql-pay-kicker">THE Q CLUB PASIGHAT</div>
+                <h2>UPI PAYMENT</h2>
+              </div>
+              <button className="ql-btn ghost" onClick={function() { setShowUpiQrModal(false); }}>✕</button>
+            </div>
+
+            <div className="ql-pay-amount">{money(upiOrder.amount_inr)}</div>
+            <div className="ql-muted">
+              {(billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill"} • Cashfree
+            </div>
+
+            <div className="ql-big-qr">
+              <QRCodeSVG
+                value={upiOrder.qr_payload}
+                size={320}
+                level="M"
+                includeMargin={true}
+                style={{ width: "min(320px, 72vw)", height: "auto", display: "block" }}
+              />
+            </div>
+
+            <div style={{ fontWeight: 850, fontSize: 18 }}>Scan with any UPI app</div>
+            <div className={
+              "ql-pay-status " +
+              (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(String(upiOrder.status || "").toUpperCase())
+                ? "good"
+                : ["FAILED", "EXPIRED", "CANCELLED"].includes(String(upiOrder.status || "").toUpperCase())
+                  ? "bad"
+                  : "waiting")
+            }>
+              {paymentStatusLabel(upiOrder.status)}
+            </div>
+            <div className="ql-pay-expiry">{countdownLabel(upiOrder.expires_at, qrClock)}</div>
+            <div className="ql-pay-note">Status checks automatically every 3 seconds. Closing this screen does not cancel the payment order.</div>
+
+            <div className="ql-row" style={{ justifyContent: "center", marginTop: 16 }}>
+              <button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Now</button>
+              {upiOrder.payment_url ? <a className="ql-btn gold" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Pay Link</a> : null}
+              <button className="ql-btn primary" onClick={function() { setShowUpiQrModal(false); }}>Close</button>
             </div>
           </div>
         </div>
