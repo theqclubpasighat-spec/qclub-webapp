@@ -8971,7 +8971,7 @@ saveBookingRequestOperationalRecord(req).catch((error) => {
   
   setNote("");
   alert("Booking request submitted. Please complete payment / verification.");
-  return true;
+  return req;
 }
 function addBookingTable() {
   if (!admin) return alert("Admin only");
@@ -9558,8 +9558,8 @@ if (updatedReq) {
   timeSlot ? bookingSlotLabel(timeSlot, durationHours) : ""
 );
   localStorage.setItem("qclub_booking_amount", String(amount || ""));
-  const ok = submitBooking();
-  if (!ok) return;
+  const bookingRequest = submitBooking();
+  if (!bookingRequest) return;
 
   startPayment(
   amount,
@@ -9570,8 +9570,12 @@ if (updatedReq) {
     customer_name: name.trim(),
     mobile: mobile.trim(),
     table_label: selectedTable?.label || "",
+    booking_request_id: bookingRequest.id || "",
+    booking_item_id: bookingRequest.itemId || selectedTable?.id || "",
     booking_date: bookingDate || "",
-    booking_slot: timeSlot ? bookingSlotLabel(timeSlot, durationHours) : "",
+    booking_time_slot: bookingRequest.timeSlot || timeSlot || "",
+    booking_duration_hours: String(bookingRequest.durationHours || durationHours || 1),
+    booking_slot: bookingRequest.slotLabel || (timeSlot ? bookingSlotLabel(timeSlot, durationHours) : ""),
     booking_amount: String(amount || ""),
   }
 );
