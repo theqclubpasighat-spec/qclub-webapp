@@ -98,6 +98,46 @@ function elapsedLabel(session) {
   return hours ? hours + "h " + rest + "m" : rest + "m";
 }
 
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function receiptHtml(bill, session) {
+  const rows = (bill.items || []).map(function(item) {
+    return "<tr><td>" + escapeHtml(item.description || item.item_type || "Item") + "</td><td style='text-align:right'>" +
+      escapeHtml(item.quantity) + "</td><td style='text-align:right'>" + money(item.line_total_inr) + "</td></tr>";
+  }).join("");
+  return "<!doctype html><html><head><meta charset='utf-8'><title>" + escapeHtml(bill.bill_no || "Q Club Bill") +
+    "</title><style>body{font-family:Arial,sans-serif;max-width:720px;margin:24px auto;color:#111}h1{margin-bottom:2px}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:20px}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.totals{margin-top:18px;text-align:right}.totals div{margin:5px 0}.grand{font-size:20px;font-weight:800}@media print{button{display:none}}</style></head><body>" +
+    "<h1>The Q Club Pasighat</h1><div class='muted'>Private Ledger Receipt</div><h2>" + escapeHtml(bill.bill_no || "Final Bill") + "</h2>" +
+    "<div>" + escapeHtml((session && session.customer_name) || "Customer") + "</div><div class='muted'>" +
+    escapeHtml((session && session.customer_phone) || "") + "</div><table><thead><tr><th>Item</th><th style='text-align:right'>Qty</th><th style='text-align:right'>Amount</th></tr></thead><tbody>" +
+    rows + "</tbody></table><div class='totals'><div>Game/Table: " + money(bill.game_total_inr) + "</div><div>F&B: " + money(bill.fnb_total_inr) +
+    "</div><div>Discount: " + money(bill.discount_inr) + "</div><div class='grand'>Total: " + money(bill.total_inr) +
+    "</div><div>Paid: " + money(bill.paid_inr) + "</div><div>Due: " + money(bill.due_inr) + "</div></div><script>window.onload=function(){window.print();}</script></body></html>";
+}
+
+function csvCell(value) {
+  return '"' + String(value == null ? "" : value).replaceAll('"', '""') + '"';
+}
+
+function downloadBlob(filename, content, type) {
+  const blob = new Blob([content], { type: type || "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
 const CSS = [
   ".qledger{min-height:100vh;background:radial-gradient(circle at top,#133426 0,#09140f 38%,#050908 100%);color:#f7fbf8;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}",
   ".qledger *{box-sizing:border-box}.ql-wrap{max-width:1320px;margin:0 auto;padding:20px 16px 80px}.ql-top{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:16px;position:sticky;top:0;z-index:20;background:rgba(5,9,8,.93);backdrop-filter:blur(14px);padding:12px 0}",
@@ -123,6 +163,7 @@ export default function QclubLedgerPage() {
   const [pin, setPin] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [health, setHealth] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [bootstrap, setBootstrap] = useState(null);
   const [catalogue, setCatalogue] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -142,6 +183,10 @@ export default function QclubLedgerPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
+  const [memberCheck, setMemberCheck] = useState(null);
+  const [ledgerSearch, setLedgerSearch] = useState("");
+  const [ledgerStatus, setLedgerStatus] = useState("ALL");
+  const [ledgerDate, setLedgerDate] = useState("");
   const [startForm, setStartForm] = useState({
     gameType: "NORMAL_SNOOKER",
     customerName: "",
@@ -165,6 +210,7 @@ export default function QclubLedgerPage() {
     sessionStorage.removeItem(AUTH_KEY);
     setAuth(null);
     setBootstrap(null);
+    setSummary(null);
     setSessions([]);
     setAllSessions([]);
     setSessionDetails({});
@@ -173,6 +219,15 @@ export default function QclubLedgerPage() {
     setUpiOrder(null);
     if (message) flash(message, true);
   }, [flash]);
+
+  const handleLogout = useCallback(async function() {
+    try {
+      if (token) await apiRequest("auth/logout", { method: "POST", token: token });
+    } catch {
+      // Local logout still proceeds if the network is unavailable.
+    }
+    logout();
+  }, [logout, token]);
 
   const protectedCall = useCallback(async function(path, options) {
     try {
@@ -204,9 +259,10 @@ export default function QclubLedgerPage() {
         protectedCall("bootstrap"),
         protectedCall("catalogue"),
         protectedCall("inventory"),
-        protectedCall("sessions?scope=active&limit=100"),
-        protectedCall("bills?limit=100"),
-        protectedCall("sessions?limit=200"),
+        protectedCall("sessions?scope=active&limit=200"),
+        protectedCall("bills?limit=500"),
+        protectedCall("sessions?limit=500"),
+        protectedCall("dashboard/summary"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -215,7 +271,9 @@ export default function QclubLedgerPage() {
       const sessionPayload = values[4];
       const billPayload = values[5];
       const allPayload = values[6];
+      const summaryPayload = values[7];
       setHealth(h);
+      setSummary(summaryPayload);
       setBootstrap(boot);
       setCatalogue((cat && (cat.items || cat.catalogue)) || []);
       setInventory((inv && (inv.items || inv.inventory)) || []);
@@ -297,13 +355,42 @@ export default function QclubLedgerPage() {
     });
   }, [bills]);
 
-  const todaySales = todayBills.reduce(function(sum, bill) { return sum + Number(bill.paid_inr || 0); }, 0);
-  const outstanding = bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
+  const todaySales = summary ? Number(summary.today_realized_sales_inr || 0) : todayBills.reduce(function(sum, bill) { return sum + Number(bill.paid_inr || 0); }, 0);
+  const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
+  const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
+
+  const filteredBills = useMemo(function() {
+    const query = ledgerSearch.trim().toLowerCase();
+    return bills.filter(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      const haystack = [
+        bill.bill_no,
+        bill.bill_id,
+        session && session.customer_name,
+        session && session.customer_phone,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (ledgerStatus !== "ALL" && bill.status !== ledgerStatus) return false;
+      if (ledgerDate) {
+        const value = bill.finalized_at || bill.created_at;
+        if (!value) return false;
+        const date = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date(value));
+        if (date !== ledgerDate) return false;
+      }
+      return true;
+    });
+  }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup]);
 
   function openStart(table) {
     const options = allowedGames(table, rules);
     setStartTable(table);
+    setMemberCheck(null);
     setStartForm({
       gameType: (options[0] && options[0].game_type) || "NORMAL_SNOOKER",
       customerName: "",
@@ -311,6 +398,67 @@ export default function QclubLedgerPage() {
       isMember: false,
       participants: "",
     });
+  }
+
+  async function verifyStartMember() {
+    if (!startForm.customerName.trim() && !startForm.customerPhone.trim()) {
+      flash("Enter the customer name or mobile number first.", true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await protectedCall(
+        "members/verify?phone=" + encodeURIComponent(startForm.customerPhone.trim()) +
+        "&name=" + encodeURIComponent(startForm.customerName.trim())
+      );
+      setMemberCheck(result);
+      setStartForm({ ...startForm, isMember: Boolean(result && result.verified) });
+      if (result && result.verified) {
+        flash("Membership verified" + (result.member && result.member.tier ? ": " + result.member.tier : "") + ".");
+      } else {
+        flash("No active membership found. Walk-in rate will be used.", true);
+      }
+    } catch (error) {
+      setMemberCheck(null);
+      setStartForm({ ...startForm, isMember: false });
+      flash(error.message || "Unable to verify membership.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function editSession(session) {
+    const name = window.prompt("Customer / Host name:", session.customer_name || "");
+    if (name == null || !name.trim()) return;
+    const phone = window.prompt("WhatsApp mobile (10 digits):", session.customer_phone || "");
+    if (phone == null) return;
+    const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      flash("Enter a valid 10-digit mobile number.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const membership = await protectedCall(
+        "members/verify?phone=" + encodeURIComponent(normalizedPhone) +
+        "&name=" + encodeURIComponent(name.trim())
+      );
+      await protectedCall("sessions/" + session.session_id, {
+        method: "PATCH",
+        body: {
+          customer_name: name.trim(),
+          customer_phone: normalizedPhone,
+          is_member: Boolean(membership && membership.verified),
+        },
+      });
+      flash(membership && membership.verified ? "Customer updated and membership verified." : "Customer updated. Walk-in rate applies.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to update customer.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function createSession() {
@@ -387,15 +535,41 @@ export default function QclubLedgerPage() {
   }
 
   async function voidGame(game) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to void a completed game.", true);
+      return;
+    }
     const reason = window.prompt("Reason for voiding this completed game:");
     if (!reason || !reason.trim()) return;
     setBusy(true);
     try {
-      await protectedCall("games/" + game.id + "/void", { method: "POST", body: { reason: reason.trim() } });
+      await protectedCall("games/" + game.id + "/void-admin", { method: "POST", body: { reason: reason.trim() } });
       flash("Game voided with audit reason.");
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voidFnbLine(line) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to void an F&B line.", true);
+      return;
+    }
+    const reason = window.prompt("Reason for voiding " + (line.item_name_snapshot || "this F&B item") + ":");
+    if (!reason || !reason.trim()) return;
+    setBusy(true);
+    try {
+      await protectedCall("fnb-lines/" + line.id + "/void-admin", {
+        method: "POST",
+        body: { reason: reason.trim(), return_stock: true },
+      });
+      flash("F&B line voided and tracked stock returned.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to void F&B item.", true);
     } finally {
       setBusy(false);
     }
@@ -568,20 +742,114 @@ export default function QclubLedgerPage() {
     const session = sessionLookup[billDetail.session_id];
     setBusy(true);
     try {
+      let payment = upiOrder;
+      if (Number(billDetail.due_inr || 0) > 0 && (!payment || payment.status !== "PENDING")) {
+        payment = await protectedCall("payments/upi", {
+          method: "POST",
+          body: {
+            bill_id: billDetail.bill_id,
+            amount_inr: Number(billDetail.due_inr || 0),
+            customer_phone: (session && session.customer_phone) || "",
+            customer_name: (session && session.customer_name) || "",
+            idempotency_key: makeKey("receipt-upi"),
+          },
+        });
+        setUpiOrder(payment);
+      }
+
       await protectedCall("notifications/receipt", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
           phone: (session && session.customer_phone) || "",
+          payment_id: payment && payment.payment_id ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
       });
-      flash("Receipt submitted to MSG91.");
+      flash(payment && payment.payment_url ? "Receipt and Cashfree payment link submitted to MSG91." : "Receipt submitted to MSG91.");
+      await refreshBillDetail();
     } catch (error) {
       flash(error.message, true);
     } finally {
       setBusy(false);
     }
+  }
+
+  function printReceipt() {
+    if (!billDetail) return;
+    const session = sessionLookup[billDetail.session_id];
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      flash("Pop-up blocked. Allow pop-ups to print the receipt.", true);
+      return;
+    }
+    popup.document.open();
+    popup.document.write(receiptHtml(billDetail, session));
+    popup.document.close();
+  }
+
+  function downloadReceipt() {
+    if (!billDetail) return;
+    const session = sessionLookup[billDetail.session_id];
+    const filename = (billDetail.bill_no || "qclub-receipt").replace(/[^a-z0-9_-]+/gi, "_") + ".html";
+    downloadBlob(filename, receiptHtml(billDetail, session), "text/html;charset=utf-8");
+  }
+
+  function exportLedgerCsv(rows) {
+    const selected = rows || filteredBills;
+    const header = ["Bill No", "Customer", "Mobile", "Finalized", "Status", "Game/Table", "F&B", "Discount", "Total", "Paid", "Due"];
+    const lines = [header.map(csvCell).join(",")];
+    selected.forEach(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      lines.push([
+        bill.bill_no || bill.bill_id,
+        (session && session.customer_name) || "",
+        (session && session.customer_phone) || "",
+        bill.finalized_at || bill.created_at || "",
+        bill.status,
+        bill.game_total_inr,
+        bill.fnb_total_inr,
+        bill.discount_inr,
+        bill.total_inr,
+        bill.paid_inr,
+        bill.due_inr,
+      ].map(csvCell).join(","));
+    });
+    downloadBlob("qclub-ledger-" + (ledgerDate || "export") + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
+  }
+
+  function printDailyClosing() {
+    const businessDate = (summary && summary.business_date) || new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(new Date());
+    const rows = bills.filter(function(bill) {
+      const value = bill.finalized_at || bill.created_at;
+      if (!value) return false;
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+      }).format(new Date(value)) === businessDate;
+    });
+    const body = rows.map(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      return "<tr><td>" + escapeHtml(bill.bill_no || bill.bill_id) + "</td><td>" +
+        escapeHtml((session && session.customer_name) || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
+        "</td><td style='text-align:right'>" + money(bill.paid_inr) + "</td><td style='text-align:right'>" + money(bill.due_inr) + "</td></tr>";
+    }).join("");
+    const html = "<!doctype html><html><head><meta charset='utf-8'><title>Q Club Daily Closing " + escapeHtml(businessDate) +
+      "</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:24px auto}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.stats{display:flex;gap:18px;flex-wrap:wrap;margin:18px 0}.stats div{border:1px solid #ddd;padding:10px 14px;border-radius:8px}</style></head><body><h1>The Q Club Pasighat</h1><h2>Daily Closing — " +
+      escapeHtml(businessDate) + "</h2><div class='stats'><div>Finalized bills: <b>" + escapeHtml(summary && summary.today_finalized_bills) +
+      "</b></div><div>Cash: <b>" + money(summary && summary.today_cash_inr) + "</b></div><div>UPI: <b>" + money(summary && summary.today_upi_inr) +
+      "</b></div><div>Realized: <b>" + money(summary && summary.today_realized_sales_inr) + "</b></div><div>Total outstanding: <b>" +
+      money(summary && summary.outstanding_all_inr) + "</b></div></div><table><thead><tr><th>Bill</th><th>Customer</th><th style='text-align:right'>Total</th><th style='text-align:right'>Paid</th><th style='text-align:right'>Due</th></tr></thead><tbody>" +
+      body + "</tbody></table><script>window.onload=function(){window.print();}</script></body></html>";
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      flash("Pop-up blocked. Allow pop-ups to print the daily closing.", true);
+      return;
+    }
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
   }
 
   async function adminInventory(item, mode) {
@@ -672,7 +940,7 @@ export default function QclubLedgerPage() {
             <span className={"ql-pill " + (health && health.cashfree_ready ? "good" : "warn")}>Cashfree {health && health.cashfree_ready ? "READY" : "CHECK"}</span>
             <span className={"ql-pill " + (health && health.msg91_ready ? "good" : "warn")}>MSG91 {health && health.msg91_ready ? "READY" : "CHECK"}</span>
             <span className="ql-pill">{auth.displayName || role}</span>
-            <button className="ql-btn ghost" onClick={function() { logout(); }}>Logout</button>
+            <button className="ql-btn ghost" onClick={handleLogout}>Logout</button>
           </div>
         </div>
 
@@ -692,9 +960,9 @@ export default function QclubLedgerPage() {
           <>
             <div className="ql-stat-grid">
               <div className="ql-stat"><span className="ql-muted">Active tables</span><strong>{sessions.filter(function(s) { return ["ACTIVE", "PAUSED"].includes(s.status); }).length}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayBills.length}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Outstanding recent ledger</span><strong>{money(outstanding)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
             </div>
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
@@ -741,7 +1009,19 @@ export default function QclubLedgerPage() {
                               return (
                                 <div className="ql-line ql-space" key={game.id}>
                                   <div className="ql-muted">Game #{game.game_number} • {game.player_count_snapshot} player(s) • {money(game.calculated_charge_inr)}</div>
-                                  {game.status !== "VOIDED" ? <button className="ql-btn danger" onClick={function() { voidGame(game); }}>Void</button> : <span className="ql-badge bad">VOIDED</span>}
+                                  {game.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidGame(game); }}>Void</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        {fnb.length ? (
+                          <div className="ql-list" style={{ marginTop: 9 }}>
+                            {fnb.slice(-3).map(function(line) {
+                              return (
+                                <div className="ql-line ql-space" key={line.id}>
+                                  <div className="ql-muted">{line.item_name_snapshot || "F&B"} × {line.quantity} • {money(line.line_total_inr)}</div>
+                                  {line.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidFnbLine(line); }}>Void F&B</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
                                 </div>
                               );
                             })}
@@ -751,6 +1031,7 @@ export default function QclubLedgerPage() {
                           {rule && rule.billing_mode === "PER_PLAYER_PER_GAME" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { recordGame(session); }}>✓ Game Complete</button> : null}
                           {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                           {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
+                          <button className="ql-btn" onClick={function() { editSession(session); }}>Edit Customer</button>
                           <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setTab("fnb"); }}>+ F&B</button>
                           <button className="ql-btn primary" onClick={function() { finalizeBill(session); }}>Settle & Pay</button>
                         </div>
@@ -818,9 +1099,34 @@ export default function QclubLedgerPage() {
         {tab === "ledger" ? (
           <div className="ql-grid">
             <div className="ql-card" style={{ gridColumn: "span 5" }}>
-              <div className="ql-space"><div><h3>Recent bills</h3><div className="ql-muted">Server ledger</div></div><span className="ql-badge">{bills.length}</span></div>
+              <div className="ql-space"><div><h3>Ledger history</h3><div className="ql-muted">Search customer, mobile or bill number</div></div><span className="ql-badge">{filteredBills.length}/{bills.length}</span></div>
+              <div className="ql-form-grid" style={{ marginTop: 12 }}>
+                <div className="full">
+                  <label className="ql-label">Search</label>
+                  <input className="ql-input" value={ledgerSearch} onChange={function(e) { setLedgerSearch(e.target.value); }} placeholder="Name, mobile, bill no." />
+                </div>
+                <div>
+                  <label className="ql-label">Status</label>
+                  <select className="ql-select" value={ledgerStatus} onChange={function(e) { setLedgerStatus(e.target.value); }}>
+                    <option value="ALL">All</option>
+                    <option value="PAID">Paid</option>
+                    <option value="UNPAID">Unpaid</option>
+                    <option value="PARTIALLY_PAID">Partially paid</option>
+                    <option value="PAYMENT_PENDING">Payment pending</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="ql-label">Business date</label>
+                  <input className="ql-input" type="date" value={ledgerDate} onChange={function(e) { setLedgerDate(e.target.value); }} />
+                </div>
+              </div>
+              <div className="ql-row" style={{ marginTop: 10 }}>
+                <button className="ql-btn" onClick={function() { exportLedgerCsv(filteredBills); }}>Export CSV</button>
+                <button className="ql-btn gold" onClick={printDailyClosing}>Print Daily Closing</button>
+                <button className="ql-btn ghost" onClick={function() { setLedgerSearch(""); setLedgerStatus("ALL"); setLedgerDate(""); }}>Clear</button>
+              </div>
               <div className="ql-list" style={{ marginTop: 12, maxHeight: "70vh", overflow: "auto" }}>
-                {bills.length ? bills.map(function(bill) {
+                {filteredBills.length ? filteredBills.map(function(bill) {
                   const session = sessionLookup[bill.session_id];
                   return (
                     <button key={bill.bill_id} className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")} style={{ color: "inherit", textAlign: "left", cursor: "pointer" }} onClick={function() { loadBill(bill.bill_id); }}>
@@ -829,7 +1135,7 @@ export default function QclubLedgerPage() {
                       <div className="ql-space" style={{ marginTop: 5 }}><span>{money(bill.total_inr)}</span><span className="ql-muted">Due {money(bill.due_inr)}</span></div>
                     </button>
                   );
-                }) : <div className="ql-empty">No bills yet.</div>}
+                }) : <div className="ql-empty">No bills match these filters.</div>}
               </div>
             </div>
 
@@ -847,6 +1153,11 @@ export default function QclubLedgerPage() {
                     <div className="ql-stat"><span className="ql-muted">Due</span><strong>{money(billDetail.due_inr)}</strong></div>
                   </div>
                   {Number(billDetail.discount_inr) > 0 ? <div className="ql-muted" style={{ marginTop: 8 }}>Discount: {money(billDetail.discount_inr)}</div> : null}
+                  <div className="ql-row" style={{ marginTop: 12 }}>
+                    <button className="ql-btn" onClick={printReceipt}>Print / Save PDF</button>
+                    <button className="ql-btn" onClick={downloadReceipt}>Download Receipt HTML</button>
+                    <button className="ql-btn ghost" onClick={refreshBillDetail}>Refresh Bill</button>
+                  </div>
 
                   <div className="ql-section">Payments — Cash / UPI / Split</div>
                   <div className="ql-paybox">
@@ -867,8 +1178,8 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>WhatsApp receipt is sent by the backend through MSG91. No local WhatsApp compose screen.</div>
-                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>Send Receipt via MSG91</button>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>If money is due, the backend creates/reuses a Cashfree checkout and includes its signed payment link in the MSG91 receipt.</div>
+                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>Send Receipt + Payment Link</button>
                     </div>
                   </div>
 
@@ -878,7 +1189,10 @@ export default function QclubLedgerPage() {
                         <div><strong>Cashfree UPI Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
-                      <div className="ql-row" style={{ marginTop: 10 }}><button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Verification</button></div>
+                      <div className="ql-row" style={{ marginTop: 10 }}>
+                        <button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Verification</button>
+                        {upiOrder.payment_url ? <a className="ql-btn gold" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Customer Pay Link</a> : null}
+                      </div>
                     </div>
                   ) : null}
 
@@ -943,21 +1257,30 @@ export default function QclubLedgerPage() {
               </div>
               <div>
                 <label className="ql-label">Customer / Host name</label>
-                <input className="ql-input" value={startForm.customerName} onChange={function(e) { setStartForm({ ...startForm, customerName: e.target.value }); }} placeholder="Player name" />
+                <input className="ql-input" value={startForm.customerName} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerName: e.target.value, isMember: false }); }} placeholder="Player name" />
               </div>
               <div>
                 <label className="ql-label">WhatsApp mobile (10 digits)</label>
-                <input className="ql-input" inputMode="numeric" value={startForm.customerPhone} onChange={function(e) { setStartForm({ ...startForm, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10) }); }} placeholder="9876543210" />
+                <input className="ql-input" inputMode="numeric" value={startForm.customerPhone} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10), isMember: false }); }} placeholder="9876543210" />
               </div>
               <div className="full">
                 <label className="ql-label">Additional participants (comma separated)</label>
                 <input className="ql-input" value={startForm.participants} onChange={function(e) { setStartForm({ ...startForm, participants: e.target.value }); }} placeholder="Player 2, Player 3" />
               </div>
               <div className="full ql-line">
-                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={startForm.isMember} onChange={function(e) { setStartForm({ ...startForm, isMember: e.target.checked }); }} />
-                  <span><strong>Q Club Member</strong><div className="ql-muted">Use member hourly rate where configured.</div></span>
-                </label>
+                <div className="ql-space">
+                  <div>
+                    <strong>{startForm.isMember ? "✓ Verified Q Club Member" : "Membership check"}</strong>
+                    <div className="ql-muted">
+                      {memberCheck && memberCheck.verified
+                        ? ((memberCheck.member && memberCheck.member.tier ? memberCheck.member.tier + " • " : "") + "valid until " + ((memberCheck.member && memberCheck.member.valid_until) || "not specified"))
+                        : memberCheck
+                          ? "No active matching membership. Walk-in rate will be used."
+                          : "Member rate is applied only after a server-side registry match."}
+                    </div>
+                  </div>
+                  <button type="button" className={startForm.isMember ? "ql-btn gold" : "ql-btn"} disabled={busy} onClick={verifyStartMember}>Verify Member</button>
+                </div>
               </div>
             </div>
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>

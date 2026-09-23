@@ -140,12 +140,14 @@ async function login(req, res) {
   }
 
   const admin = await legacyAdminConfig(supabase);
-  const adminPins = [admin.mainPin, admin.pin, admin.committeePin].filter(Boolean).map(String);
-  const staffPins = [admin.staffPin].filter(Boolean).map(String);
+  const candidates = [
+    { pin: admin.mainPin || admin.pin, role: "ADMIN", staffId: "admin-main", displayName: admin.adminName || "Q Club Admin" },
+    { pin: admin.committeePin, role: "ADMIN", staffId: "admin-committee", displayName: admin.committeeName || "Committee Admin" },
+    { pin: admin.staffPin, role: "STAFF", staffId: "staff-game-marshall", displayName: admin.staffName || "Game Marshall" },
+  ].filter((candidate) => candidate.pin);
 
-  let role = "";
-  if (adminPins.some((candidate) => secureEqual(pin, candidate))) role = "ADMIN";
-  else if (staffPins.some((candidate) => secureEqual(pin, candidate))) role = "STAFF";
+  const matched = candidates.find((candidate) => secureEqual(pin, String(candidate.pin))) || null;
+  const role = matched?.role || "";
 
   await supabase.from("snooker_auth_login_attempts").insert({
     ip_hash: ipHash,
@@ -154,13 +156,13 @@ async function login(req, res) {
     role: role || null,
   });
 
-  if (!role) return json(res, 401, { ok: false, error: "INVALID_PIN" });
+  if (!matched) return json(res, 401, { ok: false, error: "INVALID_PIN" });
 
   const rawToken = `snk_${randomBytes(32).toString("base64url")}`;
   const ttlHours = Math.min(720, Math.max(1, number(env("SNOOKER_AUTH_TTL_HOURS"), 72)));
   const expiresAt = new Date(Date.now() + ttlHours * 3600_000).toISOString();
-  const displayName = role === "ADMIN" ? "Q Club Admin" : "Q Club Staff";
-  const staffId = role === "ADMIN" ? "admin" : "staff";
+  const displayName = matched.displayName;
+  const staffId = matched.staffId;
 
   const { error } = await supabase.from("snooker_auth_sessions").insert({
     token_hash: hashToken(rawToken),
@@ -179,6 +181,179 @@ async function login(req, res) {
     role,
     staff_id: staffId,
     display_name: displayName,
+  });
+}
+
+async function logout(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("snooker_auth_sessions")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", auth.id);
+  if (error) throw error;
+  return json(res, 200, { ok: true, revoked: true });
+}
+
+function indiaDateString(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function indiaDayBounds(value = new Date()) {
+  const day = indiaDateString(value);
+  const [year, month, date] = day.split("-").map(Number);
+  const startMs = Date.UTC(year, month - 1, date, 0, 0, 0) - (330 * 60_000);
+  return {
+    day,
+    start: new Date(startMs).toISOString(),
+    end: new Date(startMs + 24 * 60 * 60_000).toISOString(),
+  };
+}
+
+async function memberRegistry(supabase) {
+  const { data, error } = await supabase
+    .from("qclub_state")
+    .select("state")
+    .eq("key", "main")
+    .maybeSingle();
+  if (error) throw error;
+  return Array.isArray(data?.state?.memberRegistry) ? data.state.memberRegistry : [];
+}
+
+async function verifyMemberRecord(supabase, { phone = "", name = "" } = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedName = safeText(name, 160).toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalizedPhone && !normalizedName) return { verified: false, reason: "MEMBER_IDENTITY_REQUIRED", member: null };
+
+  const registry = await memberRegistry(supabase);
+  const member = registry.find((entry) => {
+    const entryPhone = normalizePhone(entry?.mobile || entry?.phone || "");
+    const entryName = safeText(entry?.name || entry?.full_name || "", 160).toLowerCase().replace(/\s+/g, " ").trim();
+    if (normalizedPhone && entryPhone) return normalizedPhone === entryPhone;
+    return Boolean(normalizedName && entryName && normalizedName === entryName);
+  }) || null;
+
+  if (!member) return { verified: false, reason: "MEMBER_NOT_FOUND", member: null };
+  const status = safeText(member.status || "active", 40).toLowerCase();
+  const validUntil = safeText(member.validUntil || member.valid_until || "", 20);
+  const validFrom = safeText(member.validFrom || member.valid_from || member.joinedOn || "", 20);
+  const today = indiaDateString();
+  const active = status === "active" && (!validFrom || validFrom <= today) && (!validUntil || validUntil >= today);
+  return {
+    verified: active,
+    reason: active ? null : "MEMBERSHIP_INACTIVE_OR_EXPIRED",
+    member: {
+      id: safeText(member.id || member.member_number || "", 100) || null,
+      name: safeText(member.name || member.full_name || "", 160) || null,
+      mobile: normalizePhone(member.mobile || member.phone || "") || null,
+      tier: safeText(member.tier || member.tier_name || "", 80) || null,
+      status,
+      valid_until: validUntil || null,
+    },
+  };
+}
+
+async function verifyMember(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const result = await verifyMemberRecord(getSupabaseAdmin(), {
+    phone: req.query?.phone,
+    name: req.query?.name,
+  });
+  return json(res, 200, result);
+}
+
+function paymentLinkSecret() {
+  return env("QCLUB_PAYMENT_LINK_SECRET") || env("CASHFREE_SECRET_KEY");
+}
+
+function paymentLinkSignature(payment) {
+  const secret = paymentLinkSecret();
+  if (!secret || !payment) return "";
+  return createHmac("sha256", secret)
+    .update(`${payment.id}|${payment.bill_id}|${payment.expires_at || ""}`)
+    .digest("base64url");
+}
+
+function paymentLinkUrl(payment) {
+  const signature = paymentLinkSignature(payment);
+  if (!signature) return "";
+  const siteUrl = safeText(env("QCLUB_SITE_URL") || "https://www.theqclubpasighat.com", 240).replace(/\/$/, "");
+  return `${siteUrl}/QclubPay?payment_id=${encodeURIComponent(payment.id)}&sig=${encodeURIComponent(signature)}`;
+}
+
+async function publicPaymentSession(req, res, paymentId) {
+  const supabase = getSupabaseAdmin();
+  const signature = safeText(req.query?.sig || "", 500);
+  const { data } = await supabase.from("snooker_bill_payments").select("*").eq("id", paymentId).maybeSingle();
+  if (!data || data.method !== "UPI" || !signature || !secureEqual(signature, paymentLinkSignature(data))) {
+    return json(res, 404, { ok: false, error: "PAYMENT_LINK_NOT_FOUND" });
+  }
+
+  let payment = data;
+  if (payment.status === "PENDING") payment = await syncCashfreePayment(supabase, payment);
+  const expired = payment.expires_at && Date.parse(payment.expires_at) <= Date.now();
+  if (expired && payment.status === "PENDING") {
+    const { data: updated } = await supabase
+      .from("snooker_bill_payments")
+      .update({ status: "EXPIRED", updated_at: new Date().toISOString() })
+      .eq("id", payment.id)
+      .select("*")
+      .single();
+    payment = updated || payment;
+  }
+
+  const { data: bill } = await supabase.from("snooker_bills").select("bill_no,status,due_inr").eq("id", payment.bill_id).maybeSingle();
+  return json(res, 200, {
+    ok: true,
+    payment_id: payment.id,
+    bill_no: bill?.bill_no || null,
+    bill_status: bill?.status || null,
+    amount_inr: money(payment.amount_inr),
+    status: payment.status,
+    expires_at: payment.expires_at,
+    order_id: payment.cashfree_order_id,
+    payment_session_id: payment.status === "PENDING" && !expired ? payment.payment_session_id : null,
+  });
+}
+
+async function dashboardSummary(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const bounds = indiaDayBounds();
+
+  const [
+    { data: todayBills, error: billError },
+    { data: cashPayments, error: cashError },
+    { data: upiPayments, error: upiError },
+    { data: outstandingBills, error: outstandingError },
+  ] = await Promise.all([
+    supabase.from("snooker_bills").select("id").gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bills").select("due_inr").gt("due_inr", 0),
+  ]);
+  if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
+
+  const cash = (cashPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const upi = (upiPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const outstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
+  return json(res, 200, {
+    business_date: bounds.day,
+    today_finalized_bills: (todayBills || []).length,
+    today_cash_inr: money(cash),
+    today_upi_inr: money(upi),
+    today_realized_sales_inr: money(cash + upi),
+    outstanding_all_inr: money(outstanding),
   });
 }
 
@@ -398,7 +573,7 @@ async function listSessions(req, res) {
   const supabase = getSupabaseAdmin();
   const scope = safeText(req.query?.scope || "", 30).toLowerCase();
   const requestedLimit = Math.floor(number(req.query?.limit, 100));
-  const limit = Math.min(250, Math.max(1, requestedLimit || 100));
+  const limit = Math.min(500, Math.max(1, requestedLimit || 100));
 
   let query = supabase
     .from("snooker_sessions")
@@ -440,13 +615,25 @@ async function createSession(req, res) {
     .maybeSingle();
   if (active) return json(res, 409, { ok: false, error: "TABLE_ALREADY_ACTIVE", session_id: active.id });
 
+  const customerName = safeText(req.body?.customer_name || req.body?.customerName || "", 160) || null;
+  const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
+  const requestedMember = Boolean(req.body?.is_member ?? req.body?.isMember ?? false);
+  let isMember = false;
+  if (requestedMember) {
+    const verification = await verifyMemberRecord(supabase, { phone: customerPhone, name: customerName });
+    if (!verification.verified) {
+      return json(res, 409, { ok: false, error: "MEMBERSHIP_NOT_VERIFIED", reason: verification.reason });
+    }
+    isMember = true;
+  }
+
   const now = new Date().toISOString();
   const { data, error } = await supabase.from("snooker_sessions").insert({
     table_id: tableId,
     game_type: gameType,
-    customer_name: safeText(req.body?.customer_name || req.body?.customerName || "", 160) || null,
-    customer_phone: normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null,
-    is_member: Boolean(req.body?.is_member ?? req.body?.isMember ?? false),
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    is_member: isMember,
     participant_ids: Array.isArray(req.body?.participant_ids) ? req.body.participant_ids : (Array.isArray(req.body?.participantIds) ? req.body.participantIds : []),
     participant_names: Array.isArray(req.body?.participant_names) ? req.body.participant_names : (Array.isArray(req.body?.participantNames) ? req.body.participantNames : []),
     started_at: now,
@@ -503,8 +690,28 @@ async function updateSession(req, res, sessionId) {
   if (Array.isArray(req.body?.participant_names)) patch.participant_names = req.body.participant_names;
   if (req.body?.customer_name !== undefined) patch.customer_name = safeText(req.body.customer_name, 160) || null;
   if (req.body?.customer_phone !== undefined) patch.customer_phone = normalizePhone(req.body.customer_phone) || null;
-  if (req.body?.is_member !== undefined) patch.is_member = Boolean(req.body.is_member);
   if (req.body?.client_revision !== undefined) patch.client_revision = safeText(req.body.client_revision, 120) || null;
+
+  const identityChanged = req.body?.customer_name !== undefined || req.body?.customer_phone !== undefined;
+  const requestedMember = req.body?.is_member !== undefined ? Boolean(req.body.is_member) : Boolean(current.is_member);
+  if (req.body?.is_member !== undefined || (identityChanged && current.is_member)) {
+    if (requestedMember) {
+      const verification = await verifyMemberRecord(supabase, {
+        phone: patch.customer_phone ?? current.customer_phone,
+        name: patch.customer_name ?? current.customer_name,
+      });
+      if (!verification.verified) {
+        if (req.body?.is_member !== undefined) {
+          return json(res, 409, { ok: false, error: "MEMBERSHIP_NOT_VERIFIED", reason: verification.reason });
+        }
+        patch.is_member = false;
+      } else {
+        patch.is_member = true;
+      }
+    } else {
+      patch.is_member = false;
+    }
+  }
 
   const now = new Date();
   if (action === "PAUSE" && current.timer_running) {
@@ -590,8 +797,8 @@ async function recordGame(req, res, sessionId) {
   return json(res, 201, response);
 }
 
-async function voidGame(req, res, gameId) {
-  const auth = await requireAuth(req, res);
+async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
+  const auth = await requireAuth(req, res, roles);
   if (!auth) return;
   const reason = safeText(req.body?.reason || req.body?.void_reason || "", 500);
   if (!reason) return json(res, 400, { ok: false, error: "VOID_REASON_REQUIRED" });
@@ -733,8 +940,8 @@ async function addFnb(req, res, sessionId) {
   return json(res, 201, response);
 }
 
-async function voidFnb(req, res, lineId) {
-  const auth = await requireAuth(req, res);
+async function voidFnb(req, res, lineId, roles = ["STAFF", "ADMIN"]) {
+  const auth = await requireAuth(req, res, roles);
   if (!auth) return;
   const reason = safeText(req.body?.reason || req.body?.void_reason || "", 500);
   if (!reason) return json(res, 400, { ok: false, error: "VOID_REASON_REQUIRED" });
@@ -953,7 +1160,7 @@ async function listBills(req, res) {
   if (!auth) return;
   const supabase = getSupabaseAdmin();
   const requestedLimit = Math.floor(number(req.query?.limit, 100));
-  const limit = Math.min(250, Math.max(1, requestedLimit || 100));
+  const limit = Math.min(500, Math.max(1, requestedLimit || 100));
   const { data, error } = await supabase
     .from("snooker_bills")
     .select("*")
@@ -1071,6 +1278,34 @@ async function upiPayment(req, res) {
   const amount = money(req.body?.amount_inr ?? due);
   if (amount <= 0 || amount > due) return json(res, 400, { ok: false, error: "INVALID_UPI_AMOUNT", due_inr: due });
 
+  const { data: reusable } = await supabase
+    .from("snooker_bill_payments")
+    .select("*")
+    .eq("bill_id", billId)
+    .eq("method", "UPI")
+    .eq("status", "PENDING")
+    .eq("amount_inr", amount)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (reusable?.payment_session_id && reusable?.qr_payload) {
+    const response = {
+      payment_id: reusable.id,
+      bill_id: billId,
+      amount_inr: money(reusable.amount_inr),
+      order_id: reusable.cashfree_order_id,
+      payment_session_id: reusable.payment_session_id,
+      qr_payload: reusable.qr_payload,
+      payment_url: paymentLinkUrl(reusable),
+      status: reusable.status,
+      expires_at: reusable.expires_at,
+      reused: true,
+    };
+    await rememberIdempotent(supabase, key, "upi_payment", reusable.id, response);
+    return json(res, 200, response);
+  }
+
   const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
   const phone = normalizePhone(req.body?.customer_phone || session?.customer_phone || "");
   if (!phone) return json(res, 409, { ok: false, error: "CUSTOMER_PHONE_REQUIRED_FOR_UPI" });
@@ -1171,6 +1406,7 @@ async function upiPayment(req, res) {
     order_id: orderId,
     payment_session_id: sessionId,
     qr_payload: qrPayload,
+    payment_url: paymentLinkUrl(payment),
     status: "PENDING",
     expires_at: expiresAt,
   };
@@ -1289,7 +1525,34 @@ async function sendReceipt(req, res) {
   const template = env("MSG91_SNOOKER_RECEIPT_TEMPLATE") || env("MSG91_FOOD_SUCCESS_TEMPLATE") || "food_success_items";
   if (!authKey || !sender || !template) return json(res, 503, { ok: false, error: "MSG91_NOT_CONFIGURED" });
 
-  const summary = (bill.items || []).slice(0, 12).map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`).join("\n") || "Q Club bill";
+  let linkedPayment = null;
+  const requestedPaymentId = safeText(req.body?.payment_id || "", 100);
+  if (requestedPaymentId) {
+    const { data } = await supabase
+      .from("snooker_bill_payments")
+      .select("*")
+      .eq("id", requestedPaymentId)
+      .eq("bill_id", billId)
+      .maybeSingle();
+    linkedPayment = data || null;
+  }
+  if (!linkedPayment && number(bill.due_inr) > 0) {
+    const { data } = await supabase
+      .from("snooker_bill_payments")
+      .select("*")
+      .eq("bill_id", billId)
+      .eq("method", "UPI")
+      .eq("status", "PENDING")
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    linkedPayment = data || null;
+  }
+
+  const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
+  const summaryBase = (bill.items || []).slice(0, 12).map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`).join("\n") || "Q Club bill";
+  const summary = paymentUrlValue ? `${summaryBase}\nPay securely: ${paymentUrlValue}` : summaryBase;
   const customer = safeText(session?.customer_name || "Customer", 120) || "Customer";
   const params = [customer, bill.bill_no, summary, String(money(bill.total_inr))];
   const payload = {
@@ -1394,12 +1657,16 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "POST" && path === "auth/login") return await login(req, res);
+    if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
+    if (parts[0] === "payments" && parts[1] === "public" && parts[2] && method === "GET") return await publicPaymentSession(req, res, parts[2]);
 
     if (method === "GET" && path === "bootstrap") return await bootstrap(req, res);
     if (method === "GET" && path === "game-rules") return await gameRules(req, res);
     if (method === "GET" && path === "catalogue") return await catalogue(req, res);
     if (method === "GET" && path === "inventory") return await inventory(req, res);
+    if (method === "GET" && path === "members/verify") return await verifyMember(req, res);
+    if (method === "GET" && path === "dashboard/summary") return await dashboardSummary(req, res);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
@@ -1408,6 +1675,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "sessions" && parts[1] && parts[2] === "games" && method === "POST") return await recordGame(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts[2] === "fnb" && method === "POST") return await addFnb(req, res, parts[1]);
 
+    if (parts[0] === "games" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
+    if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1]);
 

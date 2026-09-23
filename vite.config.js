@@ -7,6 +7,20 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [
+          /^\/QclubLedger(?:\/|$)/i,
+          /^\/QclubPay(?:\/|$)/i,
+          /^\/api\/snooker\/v1(?:\/|$)/i,
+        ],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/snooker/v1/'),
+            handler: 'NetworkOnly',
+          },
+        ],
+      },
       includeAssets: [
         'apple-touch-icon.png',
         'maskable-icon.png',
