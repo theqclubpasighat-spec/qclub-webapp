@@ -192,6 +192,7 @@ export default function QclubLedgerPage() {
   const [allSessions, setAllSessions] = useState([]);
   const [sessionDetails, setSessionDetails] = useState({});
   const [bills, setBills] = useState([]);
+  const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -240,6 +241,7 @@ export default function QclubLedgerPage() {
     setAllSessions([]);
     setSessionDetails({});
     setBills([]);
+    setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setBillDetail(null);
     setUpiOrder(null);
     setShowUpiQrModal(false);
@@ -289,6 +291,7 @@ export default function QclubLedgerPage() {
         protectedCall("bills?limit=500"),
         protectedCall("sessions?limit=500"),
         protectedCall("dashboard/summary"),
+        protectedCall("operations/inbox"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -298,6 +301,7 @@ export default function QclubLedgerPage() {
       const billPayload = values[5];
       const allPayload = values[6];
       const summaryPayload = values[7];
+      const operationsPayload = values[8];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -307,6 +311,7 @@ export default function QclubLedgerPage() {
       setSessions(openRows);
       setAllSessions((allPayload && allPayload.sessions) || []);
       setBills((billPayload && billPayload.bills) || []);
+      setOperations(operationsPayload || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       await loadSessionDetails(openRows);
     } catch (error) {
       flash(error.message || "Unable to load Q Club Ledger.", true);
@@ -315,6 +320,22 @@ export default function QclubLedgerPage() {
     }
   }, [flash, loadSessionDetails, protectedCall, token]);
 
+  const refreshLiveState = useCallback(async function() {
+    if (!token) return;
+    try {
+      const values = await Promise.all([
+        protectedCall("sessions?scope=active&limit=200"),
+        protectedCall("operations/inbox"),
+      ]);
+      const openRows = (values[0] && values[0].sessions) || [];
+      setSessions(openRows);
+      setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+      await loadSessionDetails(openRows);
+    } catch {
+      // Keep the last known live state visible; manual refresh surfaces detailed errors.
+    }
+  }, [loadSessionDetails, protectedCall, token]);
+
   useEffect(function() {
     apiRequest("health").then(setHealth).catch(function() { setHealth(null); });
   }, []);
@@ -322,6 +343,12 @@ export default function QclubLedgerPage() {
   useEffect(function() {
     if (token) refreshAll();
   }, [token, refreshAll]);
+
+  useEffect(function() {
+    if (!token) return undefined;
+    const timer = window.setInterval(refreshLiveState, 5000);
+    return function() { window.clearInterval(timer); };
+  }, [token, refreshLiveState]);
 
   useEffect(function() {
     if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id) return undefined;
@@ -1037,6 +1064,7 @@ export default function QclubLedgerPage() {
           {[
             ["desk", "🎱 Desk Ledger"],
             ["fnb", "🍽 Add F&B"],
+            ["activity", "🌐 Website Activity"],
             ["ledger", "🧾 Ledger History"],
             ["admin", isAdmin ? "⚙ Admin & Inventory" : "📦 Inventory"],
           ].map(function(entry) {
@@ -1206,6 +1234,56 @@ export default function QclubLedgerPage() {
               </div>
             </div>
             <div className="ql-fnb-spacer" aria-hidden="true" />
+          </>
+        ) : null}
+
+        {tab === "activity" ? (
+          <>
+            <div className="ql-stat-grid">
+              <div className="ql-stat"><span className="ql-muted">Website bookings</span><strong>{Number(operations && operations.counts && operations.counts.bookings || 0)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Q Lounge orders</span><strong>{Number(operations && operations.counts && operations.counts.food_orders || 0)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">QShop receipts</span><strong>{Number(operations && operations.counts && operations.counts.shop_receipts || 0)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Sync</span><strong>5s</strong><div className="ql-muted">Android/PC staff bridge</div></div>
+            </div>
+            <div className="ql-section">Website operations inbox</div>
+            <div className="ql-grid">
+              <div className="ql-card wide">
+                <div className="ql-space"><div><h3>Book Table</h3><div className="ql-muted">Reservations from the live website. A reservation does not occupy a physical table until staff checks the customer into the Ledger.</div></div><span className="ql-badge">{(operations.bookings || []).length}</span></div>
+                <div className="ql-list" style={{ marginTop: 12, maxHeight: "52vh", overflow: "auto" }}>
+                  {(operations.bookings || []).length ? (operations.bookings || []).slice(0, 25).map(function(row) {
+                    return <div className="ql-line" key={row.id || (row.booking_date + row.time_slot)}>
+                      <div className="ql-space"><strong>{row.item_label || "Table booking"}</strong><span className={"ql-badge " + (["REJECTED","FAILED","CANCELLED"].includes(String(row.status || "").toUpperCase()) ? "bad" : "gold")}>{row.status || "PENDING"}</span></div>
+                      <div>{row.customer_name || "Customer"} {row.customer_phone ? "• " + row.customer_phone : ""}</div>
+                      <div className="ql-muted">{row.booking_date || "Date not set"} • {row.slot_label || row.time_slot || "Time not set"} {Number(row.amount_inr) > 0 ? "• " + money(row.amount_inr) : ""}</div>
+                    </div>;
+                  }) : <div className="ql-empty">No website bookings.</div>}
+                </div>
+              </div>
+              <div className="ql-card wide">
+                <div className="ql-space"><div><h3>Q Lounge</h3><div className="ql-muted">Online food/drink orders from the public website.</div></div><span className="ql-badge">{(operations.food_orders || []).length}</span></div>
+                <div className="ql-list" style={{ marginTop: 12, maxHeight: "52vh", overflow: "auto" }}>
+                  {(operations.food_orders || []).length ? (operations.food_orders || []).slice(0, 25).map(function(row) {
+                    return <div className="ql-line" key={row.id || row.order_no}>
+                      <div className="ql-space"><strong>{row.order_no || row.id || "Q Lounge order"}</strong><span className="ql-badge">{row.payment_status || "—"}</span></div>
+                      <div>{row.customer_name || "Customer"} {row.table_label ? "• " + row.table_label : ""}</div>
+                      <div className="ql-muted">{money(row.total_inr)} • {(row.items || []).map(function(item) { return (item.display_name || item.name || "Item") + " × " + Number(item.quantity || 0); }).join(", ") || "No item detail"}</div>
+                    </div>;
+                  }) : <div className="ql-empty">No Q Lounge website orders.</div>}
+                </div>
+              </div>
+              <div className="ql-card full">
+                <div className="ql-space"><div><h3>QShop</h3><div className="ql-muted">Paid/recorded QShop receipts from the live website.</div></div><span className="ql-badge">{(operations.shop_receipts || []).length}</span></div>
+                <div className="ql-list" style={{ marginTop: 12, maxHeight: "42vh", overflow: "auto" }}>
+                  {(operations.shop_receipts || []).length ? (operations.shop_receipts || []).slice(0, 25).map(function(row) {
+                    return <div className="ql-line" key={row.id || row.order_no}>
+                      <div className="ql-space"><strong>{row.order_no || row.id || "QShop order"}</strong><span className="ql-badge">{row.pickup_status || row.payment_status || "—"}</span></div>
+                      <div>{row.customer_name || "Customer"} {row.customer_phone ? "• " + row.customer_phone : ""}</div>
+                      <div className="ql-muted">{money(row.total_inr)} • {(row.items || []).map(function(item) { return (item.display_name || item.name || "Item") + " × " + Number(item.quantity || 0); }).join(", ") || "No item detail"}</div>
+                    </div>;
+                  }) : <div className="ql-empty">No QShop receipts.</div>}
+                </div>
+              </div>
+            </div>
           </>
         ) : null}
 
