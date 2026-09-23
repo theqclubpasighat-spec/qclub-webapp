@@ -1471,7 +1471,7 @@ async function upiPayment(req, res) {
     },
     order_meta: {
       notify_url: `${siteUrl}/api/snooker/v1/cashfree-webhook`,
-      return_url: `${siteUrl}/QclubPay?payment_id=${encodeURIComponent(paymentId)}`,
+      return_url: `${siteUrl}/payment-status?order_id={order_id}`,
       payment_methods: "upi",
     },
     order_note: `Q Club bill ${bill.bill_no}`,
