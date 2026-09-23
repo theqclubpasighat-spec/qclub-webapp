@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -203,6 +202,9 @@ export default function QclubLedgerPage() {
   const [upiOrder, setUpiOrder] = useState(null);
   const [showUpiQrModal, setShowUpiQrModal] = useState(false);
   const [qrClock, setQrClock] = useState(Date.now());
+  const [cashfreeQrError, setCashfreeQrError] = useState("");
+  const cashfreeQrComponentRef = useRef(null);
+  const cashfreeQrStartedRef = useRef("");
   const [quantities, setQuantities] = useState({});
   const [fnbSearch, setFnbSearch] = useState("");
   const [fnbCategory, setFnbCategory] = useState("ALL");
@@ -360,6 +362,78 @@ export default function QclubLedgerPage() {
       window.clearInterval(clockTimer);
     };
   }, [showUpiQrModal, upiOrder && upiOrder.payment_id]);
+
+  useEffect(function() {
+    if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id || !upiOrder.payment_session_id) return undefined;
+    const status = String(upiOrder.status || "PENDING").toUpperCase();
+    if (status !== "PENDING") return undefined;
+
+    let disposed = false;
+    let component = null;
+    const paymentKey = String(upiOrder.payment_id);
+
+    async function startCashfreeQr() {
+      try {
+        setCashfreeQrError("");
+        if (!window.Cashfree) {
+          throw new Error("Cashfree Element SDK is unavailable. Refresh the page and try again.");
+        }
+
+        const mountNode = document.getElementById("qclub-cashfree-upi-qr");
+        if (!mountNode) return;
+        mountNode.innerHTML = "";
+
+        const cashfree = window.Cashfree({ mode: "production" });
+        component = cashfree.create("upiQr", {
+          values: { size: "320px" },
+        });
+        cashfreeQrComponentRef.current = component;
+
+        component.on("loaderror", function(data) {
+          if (disposed) return;
+          const message = data && data.error && data.error.message
+            ? data.error.message
+            : "Cashfree could not load the UPI QR.";
+          setCashfreeQrError(message);
+        });
+
+        component.on("ready", function() {
+          if (disposed || cashfreeQrStartedRef.current === paymentKey) return;
+          cashfreeQrStartedRef.current = paymentKey;
+          Promise.resolve(cashfree.pay({
+            paymentMethod: component,
+            paymentSessionId: upiOrder.payment_session_id,
+            redirect: "if_required",
+          })).then(function(result) {
+            if (disposed || !result) return;
+            if (result.error) {
+              setCashfreeQrError(result.error.message || "Cashfree UPI QR payment could not be started.");
+              return;
+            }
+            if (result.paymentDetails) {
+              verifyPayment(upiOrder.payment_id);
+            }
+          }).catch(function(error) {
+            if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree UPI QR payment failed to start.");
+          });
+        });
+
+        component.mount("#qclub-cashfree-upi-qr");
+      } catch (error) {
+        if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree UPI QR is unavailable.");
+      }
+    }
+
+    startCashfreeQr();
+
+    return function() {
+      disposed = true;
+      if (component && typeof component.unmount === "function") {
+        try { component.unmount(); } catch {}
+      }
+      if (cashfreeQrComponentRef.current === component) cashfreeQrComponentRef.current = null;
+    };
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.payment_session_id, upiOrder && upiOrder.status]);
 
   useEffect(function() {
     if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id || String(upiOrder.status || "").toUpperCase() !== "PENDING") return undefined;
@@ -842,9 +916,11 @@ export default function QclubLedgerPage() {
         },
       });
       setUpiOrder(result);
+      setCashfreeQrError("");
+      cashfreeQrStartedRef.current = "";
       setQrClock(Date.now());
       setShowUpiQrModal(true);
-      flash("Cashfree UPI order created. Show the QR to the customer.");
+      flash("Cashfree UPI order created. The secure QR is loading.");
       await refreshBillDetail({ preserveUpi: true });
     } catch (error) {
       flash(error.message, true);
@@ -1483,7 +1559,7 @@ export default function QclubLedgerPage() {
         </div>
       ) : null}
 
-      {showUpiQrModal && upiOrder && upiOrder.qr_payload ? (
+      {showUpiQrModal && upiOrder && upiOrder.payment_session_id ? (
         <div className="ql-modal-bg ql-pay-modal-bg">
           <div className="ql-pay-modal" role="dialog" aria-modal="true" aria-label="Cashfree UPI payment QR">
             <div className="ql-space" style={{ alignItems: "center" }}>
@@ -1499,17 +1575,15 @@ export default function QclubLedgerPage() {
               {(billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill"} • Cashfree
             </div>
 
-            <div className="ql-big-qr">
-              <QRCodeSVG
-                value={upiOrder.qr_payload}
-                size={320}
-                level="M"
-                includeMargin={true}
-                style={{ width: "min(320px, 72vw)", height: "auto", display: "block" }}
-              />
+            <div className="ql-big-qr" style={{ minWidth: "min(356px, 82vw)", minHeight: "356px", alignItems: "center", justifyContent: "center" }}>
+              <div id="qclub-cashfree-upi-qr" style={{ width: "min(320px, 72vw)", minHeight: "320px", display: "grid", placeItems: "center" }} />
             </div>
 
-            <div style={{ fontWeight: 850, fontSize: 18 }}>Scan with any UPI app</div>
+            {cashfreeQrError ? (
+              <div className="ql-error" style={{ padding: 10, borderRadius: 10, marginBottom: 10 }}>{cashfreeQrError}</div>
+            ) : null}
+
+            <div style={{ fontWeight: 850, fontSize: 18 }}>Scan the Cashfree QR with any UPI app</div>
             <div className={
               "ql-pay-status " +
               (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(String(upiOrder.status || "").toUpperCase())
@@ -1525,7 +1599,8 @@ export default function QclubLedgerPage() {
 
             <div className="ql-row" style={{ justifyContent: "center", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { verifyPayment(upiOrder.payment_id); }}>Check Now</button>
-              {upiOrder.payment_url ? <a className="ql-btn gold" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Pay Link</a> : null}
+              {upiOrder.qr_element_url ? <a className="ql-btn gold" href={upiOrder.qr_element_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open Secure QR Page</a> : null}
+              {upiOrder.payment_url ? <a className="ql-btn" href={upiOrder.payment_url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Customer Pay Link</a> : null}
               <button className="ql-btn primary" onClick={function() { setShowUpiQrModal(false); }}>Close</button>
             </div>
           </div>
