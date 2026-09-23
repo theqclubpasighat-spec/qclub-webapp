@@ -72,6 +72,138 @@ function safeText(value = "", maxLength = 8000) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
 
+function parseTrustedArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeOperationalItems(raw) {
+  return parseTrustedArray(raw)
+    .slice(0, 100)
+    .map((item) => {
+      const qty = Math.max(0, Number(item?.qty ?? item?.quantity ?? 0) || 0);
+      const price = Math.max(0, Number(item?.price ?? 0) || 0);
+      const lineTotal = Math.max(0, Number(item?.lineTotal ?? item?.line_total ?? price * qty) || 0);
+      return {
+        id: safeText(item?.id || item?.itemId || "", 160) || null,
+        itemId: safeText(item?.itemId || item?.id || "", 160) || null,
+        name: safeText(item?.name || item?.displayName || "Item", 220),
+        displayName: safeText(item?.displayName || item?.name || "Item", 220),
+        qty,
+        quantity: qty,
+        price,
+        lineTotal,
+        selectedOptionId: safeText(item?.selectedOptionId || "", 160) || null,
+        selectedOptionLabel: safeText(item?.selectedOptionLabel || "", 220) || null,
+      };
+    })
+    .filter((item) => item.quantity > 0);
+}
+
+async function persistVerifiedOperationalRecord(supabase, record) {
+  const context = safeText(record?.context || record?.order_tags?.context || "", 60).toLowerCase();
+  if (!["booking", "food", "shop"].includes(context)) return;
+
+  const tags = record?.order_tags && typeof record.order_tags === "object" ? record.order_tags : {};
+  const orderId = safeText(record?.order_id || "", 160);
+  if (!orderId) return;
+
+  const now = new Date().toISOString();
+  const customerName = safeText(record?.customer_name || tags.customer_name || "Customer", 160) || "Customer";
+  const customerPhone = safeText(record?.customer_phone || tags.mobile || tags.phone || "", 30);
+  const amount = Number(record?.expectedAmount ?? 0) || 0;
+
+  let recordType = "";
+  let recordKey = orderId;
+  let status = "paid";
+  let payload = {};
+
+  if (context === "booking") {
+    const requestId = safeText(tags.booking_request_id || "", 160);
+    recordType = "booking_request";
+    recordKey = requestId || orderId;
+    status = "paid_verified";
+    payload = {
+      id: requestId || ("BK-" + orderId.slice(-8)),
+      gatewayOrderId: orderId,
+      name: customerName,
+      mobile: customerPhone,
+      itemId: safeText(tags.booking_item_id || "", 120),
+      itemLabel: safeText(tags.table_label || "Booked Table", 220),
+      bookingDate: safeText(tags.booking_date || "", 20),
+      timeSlot: safeText(tags.booking_time_slot || "", 40),
+      durationHours: Number(tags.booking_duration_hours || 0) || 0,
+      slotLabel: safeText(tags.booking_slot || "", 120),
+      amount,
+      paymentStatus: "Paid",
+      status,
+      source: "cashfree_verified_server",
+      updatedAt: now,
+      createdAt: now,
+    };
+  } else if (context === "food") {
+    recordType = "q_lounge_order";
+    const items = normalizeOperationalItems(tags.food_items_json);
+    payload = {
+      id: "QC-" + orderId.slice(-6),
+      orderNo: "QC-" + orderId.slice(-6),
+      gatewayOrderId: orderId,
+      customerName,
+      customerMobile: customerPhone,
+      items,
+      total: amount,
+      paymentStatus: "Paid",
+      printStatus: "pending_auto_print",
+      source: "cashfree_verified_server",
+      status: "Paid",
+      createdAt: now,
+      updatedAt: now,
+    };
+  } else {
+    recordType = "qshop_receipt";
+    const items = normalizeOperationalItems(tags.shop_items_json);
+    payload = {
+      id: "QSHOP-" + orderId.slice(-8),
+      receiptId: "QSHOP-" + orderId.slice(-8),
+      orderNo: "QSHOP-" + orderId.slice(-8),
+      gatewayOrderId: orderId,
+      customerName,
+      customerMobile: customerPhone,
+      items,
+      total: amount,
+      paymentStatus: "Paid",
+      pickupStatus: "pending",
+      stockAdjusted: false,
+      source: "cashfree_verified_server",
+      status: "Paid",
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  const { error } = await supabase
+    .from("qclub_operational_records")
+    .upsert(
+      {
+        record_type: recordType,
+        record_key: recordKey,
+        payload,
+        source: "cashfree_verified_server",
+        status,
+        updated_at: now,
+      },
+      { onConflict: "record_type,record_key" }
+    );
+
+  if (error) throw new Error(error.message || "Operational record persistence failed");
+}
+
 function getRequestHeader(req, name) {
   const headers = req?.headers || {};
   return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || "";
@@ -126,6 +258,10 @@ function publicOrderTags(tags = {}) {
     "table_label",
     "booking_date",
     "booking_slot",
+    "booking_time_slot",
+    "booking_duration_hours",
+    "booking_item_id",
+    "booking_request_id",
     "booking_amount",
     "tier",
     "tshirt_size",
@@ -385,6 +521,9 @@ export default async function handler(req, res) {
       state = verifiedUpdate.nextState;
       record = verifiedUpdate.nextRecord;
       ({ orders, index } = findPaymentOrder(state, orderId));
+      if (verification.verified) {
+        await persistVerifiedOperationalRecord(supabase, record);
+      }
 
       if (
         !verification.verified ||
@@ -407,6 +546,9 @@ export default async function handler(req, res) {
     state = verifiedUpdate.nextState;
     record = verifiedUpdate.nextRecord;
     ({ orders, index } = findPaymentOrder(state, orderId));
+    if (verification.verified) {
+      await persistVerifiedOperationalRecord(supabase, record);
+    }
 
     let claimAccepted = null;
 
