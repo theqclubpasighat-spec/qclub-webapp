@@ -12,6 +12,7 @@ export default defineConfig({
         navigateFallbackDenylist: [
           /^\/QclubLedger(?:\/|$)/i,
           /^\/QclubPay(?:\/|$)/i,
+          /^\/QclubQr(?:\/|$)/i,
           /^\/api\/snooker\/v1(?:\/|$)/i,
         ],
         runtimeCaching: [

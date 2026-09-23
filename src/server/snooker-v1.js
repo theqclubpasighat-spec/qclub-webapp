@@ -409,6 +409,13 @@ function paymentLinkUrl(payment) {
   return `${siteUrl}/QclubPay?payment_id=${encodeURIComponent(payment.id)}&sig=${encodeURIComponent(signature)}`;
 }
 
+function qrElementUrl(payment) {
+  const signature = paymentLinkSignature(payment);
+  if (!signature) return "";
+  const siteUrl = safeText(env("QCLUB_SITE_URL") || "https://www.theqclubpasighat.com", 240).replace(/\/$/, "");
+  return `${siteUrl}/QclubQr?payment_id=${encodeURIComponent(payment.id)}&sig=${encodeURIComponent(signature)}`;
+}
+
 async function publicPaymentSession(req, res, paymentId) {
   const supabase = getSupabaseAdmin();
   const signature = safeText(req.query?.sig || "", 500);
@@ -1392,7 +1399,9 @@ async function cashfreeJson(url, options) {
 async function upiPayment(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
-  if (!env("CASHFREE_APP_ID") || !env("CASHFREE_SECRET_KEY")) return json(res, 503, { ok: false, error: "CASHFREE_NOT_CONFIGURED" });
+  if (!env("CASHFREE_APP_ID") || !env("CASHFREE_SECRET_KEY")) {
+    return json(res, 503, { ok: false, error: "CASHFREE_NOT_CONFIGURED" });
+  }
 
   const supabase = getSupabaseAdmin();
   const key = idempotencyKey(req);
@@ -1406,7 +1415,9 @@ async function upiPayment(req, res) {
 
   const due = money(bill.due_inr);
   const amount = money(req.body?.amount_inr ?? due);
-  if (amount <= 0 || amount > due) return json(res, 400, { ok: false, error: "INVALID_UPI_AMOUNT", due_inr: due });
+  if (amount <= 0 || amount > due) {
+    return json(res, 400, { ok: false, error: "INVALID_UPI_AMOUNT", due_inr: due });
+  }
 
   const { data: reusable } = await supabase
     .from("snooker_bill_payments")
@@ -1419,17 +1430,20 @@ async function upiPayment(req, res) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (reusable?.payment_session_id && reusable?.qr_payload) {
+
+  if (reusable?.payment_session_id) {
     const response = {
       payment_id: reusable.id,
       bill_id: billId,
       amount_inr: money(reusable.amount_inr),
       order_id: reusable.cashfree_order_id,
       payment_session_id: reusable.payment_session_id,
-      qr_payload: reusable.qr_payload,
+      qr_payload: null,
+      qr_element_url: qrElementUrl(reusable),
       payment_url: paymentLinkUrl(reusable),
       status: reusable.status,
       expires_at: reusable.expires_at,
+      integration: "CASHFREE_ELEMENT_UPI_QR",
       reused: true,
     };
     await rememberIdempotent(supabase, key, "upi_payment", reusable.id, response);
@@ -1438,7 +1452,9 @@ async function upiPayment(req, res) {
 
   const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
   const phone = normalizePhone(req.body?.customer_phone || session?.customer_phone || "");
-  if (!phone) return json(res, 409, { ok: false, error: "CUSTOMER_PHONE_REQUIRED_FOR_UPI" });
+  if (!phone) {
+    return json(res, 409, { ok: false, error: "CUSTOMER_PHONE_REQUIRED_FOR_UPI" });
+  }
 
   const paymentId = randomUUID();
   const orderId = `snk_${paymentId.replace(/-/g, "").slice(0, 24)}`;
@@ -1467,48 +1483,10 @@ async function upiPayment(req, res) {
     headers: { ...cashfreeHeaders(), "x-idempotency-key": key || paymentId },
     body: JSON.stringify(orderPayload),
   });
+
   const sessionId = safeText(order.payment_session_id || "", 2000);
-  if (!sessionId) return json(res, 502, { ok: false, error: "CASHFREE_SESSION_MISSING" });
-
-  let qrPayload = "";
-  let payProviderPayload = null;
-  try {
-    const pay = await cashfreeJson("https://api.cashfree.com/pg/orders/sessions", {
-      method: "POST",
-      headers: cashfreeHeaders(),
-      body: JSON.stringify({
-        payment_session_id: sessionId,
-        payment_method: { upi: { channel: "qrcode" } },
-      }),
-    });
-    payProviderPayload = pay;
-    qrPayload = safeText(
-      pay?.data?.payload ||
-      pay?.data?.qr_payload ||
-      pay?.data?.qr_code ||
-      pay?.data?.qrcode ||
-      pay?.payload ||
-      pay?.qr_payload ||
-      "",
-      10000
-    );
-  } catch (error) {
-    return json(res, 502, {
-      ok: false,
-      error: "CASHFREE_QR_CREATION_FAILED",
-      message: error.message,
-      order_id: orderId,
-      payment_session_id: sessionId,
-    });
-  }
-
-  if (!qrPayload) {
-    return json(res, 502, {
-      ok: false,
-      error: "CASHFREE_QR_PAYLOAD_MISSING",
-      order_id: orderId,
-      payment_session_id: sessionId,
-    });
+  if (!sessionId) {
+    return json(res, 502, { ok: false, error: "CASHFREE_SESSION_MISSING" });
   }
 
   const expiresAt = order.order_expiry_time || new Date(Date.now() + 15 * 60_000).toISOString();
@@ -1520,13 +1498,18 @@ async function upiPayment(req, res) {
     status: "PENDING",
     cashfree_order_id: orderId,
     payment_session_id: sessionId,
-    qr_payload: qrPayload,
+    qr_payload: null,
     expires_at: expiresAt,
-    provider_payload: { order, pay: payProviderPayload },
+    provider_payload: {
+      order,
+      integration: "cashfree_element_upi_qr",
+      s2s_order_pay_disabled: true,
+    },
     received_by: auth.staff_id,
     idempotency_key: key || null,
   }).select("*").single();
   if (error) throw error;
+
   await refreshBill(supabase, billId);
 
   const response = {
@@ -1535,11 +1518,14 @@ async function upiPayment(req, res) {
     amount_inr: amount,
     order_id: orderId,
     payment_session_id: sessionId,
-    qr_payload: qrPayload,
+    qr_payload: null,
+    qr_element_url: qrElementUrl(payment),
     payment_url: paymentLinkUrl(payment),
     status: "PENDING",
     expires_at: expiresAt,
+    integration: "CASHFREE_ELEMENT_UPI_QR",
   };
+
   await rememberIdempotent(supabase, key, "upi_payment", payment.id, response);
   return json(res, 201, response);
 }
