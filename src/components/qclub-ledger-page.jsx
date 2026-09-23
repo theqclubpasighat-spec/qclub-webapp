@@ -355,13 +355,42 @@ export default function QclubLedgerPage() {
     });
   }, [bills]);
 
-  const todaySales = todayBills.reduce(function(sum, bill) { return sum + Number(bill.paid_inr || 0); }, 0);
-  const outstanding = bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
+  const todaySales = summary ? Number(summary.today_realized_sales_inr || 0) : todayBills.reduce(function(sum, bill) { return sum + Number(bill.paid_inr || 0); }, 0);
+  const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
+  const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
+
+  const filteredBills = useMemo(function() {
+    const query = ledgerSearch.trim().toLowerCase();
+    return bills.filter(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      const haystack = [
+        bill.bill_no,
+        bill.bill_id,
+        session && session.customer_name,
+        session && session.customer_phone,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (ledgerStatus !== "ALL" && bill.status !== ledgerStatus) return false;
+      if (ledgerDate) {
+        const value = bill.finalized_at || bill.created_at;
+        if (!value) return false;
+        const date = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date(value));
+        if (date !== ledgerDate) return false;
+      }
+      return true;
+    });
+  }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup]);
 
   function openStart(table) {
     const options = allowedGames(table, rules);
     setStartTable(table);
+    setMemberCheck(null);
     setStartForm({
       gameType: (options[0] && options[0].game_type) || "NORMAL_SNOOKER",
       customerName: "",
@@ -369,6 +398,67 @@ export default function QclubLedgerPage() {
       isMember: false,
       participants: "",
     });
+  }
+
+  async function verifyStartMember() {
+    if (!startForm.customerName.trim() && !startForm.customerPhone.trim()) {
+      flash("Enter the customer name or mobile number first.", true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await protectedCall(
+        "members/verify?phone=" + encodeURIComponent(startForm.customerPhone.trim()) +
+        "&name=" + encodeURIComponent(startForm.customerName.trim())
+      );
+      setMemberCheck(result);
+      setStartForm({ ...startForm, isMember: Boolean(result && result.verified) });
+      if (result && result.verified) {
+        flash("Membership verified" + (result.member && result.member.tier ? ": " + result.member.tier : "") + ".");
+      } else {
+        flash("No active membership found. Walk-in rate will be used.", true);
+      }
+    } catch (error) {
+      setMemberCheck(null);
+      setStartForm({ ...startForm, isMember: false });
+      flash(error.message || "Unable to verify membership.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function editSession(session) {
+    const name = window.prompt("Customer / Host name:", session.customer_name || "");
+    if (name == null || !name.trim()) return;
+    const phone = window.prompt("WhatsApp mobile (10 digits):", session.customer_phone || "");
+    if (phone == null) return;
+    const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      flash("Enter a valid 10-digit mobile number.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const membership = await protectedCall(
+        "members/verify?phone=" + encodeURIComponent(normalizedPhone) +
+        "&name=" + encodeURIComponent(name.trim())
+      );
+      await protectedCall("sessions/" + session.session_id, {
+        method: "PATCH",
+        body: {
+          customer_name: name.trim(),
+          customer_phone: normalizedPhone,
+          is_member: Boolean(membership && membership.verified),
+        },
+      });
+      flash(membership && membership.verified ? "Customer updated and membership verified." : "Customer updated. Walk-in rate applies.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to update customer.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function createSession() {
@@ -445,6 +535,10 @@ export default function QclubLedgerPage() {
   }
 
   async function voidGame(game) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to void a completed game.", true);
+      return;
+    }
     const reason = window.prompt("Reason for voiding this completed game:");
     if (!reason || !reason.trim()) return;
     setBusy(true);
@@ -454,6 +548,28 @@ export default function QclubLedgerPage() {
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voidFnbLine(line) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to void an F&B line.", true);
+      return;
+    }
+    const reason = window.prompt("Reason for voiding " + (line.item_name_snapshot || "this F&B item") + ":");
+    if (!reason || !reason.trim()) return;
+    setBusy(true);
+    try {
+      await protectedCall("fnb-lines/" + line.id + "/void", {
+        method: "POST",
+        body: { reason: reason.trim(), return_stock: true },
+      });
+      flash("F&B line voided and tracked stock returned.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to void F&B item.", true);
     } finally {
       setBusy(false);
     }
@@ -626,20 +742,114 @@ export default function QclubLedgerPage() {
     const session = sessionLookup[billDetail.session_id];
     setBusy(true);
     try {
+      let payment = upiOrder;
+      if (Number(billDetail.due_inr || 0) > 0 && (!payment || payment.status !== "PENDING")) {
+        payment = await protectedCall("payments/upi", {
+          method: "POST",
+          body: {
+            bill_id: billDetail.bill_id,
+            amount_inr: Number(billDetail.due_inr || 0),
+            customer_phone: (session && session.customer_phone) || "",
+            customer_name: (session && session.customer_name) || "",
+            idempotency_key: makeKey("receipt-upi"),
+          },
+        });
+        setUpiOrder(payment);
+      }
+
       await protectedCall("notifications/receipt", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
           phone: (session && session.customer_phone) || "",
+          payment_id: payment && payment.payment_id ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
       });
-      flash("Receipt submitted to MSG91.");
+      flash(payment && payment.payment_url ? "Receipt and Cashfree payment link submitted to MSG91." : "Receipt submitted to MSG91.");
+      await refreshBillDetail();
     } catch (error) {
       flash(error.message, true);
     } finally {
       setBusy(false);
     }
+  }
+
+  function printReceipt() {
+    if (!billDetail) return;
+    const session = sessionLookup[billDetail.session_id];
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      flash("Pop-up blocked. Allow pop-ups to print the receipt.", true);
+      return;
+    }
+    popup.document.open();
+    popup.document.write(receiptHtml(billDetail, session));
+    popup.document.close();
+  }
+
+  function downloadReceipt() {
+    if (!billDetail) return;
+    const session = sessionLookup[billDetail.session_id];
+    const filename = (billDetail.bill_no || "qclub-receipt").replace(/[^a-z0-9_-]+/gi, "_") + ".html";
+    downloadBlob(filename, receiptHtml(billDetail, session), "text/html;charset=utf-8");
+  }
+
+  function exportLedgerCsv(rows) {
+    const selected = rows || filteredBills;
+    const header = ["Bill No", "Customer", "Mobile", "Finalized", "Status", "Game/Table", "F&B", "Discount", "Total", "Paid", "Due"];
+    const lines = [header.map(csvCell).join(",")];
+    selected.forEach(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      lines.push([
+        bill.bill_no || bill.bill_id,
+        (session && session.customer_name) || "",
+        (session && session.customer_phone) || "",
+        bill.finalized_at || bill.created_at || "",
+        bill.status,
+        bill.game_total_inr,
+        bill.fnb_total_inr,
+        bill.discount_inr,
+        bill.total_inr,
+        bill.paid_inr,
+        bill.due_inr,
+      ].map(csvCell).join(","));
+    });
+    downloadBlob("qclub-ledger-" + (ledgerDate || "export") + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
+  }
+
+  function printDailyClosing() {
+    const businessDate = (summary && summary.business_date) || new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(new Date());
+    const rows = bills.filter(function(bill) {
+      const value = bill.finalized_at || bill.created_at;
+      if (!value) return false;
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+      }).format(new Date(value)) === businessDate;
+    });
+    const body = rows.map(function(bill) {
+      const session = sessionLookup[bill.session_id];
+      return "<tr><td>" + escapeHtml(bill.bill_no || bill.bill_id) + "</td><td>" +
+        escapeHtml((session && session.customer_name) || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
+        "</td><td style='text-align:right'>" + money(bill.paid_inr) + "</td><td style='text-align:right'>" + money(bill.due_inr) + "</td></tr>";
+    }).join("");
+    const html = "<!doctype html><html><head><meta charset='utf-8'><title>Q Club Daily Closing " + escapeHtml(businessDate) +
+      "</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:24px auto}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.stats{display:flex;gap:18px;flex-wrap:wrap;margin:18px 0}.stats div{border:1px solid #ddd;padding:10px 14px;border-radius:8px}</style></head><body><h1>The Q Club Pasighat</h1><h2>Daily Closing — " +
+      escapeHtml(businessDate) + "</h2><div class='stats'><div>Finalized bills: <b>" + escapeHtml(summary && summary.today_finalized_bills) +
+      "</b></div><div>Cash: <b>" + money(summary && summary.today_cash_inr) + "</b></div><div>UPI: <b>" + money(summary && summary.today_upi_inr) +
+      "</b></div><div>Realized: <b>" + money(summary && summary.today_realized_sales_inr) + "</b></div><div>Total outstanding: <b>" +
+      money(summary && summary.outstanding_all_inr) + "</b></div></div><table><thead><tr><th>Bill</th><th>Customer</th><th style='text-align:right'>Total</th><th style='text-align:right'>Paid</th><th style='text-align:right'>Due</th></tr></thead><tbody>" +
+      body + "</tbody></table><script>window.onload=function(){window.print();}</script></body></html>";
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      flash("Pop-up blocked. Allow pop-ups to print the daily closing.", true);
+      return;
+    }
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
   }
 
   async function adminInventory(item, mode) {
