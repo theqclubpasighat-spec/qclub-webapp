@@ -845,32 +845,18 @@ export default function QclubLedgerPage() {
     const session = sessionLookup[billDetail.session_id];
     setBusy(true);
     try {
-      let payment = upiOrder;
-      if (Number(billDetail.due_inr || 0) > 0 && (!payment || payment.status !== "PENDING")) {
-        payment = await protectedCall("payments/upi", {
-          method: "POST",
-          body: {
-            bill_id: billDetail.bill_id,
-            amount_inr: Number(billDetail.due_inr || 0),
-            customer_phone: (session && session.customer_phone) || "",
-            customer_name: (session && session.customer_name) || "",
-            idempotency_key: makeKey("receipt-upi"),
-          },
-        });
-        setUpiOrder(payment);
-      }
-
+      const payment = upiOrder && upiOrder.payment_id ? upiOrder : null;
       await protectedCall("notifications/receipt", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
           phone: (session && session.customer_phone) || "",
-          payment_id: payment && payment.payment_id ? payment.payment_id : undefined,
+          payment_id: payment ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
       });
       flash(payment && payment.payment_url ? "Receipt and Cashfree payment link submitted to MSG91." : "Receipt submitted to MSG91.");
-      await refreshBillDetail();
+      await refreshBillDetail({ preserveUpi: true });
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1305,8 +1291,8 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>If money is due, the backend creates/reuses a Cashfree checkout and includes its signed payment link in the MSG91 receipt.</div>
-                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>Send Receipt + Payment Link</button>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>WhatsApp receipt sends independently. If a valid Cashfree payment already exists, its payment link is included.</div>
+                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>{upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt"}</button>
                     </div>
                   </div>
 
