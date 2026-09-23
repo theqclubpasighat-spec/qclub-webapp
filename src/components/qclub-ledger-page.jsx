@@ -1135,7 +1135,7 @@ export default function QclubLedgerPage() {
                       <div className="ql-space" style={{ marginTop: 5 }}><span>{money(bill.total_inr)}</span><span className="ql-muted">Due {money(bill.due_inr)}</span></div>
                     </button>
                   );
-                }) : <div className="ql-empty">No bills yet.</div>}
+                }) : <div className="ql-empty">No bills match these filters.</div>}
               </div>
             </div>
 
