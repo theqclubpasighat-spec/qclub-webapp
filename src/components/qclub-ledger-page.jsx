@@ -98,6 +98,46 @@ function elapsedLabel(session) {
   return hours ? hours + "h " + rest + "m" : rest + "m";
 }
 
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function receiptHtml(bill, session) {
+  const rows = (bill.items || []).map(function(item) {
+    return "<tr><td>" + escapeHtml(item.description || item.item_type || "Item") + "</td><td style='text-align:right'>" +
+      escapeHtml(item.quantity) + "</td><td style='text-align:right'>" + money(item.line_total_inr) + "</td></tr>";
+  }).join("");
+  return "<!doctype html><html><head><meta charset='utf-8'><title>" + escapeHtml(bill.bill_no || "Q Club Bill") +
+    "</title><style>body{font-family:Arial,sans-serif;max-width:720px;margin:24px auto;color:#111}h1{margin-bottom:2px}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:20px}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.totals{margin-top:18px;text-align:right}.totals div{margin:5px 0}.grand{font-size:20px;font-weight:800}@media print{button{display:none}}</style></head><body>" +
+    "<h1>The Q Club Pasighat</h1><div class='muted'>Private Ledger Receipt</div><h2>" + escapeHtml(bill.bill_no || "Final Bill") + "</h2>" +
+    "<div>" + escapeHtml((session && session.customer_name) || "Customer") + "</div><div class='muted'>" +
+    escapeHtml((session && session.customer_phone) || "") + "</div><table><thead><tr><th>Item</th><th style='text-align:right'>Qty</th><th style='text-align:right'>Amount</th></tr></thead><tbody>" +
+    rows + "</tbody></table><div class='totals'><div>Game/Table: " + money(bill.game_total_inr) + "</div><div>F&B: " + money(bill.fnb_total_inr) +
+    "</div><div>Discount: " + money(bill.discount_inr) + "</div><div class='grand'>Total: " + money(bill.total_inr) +
+    "</div><div>Paid: " + money(bill.paid_inr) + "</div><div>Due: " + money(bill.due_inr) + "</div></div><script>window.onload=function(){window.print();}</script></body></html>";
+}
+
+function csvCell(value) {
+  return '"' + String(value == null ? "" : value).replaceAll('"', '""') + '"';
+}
+
+function downloadBlob(filename, content, type) {
+  const blob = new Blob([content], { type: type || "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
 const CSS = [
   ".qledger{min-height:100vh;background:radial-gradient(circle at top,#133426 0,#09140f 38%,#050908 100%);color:#f7fbf8;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}",
   ".qledger *{box-sizing:border-box}.ql-wrap{max-width:1320px;margin:0 auto;padding:20px 16px 80px}.ql-top{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:16px;position:sticky;top:0;z-index:20;background:rgba(5,9,8,.93);backdrop-filter:blur(14px);padding:12px 0}",
@@ -123,6 +163,7 @@ export default function QclubLedgerPage() {
   const [pin, setPin] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [health, setHealth] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [bootstrap, setBootstrap] = useState(null);
   const [catalogue, setCatalogue] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -142,6 +183,10 @@ export default function QclubLedgerPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
+  const [memberCheck, setMemberCheck] = useState(null);
+  const [ledgerSearch, setLedgerSearch] = useState("");
+  const [ledgerStatus, setLedgerStatus] = useState("ALL");
+  const [ledgerDate, setLedgerDate] = useState("");
   const [startForm, setStartForm] = useState({
     gameType: "NORMAL_SNOOKER",
     customerName: "",
@@ -165,6 +210,7 @@ export default function QclubLedgerPage() {
     sessionStorage.removeItem(AUTH_KEY);
     setAuth(null);
     setBootstrap(null);
+    setSummary(null);
     setSessions([]);
     setAllSessions([]);
     setSessionDetails({});
@@ -173,6 +219,15 @@ export default function QclubLedgerPage() {
     setUpiOrder(null);
     if (message) flash(message, true);
   }, [flash]);
+
+  const handleLogout = useCallback(async function() {
+    try {
+      if (token) await apiRequest("auth/logout", { method: "POST", token: token });
+    } catch {
+      // Local logout still proceeds if the network is unavailable.
+    }
+    logout();
+  }, [logout, token]);
 
   const protectedCall = useCallback(async function(path, options) {
     try {
@@ -204,9 +259,10 @@ export default function QclubLedgerPage() {
         protectedCall("bootstrap"),
         protectedCall("catalogue"),
         protectedCall("inventory"),
-        protectedCall("sessions?scope=active&limit=100"),
-        protectedCall("bills?limit=100"),
-        protectedCall("sessions?limit=200"),
+        protectedCall("sessions?scope=active&limit=200"),
+        protectedCall("bills?limit=500"),
+        protectedCall("sessions?limit=500"),
+        protectedCall("dashboard/summary"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -215,7 +271,9 @@ export default function QclubLedgerPage() {
       const sessionPayload = values[4];
       const billPayload = values[5];
       const allPayload = values[6];
+      const summaryPayload = values[7];
       setHealth(h);
+      setSummary(summaryPayload);
       setBootstrap(boot);
       setCatalogue((cat && (cat.items || cat.catalogue)) || []);
       setInventory((inv && (inv.items || inv.inventory)) || []);
@@ -672,7 +730,7 @@ export default function QclubLedgerPage() {
             <span className={"ql-pill " + (health && health.cashfree_ready ? "good" : "warn")}>Cashfree {health && health.cashfree_ready ? "READY" : "CHECK"}</span>
             <span className={"ql-pill " + (health && health.msg91_ready ? "good" : "warn")}>MSG91 {health && health.msg91_ready ? "READY" : "CHECK"}</span>
             <span className="ql-pill">{auth.displayName || role}</span>
-            <button className="ql-btn ghost" onClick={function() { logout(); }}>Logout</button>
+            <button className="ql-btn ghost" onClick={handleLogout}>Logout</button>
           </div>
         </div>
 
