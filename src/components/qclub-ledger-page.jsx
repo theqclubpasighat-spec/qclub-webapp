@@ -383,9 +383,17 @@ export default function QclubLedgerPage() {
         if (!mountNode) return;
         mountNode.innerHTML = "";
 
+        // Cashfree's upiQr size is an explicit pixel size. Keep the element
+        // smaller than the mobile modal so the QR is never clipped/squeezed.
+        const qrSize = Math.max(220, Math.min(300, window.innerWidth - 110));
+        mountNode.style.width = qrSize + "px";
+        mountNode.style.height = qrSize + "px";
+        mountNode.style.minWidth = qrSize + "px";
+        mountNode.style.minHeight = qrSize + "px";
+
         const cashfree = window.Cashfree({ mode: "production" });
         component = cashfree.create("upiQr", {
-          values: { size: "320px" },
+          values: { size: qrSize + "px" },
         });
         cashfreeQrComponentRef.current = component;
 
@@ -1575,8 +1583,17 @@ export default function QclubLedgerPage() {
               {(billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill"} • Cashfree
             </div>
 
-            <div className="ql-big-qr" style={{ minWidth: "min(356px, 82vw)", minHeight: "356px", alignItems: "center", justifyContent: "center" }}>
-              <div id="qclub-cashfree-upi-qr" style={{ width: "min(320px, 72vw)", minHeight: "320px", display: "grid", placeItems: "center" }} />
+            <div
+              className="ql-big-qr"
+              style={{
+                width: "fit-content",
+                maxWidth: "calc(100vw - 48px)",
+                overflow: "visible",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div id="qclub-cashfree-upi-qr" style={{ display: "grid", placeItems: "center", margin: "0 auto" }} />
             </div>
 
             {cashfreeQrError ? (
