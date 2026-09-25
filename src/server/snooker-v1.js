@@ -509,53 +509,117 @@ async function loadFinanceReserveSummary(supabase) {
   if (!plan) throw Object.assign(new Error("Finance reserve plan is not configured."), { status: 409, code: "FINANCE_PLAN_NOT_CONFIGURED" });
 
   const bounds = indiaMonthBounds();
+
   const [
-    { data: cashPayments, error: cashError },
-    { data: upiPayments, error: upiError },
-    { data: operationalRows, error: opsError },
+    { data: monthCashPayments, error: monthCashError },
+    { data: monthUpiPayments, error: monthUpiError },
   ] = await Promise.all([
     supabase
       .from("snooker_bill_payments")
-      .select("amount_inr,created_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
       .eq("method", "CASH")
       .eq("status", "RECEIVED")
       .gte("created_at", bounds.start)
       .lt("created_at", bounds.end),
     supabase
       .from("snooker_bill_payments")
-      .select("amount_inr,verified_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
       .eq("method", "UPI")
       .eq("status", "VERIFIED")
       .gte("verified_at", bounds.start)
       .lt("verified_at", bounds.end),
-    supabase
-      .from("qclub_operational_records")
-      .select("record_type,payload,status,created_at,updated_at")
-      .in("record_type", ["booking_request", "q_lounge_order", "qshop_receipt"])
-      .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(1000),
   ]);
-  if (cashError || upiError || opsError) throw cashError || upiError || opsError;
+  if (monthCashError || monthUpiError) throw monthCashError || monthUpiError;
 
-  const cash = (cashPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const upi = (upiPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const monthPayments = [...(monthCashPayments || []), ...(monthUpiPayments || [])];
+  const billIds = [...new Set(monthPayments.map((row) => row.bill_id).filter(Boolean))];
+
+  let bills = [];
+  let allSuccessfulPayments = [];
+  if (billIds.length) {
+    const [
+      { data: billRows, error: billError },
+      { data: paymentRows, error: paymentError },
+    ] = await Promise.all([
+      supabase
+        .from("snooker_bills")
+        .select("id,bill_no,game_total_inr,fnb_total_inr,discount_inr,total_inr,paid_inr,due_inr,status,finalized_at")
+        .in("id", billIds),
+      supabase
+        .from("snooker_bill_payments")
+        .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+        .in("bill_id", billIds)
+        .in("status", ["RECEIVED", "VERIFIED"]),
+    ]);
+    if (billError || paymentError) throw billError || paymentError;
+    bills = billRows || [];
+    allSuccessfulPayments = paymentRows || [];
+  }
+
+  const billById = new Map(bills.map((bill) => [bill.id, bill]));
+  const paymentsByBill = new Map();
+  for (const payment of allSuccessfulPayments) {
+    if (!payment?.bill_id) continue;
+    const effectiveAt = payment.method === "UPI"
+      ? (payment.verified_at || payment.created_at)
+      : payment.created_at;
+    const effectiveMs = Date.parse(effectiveAt || "");
+    if (!Number.isFinite(effectiveMs)) continue;
+    if (!paymentsByBill.has(payment.bill_id)) paymentsByBill.set(payment.bill_id, []);
+    paymentsByBill.get(payment.bill_id).push({ ...payment, effective_ms: effectiveMs });
+  }
 
   const monthStartMs = Date.parse(bounds.start);
   const monthEndMs = Date.parse(bounds.end);
-  const website = (operationalRows || []).reduce((sum, record) => {
-    const payload = record?.payload || {};
-    const status = String(payload?.paymentStatus || payload?.status || record?.status || "").toUpperCase();
-    const isPaid = ["PAID", "PAID_VERIFIED", "VERIFIED", "SUCCESS"].includes(status);
-    if (!isPaid) return sum;
+  let tableCash = 0;
+  let tableUpi = 0;
+  let monthGrossTableCharges = 0;
+  let monthGrossFnbCharges = 0;
+  let monthDiscount = 0;
+  let monthOutstandingTable = 0;
 
-    const originalTimestamp = payload?.createdAt || payload?.updatedAt || record?.created_at || record?.updated_at;
-    const paidMs = Date.parse(originalTimestamp || "");
-    if (!Number.isFinite(paidMs) || paidMs < monthStartMs || paidMs >= monthEndMs) return sum;
+  for (const bill of bills) {
+    const payableTotal = Math.max(0, number(bill.total_inr, 0));
+    const grossFnb = Math.max(0, number(bill.fnb_total_inr, 0));
+    // Protect inventory cash first. Discounts reduce table/game revenue first;
+    // only if the discount exceeds table charges can it reduce the F&B portion.
+    const protectedFnb = Math.min(grossFnb, payableTotal);
+    const payableTable = Math.max(0, payableTotal - protectedFnb);
 
-    const amount = number(payload?.total ?? payload?.amount, 0);
-    return sum + Math.max(0, amount);
-  }, 0);
+    const finalizedMs = Date.parse(bill.finalized_at || "");
+    if (Number.isFinite(finalizedMs) && finalizedMs >= monthStartMs && finalizedMs < monthEndMs) {
+      monthGrossTableCharges += Math.max(0, number(bill.game_total_inr, 0));
+      monthGrossFnbCharges += grossFnb;
+      monthDiscount += Math.max(0, number(bill.discount_inr, 0));
+    }
+
+    const rows = (paymentsByBill.get(bill.id) || []).sort((a, b) => a.effective_ms - b.effective_ms);
+    let cumulativePaid = 0;
+    let tablePaidTotal = 0;
+
+    for (const payment of rows) {
+      const amount = Math.max(0, number(payment.amount_inr, 0));
+      const beforeApplied = Math.min(payableTotal, cumulativePaid);
+      const afterApplied = Math.min(payableTotal, cumulativePaid + amount);
+      const tableBefore = Math.max(0, beforeApplied - protectedFnb);
+      const tableAfter = Math.max(0, afterApplied - protectedFnb);
+      const tablePortion = Math.max(0, Math.min(payableTable, tableAfter) - Math.min(payableTable, tableBefore));
+
+      cumulativePaid += amount;
+      tablePaidTotal += tablePortion;
+
+      if (payment.effective_ms >= monthStartMs && payment.effective_ms < monthEndMs && tablePortion > 0) {
+        if (payment.method === "CASH") tableCash += tablePortion;
+        else if (payment.method === "UPI") tableUpi += tablePortion;
+      }
+    }
+
+    if (Number.isFinite(finalizedMs) && finalizedMs >= monthStartMs && finalizedMs < monthEndMs) {
+      monthOutstandingTable += Math.max(0, payableTable - Math.min(payableTable, tablePaidTotal));
+    }
+  }
+
+  const realizedTableRevenue = tableCash + tableUpi;
 
   const regularCommitments =
     number(plan.loan_service_inr) +
@@ -592,10 +656,9 @@ async function loadFinanceReserveSummary(supabase) {
   );
   const totalProtectedTargetToDate = regularReserveTargetToDate + liabilityReserveTargetToDate;
 
-  const actualCollections = cash + upi + website;
-  const safeToSpend = Math.max(0, actualCollections - totalProtectedTargetToDate);
-  const reserveShortfall = Math.max(0, totalProtectedTargetToDate - actualCollections);
-  const monthTargetRemaining = Math.max(0, collectionTarget - actualCollections);
+  const safeToSpend = Math.max(0, realizedTableRevenue - totalProtectedTargetToDate);
+  const reserveShortfall = Math.max(0, totalProtectedTargetToDate - realizedTableRevenue);
+  const monthTargetRemaining = Math.max(0, collectionTarget - realizedTableRevenue);
 
   const regularRatio = collectionTarget > 0
     ? Math.min(1, regularCommitments / collectionTarget)
@@ -606,7 +669,8 @@ async function loadFinanceReserveSummary(supabase) {
 
   return {
     admin_only: true,
-    source_note: "Collections include Q Club Ledger cash/verified UPI plus paid website operational orders recorded this month.",
+    revenue_scope: "TABLE_ONLY",
+    source_note: "Finance Reserve uses only realized table/game revenue. F&B, Q Lounge, QShop and website-order revenue are excluded. On mixed bills, F&B is treated as funded first so inventory-replenishment cash cannot inflate Safe to Spend.",
     business_date: bounds.day,
     period_start: bounds.start,
     period_end: bounds.end,
@@ -630,10 +694,17 @@ async function loadFinanceReserveSummary(supabase) {
       },
     },
     actuals: {
-      month_cash_inr: money(cash),
-      month_upi_inr: money(upi),
-      month_website_paid_inr: money(website),
-      month_collections_inr: money(actualCollections),
+      month_table_cash_inr: money(tableCash),
+      month_table_upi_inr: money(tableUpi),
+      month_realized_table_revenue_inr: money(realizedTableRevenue),
+      month_gross_table_charges_inr: money(monthGrossTableCharges),
+      month_fnb_charges_excluded_inr: money(monthGrossFnbCharges),
+      month_discount_inr: money(monthDiscount),
+      month_outstanding_table_inr: money(monthOutstandingTable),
+      month_cash_inr: money(tableCash),
+      month_upi_inr: money(tableUpi),
+      month_website_paid_inr: 0,
+      month_collections_inr: money(realizedTableRevenue),
     },
     reserve: {
       elapsed_plan_days: elapsedPlanDays,
