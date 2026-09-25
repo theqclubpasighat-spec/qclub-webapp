@@ -513,6 +513,8 @@ async function loadFinanceReserveSummary(supabase) {
   const [
     { data: monthCashPayments, error: monthCashError },
     { data: monthUpiPayments, error: monthUpiError },
+    { data: monthFnbLines, error: monthFnbError },
+    { data: fnbCatalogue, error: fnbCatalogueError },
   ] = await Promise.all([
     supabase
       .from("snooker_bill_payments")
@@ -528,8 +530,22 @@ async function loadFinanceReserveSummary(supabase) {
       .eq("status", "VERIFIED")
       .gte("verified_at", bounds.start)
       .lt("verified_at", bounds.end),
+    supabase
+      .from("snooker_fnb_lines")
+      .select("item_id,item_name_snapshot,unit_price_snapshot_inr,quantity,line_total_inr,status,added_at")
+      .neq("status", "VOIDED")
+      .gte("added_at", bounds.start)
+      .lt("added_at", bounds.end),
+    supabase
+      .from("snooker_catalogue_items")
+      .select("id,name,category,selling_price_inr,cost_price_inr,active")
+      .eq("active", true)
+      .order("category")
+      .order("name"),
   ]);
-  if (monthCashError || monthUpiError) throw monthCashError || monthUpiError;
+  if (monthCashError || monthUpiError || monthFnbError || fnbCatalogueError) {
+    throw monthCashError || monthUpiError || monthFnbError || fnbCatalogueError;
+  }
 
   const monthPayments = [...(monthCashPayments || []), ...(monthUpiPayments || [])];
   const billIds = [...new Set(monthPayments.map((row) => row.bill_id).filter(Boolean))];
@@ -667,6 +683,56 @@ async function loadFinanceReserveSummary(supabase) {
     ? Math.min(1, plannedMonthlyLiabilityAllocation / collectionTarget)
     : 0;
 
+  const fnbItemById = new Map((fnbCatalogue || []).map((item) => [item.id, item]));
+  const fnbSoldById = new Map();
+  let fnbSales = 0;
+  let fnbRestockReserve = 0;
+  let fnbFallbackReserve = 0;
+
+  for (const line of monthFnbLines || []) {
+    const quantity = Math.max(0, number(line.quantity, 0));
+    const lineTotal = Math.max(0, number(line.line_total_inr, 0));
+    const sellUnit = quantity > 0
+      ? Math.max(0, number(line.unit_price_snapshot_inr, lineTotal / quantity))
+      : 0;
+    const item = fnbItemById.get(line.item_id);
+    const configuredCost = item?.cost_price_inr != null && Number.isFinite(Number(item.cost_price_inr))
+      ? Math.max(0, number(item.cost_price_inr, 0))
+      : null;
+    const reserveUnit = configuredCost == null ? sellUnit : configuredCost;
+    const reserve = quantity * reserveUnit;
+
+    fnbSales += lineTotal;
+    fnbRestockReserve += reserve;
+    if (configuredCost == null) fnbFallbackReserve += lineTotal;
+
+    const current = fnbSoldById.get(line.item_id) || { quantity: 0, sales: 0 };
+    current.quantity += quantity;
+    current.sales += lineTotal;
+    fnbSoldById.set(line.item_id, current);
+  }
+
+  const fnbCostItems = (fnbCatalogue || [])
+    .filter((item) => number(item.selling_price_inr, 0) > 0)
+    .map((item) => {
+      const sold = fnbSoldById.get(item.id) || { quantity: 0, sales: 0 };
+      const configured = item.cost_price_inr != null && Number.isFinite(Number(item.cost_price_inr));
+      return {
+        item_id: item.id,
+        name: item.name,
+        category: item.category,
+        selling_price_inr: money(item.selling_price_inr),
+        cost_price_inr: configured ? money(item.cost_price_inr) : null,
+        cost_configured: configured,
+        month_quantity_sold: number(sold.quantity, 0),
+        month_sales_inr: money(sold.sales),
+      };
+    });
+
+  const fnbMissingCostCount = fnbCostItems.filter((item) => !item.cost_configured).length;
+  const fnbSoldMissingCostCount = fnbCostItems.filter((item) => !item.cost_configured && item.month_quantity_sold > 0).length;
+  const fnbProfitLeft = fnbSales - fnbRestockReserve;
+
   return {
     admin_only: true,
     revenue_scope: "TABLE_ONLY",
@@ -720,7 +786,62 @@ async function loadFinanceReserveSummary(supabase) {
       per_100_regular_inr: money(regularRatio * 100),
       per_100_liability_inr: money(liabilityRatio * 100),
     },
+    fnb_stock_wallet: {
+      admin_only: true,
+      scope: "LEDGER_FNB",
+      month_sales_inr: money(fnbSales),
+      keep_for_restock_inr: money(fnbRestockReserve),
+      profit_left_inr: money(fnbProfitLeft),
+      fallback_full_sale_reserve_inr: money(fnbFallbackReserve),
+      missing_cost_count: fnbMissingCostCount,
+      sold_missing_cost_count: fnbSoldMissingCostCount,
+      setup_complete: fnbMissingCostCount === 0,
+      note: "If cost is missing, 100% of that item's selling price is protected for restocking. Profit left is F&B sales minus replacement cost only.",
+      items: fnbCostItems,
+    },
   };
+}
+
+async function updateFnbCostPrices(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const rows = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!rows.length || rows.length > 200) {
+    return json(res, 400, { ok: false, error: "FNB_COST_ITEMS_REQUIRED" });
+  }
+
+  const normalized = [];
+  for (const row of rows) {
+    const itemId = safeText(row?.item_id || row?.itemId || "", 160);
+    const value = Number(row?.cost_price_inr ?? row?.costPriceInr);
+    if (!itemId || !Number.isFinite(value) || value < 0) {
+      return json(res, 400, { ok: false, error: "INVALID_FNB_COST", item_id: itemId || null });
+    }
+    normalized.push({ item_id: itemId, cost_price_inr: money(value) });
+  }
+
+  const uniqueIds = [...new Set(normalized.map((row) => row.item_id))];
+  const { data: existing, error: existingError } = await supabase
+    .from("snooker_catalogue_items")
+    .select("id,active,selling_price_inr")
+    .in("id", uniqueIds);
+  if (existingError) throw existingError;
+
+  const validIds = new Set((existing || []).filter((item) => item.active).map((item) => item.id));
+  if (validIds.size !== uniqueIds.length) {
+    return json(res, 400, { ok: false, error: "FNB_COST_ITEM_NOT_FOUND" });
+  }
+
+  for (const row of normalized) {
+    const { error } = await supabase
+      .from("snooker_catalogue_items")
+      .update({ cost_price_inr: row.cost_price_inr, updated_at: new Date().toISOString() })
+      .eq("id", row.item_id);
+    if (error) throw error;
+  }
+
+  return json(res, 200, await loadFinanceReserveSummary(supabase));
 }
 
 async function financeReserve(req, res) {
@@ -2094,6 +2215,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "dashboard/summary") return await dashboardSummary(req, res);
     if (method === "GET" && path === "finance/reserve") return await financeReserve(req, res);
     if (method === "PATCH" && path === "finance/reserve") return await updateFinanceReserve(req, res);
+    if (method === "PATCH" && path === "finance/fnb-costs") return await updateFnbCostPrices(req, res);
     if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
