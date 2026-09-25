@@ -1419,6 +1419,7 @@ async function upiPayment(req, res) {
     return json(res, 400, { ok: false, error: "INVALID_UPI_AMOUNT", due_inr: due });
   }
 
+  const reuseCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
   const { data: reusable } = await supabase
     .from("snooker_bill_payments")
     .select("*")
@@ -1427,6 +1428,7 @@ async function upiPayment(req, res) {
     .eq("status", "PENDING")
     .eq("amount_inr", amount)
     .gt("expires_at", new Date().toISOString())
+    .gt("created_at", reuseCutoff)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -1460,10 +1462,12 @@ async function upiPayment(req, res) {
   const orderId = `snk_${paymentId.replace(/-/g, "").slice(0, 24)}`;
   const siteUrl = safeText(env("QCLUB_SITE_URL") || "https://theqclubpasighat.com", 200).replace(/\/$/, "");
 
+  const requestedExpiryAt = new Date(Date.now() + 15 * 60_000).toISOString();
   const orderPayload = {
     order_id: orderId,
     order_amount: amount,
     order_currency: CURRENCY,
+    order_expiry_time: requestedExpiryAt,
     customer_details: {
       customer_id: `snooker_${safeText(billId, 36)}`,
       customer_name: safeText(session?.customer_name || "Q Club Customer", 120) || "Q Club Customer",
@@ -1489,7 +1493,12 @@ async function upiPayment(req, res) {
     return json(res, 502, { ok: false, error: "CASHFREE_SESSION_MISSING" });
   }
 
-  const expiresAt = order.order_expiry_time || new Date(Date.now() + 15 * 60_000).toISOString();
+  const providerExpiryMs = Date.parse(order.order_expiry_time || "");
+  const requestedExpiryMs = Date.parse(requestedExpiryAt);
+  const effectiveExpiryMs = Number.isFinite(providerExpiryMs)
+    ? Math.min(providerExpiryMs, requestedExpiryMs)
+    : requestedExpiryMs;
+  const expiresAt = new Date(effectiveExpiryMs).toISOString();
   const { data: payment, error } = await supabase.from("snooker_bill_payments").insert({
     id: paymentId,
     bill_id: billId,
