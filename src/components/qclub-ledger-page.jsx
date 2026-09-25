@@ -184,6 +184,8 @@ export default function QclubLedgerPage() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [health, setHealth] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [finance, setFinance] = useState(null);
+  const [financeDraft, setFinanceDraft] = useState(null);
   const [bootstrap, setBootstrap] = useState(null);
   const [catalogue, setCatalogue] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -239,6 +241,8 @@ export default function QclubLedgerPage() {
     setAuth(null);
     setBootstrap(null);
     setSummary(null);
+    setFinance(null);
+    setFinanceDraft(null);
     setSessions([]);
     setAllSessions([]);
     setSessionDetails({});
@@ -314,13 +318,39 @@ export default function QclubLedgerPage() {
       setAllSessions((allPayload && allPayload.sessions) || []);
       setBills((billPayload && billPayload.bills) || []);
       setOperations(operationsPayload || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+      if (isAdmin) {
+        try {
+          const financePayload = await protectedCall("finance/reserve");
+          setFinance(financePayload);
+          setFinanceDraft(financePayload && financePayload.plan ? {
+            monthly_collection_target_inr: financePayload.plan.monthly_collection_target_inr,
+            loan_service_inr: financePayload.plan.categories.loan_service_inr,
+            electricity_inr: financePayload.plan.categories.electricity_inr,
+            staff_salary_inr: financePayload.plan.categories.staff_salary_inr,
+            supabase_inr: financePayload.plan.categories.supabase_inr,
+            msg91_inr: financePayload.plan.categories.msg91_inr,
+            misc_inr: financePayload.plan.categories.misc_inr,
+            personal_inr: financePayload.plan.categories.personal_inr,
+            legacy_liability_inr: financePayload.plan.legacy_liability_inr,
+            legacy_liability_paid_inr: financePayload.plan.legacy_liability_paid_inr,
+            due_day: financePayload.plan.due_day,
+          } : null);
+        } catch (financeError) {
+          setFinance(null);
+          setFinanceDraft(null);
+          flash(financeError.message || "Unable to load Admin finance reserve.", true);
+        }
+      } else {
+        setFinance(null);
+        setFinanceDraft(null);
+      }
       await loadSessionDetails(openRows);
     } catch (error) {
       flash(error.message || "Unable to load Q Club Ledger.", true);
     } finally {
       setBusy(false);
     }
-  }, [flash, loadSessionDetails, protectedCall, token]);
+  }, [flash, isAdmin, loadSessionDetails, protectedCall, token]);
 
   const refreshLiveState = useCallback(async function() {
     if (!token) return;
@@ -1052,6 +1082,47 @@ export default function QclubLedgerPage() {
     popup.document.close();
   }
 
+  async function saveFinancePlan() {
+    if (!isAdmin || !financeDraft) return;
+    setBusy(true);
+    try {
+      const payload = {};
+      Object.keys(financeDraft).forEach(function(key) {
+        if (key === "due_day") payload[key] = Number(financeDraft[key]);
+        else payload[key] = Number(financeDraft[key] || 0);
+      });
+      const result = await protectedCall("finance/reserve", {
+        method: "PATCH",
+        body: payload,
+      });
+      setFinance(result);
+      setFinanceDraft(result && result.plan ? {
+        monthly_collection_target_inr: result.plan.monthly_collection_target_inr,
+        loan_service_inr: result.plan.categories.loan_service_inr,
+        electricity_inr: result.plan.categories.electricity_inr,
+        staff_salary_inr: result.plan.categories.staff_salary_inr,
+        supabase_inr: result.plan.categories.supabase_inr,
+        msg91_inr: result.plan.categories.msg91_inr,
+        misc_inr: result.plan.categories.misc_inr,
+        personal_inr: result.plan.categories.personal_inr,
+        legacy_liability_inr: result.plan.legacy_liability_inr,
+        legacy_liability_paid_inr: result.plan.legacy_liability_paid_inr,
+        due_day: result.plan.due_day,
+      } : null);
+      flash("Finance reserve plan updated.");
+    } catch (error) {
+      flash(error.message || "Unable to update finance reserve.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateFinanceDraft(field, value) {
+    setFinanceDraft(function(current) {
+      return { ...(current || {}), [field]: value };
+    });
+  }
+
   async function adminInventory(item, mode) {
     if (!isAdmin) {
       flash("Admin PIN is required for inventory changes.", true);
@@ -1150,6 +1221,7 @@ export default function QclubLedgerPage() {
             ["fnb", "🍽 Add F&B"],
             ["activity", "🌐 Website Activity"],
             ["ledger", "🧾 Ledger History"],
+            ...(isAdmin ? [["finance", "💰 Finance Reserve"]] : []),
             ["admin", isAdmin ? "⚙ Admin & Inventory" : "📦 Inventory"],
           ].map(function(entry) {
             return <button key={entry[0]} className={"ql-tab " + (tab === entry[0] ? "active" : "")} onClick={function() { setTab(entry[0]); }}>{entry[1]}</button>;
@@ -1368,6 +1440,149 @@ export default function QclubLedgerPage() {
                 </div>
               </div>
             </div>
+          </>
+        ) : null}
+
+        {tab === "finance" && isAdmin ? (
+          <>
+            <div className="ql-section">Admin-only finance reserve</div>
+            {finance ? (
+              <>
+                <div className="ql-stat-grid">
+                  <div className="ql-stat">
+                    <span className="ql-muted">Month collections</span>
+                    <strong>{money(finance.actuals && finance.actuals.month_collections_inr)}</strong>
+                    <div className="ql-muted">
+                      Cash {money(finance.actuals && finance.actuals.month_cash_inr)} • UPI {money(finance.actuals && finance.actuals.month_upi_inr)} • Website {money(finance.actuals && finance.actuals.month_website_paid_inr)}
+                    </div>
+                  </div>
+                  <div className="ql-stat">
+                    <span className="ql-muted">Protected target to date</span>
+                    <strong>{money(finance.reserve && finance.reserve.protected_target_to_date_inr)}</strong>
+                    <div className="ql-muted">
+                      Regular {money(finance.reserve && finance.reserve.regular_target_to_date_inr)} • Liability {money(finance.reserve && finance.reserve.liability_target_to_date_inr)}
+                    </div>
+                  </div>
+                  <div className="ql-stat">
+                    <span className="ql-muted">Safe to spend</span>
+                    <strong>{money(finance.reserve && finance.reserve.safe_to_spend_inr)}</strong>
+                    <div className="ql-muted">
+                      Shortfall {money(finance.reserve && finance.reserve.reserve_shortfall_inr)}
+                    </div>
+                  </div>
+                  <div className="ql-stat">
+                    <span className="ql-muted">Civil / electrical liability left</span>
+                    <strong>{money(finance.plan && finance.plan.legacy_liability_remaining_inr)}</strong>
+                    <div className="ql-muted">
+                      Planned this month {money(finance.plan && finance.plan.planned_monthly_liability_allocation_inr)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ql-grid" style={{ marginTop: 14 }}>
+                  <div className="ql-card wide">
+                    <h3>Automatic reserve rule</h3>
+                    <div className="ql-muted">Accounting reserve only — this does not move money out of the bank automatically.</div>
+                    <div className="ql-list" style={{ marginTop: 12 }}>
+                      <div className="ql-line ql-space">
+                        <span>Daily collection target</span>
+                        <strong>{money(finance.plan && finance.plan.daily_collection_target_inr)}</strong>
+                      </div>
+                      <div className="ql-line ql-space">
+                        <span>Daily regular reserve</span>
+                        <strong>{money(finance.reserve && finance.reserve.daily_regular_reserve_inr)}</strong>
+                      </div>
+                      <div className="ql-line ql-space">
+                        <span>Daily civil/electrical reserve</span>
+                        <strong>{money(finance.reserve && finance.reserve.daily_liability_reserve_inr)}</strong>
+                      </div>
+                      <div className="ql-line ql-space">
+                        <span>Every ₹100 collected</span>
+                        <strong>₹{Number(finance.reserve && finance.reserve.per_100_regular_inr || 0).toFixed(2)} regular + ₹{Number(finance.reserve && finance.reserve.per_100_liability_inr || 0).toFixed(2)} liability</strong>
+                      </div>
+                      <div className="ql-line ql-space">
+                        <span>Month target remaining</span>
+                        <strong>{money(finance.reserve && finance.reserve.month_target_remaining_inr)}</strong>
+                      </div>
+                    </div>
+                    <div className="ql-muted" style={{ marginTop: 10 }}>{finance.source_note}</div>
+                  </div>
+
+                  <div className="ql-card">
+                    <h3>Monthly commitments</h3>
+                    <div className="ql-list" style={{ marginTop: 12 }}>
+                      <div className="ql-line ql-space"><span>Loan service</span><strong>{money(finance.plan.categories.loan_service_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Electricity</span><strong>{money(finance.plan.categories.electricity_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Staff salary</span><strong>{money(finance.plan.categories.staff_salary_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Supabase</span><strong>{money(finance.plan.categories.supabase_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>MSG91</span><strong>{money(finance.plan.categories.msg91_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Miscellaneous</span><strong>{money(finance.plan.categories.misc_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Personal</span><strong>{money(finance.plan.categories.personal_inr)}</strong></div>
+                      <div className="ql-line ql-space"><span>Total regular</span><strong>{money(finance.plan.regular_commitments_inr)}</strong></div>
+                    </div>
+                  </div>
+
+                  <div className="ql-card full">
+                    <div className="ql-space">
+                      <div>
+                        <h3>Edit finance plan</h3>
+                        <div className="ql-muted">ADMIN only. Changes alter the reserve calculation immediately.</div>
+                      </div>
+                      <span className="ql-badge gold">Due day {finance.plan.due_day}</span>
+                    </div>
+                    {financeDraft ? (
+                      <>
+                        <div className="ql-form-grid" style={{ marginTop: 12 }}>
+                          {[
+                            ["monthly_collection_target_inr", "Monthly collection target"],
+                            ["loan_service_inr", "Loan service"],
+                            ["electricity_inr", "Electricity"],
+                            ["staff_salary_inr", "Staff salary"],
+                            ["supabase_inr", "Supabase"],
+                            ["msg91_inr", "MSG91"],
+                            ["misc_inr", "Miscellaneous"],
+                            ["personal_inr", "Personal"],
+                            ["legacy_liability_inr", "Civil/electrical liability"],
+                            ["legacy_liability_paid_inr", "Liability already paid"],
+                          ].map(function(row) {
+                            return (
+                              <label key={row[0]}>
+                                <span className="ql-label">{row[1]}</span>
+                                <input
+                                  className="ql-input"
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={financeDraft[row[0]]}
+                                  onChange={function(event) { updateFinanceDraft(row[0], event.target.value); }}
+                                />
+                              </label>
+                            );
+                          })}
+                          <label>
+                            <span className="ql-label">Monthly due day</span>
+                            <input
+                              className="ql-input"
+                              type="number"
+                              min="1"
+                              max="31"
+                              step="1"
+                              value={financeDraft.due_day}
+                              onChange={function(event) { updateFinanceDraft("due_day", event.target.value); }}
+                            />
+                          </label>
+                        </div>
+                        <div className="ql-row" style={{ marginTop: 12 }}>
+                          <button className="ql-btn primary" disabled={busy} onClick={saveFinancePlan}>{busy ? "Saving…" : "Save Finance Plan"}</button>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="ql-empty">Admin finance reserve is loading or unavailable.</div>
+            )}
           </>
         ) : null}
 

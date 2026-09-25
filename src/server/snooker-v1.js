@@ -218,6 +218,21 @@ function indiaDayBounds(value = new Date()) {
   };
 }
 
+function indiaMonthBounds(value = new Date()) {
+  const day = indiaDateString(value);
+  const [year, month, date] = day.split("-").map(Number);
+  const startMs = Date.UTC(year, month - 1, 1, 0, 0, 0) - (330 * 60_000);
+  const nextMonthMs = Date.UTC(year, month, 1, 0, 0, 0) - (330 * 60_000);
+  return {
+    day,
+    year,
+    month,
+    date,
+    start: new Date(startMs).toISOString(),
+    end: new Date(nextMonthMs).toISOString(),
+  };
+}
+
 async function memberRegistry(supabase) {
   const { data, error } = await supabase
     .from("qclub_state")
@@ -482,6 +497,220 @@ async function dashboardSummary(req, res) {
     outstanding_all_inr: money(outstanding),
   });
 }
+
+async function loadFinanceReserveSummary(supabase) {
+  const { data: plan, error: planError } = await supabase
+    .from("qclub_finance_plan")
+    .select("*")
+    .eq("id", "default")
+    .eq("active", true)
+    .maybeSingle();
+  if (planError) throw planError;
+  if (!plan) throw Object.assign(new Error("Finance reserve plan is not configured."), { status: 409, code: "FINANCE_PLAN_NOT_CONFIGURED" });
+
+  const bounds = indiaMonthBounds();
+  const [
+    { data: cashPayments, error: cashError },
+    { data: upiPayments, error: upiError },
+    { data: operationalRows, error: opsError },
+  ] = await Promise.all([
+    supabase
+      .from("snooker_bill_payments")
+      .select("amount_inr,created_at")
+      .eq("method", "CASH")
+      .eq("status", "RECEIVED")
+      .gte("created_at", bounds.start)
+      .lt("created_at", bounds.end),
+    supabase
+      .from("snooker_bill_payments")
+      .select("amount_inr,verified_at")
+      .eq("method", "UPI")
+      .eq("status", "VERIFIED")
+      .gte("verified_at", bounds.start)
+      .lt("verified_at", bounds.end),
+    supabase
+      .from("qclub_operational_records")
+      .select("record_type,payload,status,created_at,updated_at")
+      .in("record_type", ["booking_request", "q_lounge_order", "qshop_receipt"])
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1000),
+  ]);
+  if (cashError || upiError || opsError) throw cashError || upiError || opsError;
+
+  const cash = (cashPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const upi = (upiPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+
+  const monthStartMs = Date.parse(bounds.start);
+  const monthEndMs = Date.parse(bounds.end);
+  const website = (operationalRows || []).reduce((sum, record) => {
+    const payload = record?.payload || {};
+    const status = String(payload?.paymentStatus || payload?.status || record?.status || "").toUpperCase();
+    const isPaid = ["PAID", "PAID_VERIFIED", "VERIFIED", "SUCCESS"].includes(status);
+    if (!isPaid) return sum;
+
+    const originalTimestamp = payload?.createdAt || payload?.updatedAt || record?.created_at || record?.updated_at;
+    const paidMs = Date.parse(originalTimestamp || "");
+    if (!Number.isFinite(paidMs) || paidMs < monthStartMs || paidMs >= monthEndMs) return sum;
+
+    const amount = number(payload?.total ?? payload?.amount, 0);
+    return sum + Math.max(0, amount);
+  }, 0);
+
+  const regularCommitments =
+    number(plan.loan_service_inr) +
+    number(plan.electricity_inr) +
+    number(plan.staff_salary_inr) +
+    number(plan.supabase_inr) +
+    number(plan.msg91_inr) +
+    number(plan.misc_inr) +
+    number(plan.personal_inr);
+
+  const collectionTarget = number(plan.monthly_collection_target_inr);
+  const dueDay = Math.max(1, Math.min(31, Number(plan.due_day || 30)));
+  const elapsedPlanDays = Math.max(0, Math.min(bounds.date, dueDay));
+  const liabilityRemaining = Math.max(
+    0,
+    number(plan.legacy_liability_inr) - number(plan.legacy_liability_paid_inr)
+  );
+  const plannedMonthlyLiabilityAllocation = Math.min(
+    liabilityRemaining,
+    Math.max(0, collectionTarget - regularCommitments)
+  );
+
+  const dailyRegularReserve = regularCommitments / dueDay;
+  const dailyLiabilityReserve = plannedMonthlyLiabilityAllocation / dueDay;
+  const dailyCollectionTarget = collectionTarget / dueDay;
+
+  const regularReserveTargetToDate = Math.min(
+    regularCommitments,
+    dailyRegularReserve * elapsedPlanDays
+  );
+  const liabilityReserveTargetToDate = Math.min(
+    plannedMonthlyLiabilityAllocation,
+    dailyLiabilityReserve * elapsedPlanDays
+  );
+  const totalProtectedTargetToDate = regularReserveTargetToDate + liabilityReserveTargetToDate;
+
+  const actualCollections = cash + upi + website;
+  const safeToSpend = Math.max(0, actualCollections - totalProtectedTargetToDate);
+  const reserveShortfall = Math.max(0, totalProtectedTargetToDate - actualCollections);
+  const monthTargetRemaining = Math.max(0, collectionTarget - actualCollections);
+
+  const regularRatio = collectionTarget > 0
+    ? Math.min(1, regularCommitments / collectionTarget)
+    : 0;
+  const liabilityRatio = collectionTarget > 0
+    ? Math.min(1, plannedMonthlyLiabilityAllocation / collectionTarget)
+    : 0;
+
+  return {
+    admin_only: true,
+    source_note: "Collections include Q Club Ledger cash/verified UPI plus paid website operational orders recorded this month.",
+    business_date: bounds.day,
+    period_start: bounds.start,
+    period_end: bounds.end,
+    plan: {
+      monthly_collection_target_inr: money(collectionTarget),
+      daily_collection_target_inr: money(dailyCollectionTarget),
+      due_day: dueDay,
+      regular_commitments_inr: money(regularCommitments),
+      planned_monthly_liability_allocation_inr: money(plannedMonthlyLiabilityAllocation),
+      legacy_liability_inr: money(plan.legacy_liability_inr),
+      legacy_liability_paid_inr: money(plan.legacy_liability_paid_inr),
+      legacy_liability_remaining_inr: money(liabilityRemaining),
+      categories: {
+        loan_service_inr: money(plan.loan_service_inr),
+        electricity_inr: money(plan.electricity_inr),
+        staff_salary_inr: money(plan.staff_salary_inr),
+        supabase_inr: money(plan.supabase_inr),
+        msg91_inr: money(plan.msg91_inr),
+        misc_inr: money(plan.misc_inr),
+        personal_inr: money(plan.personal_inr),
+      },
+    },
+    actuals: {
+      month_cash_inr: money(cash),
+      month_upi_inr: money(upi),
+      month_website_paid_inr: money(website),
+      month_collections_inr: money(actualCollections),
+    },
+    reserve: {
+      elapsed_plan_days: elapsedPlanDays,
+      daily_regular_reserve_inr: money(dailyRegularReserve),
+      daily_liability_reserve_inr: money(dailyLiabilityReserve),
+      daily_total_protected_inr: money(dailyRegularReserve + dailyLiabilityReserve),
+      regular_target_to_date_inr: money(regularReserveTargetToDate),
+      liability_target_to_date_inr: money(liabilityReserveTargetToDate),
+      protected_target_to_date_inr: money(totalProtectedTargetToDate),
+      reserve_shortfall_inr: money(reserveShortfall),
+      safe_to_spend_inr: money(safeToSpend),
+      month_target_remaining_inr: money(monthTargetRemaining),
+      per_100_regular_inr: money(regularRatio * 100),
+      per_100_liability_inr: money(liabilityRatio * 100),
+    },
+  };
+}
+
+async function financeReserve(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const payload = await loadFinanceReserveSummary(getSupabaseAdmin());
+  return json(res, 200, payload);
+}
+
+async function updateFinanceReserve(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+
+  const numericFields = [
+    "monthly_collection_target_inr",
+    "loan_service_inr",
+    "electricity_inr",
+    "staff_salary_inr",
+    "supabase_inr",
+    "msg91_inr",
+    "misc_inr",
+    "personal_inr",
+    "legacy_liability_inr",
+    "legacy_liability_paid_inr",
+  ];
+
+  const update = {};
+  for (const field of numericFields) {
+    if (req.body?.[field] == null) continue;
+    const value = Number(req.body[field]);
+    if (!Number.isFinite(value) || value < 0) {
+      return json(res, 400, { ok: false, error: "INVALID_FINANCE_VALUE", field });
+    }
+    update[field] = money(value);
+  }
+
+  if (req.body?.due_day != null) {
+    const dueDay = Number(req.body.due_day);
+    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+      return json(res, 400, { ok: false, error: "INVALID_DUE_DAY" });
+    }
+    update.due_day = dueDay;
+  }
+
+  if (!Object.keys(update).length) {
+    return json(res, 400, { ok: false, error: "NO_FINANCE_CHANGES" });
+  }
+
+  update.updated_at = new Date().toISOString();
+  update.updated_by = auth.staff_id;
+
+  const { error } = await supabase
+    .from("qclub_finance_plan")
+    .update(update)
+    .eq("id", "default");
+  if (error) throw error;
+
+  return json(res, 200, await loadFinanceReserveSummary(supabase));
+}
+
 
 async function health(req, res) {
   let databaseReady = false;
@@ -1792,6 +2021,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "inventory") return await inventory(req, res);
     if (method === "GET" && path === "members/verify") return await verifyMember(req, res);
     if (method === "GET" && path === "dashboard/summary") return await dashboardSummary(req, res);
+    if (method === "GET" && path === "finance/reserve") return await financeReserve(req, res);
+    if (method === "PATCH" && path === "finance/reserve") return await updateFinanceReserve(req, res);
     if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
