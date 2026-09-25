@@ -1450,10 +1450,10 @@ export default function QclubLedgerPage() {
               <>
                 <div className="ql-stat-grid">
                   <div className="ql-stat">
-                    <span className="ql-muted">Month collections</span>
-                    <strong>{money(finance.actuals && finance.actuals.month_collections_inr)}</strong>
+                    <span className="ql-muted">Realized table revenue</span>
+                    <strong>{money(finance.actuals && finance.actuals.month_realized_table_revenue_inr)}</strong>
                     <div className="ql-muted">
-                      Cash {money(finance.actuals && finance.actuals.month_cash_inr)} • UPI {money(finance.actuals && finance.actuals.month_upi_inr)} • Website {money(finance.actuals && finance.actuals.month_website_paid_inr)}
+                      Cash {money(finance.actuals && finance.actuals.month_table_cash_inr)} • UPI {money(finance.actuals && finance.actuals.month_table_upi_inr)}
                     </div>
                   </div>
                   <div className="ql-stat">
@@ -1477,12 +1477,26 @@ export default function QclubLedgerPage() {
                       Planned this month {money(finance.plan && finance.plan.planned_monthly_liability_allocation_inr)}
                     </div>
                   </div>
+                  <div className="ql-stat">
+                    <span className="ql-muted">F&B excluded from finance</span>
+                    <strong>{money(finance.actuals && finance.actuals.month_fnb_charges_excluded_inr)}</strong>
+                    <div className="ql-muted">
+                      Stock/replenishment money • not counted as Safe to Spend
+                    </div>
+                  </div>
+                  <div className="ql-stat">
+                    <span className="ql-muted">Outstanding table revenue</span>
+                    <strong>{money(finance.actuals && finance.actuals.month_outstanding_table_inr)}</strong>
+                    <div className="ql-muted">
+                      Finalized table charges not yet realized
+                    </div>
+                  </div>
                 </div>
 
                 <div className="ql-grid" style={{ marginTop: 14 }}>
                   <div className="ql-card wide">
                     <h3>Automatic reserve rule</h3>
-                    <div className="ql-muted">Accounting reserve only — this does not move money out of the bank automatically.</div>
+                    <div className="ql-muted">Table revenue only. F&B/Q Lounge/QShop are excluded. Accounting reserve only — this does not move money out of the bank automatically.</div>
                     <div className="ql-list" style={{ marginTop: 12 }}>
                       <div className="ql-line ql-space">
                         <span>Daily collection target</span>
