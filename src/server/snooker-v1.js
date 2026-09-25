@@ -533,20 +533,26 @@ async function loadFinanceReserveSummary(supabase) {
       .select("record_type,payload,status,created_at,updated_at")
       .in("record_type", ["booking_request", "q_lounge_order", "qshop_receipt"])
       .is("deleted_at", null)
-      .gte("created_at", bounds.start)
-      .lt("created_at", bounds.end)
-      .limit(500),
+      .order("updated_at", { ascending: false })
+      .limit(1000),
   ]);
   if (cashError || upiError || opsError) throw cashError || upiError || opsError;
 
   const cash = (cashPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
   const upi = (upiPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
 
+  const monthStartMs = Date.parse(bounds.start);
+  const monthEndMs = Date.parse(bounds.end);
   const website = (operationalRows || []).reduce((sum, record) => {
     const payload = record?.payload || {};
     const status = String(payload?.paymentStatus || payload?.status || record?.status || "").toUpperCase();
     const isPaid = ["PAID", "PAID_VERIFIED", "VERIFIED", "SUCCESS"].includes(status);
     if (!isPaid) return sum;
+
+    const originalTimestamp = payload?.createdAt || payload?.updatedAt || record?.created_at || record?.updated_at;
+    const paidMs = Date.parse(originalTimestamp || "");
+    if (!Number.isFinite(paidMs) || paidMs < monthStartMs || paidMs >= monthEndMs) return sum;
+
     const amount = number(payload?.total ?? payload?.amount, 0);
     return sum + Math.max(0, amount);
   }, 0);
