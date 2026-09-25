@@ -8,6 +8,17 @@ function money(value) {
   return "₹" + Number(value || 0).toFixed(2);
 }
 
+function makeFnbCostDraft(payload) {
+  const rows = payload && payload.fnb_stock_wallet && Array.isArray(payload.fnb_stock_wallet.items)
+    ? payload.fnb_stock_wallet.items
+    : [];
+  const result = {};
+  rows.forEach(function(item) {
+    result[item.item_id] = item.cost_price_inr == null ? "" : String(item.cost_price_inr);
+  });
+  return result;
+}
+
 function countdownLabel(expiresAt, nowMs) {
   if (!expiresAt) return "Cashfree order expiry applies";
   const expiry = Date.parse(expiresAt);
@@ -186,6 +197,8 @@ export default function QclubLedgerPage() {
   const [summary, setSummary] = useState(null);
   const [finance, setFinance] = useState(null);
   const [financeDraft, setFinanceDraft] = useState(null);
+  const [fnbCostDraft, setFnbCostDraft] = useState({});
+  const [showFnbCostSetup, setShowFnbCostSetup] = useState(false);
   const [bootstrap, setBootstrap] = useState(null);
   const [catalogue, setCatalogue] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -243,6 +256,8 @@ export default function QclubLedgerPage() {
     setSummary(null);
     setFinance(null);
     setFinanceDraft(null);
+    setFnbCostDraft({});
+    setShowFnbCostSetup(false);
     setSessions([]);
     setAllSessions([]);
     setSessionDetails({});
@@ -322,6 +337,7 @@ export default function QclubLedgerPage() {
         try {
           const financePayload = await protectedCall("finance/reserve");
           setFinance(financePayload);
+          setFnbCostDraft(makeFnbCostDraft(financePayload));
           setFinanceDraft(financePayload && financePayload.plan ? {
             monthly_collection_target_inr: financePayload.plan.monthly_collection_target_inr,
             loan_service_inr: financePayload.plan.categories.loan_service_inr,
@@ -338,11 +354,13 @@ export default function QclubLedgerPage() {
         } catch (financeError) {
           setFinance(null);
           setFinanceDraft(null);
+          setFnbCostDraft({});
           flash(financeError.message || "Unable to load Admin finance reserve.", true);
         }
       } else {
         setFinance(null);
         setFinanceDraft(null);
+        setFnbCostDraft({});
       }
       await loadSessionDetails(openRows);
     } catch (error) {
@@ -1096,6 +1114,7 @@ export default function QclubLedgerPage() {
         body: payload,
       });
       setFinance(result);
+      setFnbCostDraft(makeFnbCostDraft(result));
       setFinanceDraft(result && result.plan ? {
         monthly_collection_target_inr: result.plan.monthly_collection_target_inr,
         loan_service_inr: result.plan.categories.loan_service_inr,
@@ -1121,6 +1140,51 @@ export default function QclubLedgerPage() {
     setFinanceDraft(function(current) {
       return { ...(current || {}), [field]: value };
     });
+  }
+
+  function updateFnbCostDraft(itemId, value) {
+    setFnbCostDraft(function(current) {
+      return { ...(current || {}), [itemId]: value };
+    });
+  }
+
+  async function saveFnbCosts() {
+    if (!isAdmin || !finance || !finance.fnb_stock_wallet) return;
+    const rows = (finance.fnb_stock_wallet.items || []).map(function(item) {
+      const raw = fnbCostDraft[item.item_id];
+      if (raw == null || String(raw).trim() === "") return null;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0) return { invalid: true, item: item.name };
+      return { item_id: item.item_id, cost_price_inr: value };
+    });
+
+    const invalid = rows.find(function(row) { return row && row.invalid; });
+    if (invalid) {
+      flash("Check the cost entered for " + invalid.item + ".", true);
+      return;
+    }
+
+    const payloadRows = rows.filter(Boolean);
+    if (!payloadRows.length) {
+      flash("Enter at least one cost price first.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await protectedCall("finance/fnb-costs", {
+        method: "PATCH",
+        body: { items: payloadRows },
+      });
+      setFinance(result);
+      setFnbCostDraft(makeFnbCostDraft(result));
+      setShowFnbCostSetup(false);
+      flash("F&B cost prices saved. Stock Wallet updated.");
+    } catch (error) {
+      flash(error.message || "Unable to save F&B cost prices.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function adminInventory(item, mode) {
@@ -1478,10 +1542,10 @@ export default function QclubLedgerPage() {
                     </div>
                   </div>
                   <div className="ql-stat">
-                    <span className="ql-muted">F&B excluded from finance</span>
+                    <span className="ql-muted">F&B kept separate</span>
                     <strong>{money(finance.actuals && finance.actuals.month_fnb_charges_excluded_inr)}</strong>
                     <div className="ql-muted">
-                      Stock/replenishment money • not counted as Safe to Spend
+                      Not included in Table Finance Reserve
                     </div>
                   </div>
                   <div className="ql-stat">
@@ -1491,6 +1555,98 @@ export default function QclubLedgerPage() {
                       Finalized table charges not yet realized
                     </div>
                   </div>
+                </div>
+
+                <div className="ql-card full" style={{ marginTop: 14 }}>
+                  <div className="ql-space">
+                    <div>
+                      <h3>F&B Stock Wallet</h3>
+                      <div className="ql-muted">Simple rule: keep enough money to buy the sold stock again. The rest is F&B profit.</div>
+                    </div>
+                    <button
+                      className="ql-btn gold"
+                      onClick={function() { setShowFnbCostSetup(function(value) { return !value; }); }}
+                    >
+                      {showFnbCostSetup ? "Close Cost Setup" : "Set Cost Prices"}
+                    </button>
+                  </div>
+
+                  <div className="ql-stat-grid" style={{ marginTop: 12 }}>
+                    <div className="ql-stat">
+                      <span className="ql-muted">F&B sold this month</span>
+                      <strong>{money(finance.fnb_stock_wallet && finance.fnb_stock_wallet.month_sales_inr)}</strong>
+                    </div>
+                    <div className="ql-stat">
+                      <span className="ql-muted">Keep for restock</span>
+                      <strong>{money(finance.fnb_stock_wallet && finance.fnb_stock_wallet.keep_for_restock_inr)}</strong>
+                      <div className="ql-muted">Do not spend this amount</div>
+                    </div>
+                    <div className="ql-stat">
+                      <span className="ql-muted">F&B profit left</span>
+                      <strong>{money(finance.fnb_stock_wallet && finance.fnb_stock_wallet.profit_left_inr)}</strong>
+                      <div className="ql-muted">After replacement cost only</div>
+                    </div>
+                    <div className="ql-stat">
+                      <span className="ql-muted">Need cost setup</span>
+                      <strong>{Number(finance.fnb_stock_wallet && finance.fnb_stock_wallet.missing_cost_count || 0)}</strong>
+                      <div className="ql-muted">Items without a purchase cost</div>
+                    </div>
+                  </div>
+
+                  {Number(finance.fnb_stock_wallet && finance.fnb_stock_wallet.missing_cost_count || 0) > 0 ? (
+                    <div className="ql-line" style={{ marginTop: 12 }}>
+                      <strong>Safe mode is ON.</strong>
+                      <div className="ql-muted" style={{ marginTop: 4 }}>
+                        Until you enter what an item costs us, the system keeps 100% of that item's selling price for restocking. This prevents fake profit.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ql-line" style={{ marginTop: 12 }}>
+                      <strong>Cost setup complete.</strong>
+                      <div className="ql-muted" style={{ marginTop: 4 }}>The Stock Wallet is now using the purchase cost entered for every saleable F&B item.</div>
+                    </div>
+                  )}
+
+                  {showFnbCostSetup ? (
+                    <div style={{ marginTop: 14 }}>
+                      <div className="ql-muted" style={{ marginBottom: 10 }}>
+                        Enter only what we actually pay to buy or prepare one unit. Example: if Coke sells for ₹40 and costs us ₹25, enter 25.
+                      </div>
+                      <div className="ql-list">
+                        {(finance.fnb_stock_wallet && finance.fnb_stock_wallet.items || []).map(function(item) {
+                          return (
+                            <div className="ql-line" key={item.item_id}>
+                              <div className="ql-space" style={{ alignItems: "center", gap: 12 }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <strong>{item.name}</strong>
+                                  <div className="ql-muted">
+                                    We sell at {money(item.selling_price_inr)}
+                                    {Number(item.month_quantity_sold || 0) > 0 ? " • Sold " + Number(item.month_quantity_sold || 0) + " this month" : ""}
+                                  </div>
+                                </div>
+                                <label style={{ minWidth: 130 }}>
+                                  <span className="ql-label">We pay ₹</span>
+                                  <input
+                                    className="ql-input"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    inputMode="decimal"
+                                    placeholder="Enter cost"
+                                    value={fnbCostDraft[item.item_id] == null ? "" : fnbCostDraft[item.item_id]}
+                                    onChange={function(event) { updateFnbCostDraft(item.item_id, event.target.value); }}
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 12 }} disabled={busy} onClick={saveFnbCosts}>
+                        {busy ? "Saving…" : "Save Cost Prices"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="ql-grid" style={{ marginTop: 14 }}>
