@@ -223,6 +223,9 @@ export default function QclubLedgerPage() {
   const [quantities, setQuantities] = useState({});
   const [fnbSearch, setFnbSearch] = useState("");
   const [fnbCategory, setFnbCategory] = useState("ALL");
+  const [fnbDestination, setFnbDestination] = useState("TABLE");
+  const [walkInName, setWalkInName] = useState("");
+  const [walkInPhone, setWalkInPhone] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
@@ -621,6 +624,8 @@ export default function QclubLedgerPage() {
       const haystack = [
         bill.bill_no,
         bill.bill_id,
+        bill.customer_name,
+        bill.customer_phone,
         session && session.customer_name,
         session && session.customer_phone,
       ].filter(Boolean).join(" ").toLowerCase();
@@ -865,7 +870,7 @@ export default function QclubLedgerPage() {
   }
 
   async function addFnb() {
-    if (!selectedSession) {
+    if (fnbDestination === "TABLE" && !selectedSession) {
       flash("Select an active table/session first.", true);
       return;
     }
@@ -882,12 +887,32 @@ export default function QclubLedgerPage() {
     }
     setBusy(true);
     try {
-      await protectedCall("sessions/" + selectedSession.session_id + "/fnb", {
-        method: "POST",
-        body: { lines: lines, idempotency_key: makeKey("fnb") },
-      });
+      if (fnbDestination === "WALK_IN") {
+        const bill = await protectedCall("bills/walk-in-fnb", {
+          method: "POST",
+          body: {
+            lines: lines,
+            customer_name: walkInName.trim() || null,
+            customer_phone: walkInPhone.trim() || null,
+            idempotency_key: makeKey("walkin-fnb"),
+          },
+        });
+        setBillDetail(bill);
+        setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+        setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+        setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+        setWalkInName("");
+        setWalkInPhone("");
+        setTab("ledger");
+        flash("Walk-in F&B bill " + (bill.bill_no || "") + " created.");
+      } else {
+        await protectedCall("sessions/" + selectedSession.session_id + "/fnb", {
+          method: "POST",
+          body: { lines: lines, idempotency_key: makeKey("fnb") },
+        });
+        flash("F&B added to the live table bill.");
+      }
       setQuantities({});
-      flash("F&B added to the live bill.");
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -1386,18 +1411,33 @@ export default function QclubLedgerPage() {
             <div className="ql-card full">
               <div className="ql-space">
                 <div>
-                  <h3>Add F&B to active customer bill</h3>
-                  <div className="ql-muted">Prices, stock and line totals are verified by the server before saving.</div>
+                  <h3>Add F&B</h3>
+                  <div className="ql-muted">Choose a playing table or create a separate walk-in bill. Prices and stock are verified by the server.</div>
+                  <div className="ql-row" style={{ marginTop: 10 }}>
+                    <button className={"ql-btn " + (fnbDestination === "TABLE" ? "primary" : "ghost")} onClick={function() { setFnbDestination("TABLE"); }}>Playing Table</button>
+                    <button className={"ql-btn " + (fnbDestination === "WALK_IN" ? "primary" : "ghost")} onClick={function() { setFnbDestination("WALK_IN"); setSelectedSessionId(""); }}>Walk-in / Separate Bill</button>
+                  </div>
                 </div>
                 <div style={{ minWidth: 250 }}>
-                  <label className="ql-label">Session / Table</label>
-                  <select className="ql-select" value={selectedSessionId} onChange={function(e) { setSelectedSessionId(e.target.value); }}>
-                    <option value="">Select session</option>
-                    {sessions.map(function(session) {
-                      const table = tables.find(function(t) { return t.table_id === session.table_id; });
-                      return <option key={session.session_id} value={session.session_id}>Table {(table && table.table_no) || "?"} — {session.customer_name || "Guest"}</option>;
-                    })}
-                  </select>
+                  {fnbDestination === "TABLE" ? (
+                    <>
+                      <label className="ql-label">Session / Table</label>
+                      <select className="ql-select" value={selectedSessionId} onChange={function(e) { setSelectedSessionId(e.target.value); }}>
+                        <option value="">Select session</option>
+                        {sessions.map(function(session) {
+                          const table = tables.find(function(t) { return t.table_id === session.table_id; });
+                          return <option key={session.session_id} value={session.session_id}>Table {(table && table.table_no) || "?"} — {session.customer_name || "Guest"}</option>;
+                        })}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <label className="ql-label">Visitor name (optional)</label>
+                      <input className="ql-input" value={walkInName} onChange={function(e) { setWalkInName(e.target.value); }} placeholder="Leave blank for Walk-in" />
+                      <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
+                      <input className="ql-input" value={walkInPhone} onChange={function(e) { setWalkInPhone(e.target.value); }} placeholder="For receipt if wanted" />
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1447,8 +1487,8 @@ export default function QclubLedgerPage() {
                 </div>
                 <div className="ql-row" style={{ justifyContent: "flex-end" }}>
                   {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
-                  <button className="ql-btn primary" disabled={!selectedSessionId || busy || selectedFnbCount <= 0} onClick={addFnb}>
-                    {busy ? "Adding…" : "Add to Table Bill"}
+                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && !selectedSessionId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy ? "Adding…" : (fnbDestination === "WALK_IN" ? "Create Separate F&B Bill" : "Add to Table Bill")}
                   </button>
                 </div>
               </div>
