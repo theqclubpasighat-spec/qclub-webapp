@@ -5683,192 +5683,121 @@ function MemberRegistryPage({ data, admin, commit }) {
 }
 
 function Offers({ data, admin, commit, startPayment }) {
-  const menu = data.menuCatalog || {};
-  const categories = Object.keys(menu);
-  const [activeCategory, setActiveCategory] = React.useState(categories[0] || "");
+  const legacyMenu = data.menuCatalog || {};
+  const [sharedMenu, setSharedMenu] = React.useState(null);
+  const [sharedStatus, setSharedStatus] = React.useState("loading");
 
   React.useEffect(() => {
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    });
-  }, [activeCategory]);
+    let cancelled = false;
+    fetch("/api/snooker/v1/public-catalogue?v=" + Date.now(), { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Shared menu unavailable");
+        const payload = await response.json();
+        if (cancelled) return;
+        const next = payload && payload.menuCatalog && typeof payload.menuCatalog === "object"
+          ? payload.menuCatalog
+          : {};
+        if (!Object.keys(next).length) throw new Error("Shared menu is empty");
+        setSharedMenu(next);
+        setSharedStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSharedMenu(null);
+        setSharedStatus("fallback");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
+  const menu = sharedMenu && Object.keys(sharedMenu).length ? sharedMenu : legacyMenu;
+  const categories = Object.keys(menu);
+  const [activeCategory, setActiveCategory] = React.useState("");
   const [cart, setCart] = React.useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]");
       if (!Array.isArray(saved)) return {};
-
       return saved.reduce((acc, item) => {
-        if (item && item.id) {
-          acc[item.id] = Number(item.qty) || 0;
-        }
+        if (item && item.id) acc[item.id] = Number(item.qty) || 0;
         return acc;
       }, {});
     } catch {
       return {};
     }
   });
-
   const [showCheckout, setShowCheckout] = React.useState(false);
   const [customerName, setCustomerName] = React.useState("");
   const [customerPhone, setCustomerPhone] = React.useState("");
   const [foodLightbox, setFoodLightbox] = React.useState(null);
-  function editFoodDrinksPageText() {
-  if (!admin) return;
-
-  const pageTitle = prompt(
-    "Food & Drinks page title:",
-    data.foodPage?.title || "Food & Drinks"
-  );
-  if (pageTitle === null) return;
-
-  const pageSubtitle = prompt(
-    "Food & Drinks page subtitle:",
-    data.foodPage?.subtitle || "The Q Lounge Menu"
-  );
-  if (pageSubtitle === null) return;
-
-  commit({
-    ...data,
-    foodPage: {
-      ...(data.foodPage || {}),
-      title: pageTitle.trim(),
-      subtitle: pageSubtitle.trim(),
-    },
-  });
-}
   const touchStartX = React.useRef(null);
   const touchEndX = React.useRef(null);
 
   React.useEffect(() => {
-    if (!activeCategory && categories.length) {
+    if ((!activeCategory || !menu[activeCategory]) && categories.length) {
       setActiveCategory(categories[0]);
     }
-  }, [activeCategory, categories]);
+  }, [activeCategory, categories.join("|")]);
+
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeCategory]);
+
+  function editFoodDrinksPageText() {
+    if (!admin) return;
+    const pageTitle = prompt("Food & Drinks page title:", data.foodPage?.title || "Food & Drinks");
+    if (pageTitle === null) return;
+    const pageSubtitle = prompt("Food & Drinks page subtitle:", data.foodPage?.subtitle || "The Q Lounge Menu");
+    if (pageSubtitle === null) return;
+    commit({
+      ...data,
+      foodPage: {
+        ...(data.foodPage || {}),
+        title: pageTitle.trim(),
+        subtitle: pageSubtitle.trim(),
+      },
+    });
+  }
 
   function handleCategorySwipe() {
-    if (!categories.length) return;
-    if (touchStartX.current === null || touchEndX.current === null) return;
-
+    if (!categories.length || touchStartX.current === null || touchEndX.current === null) return;
     const deltaX = touchStartX.current - touchEndX.current;
-
     if (Math.abs(deltaX) < 50) return;
-
     const currentIndex = categories.indexOf(activeCategory);
     if (currentIndex === -1) return;
-
-    if (deltaX > 0 && currentIndex < categories.length - 1) {
-      setActiveCategory(categories[currentIndex + 1]);
-    } else if (deltaX < 0 && currentIndex > 0) {
-      setActiveCategory(categories[currentIndex - 1]);
-    }
-
+    if (deltaX > 0 && currentIndex < categories.length - 1) setActiveCategory(categories[currentIndex + 1]);
+    else if (deltaX < 0 && currentIndex > 0) setActiveCategory(categories[currentIndex - 1]);
     touchStartX.current = null;
     touchEndX.current = null;
   }
 
   const category = menu[activeCategory] || {};
   const items = category.items || [];
-  const cartItems = Object.keys(cart).filter((id) => cart[id] > 0);
+  const allItems = Object.values(menu).flatMap((cat) => cat.items || []);
+  const itemById = Object.fromEntries(allItems.map((item) => [item.id, item]));
+
+  function canOrder(item) {
+    return sharedStatus === "ready" &&
+      item &&
+      item.onlineOrderEnabled !== false &&
+      item.inStock !== false;
+  }
+
+  const cartItems = Object.keys(cart).filter((id) => {
+    const item = itemById[id];
+    return Number(cart[id] || 0) > 0 && canOrder(item);
+  });
 
   const cartTotal = cartItems.reduce((sum, id) => {
-    const found = Object.values(menu)
-      .flatMap((cat) => cat.items || [])
-      .find((x) => x.id === id);
-
-    if (!found) return sum;
-
-    return sum + found.price * cart[id];
+    const found = itemById[id];
+    return found ? sum + Number(found.price || 0) * Number(cart[id] || 0) : sum;
   }, 0);
 
-  function updateItem(itemId, field, value) {
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      items: nextMenu[activeCategory].items.map((item) =>
-        item.id === itemId
-          ? { ...item, [field]: field === "price" ? Number(value) : value }
-          : item
-      ),
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  }
-
-  function addItem() {
-    const name = prompt("Item name:");
-    if (!name) return;
-
-    const description = prompt("Item description:", "") || "";
-    const price = Number(prompt("Item price:", "0") || 0);
-    const image = prompt("Item image path:", category.image || "") || category.image || "";
-
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      items: [
-        ...nextMenu[activeCategory].items,
-        {
-          id: `item_${Date.now()}`,
-          name,
-          description,
-          price,
-          image,
-        },
-      ],
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  }
-
-  function addCategory() {
-    const keyInput = prompt("New category key (example: momos2 or beverages):", "");
-    if (!keyInput) return;
-
-    const key = keyInput.trim().toLowerCase().replace(/\s+/g, "_");
-    if (!key) return;
-
-    if (menu[key]) {
-      alert("This category key already exists.");
-      return;
-    }
-
-    const title = prompt("Category title:", keyInput.trim()) || keyInput.trim();
-
-    const nextMenu = { ...menu };
-    nextMenu[key] = {
-      title,
-      image: "",
-      items: [],
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-
-    setActiveCategory(key);
-  }
-
   function addToCart(item) {
-    setCart((prev) => ({
-      ...prev,
-      [item.id]: (prev[item.id] || 0) + 1,
-    }));
+    if (!canOrder(item)) return;
+    setCart((prev) => ({ ...prev, [item.id]: (prev[item.id] || 0) + 1 }));
   }
 
   function removeFromCart(item) {
-    setCart((prev) => ({
-      ...prev,
-      [item.id]: Math.max((prev[item.id] || 0) - 1, 0),
-    }));
+    setCart((prev) => ({ ...prev, [item.id]: Math.max((prev[item.id] || 0) - 1, 0) }));
   }
 
   function itemQty(item) {
@@ -5876,609 +5805,231 @@ function Offers({ data, admin, commit, startPayment }) {
   }
 
   function emptyCart() {
-    const ok = confirm("Are you sure you want to empty the cart?");
-    if (!ok) return;
-
+    if (!confirm("Are you sure you want to empty the cart?")) return;
     setCart({});
     setShowCheckout(false);
   }
 
-  function deleteItem(itemId) {
-    const ok = confirm("Delete this item?");
-    if (!ok) return;
-
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      items: nextMenu[activeCategory].items.filter((item) => item.id !== itemId),
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  }
-
-  async function uploadItemImage(itemId, file) {
-    if (!admin) return alert("Admin only");
-    if (!file) return;
-
-    try {
-      const uploaded = await uploadImageToStorage(file, "menu-items");
-
-      const nextMenu = { ...menu };
-      nextMenu[activeCategory] = {
-        ...nextMenu[activeCategory],
-        items: nextMenu[activeCategory].items.map((item) =>
-          item.id === itemId
-            ? {
-                ...item,
-                image: uploaded.url,
-                imagePath: uploaded.path,
-              }
-            : item
-        ),
-      };
-
-      commit({
-        ...data,
-        menuCatalog: nextMenu,
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to upload image.");
-    }
-  }
-
-  async function uploadCategoryImage(file) {
-    if (!admin) return alert("Admin only");
-    if (!file) return;
-
-    try {
-      const uploaded = await uploadImageToStorage(file, "menu-categories");
-
-      const nextMenu = { ...menu };
-      nextMenu[activeCategory] = {
-        ...nextMenu[activeCategory],
-        image: uploaded.url,
-        imagePath: uploaded.path,
-      };
-
-      commit({
-        ...data,
-        menuCatalog: nextMenu,
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to upload category image.");
-    }
-  }
-
-  function editCategoryTitle() {
-    const title = prompt("Category title:", category.title || "");
-    if (!title) return;
-
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      title,
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  }
-
-  function editCategoryImage() {
-    const image = prompt("Category image path:", category.image || "");
-    if (!image) return;
-
-    const nextMenu = { ...menu };
-    nextMenu[activeCategory] = {
-      ...nextMenu[activeCategory],
-      image,
-    };
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-  }
-
-  function deleteActiveCategory() {
-    if (!activeCategory) return;
-    if (!confirm(`Delete category "${category.title || activeCategory}"?`)) return;
-
-    const nextMenu = { ...menu };
-    delete nextMenu[activeCategory];
-
-    const nextCategories = Object.keys(nextMenu);
-
-    commit({
-      ...data,
-      menuCatalog: nextMenu,
-    });
-
-    setActiveCategory(nextCategories[0] || "");
-  }
-
   return (
-  <>
-    <PageShell
-  title={data.foodPage?.title || "Food & Drinks"}
-  subtitle={data.foodPage?.subtitle || "The Q Lounge Menu"}
-/>
+    <>
+      <PageShell
+        title={data.foodPage?.title || "Food & Drinks"}
+        subtitle={data.foodPage?.subtitle || "The Q Lounge Menu"}
+      />
 
-        <div className="container foodPageContainer">
-
-      <div className="offersStickyBar foodCategoryDock">
-        <div className="foodCategoryTop">
-          <div>
-            <div className="foodSectionKicker">Order from the lounge</div>
-            <div className="foodSectionTitle">Browse the menu</div>
+      <div className="container foodPageContainer">
+        {sharedStatus !== "ready" ? (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <strong>{sharedStatus === "loading" ? "Loading live Q Lounge menu…" : "Menu shown from fallback copy"}</strong>
+            <div className="muted" style={{ marginTop: 5 }}>
+              {sharedStatus === "loading"
+                ? "Online ordering will enable after the live catalogue is verified."
+                : "Online ordering is temporarily disabled so an old price cannot be charged."}
+            </div>
           </div>
-          <div className="swipeHint foodSwipeHint">{items.length} items in {category.title || "this category"}</div>
-        </div>
+        ) : null}
 
-                <div className="foodCategoryRow">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setActiveCategory(cat)}
-              className={activeCategory === cat ? "foodCatChip active" : "foodCatChip"}
-            >
-              {menu[cat].image ? (
-                <span className="foodCatThumb">
-                  <img src={menu[cat].image} alt={menu[cat].title} />
-                </span>
-              ) : null}
+        <div className="offersStickyBar foodCategoryDock">
+          <div className="foodCategoryTop">
+            <div>
+              <div className="foodSectionKicker">Order from the lounge</div>
+              <div className="foodSectionTitle">Browse the menu</div>
+            </div>
+            <div className="swipeHint foodSwipeHint">{items.length} items in {category.title || "this category"}</div>
+          </div>
 
-              <span className="foodCatLabel">
-                {menu[cat].title}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {!admin && cartItems.length > 0 && showCheckout && (
-        <div className="card foodCartCard" style={{ marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>Your Cart</h3>
-
-          {cartItems.length === 0 ? (
-            <div className="muted">Cart is empty.</div>
-          ) : (
-            <>
-              <div style={{ display: "grid", gap: 8 }}>
-                {cartItems.map((id) => {
-                  const found = Object.values(menu)
-                    .flatMap((cat) => cat.items || [])
-                    .find((x) => x.id === id);
-
-                  if (!found) return null;
-
-                  return (
-                    <div
-  key={id}
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-    padding: "3px 0"
-  }}
->
-                      <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    minWidth: 0,
-    flex: 1
-  }}
->
-                        <div
-  style={{
-    fontWeight: 600,
-    fontSize: "0.95rem",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: "140px"
-  }}
->
-  {found.name}
-</div>
-
-                        <div className="row" style={{ gap: 4 }}>
-                          <button
-  className="btn secondary"
-  type="button"
-  onClick={() => removeFromCart(found)}
-  style={{ minWidth: 32, height: 32, padding: "0 10px" }}
->
-  −
-</button>
-
-                          <div style={{ fontWeight: 800, minWidth: 16, textAlign: "center", fontSize: "0.95rem" }}>
-  {cart[id]}
-</div>
-
-                          <button
-  className="btn secondary"
-  type="button"
-  onClick={() => addToCart(found)}
-  style={{ minWidth: 32, height: 32, padding: "0 10px" }}
->
-  +
-</button>
-                        </div>
-                      </div>
-
-                      <strong
-  style={{
-    minWidth: 70,
-    textAlign: "right",
-    fontSize: "0.95rem"
-  }}
->
-  ₹{found.price * cart[id]}
-</strong>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>
-                Total: ₹{cartTotal}
-              </div>
-
-              <div style={{ marginTop: 10 }}>
-                <button className="btn danger" type="button" onClick={emptyCart}>
-                  Empty Cart
-                </button>
-              </div>
-
+          <div className="foodCategoryRow">
+            {categories.map((cat) => (
               <button
-                className="btn"
+                key={cat}
                 type="button"
-                style={{ marginTop: 12 }}
-                onClick={() => setShowCheckout((v) => !v)}
+                onClick={() => setActiveCategory(cat)}
+                className={activeCategory === cat ? "foodCatChip active" : "foodCatChip"}
               >
-                {showCheckout ? "Hide Cart" : "Proceed to Payment"}
+                {menu[cat].image ? (
+                  <span className="foodCatThumb"><img src={menu[cat].image} alt={menu[cat].title} /></span>
+                ) : null}
+                <span className="foodCatLabel">{menu[cat].title}</span>
               </button>
+            ))}
+          </div>
+        </div>
 
-              {showCheckout && (
-                <div className="card" style={{ marginTop: 14 }}>
-                  <h3 style={{ marginTop: 0 }}>Checkout</h3>
-
-                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                    <input
-                      className="input"
-                      placeholder="Your Name"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
-
-                    <input
-                      className="input"
-                      placeholder="Whatsapp Number"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                    />
-
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        if (!customerName) {
-                          alert("Enter your name");
-                          return;
-                        }
-
-                        if (!customerPhone) {
-                          alert("Enter Whatsapp number");
-                          return;
-                        }
-
-                        localStorage.setItem("qclub_payment_context", "food");
-                        localStorage.setItem("qclub_payment_name", customerName.trim());
-                        localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
-                        localStorage.setItem(
-                          "qclub_food_cart",
-                          JSON.stringify(
-                            cartItems
-                              .map((id) => {
-                                const found = Object.values(menu)
-                                  .flatMap((cat) => cat.items || [])
-                                  .find((x) => x.id === id);
-
-                                return found
-                                  ? {
-                                      id: found.id,
-                                      name: found.name,
-                                      qty: cart[id],
-                                      price: found.price,
-                                      lineTotal: found.price * cart[id],
-                                    }
-                                  : null;
-                              })
-                              .filter(Boolean)
-                          )
-                        );
-                                                localStorage.setItem("qclub_food_total", String(cartTotal));
-                        localStorage.setItem("qclub_food_order_started_at", new Date().toISOString());
-
-                        const foodItemsForOrderTags = JSON.parse(localStorage.getItem("qclub_food_cart") || "[]")
-  .map((item, index) => {
-    const itemName = String(item?.name || "").trim();
-    const qty = Number(item?.qty || 0);
-    if (!itemName) return "";
-    return `${index + 1}. ${itemName}${qty > 0 ? ` x ${qty}` : ""}`;
-  })
-  .filter(Boolean)
-  .join("\n");
-
-startPayment(
-  cartTotal,
-  customerPhone.trim(),
-  customerName.trim(),
-  {
-    context: "food",
-    customer_name: customerName.trim(),
-    mobile: customerPhone.trim(),
-    food_items: foodItemsForOrderTags || "Food items",
-    food_items_json: localStorage.getItem("qclub_food_cart") || "[]",
-    food_total: String(cartTotal),
-  }
-);
-                      }}
-                    >
-                      Pay ₹{cartTotal}
-                    </button>
+        {!admin && cartItems.length > 0 && showCheckout ? (
+          <div className="card foodCartCard" style={{ marginBottom: 20 }}>
+            <h3 style={{ marginTop: 0 }}>Your Cart</h3>
+            <div style={{ display: "grid", gap: 8 }}>
+              {cartItems.map((id) => {
+                const found = itemById[id];
+                if (!found) return null;
+                return (
+                  <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "140px" }}>{found.name}</div>
+                      <div className="row" style={{ gap: 4 }}>
+                        <button className="btn secondary" type="button" onClick={() => removeFromCart(found)} style={{ minWidth: 32, height: 32, padding: "0 10px" }}>−</button>
+                        <div style={{ fontWeight: 800, minWidth: 16, textAlign: "center", fontSize: "0.95rem" }}>{cart[id]}</div>
+                        <button className="btn secondary" type="button" onClick={() => addToCart(found)} style={{ minWidth: 32, height: 32, padding: "0 10px" }}>+</button>
+                      </div>
+                    </div>
+                    <strong style={{ minWidth: 70, textAlign: "right", fontSize: "0.95rem" }}>₹{Number(found.price || 0) * Number(cart[id] || 0)}</strong>
                   </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {admin && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-          <button className="btn" type="button" onClick={addCategory}>
-            + Add Category
-          </button>
-          <button className="btn secondary" type="button" onClick={editFoodDrinksPageText}>
-  Edit Food & Drinks Title
-</button>
-
-          {activeCategory && (
-            <>
-              <button className="btn" type="button" onClick={addItem}>
-                + Add Item
-              </button>
-
-              <button className="btn secondary" type="button" onClick={editCategoryTitle}>
-                Edit Category Name
-              </button>
-
-              <button className="btn danger" type="button" onClick={deleteActiveCategory}>
-                Delete Category
-              </button>
-
-              <label className="btn secondary" style={{ cursor: "pointer" }}>
-                Upload Category Image
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={(e) => uploadCategoryImage(e.target.files?.[0])}
-                />
-              </label>
-            </>
-          )}
-        </div>
-      )}
-
-      <div
-        className="foodMenuGrid"
-        onTouchStart={(e) => {
-          touchStartX.current = e.changedTouches[0].screenX;
-        }}
-        onTouchEnd={(e) => {
-          touchEndX.current = e.changedTouches[0].screenX;
-          handleCategorySwipe();
-        }}
-      >
-        {items.map((item) => (
-                    <div key={item.id} className="card foodItemCard">
-            <button
-              type="button"
-              className="foodCardImageBtn"
-              onClick={() => {
-                if (!item.image) return;
-                setFoodLightbox({ title: item.name, image: item.image });
-              }}
-              style={{
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                margin: 0,
-                width: "100%",
-                cursor: item.image ? "zoom-in" : "default",
-                textAlign: "left",
-              }}
-            >
-              <div className="foodItemImageWrap compact">
-                <img src={item.image} alt={item.name} />
-                <div className="foodImageOverlay" />
-              </div>
-            </button>
-
-            <div className="foodItemBody">
-              <div className="foodItemTopline">
-                <div className="foodItemEyebrow">
-                  {category.title || "Q Lounge"}
-                </div>
-                <div className="foodItemPrice">₹{item.price}</div>
-              </div>
-
-              <h3 className="foodItemTitle" style={{ margin: 0 }}>
-                {item.name}
-              </h3>
-
-              <div className="muted foodItemDesc">
-                {item.description || "Freshly prepared at The Q Lounge."}
-              </div>
+                );
+              })}
             </div>
 
-            
+            <div style={{ marginTop: 12, fontWeight: 800, fontSize: "1.1rem" }}>Total: ₹{cartTotal}</div>
+            <div style={{ marginTop: 10 }}><button className="btn danger" type="button" onClick={emptyCart}>Empty Cart</button></div>
 
-            {admin ? (
-              <div className="foodAdminActions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="card" style={{ marginTop: 14 }}>
+              <h3 style={{ marginTop: 0 }}>Checkout</h3>
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <input className="input" placeholder="Your Name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+                <input className="input" placeholder="Whatsapp Number" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
                 <button
-                  className="btn secondary"
-                  type="button"
+                  className="btn"
+                  disabled={sharedStatus !== "ready" || cartTotal <= 0}
                   onClick={() => {
-                    const value = prompt("Edit item name:", item.name);
-                    if (value !== null && value !== "") updateItem(item.id, "name", value);
+                    if (!customerName.trim()) return alert("Enter your name");
+                    if (!customerPhone.trim()) return alert("Enter Whatsapp number");
+                    const orderItems = cartItems.map((id) => {
+                      const found = itemById[id];
+                      return found ? {
+                        id: found.id,
+                        name: found.name,
+                        qty: cart[id],
+                        price: found.price,
+                        lineTotal: Number(found.price || 0) * Number(cart[id] || 0),
+                      } : null;
+                    }).filter(Boolean);
+                    if (!orderItems.length) return alert("No orderable items in the cart.");
+
+                    localStorage.setItem("qclub_payment_context", "food");
+                    localStorage.setItem("qclub_payment_name", customerName.trim());
+                    localStorage.setItem("qclub_payment_mobile", customerPhone.trim());
+                    localStorage.setItem("qclub_food_cart", JSON.stringify(orderItems));
+                    localStorage.setItem("qclub_food_total", String(cartTotal));
+                    localStorage.setItem("qclub_food_order_started_at", new Date().toISOString());
+
+                    const foodItemsForOrderTags = orderItems
+                      .map((item, index) => `${index + 1}. ${item.name}${Number(item.qty || 0) > 0 ? ` x ${item.qty}` : ""}`)
+                      .join("\n");
+
+                    startPayment(
+                      cartTotal,
+                      customerPhone.trim(),
+                      customerName.trim(),
+                      {
+                        context: "food",
+                        customer_name: customerName.trim(),
+                        mobile: customerPhone.trim(),
+                        food_items: foodItemsForOrderTags || "Food items",
+                        food_items_json: JSON.stringify(orderItems),
+                        food_total: String(cartTotal),
+                      }
+                    );
                   }}
                 >
-                  Edit Name
-                </button>
-
-                <button
-                  className="btn secondary"
-                  type="button"
-                  onClick={() => {
-                    const value = prompt("Edit description:", item.description || "");
-                    if (value !== null) updateItem(item.id, "description", value);
-                  }}
-                >
-                  Edit Details
-                </button>
-
-                <button
-                  className="btn secondary"
-                  type="button"
-                  onClick={() => {
-                    const value = prompt("Edit price:", item.price);
-                    if (value !== null && value !== "") updateItem(item.id, "price", value);
-                  }}
-                >
-                  Edit Price
-                </button>
-
-                <label className="btn secondary" style={{ cursor: "pointer" }}>
-                  Upload Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    onChange={(e) => uploadItemImage(item.id, e.target.files?.[0])}
-                  />
-                </label>
-
-                <button className="btn" type="button" onClick={() => deleteItem(item.id)}>
-                  Delete
+                  Pay ₹{cartTotal}
                 </button>
               </div>
-            ) : (
-              <div className="foodQuickActions">
-                <button className="btn secondary" type="button" onClick={() => removeFromCart(item)}>
-                  −
-                </button>
-
-                <div className="foodQtyPill">{itemQty(item)}</div>
-
-                <button className="btn primary foodAddBtn" type="button" onClick={() => addToCart(item)}>
-                  + Add
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-       {!admin && cartItems.length > 0 && !showCheckout ? (
-        <button
-          type="button"
-          className="foodFloatingCart"
-          onClick={() => setShowCheckout(true)}
-        >
-          <div className="foodFloatingCartLeft">
-            <div className="foodFloatingCartCount">
-              {cartItems.reduce((sum, id) => sum + (cart[id] || 0), 0)} item
-              {cartItems.reduce((sum, id) => sum + (cart[id] || 0), 0) === 1 ? "" : "s"}
             </div>
-            <div className="foodFloatingCartTotal">₹{cartTotal}</div>
           </div>
+        ) : null}
 
-          <div className="foodFloatingCartRight">
-            View Cart →
+        {admin ? (
+          <div className="card" style={{ marginBottom: 18 }}>
+            <div style={{ fontWeight: 800 }}>F&B items are now managed from the Q Club Ledger.</div>
+            <div className="muted" style={{ marginTop: 6 }}>
+              Price, description, image, Q Lounge visibility, online ordering and Ledger availability now share one master catalogue.
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <a className="btn primary" href="/QclubLedger">Open Q Club Ledger Admin</a>
+              <button className="btn secondary" type="button" onClick={editFoodDrinksPageText}>Edit Food & Drinks Title</button>
+            </div>
           </div>
-        </button>
-      ) : null}
+        ) : null}
 
-      {foodLightbox ? (
         <div
-          onClick={() => setFoodLightbox(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            background: "rgba(3,8,18,.88)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 18,
+          className="foodMenuGrid"
+          onTouchStart={(e) => { touchStartX.current = e.changedTouches[0].screenX; }}
+          onTouchEnd={(e) => {
+            touchEndX.current = e.changedTouches[0].screenX;
+            handleCategorySwipe();
           }}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(860px, 96vw)",
-              borderRadius: 24,
-              border: "1px solid rgba(255,255,255,.12)",
-              background: "linear-gradient(180deg, rgba(24,32,54,.96), rgba(10,16,30,.96))",
-              boxShadow: "0 24px 80px rgba(0,0,0,.45)",
-              padding: 16,
-            }}
-          >
-            <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 18 }}>{foodLightbox.title}</div>
-              <button className="iconBtn" type="button" onClick={() => setFoodLightbox(null)}>
-                ✕
-              </button>
+          {items.map((item) => {
+            const orderable = canOrder(item);
+            const unavailableLabel = item.inStock === false ? "Out of stock" : "Not available online";
+            return (
+              <div key={item.id} className="card foodItemCard">
+                <button
+                  type="button"
+                  className="foodCardImageBtn"
+                  onClick={() => { if (item.image) setFoodLightbox({ title: item.name, image: item.image }); }}
+                  style={{ border: "none", background: "transparent", padding: 0, margin: 0, width: "100%", cursor: item.image ? "zoom-in" : "default", textAlign: "left" }}
+                >
+                  <div className="foodItemImageWrap compact">
+                    {item.image ? <img src={item.image} alt={item.name} /> : <div className="muted" style={{ padding: 24 }}>No image</div>}
+                    <div className="foodImageOverlay" />
+                  </div>
+                </button>
+
+                <div className="foodItemBody">
+                  <div className="foodItemTopline">
+                    <div className="foodItemEyebrow">{category.title || "Q Lounge"}</div>
+                    <div className="foodItemPrice">₹{item.price}</div>
+                  </div>
+                  <h3 className="foodItemTitle" style={{ margin: 0 }}>{item.name}</h3>
+                  <div className="muted foodItemDesc">{item.description || "Freshly prepared at The Q Lounge."}</div>
+                </div>
+
+                {admin ? (
+                  <div className="foodAdminActions"><a className="btn secondary" href="/QclubLedger">Manage in Ledger</a></div>
+                ) : orderable ? (
+                  <div className="foodQuickActions">
+                    <button className="btn secondary" type="button" onClick={() => removeFromCart(item)}>−</button>
+                    <div className="foodQtyPill">{itemQty(item)}</div>
+                    <button className="btn primary foodAddBtn" type="button" onClick={() => addToCart(item)}>+ Add</button>
+                  </div>
+                ) : (
+                  <div className="foodQuickActions"><button className="btn secondary" type="button" disabled>{sharedStatus === "ready" ? unavailableLabel : "Ordering unavailable"}</button></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {!admin && cartItems.length > 0 && !showCheckout ? (
+          <button type="button" className="foodFloatingCart" onClick={() => setShowCheckout(true)}>
+            <div className="foodFloatingCartLeft">
+              <div className="foodFloatingCartCount">
+                {cartItems.reduce((sum, id) => sum + Number(cart[id] || 0), 0)} item{cartItems.reduce((sum, id) => sum + Number(cart[id] || 0), 0) === 1 ? "" : "s"}
+              </div>
+              <div className="foodFloatingCartTotal">₹{cartTotal}</div>
             </div>
-            <div
-              style={{
-                borderRadius: 18,
-                overflow: "hidden",
-                background: "#09101d",
-              }}
-            >
-              <img
-                src={foodLightbox.image}
-                alt={foodLightbox.title}
-                style={{
-                  width: "100%",
-                  maxHeight: "78vh",
-                  objectFit: "contain",
-                  display: "block",
-                }}
-              />
+            <div className="foodFloatingCartRight">View Cart →</div>
+          </button>
+        ) : null}
+
+        {foodLightbox ? (
+          <div onClick={() => setFoodLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(3,8,18,.88)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "min(860px, 96vw)", borderRadius: 24, border: "1px solid rgba(255,255,255,.12)", background: "linear-gradient(180deg, rgba(24,32,54,.96), rgba(10,16,30,.96))", boxShadow: "0 24px 80px rgba(0,0,0,.45)", padding: 16 }}>
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>{foodLightbox.title}</div>
+                <button className="iconBtn" type="button" onClick={() => setFoodLightbox(null)}>✕</button>
+              </div>
+              <div style={{ borderRadius: 18, overflow: "hidden", background: "#09101d" }}>
+                <img src={foodLightbox.image} alt={foodLightbox.title} style={{ width: "100%", maxHeight: "78vh", objectFit: "contain", display: "block" }} />
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-        </div>
-  </>
+        ) : null}
+      </div>
+    </>
   );
 }
+
 function QShopPage({ data, admin, commit, startPayment }) {
   const fallbackItems = [
     {

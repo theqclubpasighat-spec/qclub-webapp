@@ -1015,6 +1015,14 @@ function catalogueDto(row) {
     current_stock: row.current_stock == null ? null : number(row.current_stock),
     low_stock_threshold: row.low_stock_threshold == null ? null : number(row.low_stock_threshold),
     active: row.active,
+    description: row.description || "",
+    image_url: row.image_url || "",
+    image_path: row.image_path || "",
+    qlounge_category_key: row.qlounge_category_key || "",
+    show_on_qlounge: Boolean(row.show_on_qlounge),
+    online_order_enabled: Boolean(row.online_order_enabled),
+    sell_in_ledger: row.sell_in_ledger !== false,
+    display_order: number(row.display_order),
     requires_price_configuration: price == null || price <= 0,
     is_unpriced: price == null || price <= 0,
   };
@@ -1033,6 +1041,89 @@ async function catalogue(req, res) {
   if (error) throw error;
   const items = (data || []).map(catalogueDto);
   return json(res, 200, { items, catalogue: items, version: "2026-09-21-1" });
+}
+
+async function publicCatalogue(req, res) {
+  const supabase = getSupabaseAdmin();
+  const [{ data: categories, error: categoryError }, { data: rows, error: itemError }] = await Promise.all([
+    supabase
+      .from("qclub_fnb_categories")
+      .select("*")
+      .eq("active", true)
+      .order("sort_order")
+      .order("title"),
+    supabase
+      .from("snooker_catalogue_items")
+      .select("*")
+      .eq("active", true)
+      .eq("show_on_qlounge", true)
+      .order("display_order")
+      .order("name"),
+  ]);
+  if (categoryError || itemError) throw categoryError || itemError;
+
+  const menuCatalog = {};
+  for (const category of categories || []) {
+    menuCatalog[category.category_key] = {
+      title: category.title,
+      image: category.image_url || "",
+      imagePath: category.image_path || "",
+      items: [],
+    };
+  }
+
+  for (const row of rows || []) {
+    const key = row.qlounge_category_key;
+    if (!key || !menuCatalog[key]) continue;
+    const price = row.selling_price_inr == null ? null : money(row.selling_price_inr);
+    if (price == null || price <= 0) continue;
+    const inStock = !row.track_inventory || number(row.current_stock) > 0;
+    menuCatalog[key].items.push({
+      id: row.id,
+      name: row.name,
+      description: row.description || "",
+      price,
+      image: row.image_url || "",
+      imagePath: row.image_path || "",
+      onlineOrderEnabled: Boolean(row.online_order_enabled),
+      inStock,
+      stockTracked: Boolean(row.track_inventory),
+    });
+  }
+
+  // Drop empty categories so the public UI never shows blank tabs.
+  for (const key of Object.keys(menuCatalog)) {
+    if (!menuCatalog[key].items.length) delete menuCatalog[key];
+  }
+
+  return json(res, 200, {
+    ok: true,
+    source: "qclub_fnb_master",
+    menuCatalog,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function catalogueCategories(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const { data, error } = await getSupabaseAdmin()
+    .from("qclub_fnb_categories")
+    .select("*")
+    .eq("active", true)
+    .order("sort_order")
+    .order("title");
+  if (error) throw error;
+  return json(res, 200, {
+    categories: (data || []).map((row) => ({
+      category_key: row.category_key,
+      title: row.title,
+      image_url: row.image_url || "",
+      image_path: row.image_path || "",
+      sort_order: number(row.sort_order),
+      active: row.active,
+    })),
+  });
 }
 
 async function createCatalogueItem(req, res) {
@@ -1071,6 +1162,20 @@ async function createCatalogueItem(req, res) {
     .maybeSingle();
   if (existingError) throw existingError;
 
+  const showOnQlounge = Boolean(req.body?.show_on_qlounge ?? req.body?.showOnQlounge ?? false);
+  const onlineOrderEnabled = showOnQlounge && Boolean(req.body?.online_order_enabled ?? req.body?.onlineOrderEnabled ?? false);
+  const sellInLedger = req.body?.sell_in_ledger == null && req.body?.sellInLedger == null
+    ? true
+    : Boolean(req.body?.sell_in_ledger ?? req.body?.sellInLedger);
+  const qloungeCategoryKey = safeText(req.body?.qlounge_category_key || req.body?.qloungeCategoryKey || "", 120) || null;
+  const description = safeText(req.body?.description || "", 1200);
+  const imageUrl = safeText(req.body?.image_url || req.body?.imageUrl || "", 2000);
+  const imagePath = safeText(req.body?.image_path || req.body?.imagePath || "", 1000);
+
+  if (showOnQlounge && !qloungeCategoryKey) {
+    return json(res, 400, { ok: false, error: "QLOUNGE_CATEGORY_REQUIRED" });
+  }
+
   const values = {
     name,
     category,
@@ -1080,6 +1185,14 @@ async function createCatalogueItem(req, res) {
     track_inventory: trackInventory,
     current_stock: trackInventory ? openingStock : null,
     low_stock_threshold: trackInventory ? lowStockThreshold : null,
+    description,
+    image_url: imageUrl || null,
+    image_path: imagePath || null,
+    qlounge_category_key: qloungeCategoryKey,
+    show_on_qlounge: showOnQlounge,
+    online_order_enabled: onlineOrderEnabled,
+    sell_in_ledger: sellInLedger,
+    display_order: Math.max(0, Math.floor(number(req.body?.display_order ?? req.body?.displayOrder, 100))),
     active: true,
     source: "qclub_ledger_admin",
     updated_at: new Date().toISOString(),
@@ -1120,6 +1233,79 @@ async function createCatalogueItem(req, res) {
   }
 
   return json(res, 201, { ok: true, item: catalogueDto(saved) });
+}
+
+async function updateCatalogueItem(req, res, itemId) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const safeItemId = safeText(itemId || "", 160);
+  if (!safeItemId) return json(res, 400, { ok: false, error: "ITEM_ID_REQUIRED" });
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("snooker_catalogue_items")
+    .select("*")
+    .eq("id", safeItemId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!existing) return json(res, 404, { ok: false, error: "ITEM_NOT_FOUND" });
+
+  const next = {};
+  if (req.body?.name != null) {
+    const name = safeText(req.body.name, 160).trim();
+    if (!name) return json(res, 400, { ok: false, error: "ITEM_NAME_REQUIRED" });
+    next.name = name;
+  }
+  if (req.body?.category != null) next.category = safeText(req.body.category, 80).trim().toUpperCase() || "OTHER";
+  if (req.body?.unit != null) next.unit = safeText(req.body.unit, 40).trim() || "unit";
+  if (req.body?.selling_price_inr != null) {
+    const price = Number(req.body.selling_price_inr);
+    if (!Number.isFinite(price) || price <= 0) return json(res, 400, { ok: false, error: "VALID_SELLING_PRICE_REQUIRED" });
+    next.selling_price_inr = money(price);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "cost_price_inr")) {
+    const raw = req.body.cost_price_inr;
+    if (raw == null || String(raw).trim() === "") next.cost_price_inr = null;
+    else {
+      const cost = Number(raw);
+      if (!Number.isFinite(cost) || cost < 0) return json(res, 400, { ok: false, error: "INVALID_COST_PRICE" });
+      next.cost_price_inr = money(cost);
+    }
+  }
+  if (req.body?.description != null) next.description = safeText(req.body.description, 1200);
+  if (req.body?.image_url != null) next.image_url = safeText(req.body.image_url, 2000) || null;
+  if (req.body?.image_path != null) next.image_path = safeText(req.body.image_path, 1000) || null;
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "qlounge_category_key")) {
+    next.qlounge_category_key = safeText(req.body.qlounge_category_key || "", 120) || null;
+  }
+  if (req.body?.show_on_qlounge != null) next.show_on_qlounge = Boolean(req.body.show_on_qlounge);
+  if (req.body?.online_order_enabled != null) next.online_order_enabled = Boolean(req.body.online_order_enabled);
+  if (req.body?.sell_in_ledger != null) next.sell_in_ledger = Boolean(req.body.sell_in_ledger);
+  if (req.body?.display_order != null) next.display_order = Math.max(0, Math.floor(number(req.body.display_order, 0)));
+
+  const showOnQlounge = Object.prototype.hasOwnProperty.call(next, "show_on_qlounge")
+    ? next.show_on_qlounge
+    : Boolean(existing.show_on_qlounge);
+  const categoryKey = Object.prototype.hasOwnProperty.call(next, "qlounge_category_key")
+    ? next.qlounge_category_key
+    : existing.qlounge_category_key;
+  if (showOnQlounge && !categoryKey) {
+    return json(res, 400, { ok: false, error: "QLOUNGE_CATEGORY_REQUIRED" });
+  }
+  if (!showOnQlounge) next.online_order_enabled = false;
+  next.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("snooker_catalogue_items")
+    .update(next)
+    .eq("id", safeItemId)
+    .select("*")
+    .single();
+  if (error) {
+    if (error.code === "23505") return json(res, 409, { ok: false, error: "ITEM_NAME_EXISTS" });
+    throw error;
+  }
+  return json(res, 200, { ok: true, item: catalogueDto(data) });
 }
 
 async function removeCatalogueItem(req, res, itemId) {
@@ -2404,6 +2590,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     const parts = path ? path.split("/").filter(Boolean) : [];
 
     if (method === "GET" && path === "health") return await health(req, res);
+    if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
@@ -2412,7 +2599,9 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "bootstrap") return await bootstrap(req, res);
     if (method === "GET" && path === "game-rules") return await gameRules(req, res);
     if (method === "GET" && path === "catalogue") return await catalogue(req, res);
+    if (method === "GET" && path === "catalogue/categories") return await catalogueCategories(req, res);
     if (method === "POST" && path === "catalogue/items") return await createCatalogueItem(req, res);
+    if (parts[0] === "catalogue" && parts[1] === "items" && parts[2] && parts.length === 3 && method === "PATCH") return await updateCatalogueItem(req, res, parts[2]);
     if (parts[0] === "catalogue" && parts[1] === "items" && parts[2] && parts.length === 3 && method === "DELETE") return await removeCatalogueItem(req, res, parts[2]);
     if (method === "GET" && path === "inventory") return await inventory(req, res);
     if (method === "GET" && path === "members/verify") return await verifyMember(req, res);
