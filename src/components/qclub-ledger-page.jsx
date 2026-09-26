@@ -2523,9 +2523,9 @@ export default function QclubLedgerPage() {
                   <div>
                     <label className="ql-label">Match format</label>
                     <select className="ql-select" value={startForm.matchFormat} onChange={function(e) { changeMatchFormat(e.target.value); }}>
-                      {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "HOURLY" ? <option value="FLEX">Flexible players</option> : null}
-                      <option value="SINGLES">Singles — 2 players</option>
-                      <option value="DOUBLES">Doubles — 2 vs 2</option>
+                      {(startForm.gameType === "NORMAL_SNOOKER" || startForm.gameType === "NORMAL_POOL") && startForm.paymentRule === "HOURLY" ? <option value="FLEX">Flexible players</option> : null}
+                      {startForm.gameType !== "NORMAL_POOL" ? <option value="SINGLES">Singles — 2 players</option> : null}
+                      {startForm.gameType !== "NORMAL_POOL" ? <option value="DOUBLES">Doubles — 2 vs 2</option> : null}
                     </select>
                   </div>
                   <div>
@@ -2542,8 +2542,8 @@ export default function QclubLedgerPage() {
                       }
                       setStartForm(next);
                     }}>
-                      {startForm.gameType === "NORMAL_SNOOKER" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
-                      <option value="LOSER_PAYS">Loser pays the frame</option>
+                      {startForm.gameType === "NORMAL_SNOOKER" || startForm.gameType === "NORMAL_POOL" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
+                      {startForm.gameType !== "NORMAL_POOL" ? <option value="LOSER_PAYS">Loser pays the frame</option> : null}
                     </select>
                   </div>
                 </>
