@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase, supabaseReady } from "../supabase";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -203,6 +204,7 @@ export default function QclubLedgerPage() {
   const [showFnbCostSetup, setShowFnbCostSetup] = useState(false);
   const [bootstrap, setBootstrap] = useState(null);
   const [catalogue, setCatalogue] = useState([]);
+  const [catalogueCategories, setCatalogueCategories] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
@@ -229,12 +231,20 @@ export default function QclubLedgerPage() {
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
+  const [editingCatalogueItemId, setEditingCatalogueItemId] = useState("");
   const [catalogueDraft, setCatalogueDraft] = useState({
     name: "",
     category: "FOOD",
     unit: "unit",
     sellingPrice: "",
     costPrice: "",
+    description: "",
+    imageUrl: "",
+    imagePath: "",
+    qloungeCategoryKey: "",
+    showOnQlounge: false,
+    onlineOrderEnabled: false,
+    sellInLedger: true,
     trackInventory: false,
     openingStock: "0",
     lowStockThreshold: "5",
@@ -323,6 +333,7 @@ export default function QclubLedgerPage() {
         apiRequest("health"),
         protectedCall("bootstrap"),
         protectedCall("catalogue"),
+        protectedCall("catalogue/categories"),
         protectedCall("inventory"),
         protectedCall("sessions?scope=active&limit=200"),
         protectedCall("bills?limit=500"),
@@ -333,16 +344,18 @@ export default function QclubLedgerPage() {
       const h = values[0];
       const boot = values[1];
       const cat = values[2];
-      const inv = values[3];
-      const sessionPayload = values[4];
-      const billPayload = values[5];
-      const allPayload = values[6];
-      const summaryPayload = values[7];
-      const operationsPayload = values[8];
+      const catCategories = values[3];
+      const inv = values[4];
+      const sessionPayload = values[5];
+      const billPayload = values[6];
+      const allPayload = values[7];
+      const summaryPayload = values[8];
+      const operationsPayload = values[9];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
       setCatalogue((cat && (cat.items || cat.catalogue)) || []);
+      setCatalogueCategories((catCategories && catCategories.categories) || []);
       setInventory((inv && (inv.items || inv.inventory)) || []);
       const openRows = (sessionPayload && sessionPayload.sessions) || [];
       setSessions(openRows);
@@ -608,11 +621,15 @@ export default function QclubLedgerPage() {
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
 
+  const sellableCatalogue = useMemo(function() {
+    return sellableCatalogue.filter(function(item) { return item.sell_in_ledger !== false; });
+  }, [catalogue]);
+
   const fnbCategories = useMemo(function() {
-    return ["ALL"].concat(Array.from(new Set(catalogue.map(function(item) {
+    return ["ALL"].concat(Array.from(new Set(sellableCatalogue.map(function(item) {
       return String(item.category || "Other").trim() || "Other";
     }))).sort(function(a, b) { return a.localeCompare(b); }));
-  }, [catalogue]);
+  }, [sellableCatalogue]);
 
   const filteredCatalogue = useMemo(function() {
     const query = fnbSearch.trim().toLowerCase();
@@ -622,10 +639,10 @@ export default function QclubLedgerPage() {
       if (!query) return true;
       return [item.name, category].filter(Boolean).join(" ").toLowerCase().includes(query);
     });
-  }, [catalogue, fnbCategory, fnbSearch]);
+  }, [sellableCatalogue, fnbCategory, fnbSearch]);
 
   const selectedFnbCount = Object.values(quantities).reduce(function(sum, q) { return sum + Number(q || 0); }, 0);
-  const selectedFnbTotal = catalogue.reduce(function(sum, item) {
+  const selectedFnbTotal = sellableCatalogue.reduce(function(sum, item) {
     const qty = Number(quantities[item.id] || 0);
     return sum + (qty * Number(item.selling_price_inr || 0));
   }, 0);
@@ -887,7 +904,7 @@ export default function QclubLedgerPage() {
       flash("Select an active table/session first.", true);
       return;
     }
-    const lines = catalogue.map(function(item) {
+    const lines = sellableCatalogue.map(function(item) {
       return { item: item, qty: Number(quantities[item.id] || 0) };
     }).filter(function(row) {
       return row.qty > 0 && !row.item.requires_price_configuration && !row.item.is_unpriced;
@@ -1225,15 +1242,93 @@ export default function QclubLedgerPage() {
     }
   }
 
+  function emptyCatalogueDraft() {
+    return {
+      name: "",
+      category: "FOOD",
+      unit: "unit",
+      sellingPrice: "",
+      costPrice: "",
+      description: "",
+      imageUrl: "",
+      imagePath: "",
+      qloungeCategoryKey: catalogueCategories[0]?.category_key || "",
+      showOnQlounge: false,
+      onlineOrderEnabled: false,
+      sellInLedger: true,
+      trackInventory: false,
+      openingStock: "0",
+      lowStockThreshold: "5",
+    };
+  }
+
   function updateCatalogueDraft(field, value) {
     setCatalogueDraft(function(current) {
-      return { ...current, [field]: value };
+      const next = { ...current, [field]: value };
+      if (field === "showOnQlounge" && !value) next.onlineOrderEnabled = false;
+      return next;
     });
   }
 
-  async function addCatalogueItem() {
+  function beginAddCatalogueItem() {
+    setEditingCatalogueItemId("");
+    setCatalogueDraft(emptyCatalogueDraft());
+    setShowCatalogueAdd(true);
+  }
+
+  function beginEditCatalogueItem(item) {
+    setEditingCatalogueItemId(item.id);
+    setCatalogueDraft({
+      name: item.name || "",
+      category: item.category || "OTHER",
+      unit: item.unit || "unit",
+      sellingPrice: item.selling_price_inr == null ? "" : String(item.selling_price_inr),
+      costPrice: item.cost_price_inr == null ? "" : String(item.cost_price_inr),
+      description: item.description || "",
+      imageUrl: item.image_url || "",
+      imagePath: item.image_path || "",
+      qloungeCategoryKey: item.qlounge_category_key || catalogueCategories[0]?.category_key || "",
+      showOnQlounge: Boolean(item.show_on_qlounge),
+      onlineOrderEnabled: Boolean(item.online_order_enabled),
+      sellInLedger: item.sell_in_ledger !== false,
+      trackInventory: Boolean(item.track_inventory),
+      openingStock: item.current_stock == null ? "0" : String(item.current_stock),
+      lowStockThreshold: item.low_stock_threshold == null ? "5" : String(item.low_stock_threshold),
+    });
+    setShowCatalogueAdd(true);
+  }
+
+  async function uploadCatalogueImage(file) {
+    if (!file) return;
+    if (!supabaseReady || !supabase) {
+      flash("Supabase storage is not available in this browser.", true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const rawExt = String(file.name || "").split(".").pop()?.toLowerCase();
+      const ext = rawExt && rawExt.length <= 8 ? rawExt : "jpg";
+      const path = "menu-items/" + Date.now() + "-" + makeKey("ledger").replace(/[^a-z0-9_-]/gi, "") + "." + ext;
+      const { error } = await supabase.storage.from("photos").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+      if (error) throw error;
+      const { data } = supabase.storage.from("photos").getPublicUrl(path);
+      updateCatalogueDraft("imagePath", path);
+      updateCatalogueDraft("imageUrl", data?.publicUrl || "");
+      flash("Image uploaded. Save the item to publish it.");
+    } catch (error) {
+      flash(error.message || "Image upload failed.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCatalogueItem() {
     if (!isAdmin) {
-      flash("Admin PIN is required to add catalogue items.", true);
+      flash("Admin PIN is required to manage catalogue items.", true);
       return;
     }
     const name = catalogueDraft.name.trim();
@@ -1242,53 +1337,49 @@ export default function QclubLedgerPage() {
     const openingStock = catalogueDraft.trackInventory ? Number(catalogueDraft.openingStock || 0) : null;
     const lowStockThreshold = catalogueDraft.trackInventory ? Number(catalogueDraft.lowStockThreshold || 0) : null;
 
-    if (!name) {
-      flash("Enter an item name.", true);
-      return;
+    if (!name) return flash("Enter an item name.", true);
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) return flash("Enter a valid selling price.", true);
+    if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) return flash("Check the cost price.", true);
+    if (catalogueDraft.showOnQlounge && !catalogueDraft.qloungeCategoryKey) return flash("Choose a Q Lounge category.", true);
+    if (!editingCatalogueItemId && catalogueDraft.trackInventory && (!Number.isFinite(openingStock) || openingStock < 0 || !Number.isFinite(lowStockThreshold) || lowStockThreshold < 0)) {
+      return flash("Check opening stock and low-stock threshold.", true);
     }
-    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
-      flash("Enter a valid selling price.", true);
-      return;
-    }
-    if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) {
-      flash("Check the cost price.", true);
-      return;
-    }
-    if (catalogueDraft.trackInventory && (!Number.isFinite(openingStock) || openingStock < 0 || !Number.isFinite(lowStockThreshold) || lowStockThreshold < 0)) {
-      flash("Check opening stock and low-stock threshold.", true);
-      return;
+
+    const body = {
+      name,
+      category: catalogueDraft.category,
+      unit: catalogueDraft.unit || "unit",
+      selling_price_inr: sellingPrice,
+      cost_price_inr: costPrice,
+      description: catalogueDraft.description,
+      image_url: catalogueDraft.imageUrl,
+      image_path: catalogueDraft.imagePath,
+      qlounge_category_key: catalogueDraft.showOnQlounge ? catalogueDraft.qloungeCategoryKey : null,
+      show_on_qlounge: Boolean(catalogueDraft.showOnQlounge),
+      online_order_enabled: Boolean(catalogueDraft.showOnQlounge && catalogueDraft.onlineOrderEnabled),
+      sell_in_ledger: Boolean(catalogueDraft.sellInLedger),
+    };
+    if (!editingCatalogueItemId) {
+      body.track_inventory = Boolean(catalogueDraft.trackInventory);
+      body.opening_stock = openingStock;
+      body.low_stock_threshold = lowStockThreshold;
     }
 
     setBusy(true);
     try {
-      await protectedCall("catalogue/items", {
-        method: "POST",
-        body: {
-          name: name,
-          category: catalogueDraft.category,
-          unit: catalogueDraft.unit || "unit",
-          selling_price_inr: sellingPrice,
-          cost_price_inr: costPrice,
-          track_inventory: Boolean(catalogueDraft.trackInventory),
-          opening_stock: openingStock,
-          low_stock_threshold: lowStockThreshold,
-        },
-      });
-      setCatalogueDraft({
-        name: "",
-        category: "FOOD",
-        unit: "unit",
-        sellingPrice: "",
-        costPrice: "",
-        trackInventory: false,
-        openingStock: "0",
-        lowStockThreshold: "5",
-      });
+      if (editingCatalogueItemId) {
+        await protectedCall("catalogue/items/" + encodeURIComponent(editingCatalogueItemId), { method: "PATCH", body });
+        flash("Item updated everywhere from the shared catalogue.");
+      } else {
+        await protectedCall("catalogue/items", { method: "POST", body });
+        flash("Item added to the shared F&B catalogue.");
+      }
+      setEditingCatalogueItemId("");
+      setCatalogueDraft(emptyCatalogueDraft());
       setShowCatalogueAdd(false);
-      flash("Item added to the Ledger catalogue.");
       await refreshAll();
     } catch (error) {
-      flash(error.message || "Unable to add item.", true);
+      flash(error.message || "Unable to save item.", true);
     } finally {
       setBusy(false);
     }
@@ -1300,13 +1391,13 @@ export default function QclubLedgerPage() {
       return;
     }
     const ok = window.confirm(
-      "Delete " + item.name + " from the active Q Club Ledger catalogue?\n\nHistorical bills will remain unchanged."
+      "Deactivate " + item.name + " everywhere?\n\nIt will disappear from Ledger sales and Q Lounge, but historical bills remain unchanged."
     );
     if (!ok) return;
     setBusy(true);
     try {
       await protectedCall("catalogue/items/" + encodeURIComponent(item.id), { method: "DELETE" });
-      flash(item.name + " removed from the active Ledger catalogue.");
+      flash(item.name + " deactivated. Historical bills are preserved.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to remove item.", true);
@@ -2029,90 +2120,106 @@ export default function QclubLedgerPage() {
 
             {isAdmin ? (
               <>
-                <div className="ql-section">F&B catalogue</div>
+                <div className="ql-section">Shared F&B Master Catalogue</div>
                 <div className="ql-card full">
                   <div className="ql-space">
                     <div>
-                      <h3>Ledger Items</h3>
+                      <h3>One catalogue for Ledger + Q Lounge</h3>
                       <div className="ql-muted">
-                        {catalogue.length} active item(s). This is the billing catalogue used by Desk Ledger and walk-in F&B.
-                        Removing an item hides it from future sales but keeps old bills intact.
+                        {catalogue.length} active item(s). Price and public-menu details here are the master values used across the club.
                       </div>
                     </div>
-                    <button className="ql-btn primary" onClick={function() { setShowCatalogueAdd(function(value) { return !value; }); }}>
-                      {showCatalogueAdd ? "Close" : "+ Add Item"}
-                    </button>
+                    <button className="ql-btn primary" onClick={beginAddCatalogueItem}>+ Add Item</button>
                   </div>
 
                   {showCatalogueAdd ? (
                     <div className="ql-line" style={{ marginTop: 14 }}>
+                      <div className="ql-space" style={{ marginBottom: 10 }}>
+                        <strong>{editingCatalogueItemId ? "Edit Item" : "Add Item"}</strong>
+                        <button className="ql-btn ghost" onClick={function() { setShowCatalogueAdd(false); setEditingCatalogueItemId(""); }}>Close</button>
+                      </div>
                       <div className="ql-form-grid">
+                        <label><span className="ql-label">Item name</span><input className="ql-input" value={catalogueDraft.name} onChange={function(e) { updateCatalogueDraft("name", e.target.value); }} /></label>
                         <label>
-                          <span className="ql-label">Item name</span>
-                          <input className="ql-input" value={catalogueDraft.name} onChange={function(e) { updateCatalogueDraft("name", e.target.value); }} placeholder="e.g. Coke 750 ml" />
-                        </label>
-                        <label>
-                          <span className="ql-label">Category</span>
+                          <span className="ql-label">Ledger category</span>
                           <select className="ql-select" value={catalogueDraft.category} onChange={function(e) { updateCatalogueDraft("category", e.target.value); }}>
-                            <option value="FOOD">Food</option>
-                            <option value="BEVERAGES">Beverages</option>
-                            <option value="OTHER">Other</option>
+                            <option value="FOOD">Food</option><option value="BEVERAGES">Beverages</option><option value="OTHER">Other</option>
+                          </select>
+                        </label>
+                        <label><span className="ql-label">Selling price ₹</span><input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.sellingPrice} onChange={function(e) { updateCatalogueDraft("sellingPrice", e.target.value); }} /></label>
+                        <label><span className="ql-label">Purchase / cost price ₹</span><input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.costPrice} onChange={function(e) { updateCatalogueDraft("costPrice", e.target.value); }} placeholder="Optional" /></label>
+                        <label><span className="ql-label">Unit</span><input className="ql-input" value={catalogueDraft.unit} onChange={function(e) { updateCatalogueDraft("unit", e.target.value); }} placeholder="unit / bottle / plate" /></label>
+                        <label className="full"><span className="ql-label">Public description</span><input className="ql-input" value={catalogueDraft.description} onChange={function(e) { updateCatalogueDraft("description", e.target.value); }} placeholder="Shown on Q Lounge" /></label>
+                        <label>
+                          <span className="ql-label">Q Lounge category</span>
+                          <select className="ql-select" value={catalogueDraft.qloungeCategoryKey} disabled={!catalogueDraft.showOnQlounge} onChange={function(e) { updateCatalogueDraft("qloungeCategoryKey", e.target.value); }}>
+                            <option value="">Choose category</option>
+                            {catalogueCategories.map(function(category) { return <option key={category.category_key} value={category.category_key}>{category.title}</option>; })}
                           </select>
                         </label>
                         <label>
-                          <span className="ql-label">Selling price ₹</span>
-                          <input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.sellingPrice} onChange={function(e) { updateCatalogueDraft("sellingPrice", e.target.value); }} />
+                          <span className="ql-label">Item image</span>
+                          <input className="ql-input" type="file" accept="image/*" onChange={function(e) { uploadCatalogueImage(e.target.files && e.target.files[0]); }} />
                         </label>
-                        <label>
-                          <span className="ql-label">Purchase / cost price ₹ (optional)</span>
-                          <input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.costPrice} onChange={function(e) { updateCatalogueDraft("costPrice", e.target.value); }} />
-                        </label>
-                        <label>
-                          <span className="ql-label">Unit</span>
-                          <input className="ql-input" value={catalogueDraft.unit} onChange={function(e) { updateCatalogueDraft("unit", e.target.value); }} placeholder="unit / bottle / plate" />
+                        {catalogueDraft.imageUrl ? <div className="full ql-muted">Image ready: {catalogueDraft.imageUrl}</div> : null}
+
+                        <label className="ql-line" style={{ display: "flex", gap: 10, alignItems: "center", margin: 0 }}>
+                          <input type="checkbox" checked={catalogueDraft.sellInLedger} onChange={function(e) { updateCatalogueDraft("sellInLedger", e.target.checked); }} />
+                          <span><strong>Sell in Ledger</strong><div className="ql-muted">Available to staff for table/walk-in billing.</div></span>
                         </label>
                         <label className="ql-line" style={{ display: "flex", gap: 10, alignItems: "center", margin: 0 }}>
-                          <input
-                            type="checkbox"
-                            checked={catalogueDraft.trackInventory}
-                            onChange={function(e) { updateCatalogueDraft("trackInventory", e.target.checked); }}
-                            style={{ width: 18, height: 18 }}
-                          />
-                          <span><strong>Track stock</strong><div className="ql-muted">Use for bottled/canned/packaged items that are replenished.</div></span>
+                          <input type="checkbox" checked={catalogueDraft.showOnQlounge} onChange={function(e) { updateCatalogueDraft("showOnQlounge", e.target.checked); }} />
+                          <span><strong>Show on Q Lounge</strong><div className="ql-muted">Visible on the public Food & Drinks menu.</div></span>
                         </label>
-                        {catalogueDraft.trackInventory ? (
+                        <label className="ql-line" style={{ display: "flex", gap: 10, alignItems: "center", margin: 0 }}>
+                          <input type="checkbox" disabled={!catalogueDraft.showOnQlounge} checked={catalogueDraft.onlineOrderEnabled} onChange={function(e) { updateCatalogueDraft("onlineOrderEnabled", e.target.checked); }} />
+                          <span><strong>Online ordering</strong><div className="ql-muted">Allow customers to add this item to their Q Lounge cart.</div></span>
+                        </label>
+
+                        {!editingCatalogueItemId ? (
                           <>
-                            <label>
-                              <span className="ql-label">Opening stock</span>
-                              <input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.openingStock} onChange={function(e) { updateCatalogueDraft("openingStock", e.target.value); }} />
+                            <label className="ql-line" style={{ display: "flex", gap: 10, alignItems: "center", margin: 0 }}>
+                              <input type="checkbox" checked={catalogueDraft.trackInventory} onChange={function(e) { updateCatalogueDraft("trackInventory", e.target.checked); }} />
+                              <span><strong>Track stock</strong><div className="ql-muted">Use for packaged/bottled items that must be replenished.</div></span>
                             </label>
-                            <label>
-                              <span className="ql-label">Low-stock warning at</span>
-                              <input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.lowStockThreshold} onChange={function(e) { updateCatalogueDraft("lowStockThreshold", e.target.value); }} />
-                            </label>
+                            {catalogueDraft.trackInventory ? (
+                              <>
+                                <label><span className="ql-label">Opening stock</span><input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.openingStock} onChange={function(e) { updateCatalogueDraft("openingStock", e.target.value); }} /></label>
+                                <label><span className="ql-label">Low-stock warning at</span><input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.lowStockThreshold} onChange={function(e) { updateCatalogueDraft("lowStockThreshold", e.target.value); }} /></label>
+                              </>
+                            ) : null}
                           </>
                         ) : null}
                       </div>
                       <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-                        <button className="ql-btn ghost" disabled={busy} onClick={function() { setShowCatalogueAdd(false); }}>Cancel</button>
-                        <button className="ql-btn primary" disabled={busy} onClick={addCatalogueItem}>{busy ? "Saving…" : "Save Item"}</button>
+                        <button className="ql-btn" disabled={busy} onClick={function() { setShowCatalogueAdd(false); setEditingCatalogueItemId(""); }}>Cancel</button>
+                        <button className="ql-btn primary" disabled={busy} onClick={saveCatalogueItem}>{busy ? "Saving…" : (editingCatalogueItemId ? "Save Changes" : "Save Item")}</button>
                       </div>
                     </div>
                   ) : null}
 
-                  <div className="ql-list" style={{ marginTop: 14, maxHeight: "52vh", overflow: "auto" }}>
+                  <div className="ql-list" style={{ marginTop: 14, maxHeight: "58vh", overflow: "auto" }}>
                     {catalogue.length ? catalogue.map(function(item) {
                       return (
-                        <div className="ql-line ql-space" key={item.id}>
-                          <div>
-                            <strong>{item.name}</strong>
-                            <div className="ql-muted">
-                              {String(item.category || "OTHER").replaceAll("_", " ")} • {money(item.selling_price_inr)}
-                              {item.cost_price_inr != null ? " • cost " + money(item.cost_price_inr) : ""}
-                              {item.track_inventory ? " • stock tracked" : ""}
+                        <div className="ql-line" key={item.id}>
+                          <div className="ql-space">
+                            <div>
+                              <strong>{item.name}</strong>
+                              <div className="ql-muted">
+                                {money(item.selling_price_inr)} • {String(item.category || "OTHER").replaceAll("_", " ")}
+                                {item.track_inventory ? " • stock tracked" : ""}
+                              </div>
+                              <div className="ql-row" style={{ marginTop: 6 }}>
+                                <span className={"ql-badge " + (item.sell_in_ledger === false ? "bad" : "")}>Ledger {item.sell_in_ledger === false ? "OFF" : "ON"}</span>
+                                <span className={"ql-badge " + (!item.show_on_qlounge ? "bad" : "")}>Q Lounge {item.show_on_qlounge ? "ON" : "OFF"}</span>
+                                <span className={"ql-badge " + (!item.online_order_enabled ? "bad" : "")}>Online {item.online_order_enabled ? "ON" : "OFF"}</span>
+                              </div>
+                            </div>
+                            <div className="ql-row">
+                              <button className="ql-btn" disabled={busy} onClick={function() { beginEditCatalogueItem(item); }}>Edit</button>
+                              <button className="ql-btn danger" disabled={busy} onClick={function() { removeCatalogueItem(item); }}>Deactivate</button>
                             </div>
                           </div>
-                          <button className="ql-btn danger" disabled={busy} onClick={function() { removeCatalogueItem(item); }}>Delete Item</button>
                         </div>
                       );
                     }) : <div className="ql-empty">No active catalogue items.</div>}
@@ -2122,7 +2229,7 @@ export default function QclubLedgerPage() {
             ) : (
               <div className="ql-card full" style={{ marginTop: 14 }}>
                 <strong>Staff read-only inventory view.</strong>
-                <div className="ql-muted">Adding/removing catalogue items and stock adjustments require an Admin PIN session.</div>
+                <div className="ql-muted">Shared catalogue changes and stock adjustments require an Admin PIN session.</div>
               </div>
             )}
 
