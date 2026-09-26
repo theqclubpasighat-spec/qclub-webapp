@@ -1765,6 +1765,12 @@ async function updateSession(req,res,sessionId){
   if(action==="PAUSE"&&current.timer_running){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="PAUSED";if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
   else if(action==="RESUME"&&!current.timer_running){patch.timer_started_at=now.toISOString();patch.timer_running=true;patch.status="ACTIVE";if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"RESUME",now);}
   else if(action==="END"||safeText(req.body?.status||"").toUpperCase()==="ENDED"){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="ENDED";patch.ended_at=now.toISOString();if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
+  else if(action==="CLOSE" && current.account_mode==="INDIVIDUAL"){
+    const people=await individualSessionSnapshot(supabase,sessionId);
+    const due=people.filter(p=>number(p.current_due_inr)>0.009);
+    if(due.length)return json(res,409,{ok:false,error:"PLAYER_BALANCES_DUE",players:due.map(p=>({person_id:p.person_id,name:p.name,due_inr:p.current_due_inr}))});
+    patch.timer_running=false;patch.status="FINALIZED";patch.ended_at=current.ended_at||now.toISOString();
+  }
   const {data,error}=await supabase.from("snooker_sessions").update(patch).eq("id",sessionId).select("*").single();if(error)throw error;return json(res,200,sessionDto(data));
 }
 async function recordGame(req,res,sessionId){
@@ -1787,6 +1793,13 @@ async function recordGame(req,res,sessionId){
   if(!selectedIds.length)return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
   const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
   if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
+  if(session.match_format==="SINGLES" && selectedIds.length!==2)return json(res,400,{ok:false,error:"SINGLES_FRAME_REQUIRES_TWO_PLAYERS"});
+  if(session.match_format==="DOUBLES"){
+    if(selectedIds.length!==4)return json(res,400,{ok:false,error:"DOUBLES_FRAME_REQUIRES_FOUR_PLAYERS"});
+    const selectedPeople=(people||[]).filter(p=>selectedIds.includes(p.id));
+    if(selectedPeople.filter(p=>p.team_no===1).length!==2 || selectedPeople.filter(p=>p.team_no===2).length!==2) return json(res,400,{ok:false,error:"DOUBLES_FRAME_REQUIRES_TWO_PER_TEAM"});
+  }
+  if(session.game_type==="QCHASE_RUMMY" && (selectedIds.length<2 || selectedIds.length>6))return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
   const {data:last}=await supabase.from("snooker_completed_games").select("game_number").eq("session_id",sessionId).order("game_number",{ascending:false}).limit(1).maybeSingle();
   const gameNumber=number(last?.game_number,0)+1,count=people.length;
   const settlement=session.payment_rule||"PER_PLAYER";
@@ -2229,6 +2242,8 @@ async function listBills(req, res) {
     id: bill.id,
     bill_no: bill.bill_no,
     session_id: bill.session_id,
+    source_session_id: bill.source_session_id || null,
+    person_id: bill.person_id || null,
     bill_source: bill.bill_source || "GAME_SESSION",
     customer_name: bill.customer_name || null,
     customer_phone: bill.customer_phone || null,
