@@ -217,6 +217,8 @@ export default function QclubLedgerPage() {
   const [noticeError, setNoticeError] = useState(false);
   const [startTable, setStartTable] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [selectedFnbPersonId, setSelectedFnbPersonId] = useState("");
+  const [gameEntry, setGameEntry] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
   const [showUpiQrModal, setShowUpiQrModal] = useState(false);
@@ -258,10 +260,14 @@ export default function QclubLedgerPage() {
   const [ledgerDate, setLedgerDate] = useState("");
   const [startForm, setStartForm] = useState({
     gameType: "NORMAL_SNOOKER",
-    customerName: "",
-    customerPhone: "",
+    matchFormat: "FLEX",
+    paymentRule: "HOURLY",
+    frameRate: "",
     isMember: false,
-    participants: "",
+    players: [
+      { name: "", phone: "", teamNo: null },
+      { name: "", phone: "", teamNo: null },
+    ],
   });
 
   const token = (auth && auth.token) || "";
@@ -676,37 +682,118 @@ export default function QclubLedgerPage() {
     });
   }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup]);
 
+  function startDefaults(gameType) {
+    if (gameType === "QCHASE_RUMMY") {
+      return {
+        gameType,
+        matchFormat: "FLEX",
+        paymentRule: "PER_PLAYER",
+        frameRate: "",
+        isMember: false,
+        players: [
+          { name: "", phone: "", teamNo: null },
+          { name: "", phone: "", teamNo: null },
+        ],
+      };
+    }
+    if (gameType === "SIX_BALL_SNOOKER" || gameType === "TEN_BALL_SNOOKER") {
+      return {
+        gameType,
+        matchFormat: "SINGLES",
+        paymentRule: "LOSER_PAYS",
+        frameRate: "",
+        isMember: false,
+        players: [
+          { name: "", phone: "", teamNo: null },
+          { name: "", phone: "", teamNo: null },
+        ],
+      };
+    }
+    return {
+      gameType,
+      matchFormat: "FLEX",
+      paymentRule: "HOURLY",
+      frameRate: "",
+      isMember: false,
+      players: [
+        { name: "", phone: "", teamNo: null },
+        { name: "", phone: "", teamNo: null },
+      ],
+    };
+  }
+
+  function normalizedStartPlayers(form) {
+    return (form.players || []).map(function(player, index) {
+      return {
+        name: String(player.name || "").trim(),
+        phone: String(player.phone || "").replace(/\D/g, "").slice(-10),
+        is_member: index === 0 ? Boolean(form.isMember) : false,
+        team_no: form.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null,
+      };
+    }).filter(function(player) { return player.name; });
+  }
+
+  function resizeStartPlayers(matchFormat) {
+    const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
+    const current = (startForm.players || []).slice(0, wanted);
+    while (current.length < wanted) current.push({ name: "", phone: "", teamNo: null });
+    return current;
+  }
+
   function openStart(table) {
     const options = allowedGames(table, rules);
+    const gameType = (options[0] && options[0].game_type) || "NORMAL_SNOOKER";
     setStartTable(table);
     setMemberCheck(null);
-    setStartForm({
-      gameType: (options[0] && options[0].game_type) || "NORMAL_SNOOKER",
-      customerName: "",
-      customerPhone: "",
-      isMember: false,
-      participants: "",
+    setStartForm(startDefaults(gameType));
+  }
+
+  function changeStartGame(gameType) {
+    setMemberCheck(null);
+    setStartForm(startDefaults(gameType));
+  }
+
+  function changeMatchFormat(matchFormat) {
+    const next = { ...startForm, matchFormat };
+    const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
+    next.players = (startForm.players || []).slice(0, wanted);
+    while (next.players.length < wanted) next.players.push({ name: "", phone: "", teamNo: null });
+    setStartForm(next);
+  }
+
+  function updateStartPlayer(index, field, value) {
+    const players = (startForm.players || []).map(function(player, i) {
+      return i === index ? { ...player, [field]: value } : player;
     });
+    setMemberCheck(null);
+    setStartForm({ ...startForm, players, isMember: index === 0 && field !== "phone" && field !== "name" ? startForm.isMember : false });
+  }
+
+  function addStartPlayer() {
+    if ((startForm.players || []).length >= 6) return;
+    setStartForm({ ...startForm, players: [...(startForm.players || []), { name: "", phone: "", teamNo: null }] });
+  }
+
+  function removeStartPlayer(index) {
+    if ((startForm.players || []).length <= 1) return;
+    setStartForm({ ...startForm, players: (startForm.players || []).filter(function(_, i) { return i !== index; }) });
   }
 
   async function verifyStartMember() {
-    if (!startForm.customerName.trim() && !startForm.customerPhone.trim()) {
-      flash("Enter the customer name or mobile number first.", true);
+    const first = (startForm.players || [])[0] || {};
+    if (!String(first.name || "").trim() && !String(first.phone || "").trim()) {
+      flash("Enter Player 1 name or mobile number first.", true);
       return;
     }
     setBusy(true);
     try {
       const result = await protectedCall(
-        "members/verify?phone=" + encodeURIComponent(startForm.customerPhone.trim()) +
-        "&name=" + encodeURIComponent(startForm.customerName.trim())
+        "members/verify?phone=" + encodeURIComponent(String(first.phone || "").trim()) +
+        "&name=" + encodeURIComponent(String(first.name || "").trim())
       );
       setMemberCheck(result);
       setStartForm({ ...startForm, isMember: Boolean(result && result.verified) });
-      if (result && result.verified) {
-        flash("Membership verified" + (result.member && result.member.tier ? ": " + result.member.tier : "") + ".");
-      } else {
-        flash("No active membership found. Walk-in rate will be used.", true);
-      }
+      flash(result && result.verified ? "Player 1 membership verified." : "No active matching membership. Walk-in rate applies.", !(result && result.verified));
     } catch (error) {
       setMemberCheck(null);
       setStartForm({ ...startForm, isMember: false });
@@ -716,67 +803,36 @@ export default function QclubLedgerPage() {
     }
   }
 
-  async function editSession(session) {
-    const name = window.prompt("Customer / Host name:", session.customer_name || "");
-    if (name == null || !name.trim()) return;
-    const phone = window.prompt("WhatsApp mobile (10 digits):", session.customer_phone || "");
-    if (phone == null) return;
-    const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10);
-    if (!/^\d{10}$/.test(normalizedPhone)) {
-      flash("Enter a valid 10-digit mobile number.", true);
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const membership = await protectedCall(
-        "members/verify?phone=" + encodeURIComponent(normalizedPhone) +
-        "&name=" + encodeURIComponent(name.trim())
-      );
-      await protectedCall("sessions/" + session.session_id, {
-        method: "PATCH",
-        body: {
-          customer_name: name.trim(),
-          customer_phone: normalizedPhone,
-          is_member: Boolean(membership && membership.verified),
-        },
-      });
-      flash(membership && membership.verified ? "Customer updated and membership verified." : "Customer updated. Walk-in rate applies.");
-      await refreshAll();
-    } catch (error) {
-      flash(error.message || "Unable to update customer.", true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function createSession() {
     if (!startTable) return;
-    if (!startForm.customerName.trim() || !/^\d{10}$/.test(startForm.customerPhone.trim())) {
-      flash("Enter customer name and a valid 10-digit mobile number.", true);
-      return;
+    const players = normalizedStartPlayers(startForm);
+    if (!players.length) return flash("Enter at least one player.", true);
+    if (startForm.matchFormat === "SINGLES" && players.length !== 2) return flash("Singles requires exactly 2 named players.", true);
+    if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
+    if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
+    if (startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" && !(Number(startForm.frameRate) > 0)) {
+      return flash("Enter the total frame charge for Normal Snooker loser-pays.", true);
     }
     setBusy(true);
     try {
-      const players = startForm.participants.split(",").map(function(v) { return v.trim(); }).filter(Boolean);
-      if (!players.includes(startForm.customerName.trim())) players.unshift(startForm.customerName.trim());
       await protectedCall("sessions", {
         method: "POST",
         body: {
           table_id: startTable.table_id,
           game_type: startForm.gameType,
-          customer_name: startForm.customerName.trim(),
-          customer_phone: startForm.customerPhone.trim(),
-          is_member: Boolean(startForm.isMember),
-          participant_names: players,
+          account_mode: "INDIVIDUAL",
+          match_format: startForm.matchFormat,
+          payment_rule: startForm.paymentRule,
+          frame_rate_override_inr: startForm.frameRate === "" ? null : Number(startForm.frameRate),
+          people: players,
           idempotency_key: makeKey("session"),
         },
       });
       setStartTable(null);
-      flash("Session started on the server.");
+      flash("Table started with individual player accounts.");
       await refreshAll();
     } catch (error) {
-      flash(error.message, true);
+      flash(error.message || "Unable to start table.", true);
     } finally {
       setBusy(false);
     }
@@ -785,8 +841,8 @@ export default function QclubLedgerPage() {
   async function patchSession(sessionId, action) {
     setBusy(true);
     try {
-      await protectedCall("sessions/" + sessionId, { method: "PATCH", body: { action: action } });
-      flash(action === "PAUSE" ? "Game timer paused." : "Game timer resumed.");
+      await protectedCall("sessions/" + sessionId, { method: "PATCH", body: { action } });
+      flash(action === "PAUSE" ? "Table timer paused." : action === "END" ? "Table ended." : "Table timer resumed.");
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -795,29 +851,181 @@ export default function QclubLedgerPage() {
     }
   }
 
-  async function recordGame(session) {
-    const defaultPlayers = (session.participant_names || []).join(", ");
-    const entered = window.prompt("Players in this completed game (comma separated):", defaultPlayers);
-    if (entered == null) return;
-    const players = entered.split(",").map(function(v) { return v.trim(); }).filter(Boolean);
-    if (!players.length) {
-      flash("At least one player is required.", true);
-      return;
+  async function editSessionPerson(session, person) {
+    const name = window.prompt("Player name:", person.name || "");
+    if (name == null || !name.trim()) return;
+    const phone = window.prompt("Mobile (optional, 10 digits):", person.phone || "");
+    if (phone == null) return;
+    const normalized = String(phone).replace(/\D/g, "").slice(-10);
+    if (normalized && !/^\d{10}$/.test(normalized)) return flash("Enter a valid 10-digit mobile or leave blank.", true);
+    setBusy(true);
+    try {
+      await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
+        method: "PATCH",
+        body: { name: name.trim(), phone: normalized || null },
+      });
+      flash("Player updated.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to update player.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function joinPlayer(session) {
+    const name = window.prompt("Joining player name:");
+    if (!name || !name.trim()) return;
+    const phoneRaw = window.prompt("Mobile (optional):", "") || "";
+    const phone = String(phoneRaw).replace(/\D/g, "").slice(-10);
+    let teamNo = null;
+    if (session.match_format === "DOUBLES") {
+      const team = window.prompt("Team number for " + name.trim() + " (1 or 2):", "1");
+      if (team == null) return;
+      teamNo = Number(team);
+      if (![1,2].includes(teamNo)) return flash("Team must be 1 or 2.", true);
+    }
+    setBusy(true);
+    try {
+      await protectedCall("sessions/" + session.session_id + "/people", {
+        method: "POST",
+        body: { name: name.trim(), phone: phone || null, team_no: teamNo },
+      });
+      flash(name.trim() + " joined the table.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to add player.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setPersonPresence(session, person, action) {
+    setBusy(true);
+    try {
+      await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
+        method: "PATCH",
+        body: { action },
+      });
+      flash(person.name + (action === "LEAVE" ? " left the table." : " rejoined the table."));
+      await refreshAll();
+    } catch (error) {
+      flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openGameEntry(session) {
+    const detail = sessionDetails[session.session_id] || {};
+    const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
+    setGameEntry({
+      session,
+      people: activePeople,
+      selectedIds: activePeople.map(function(person) { return person.person_id; }),
+      loserPersonId: "",
+      losingTeam: "",
+      payerMode: "SPLIT",
+      payerPersonId: "",
+    });
+  }
+
+  async function submitGameEntry() {
+    if (!gameEntry) return;
+    const session = gameEntry.session;
+    const people = gameEntry.people || [];
+    let selectedIds = gameEntry.selectedIds || [];
+    let loserIds = [];
+    if (!selectedIds.length) return flash("Select the players in this game.", true);
+    if (session.payment_rule === "LOSER_PAYS") {
+      if (session.match_format === "DOUBLES") {
+        if (!gameEntry.losingTeam) return flash("Select the losing team.", true);
+        loserIds = people.filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam) && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
+        if (loserIds.length !== 2) return flash("The losing doubles team must have 2 selected players.", true);
+      } else {
+        if (!gameEntry.loserPersonId) return flash("Select the losing player.", true);
+        loserIds = [gameEntry.loserPersonId];
+      }
     }
     setBusy(true);
     try {
       await protectedCall("sessions/" + session.session_id + "/games", {
         method: "POST",
         body: {
-          player_names: players,
-          player_count: players.length,
+          player_ids: selectedIds,
+          loser_person_ids: loserIds,
+          payer_person_id: gameEntry.payerMode === "ONE" ? gameEntry.payerPersonId : null,
           idempotency_key: makeKey("game"),
         },
       });
-      flash("Completed game recorded.");
+      setGameEntry(null);
+      flash(session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
-      flash(error.message, true);
+      flash(error.message || "Unable to record game.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function allocateHourly(session) {
+    const detail = sessionDetails[session.session_id] || {};
+    const people = (detail.people || []).filter(function(person) { return person.status !== "SETTLED"; });
+    if (!people.length) return flash("No players available for allocation.", true);
+    const answer = window.prompt("Table charge allocation:\n1 = By playing time\n2 = Equal split\n3 = One person pays all", "1");
+    if (answer == null) return;
+    let strategy = answer === "2" ? "EQUAL" : answer === "3" ? "ONE" : "BY_TIME";
+    let payer = null;
+    if (strategy === "ONE") {
+      const numbered = people.map(function(person, index) { return (index + 1) + ". " + person.name; }).join("\n");
+      const pick = Number(window.prompt("Who pays the whole table charge?\n" + numbered, "1"));
+      if (!(pick >= 1 && pick <= people.length)) return flash("Invalid player selection.", true);
+      payer = people[pick - 1].person_id;
+    }
+    setBusy(true);
+    try {
+      const result = await protectedCall("sessions/" + session.session_id + "/hourly-allocation", {
+        method: "POST",
+        body: { strategy, payer_person_id: payer },
+      });
+      flash("Table charge allocated: " + money(result.total_inr) + ".");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to allocate table charge.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finalizePerson(session, person) {
+    if (session.payment_rule === "HOURLY" && Number(person.table_charges_inr || 0) <= 0) {
+      flash("Allocate the hourly table charge first.", true);
+      return;
+    }
+    if (!(Number(person.unbilled_inr || 0) > 0)) {
+      if (Number(person.billed_due_inr || 0) > 0 && person.bills && person.bills.length) {
+        const latest = person.bills[person.bills.length - 1];
+        await loadBill(latest.bill_id);
+        setTab("ledger");
+        return;
+      }
+      return flash("Nothing new to bill for " + person.name + ".", true);
+    }
+    setBusy(true);
+    try {
+      const bill = await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id + "/finalize", {
+        method: "POST",
+        body: { idempotency_key: makeKey("player-bill") },
+      });
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setTab("ledger");
+      flash(person.name + " bill " + bill.bill_no + " created.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to create player bill.", true);
     } finally {
       setBusy(false);
     }
@@ -936,11 +1144,16 @@ export default function QclubLedgerPage() {
         setTab("ledger");
         flash("Walk-in F&B bill " + (bill.bill_no || "") + " created.");
       } else {
+        const detail = sessionDetails[selectedSession.session_id] || {};
+        if (selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId) {
+          throw new Error("Choose which player is ordering.");
+        }
         await protectedCall("sessions/" + selectedSession.session_id + "/fnb", {
           method: "POST",
-          body: { lines: lines, idempotency_key: makeKey("fnb") },
+          body: { lines: lines, person_id: selectedFnbPersonId || null, idempotency_key: makeKey("fnb") },
         });
-        flash("F&B added to the live table bill.");
+        const owner = (detail.people || []).find(function(person) { return person.person_id === selectedFnbPersonId; });
+        flash("F&B added" + (owner ? " to " + owner.name + "'s account." : " to the live table bill."));
       }
       setQuantities({});
       await refreshAll();
@@ -1551,46 +1764,65 @@ export default function QclubLedgerPage() {
                     ) : (
                       <>
                         <div className="ql-section">Current session</div>
-                        <div><strong>{session.customer_name || "Guest"}</strong> {session.is_member ? <span className="ql-badge gold">MEMBER</span> : <span className="ql-badge">NON-MEMBER</span>}</div>
-                        <div className="ql-muted">{session.customer_phone || "No phone"} • {elapsedLabel(session)}</div>
-                        <div className="ql-row" style={{ marginTop: 8 }}>
+                        <div className="ql-row">
                           <span className="ql-badge">{(rule && rule.display_name) || session.game_type}</span>
+                          {session.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{session.match_format || "FLEX"} • {String(session.payment_rule || "").replaceAll("_"," ")}</span> : null}
                           <span className="ql-badge">Games {games.filter(function(g) { return g.status !== "VOIDED"; }).length}</span>
                           <span className="ql-badge">F&B {money(liveFnb)}</span>
-                          {rule && rule.billing_mode !== "HOURLY" ? <span className="ql-badge gold">Game total {money(gameTotal)}</span> : null}
                         </div>
-                        {games.length ? (
-                          <div className="ql-list" style={{ marginTop: 9 }}>
-                            {games.slice(-3).map(function(game) {
-                              return (
-                                <div className="ql-line ql-space" key={game.id}>
-                                  <div className="ql-muted">Game #{game.game_number} • {game.player_count_snapshot} player(s) • {money(game.calculated_charge_inr)}</div>
-                                  {game.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidGame(game); }}>Void</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        {fnb.length ? (
-                          <div className="ql-list" style={{ marginTop: 9 }}>
-                            {fnb.slice(-3).map(function(line) {
-                              return (
-                                <div className="ql-line ql-space" key={line.id}>
-                                  <div className="ql-muted">{line.item_name_snapshot || "F&B"} × {line.quantity} • {money(line.line_total_inr)}</div>
-                                  {line.status !== "VOIDED" ? (isAdmin ? <button className="ql-btn danger" onClick={function() { voidFnbLine(line); }}>Void F&B</button> : <span className="ql-badge">ADMIN VOID</span>) : <span className="ql-badge bad">VOIDED</span>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        <div className="ql-row" style={{ marginTop: 12 }}>
-                          {rule && rule.billing_mode === "PER_PLAYER_PER_GAME" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { recordGame(session); }}>✓ Game Complete</button> : null}
-                          {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
-                          {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
-                          <button className="ql-btn" onClick={function() { editSession(session); }}>Edit Customer</button>
-                          <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setTab("fnb"); }}>+ F&B</button>
-                          <button className="ql-btn primary" onClick={function() { finalizeBill(session); }}>Settle & Pay</button>
-                        </div>
+
+                        {session.account_mode === "INDIVIDUAL" ? (
+                          <>
+                            <div className="ql-list" style={{ marginTop: 10 }}>
+                              {((detail && detail.people) || []).map(function(person) {
+                                return (
+                                  <div className="ql-line" key={person.person_id}>
+                                    <div className="ql-space">
+                                      <div>
+                                        <strong>{person.name}</strong>
+                                        {person.team_no ? <span className="ql-badge" style={{ marginLeft: 7 }}>TEAM {person.team_no}</span> : null}
+                                        <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : person.status === "SETTLED" ? "gold" : "")} style={{ marginLeft: 7 }}>{person.status}</span>
+                                        <div className="ql-muted">
+                                          Game {money(person.game_charges_inr)} • F&B {money(person.fnb_charges_inr)} • Table {money(person.table_charges_inr)}
+                                        </div>
+                                      </div>
+                                      <div style={{ textAlign: "right" }}>
+                                        <strong>{money(person.current_due_inr)}</strong>
+                                        <div className="ql-muted">current due</div>
+                                      </div>
+                                    </div>
+                                    <div className="ql-row" style={{ marginTop: 8 }}>
+                                      <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
+                                      <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
+                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
+                                      <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay Account</button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="ql-row" style={{ marginTop: 12 }}>
+                              <button className="ql-btn" onClick={function() { joinPlayer(session); }}>+ Join Player</button>
+                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>✓ Complete Frame/Game</button> : null}
+                              {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
+                              {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
+                              {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
+                              {session.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(session.session_id, "END"); }}>End Table</button> : null}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div><strong>{session.customer_name || "Guest"}</strong> {session.is_member ? <span className="ql-badge gold">MEMBER</span> : <span className="ql-badge">NON-MEMBER</span>}</div>
+                            <div className="ql-muted">{session.customer_phone || "No phone"} • {elapsedLabel(session)}</div>
+                            <div className="ql-row" style={{ marginTop: 12 }}>
+                              {rule && rule.billing_mode === "PER_PLAYER_PER_GAME" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>✓ Game Complete</button> : null}
+                              {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
+                              {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
+                              <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(""); setTab("fnb"); }}>+ F&B</button>
+                              <button className="ql-btn primary" onClick={function() { finalizeBill(session); }}>Settle & Pay</button>
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -1616,13 +1848,24 @@ export default function QclubLedgerPage() {
                   {fnbDestination === "TABLE" ? (
                     <>
                       <label className="ql-label">Session / Table</label>
-                      <select className="ql-select" value={selectedSessionId} onChange={function(e) { setSelectedSessionId(e.target.value); }}>
+                      <select className="ql-select" value={selectedSessionId} onChange={function(e) { setSelectedSessionId(e.target.value); setSelectedFnbPersonId(""); }}>
                         <option value="">Select session</option>
                         {sessions.map(function(session) {
                           const table = tables.find(function(t) { return t.table_id === session.table_id; });
                           return <option key={session.session_id} value={session.session_id}>Table {(table && table.table_no) || "?"} — {session.customer_name || "Guest"}</option>;
                         })}
                       </select>
+                      {selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? (
+                        <>
+                          <label className="ql-label" style={{ marginTop: 8 }}>Charge F&B to</label>
+                          <select className="ql-select" value={selectedFnbPersonId} onChange={function(e) { setSelectedFnbPersonId(e.target.value); }}>
+                            <option value="">Select player</option>
+                            {(((sessionDetails[selectedSession.session_id] || {}).people) || []).filter(function(person) { return person.status !== "SETTLED"; }).map(function(person) {
+                              return <option key={person.person_id} value={person.person_id}>{person.name}{person.team_no ? " — Team " + person.team_no : ""} • Due {money(person.current_due_inr)}</option>;
+                            })}
+                          </select>
+                        </>
+                      ) : null}
                     </>
                   ) : (
                     <>
@@ -1681,8 +1924,8 @@ export default function QclubLedgerPage() {
                 </div>
                 <div className="ql-row" style={{ justifyContent: "flex-end" }}>
                   {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
-                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && !selectedSessionId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
-                    {busy ? "Adding…" : (fnbDestination === "WALK_IN" ? "Create Separate F&B Bill" : "Add to Table Bill")}
+                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy ? "Adding…" : (fnbDestination === "WALK_IN" ? "Create Separate F&B Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill"))}
                   </button>
                 </div>
               </div>
@@ -2259,43 +2502,80 @@ export default function QclubLedgerPage() {
 
       {startTable ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setStartTable(null); }}>
-          <div className="ql-modal">
+          <div className="ql-modal" style={{ maxWidth: 820 }}>
             <div className="ql-space">
-              <div><h3 style={{ margin: 0 }}>Start Table {startTable.table_no} — {startTable.display_name}</h3><div className="ql-muted">Server-authoritative session</div></div>
+              <div><h3 style={{ margin: 0 }}>Start Table {startTable.table_no} — {startTable.display_name}</h3><div className="ql-muted">Individual player accounts • up to 6 players</div></div>
               <button className="ql-btn ghost" onClick={function() { setStartTable(null); }}>✕</button>
             </div>
+
             <div className="ql-form-grid" style={{ marginTop: 15 }}>
               <div className="full">
                 <label className="ql-label">Game / Format</label>
-                <select className="ql-select" value={startForm.gameType} onChange={function(e) { setStartForm({ ...startForm, gameType: e.target.value }); }}>
+                <select className="ql-select" value={startForm.gameType} onChange={function(e) { changeStartGame(e.target.value); }}>
                   {allowedGames(startTable, rules).map(function(rule) {
                     return <option value={rule.game_type} key={rule.game_type}>{rule.display_name}{rule.billing_mode === "PER_PLAYER_PER_GAME" ? " — " + money(rule.rate_inr) + "/player/game" : ""}</option>;
                   })}
                 </select>
               </div>
-              <div>
-                <label className="ql-label">Customer / Host name</label>
-                <input className="ql-input" value={startForm.customerName} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerName: e.target.value, isMember: false }); }} placeholder="Player name" />
-              </div>
-              <div>
-                <label className="ql-label">WhatsApp mobile (10 digits)</label>
-                <input className="ql-input" inputMode="numeric" value={startForm.customerPhone} onChange={function(e) { setMemberCheck(null); setStartForm({ ...startForm, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10), isMember: false }); }} placeholder="9876543210" />
-              </div>
-              <div className="full">
-                <label className="ql-label">Additional participants (comma separated)</label>
-                <input className="ql-input" value={startForm.participants} onChange={function(e) { setStartForm({ ...startForm, participants: e.target.value }); }} placeholder="Player 2, Player 3" />
-              </div>
+
+              {startForm.gameType !== "QCHASE_RUMMY" ? (
+                <>
+                  <div>
+                    <label className="ql-label">Match format</label>
+                    <select className="ql-select" value={startForm.matchFormat} onChange={function(e) { changeMatchFormat(e.target.value); }}>
+                      {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "HOURLY" ? <option value="FLEX">Flexible players</option> : null}
+                      <option value="SINGLES">Singles — 2 players</option>
+                      <option value="DOUBLES">Doubles — 2 vs 2</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="ql-label">Billing rule</label>
+                    <select className="ql-select" value={startForm.paymentRule} onChange={function(e) {
+                      const rule = e.target.value;
+                      const next = { ...startForm, paymentRule: rule };
+                      if (startForm.gameType === "NORMAL_SNOOKER" && rule === "HOURLY") next.matchFormat = "FLEX";
+                      else if (next.matchFormat === "FLEX") next.matchFormat = "SINGLES";
+                      setStartForm(next);
+                    }}>
+                      {startForm.gameType === "NORMAL_SNOOKER" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
+                      <option value="LOSER_PAYS">Loser pays the frame</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="full ql-line"><strong>QChase / Rummy</strong><div className="ql-muted">2–6 players. Each completed game charges only the players who actually played that game.</div></div>
+              )}
+
+              {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" ? (
+                <div className="full">
+                  <label className="ql-label">Total charge per completed frame ₹</label>
+                  <input className="ql-input" type="number" min="1" value={startForm.frameRate} onChange={function(e) { setStartForm({ ...startForm, frameRate: e.target.value }); }} placeholder="Enter your Normal Snooker frame charge" />
+                </div>
+              ) : null}
+
+              <div className="full ql-section">Players</div>
+              {(startForm.players || []).map(function(player, index) {
+                const teamNo = startForm.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null;
+                return (
+                  <div className="full ql-line" key={index}>
+                    <div className="ql-space">
+                      <strong>{teamNo ? "Team " + teamNo + " — " : ""}Player {index + 1}</strong>
+                      {startForm.matchFormat === "FLEX" && (startForm.players || []).length > 1 ? <button className="ql-btn danger" type="button" onClick={function() { removeStartPlayer(index); }}>Remove</button> : null}
+                    </div>
+                    <div className="ql-form-grid" style={{ marginTop: 8 }}>
+                      <label><span className="ql-label">Name</span><input className="ql-input" value={player.name} onChange={function(e) { updateStartPlayer(index, "name", e.target.value); }} placeholder="Player name" /></label>
+                      <label><span className="ql-label">Mobile (optional)</span><input className="ql-input" inputMode="numeric" value={player.phone} onChange={function(e) { updateStartPlayer(index, "phone", e.target.value.replace(/\D/g,"").slice(0,10)); }} placeholder="For UPI / receipt" /></label>
+                    </div>
+                  </div>
+                );
+              })}
+              {startForm.matchFormat === "FLEX" && (startForm.players || []).length < 6 ? <div className="full"><button className="ql-btn" type="button" onClick={addStartPlayer}>+ Add Player</button></div> : null}
+
               <div className="full ql-line">
                 <div className="ql-space">
                   <div>
-                    <strong>{startForm.isMember ? "✓ Verified Q Club Member" : "Membership check"}</strong>
-                    <div className="ql-muted">
-                      {memberCheck && memberCheck.verified
-                        ? ((memberCheck.member && memberCheck.member.tier ? memberCheck.member.tier + " • " : "") + "valid until " + ((memberCheck.member && memberCheck.member.valid_until) || "not specified"))
-                        : memberCheck
-                          ? "No active matching membership. Walk-in rate will be used."
-                          : "Member rate is applied only after a server-side registry match."}
-                    </div>
+                    <strong>{startForm.isMember ? "✓ Player 1 is a verified member" : "Player 1 membership"}</strong>
+                    <div className="ql-muted">Only needed for hourly member-rate sessions. Other player accounts remain independent.</div>
                   </div>
                   <button type="button" className={startForm.isMember ? "ql-btn gold" : "ql-btn"} disabled={busy} onClick={verifyStartMember}>Verify Member</button>
                 </div>
@@ -2304,6 +2584,71 @@ export default function QclubLedgerPage() {
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setStartTable(null); }}>Cancel</button>
               <button className="ql-btn primary" disabled={busy} onClick={createSession}>Save & Start Session</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {gameEntry ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setGameEntry(null); }}>
+          <div className="ql-modal" style={{ maxWidth: 720 }}>
+            <div className="ql-space">
+              <div><h3 style={{ margin: 0 }}>Complete Frame / Game</h3><div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div></div>
+              <button className="ql-btn ghost" onClick={function() { setGameEntry(null); }}>✕</button>
+            </div>
+
+            <div className="ql-section">Who played this game?</div>
+            <div className="ql-list">
+              {(gameEntry.people || []).map(function(person) {
+                const checked = (gameEntry.selectedIds || []).includes(person.person_id);
+                return (
+                  <label className="ql-line ql-space" key={person.person_id}>
+                    <span><strong>{person.name}</strong>{person.team_no ? " • Team " + person.team_no : ""}</span>
+                    <input type="checkbox" checked={checked} onChange={function(e) {
+                      const ids = e.target.checked ? [...gameEntry.selectedIds, person.person_id] : gameEntry.selectedIds.filter(function(id) { return id !== person.person_id; });
+                      setGameEntry({ ...gameEntry, selectedIds: ids });
+                    }} />
+                  </label>
+                );
+              })}
+            </div>
+
+            {gameEntry.session.payment_rule === "LOSER_PAYS" ? (
+              <>
+                <div className="ql-section">Who lost?</div>
+                {gameEntry.session.match_format === "DOUBLES" ? (
+                  <div className="ql-row">
+                    <button className={"ql-btn " + (gameEntry.losingTeam === "1" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, losingTeam: "1", payerPersonId: "" }); }}>Team 1 lost</button>
+                    <button className={"ql-btn " + (gameEntry.losingTeam === "2" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, losingTeam: "2", payerPersonId: "" }); }}>Team 2 lost</button>
+                  </div>
+                ) : (
+                  <select className="ql-select" value={gameEntry.loserPersonId} onChange={function(e) { setGameEntry({ ...gameEntry, loserPersonId: e.target.value, payerPersonId: "" }); }}>
+                    <option value="">Select losing player</option>
+                    {(gameEntry.people || []).filter(function(p) { return gameEntry.selectedIds.includes(p.person_id); }).map(function(person) { return <option key={person.person_id} value={person.person_id}>{person.name}</option>; })}
+                  </select>
+                )}
+
+                {gameEntry.session.match_format === "DOUBLES" ? (
+                  <>
+                    <div className="ql-section">Losing-team payment</div>
+                    <div className="ql-row">
+                      <button className={"ql-btn " + (gameEntry.payerMode === "SPLIT" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "SPLIT", payerPersonId: "" }); }}>Split equally</button>
+                      <button className={"ql-btn " + (gameEntry.payerMode === "ONE" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "ONE" }); }}>One player pays all</button>
+                    </div>
+                    {gameEntry.payerMode === "ONE" && gameEntry.losingTeam ? (
+                      <select className="ql-select" style={{ marginTop: 8 }} value={gameEntry.payerPersonId} onChange={function(e) { setGameEntry({ ...gameEntry, payerPersonId: e.target.value }); }}>
+                        <option value="">Select payer</option>
+                        {(gameEntry.people || []).filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam); }).map(function(person) { return <option key={person.person_id} value={person.person_id}>{person.name}</option>; })}
+                      </select>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="ql-btn" onClick={function() { setGameEntry(null); }}>Cancel</button>
+              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>Confirm Completed Game</button>
             </div>
           </div>
         </div>
