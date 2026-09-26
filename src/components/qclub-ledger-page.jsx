@@ -138,6 +138,8 @@ function escapeHtml(value) {
 }
 
 function receiptHtml(bill, session) {
+  const customerName = (session && session.customer_name) || (bill && bill.customer_name) || "Customer";
+  const customerPhone = (session && session.customer_phone) || (bill && bill.customer_phone) || "";
   const rows = (bill.items || []).map(function(item) {
     return "<tr><td>" + escapeHtml(item.description || item.item_type || "Item") + "</td><td style='text-align:right'>" +
       escapeHtml(item.quantity) + "</td><td style='text-align:right'>" + money(item.line_total_inr) + "</td></tr>";
@@ -145,8 +147,8 @@ function receiptHtml(bill, session) {
   return "<!doctype html><html><head><meta charset='utf-8'><title>" + escapeHtml(bill.bill_no || "Q Club Bill") +
     "</title><style>body{font-family:Arial,sans-serif;max-width:720px;margin:24px auto;color:#111}h1{margin-bottom:2px}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:20px}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.totals{margin-top:18px;text-align:right}.totals div{margin:5px 0}.grand{font-size:20px;font-weight:800}@media print{button{display:none}}</style></head><body>" +
     "<h1>The Q Club Pasighat</h1><div class='muted'>Private Ledger Receipt</div><h2>" + escapeHtml(bill.bill_no || "Final Bill") + "</h2>" +
-    "<div>" + escapeHtml((session && session.customer_name) || "Customer") + "</div><div class='muted'>" +
-    escapeHtml((session && session.customer_phone) || "") + "</div><table><thead><tr><th>Item</th><th style='text-align:right'>Qty</th><th style='text-align:right'>Amount</th></tr></thead><tbody>" +
+    "<div>" + escapeHtml(customerName) + "</div><div class='muted'>" +
+    escapeHtml(customerPhone) + "</div><table><thead><tr><th>Item</th><th style='text-align:right'>Qty</th><th style='text-align:right'>Amount</th></tr></thead><tbody>" +
     rows + "</tbody></table><div class='totals'><div>Game/Table: " + money(bill.game_total_inr) + "</div><div>F&B: " + money(bill.fnb_total_inr) +
     "</div><div>Discount: " + money(bill.discount_inr) + "</div><div class='grand'>Total: " + money(bill.total_inr) +
     "</div><div>Paid: " + money(bill.paid_inr) + "</div><div>Due: " + money(bill.due_inr) + "</div></div><script>window.onload=function(){window.print();}</script></body></html>";
@@ -226,6 +228,17 @@ export default function QclubLedgerPage() {
   const [fnbDestination, setFnbDestination] = useState("TABLE");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
+  const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
+  const [catalogueDraft, setCatalogueDraft] = useState({
+    name: "",
+    category: "FOOD",
+    unit: "unit",
+    sellingPrice: "",
+    costPrice: "",
+    trackInventory: false,
+    openingStock: "0",
+    lowStockThreshold: "5",
+  });
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
@@ -991,8 +1004,8 @@ export default function QclubLedgerPage() {
         body: {
           bill_id: billDetail.bill_id,
           amount_inr: amount,
-          customer_phone: (session && session.customer_phone) || "",
-          customer_name: (session && session.customer_name) || "",
+          customer_phone: (session && session.customer_phone) || billDetail.customer_phone || "",
+          customer_name: (session && session.customer_name) || billDetail.customer_name || "",
           idempotency_key: makeKey("upi"),
         },
       });
@@ -1034,7 +1047,7 @@ export default function QclubLedgerPage() {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          phone: (session && session.customer_phone) || "",
+          phone: (session && session.customer_phone) || billDetail.customer_phone || "",
           payment_id: payment ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
@@ -1076,8 +1089,8 @@ export default function QclubLedgerPage() {
       const session = sessionLookup[bill.session_id];
       lines.push([
         bill.bill_no || bill.bill_id,
-        (session && session.customer_name) || "",
-        (session && session.customer_phone) || "",
+        (session && session.customer_name) || bill.customer_name || "",
+        (session && session.customer_phone) || bill.customer_phone || "",
         bill.finalized_at || bill.created_at || "",
         bill.status,
         bill.game_total_inr,
@@ -1105,7 +1118,7 @@ export default function QclubLedgerPage() {
     const body = rows.map(function(bill) {
       const session = sessionLookup[bill.session_id];
       return "<tr><td>" + escapeHtml(bill.bill_no || bill.bill_id) + "</td><td>" +
-        escapeHtml((session && session.customer_name) || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
+        escapeHtml((session && session.customer_name) || bill.customer_name || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
         "</td><td style='text-align:right'>" + money(bill.paid_inr) + "</td><td style='text-align:right'>" + money(bill.due_inr) + "</td></tr>";
     }).join("");
     const html = "<!doctype html><html><head><meta charset='utf-8'><title>Q Club Daily Closing " + escapeHtml(businessDate) +
@@ -1207,6 +1220,96 @@ export default function QclubLedgerPage() {
       flash("F&B cost prices saved. Stock Wallet updated.");
     } catch (error) {
       flash(error.message || "Unable to save F&B cost prices.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateCatalogueDraft(field, value) {
+    setCatalogueDraft(function(current) {
+      return { ...current, [field]: value };
+    });
+  }
+
+  async function addCatalogueItem() {
+    if (!isAdmin) {
+      flash("Admin PIN is required to add catalogue items.", true);
+      return;
+    }
+    const name = catalogueDraft.name.trim();
+    const sellingPrice = Number(catalogueDraft.sellingPrice);
+    const costPrice = String(catalogueDraft.costPrice).trim() === "" ? null : Number(catalogueDraft.costPrice);
+    const openingStock = catalogueDraft.trackInventory ? Number(catalogueDraft.openingStock || 0) : null;
+    const lowStockThreshold = catalogueDraft.trackInventory ? Number(catalogueDraft.lowStockThreshold || 0) : null;
+
+    if (!name) {
+      flash("Enter an item name.", true);
+      return;
+    }
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+      flash("Enter a valid selling price.", true);
+      return;
+    }
+    if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) {
+      flash("Check the cost price.", true);
+      return;
+    }
+    if (catalogueDraft.trackInventory && (!Number.isFinite(openingStock) || openingStock < 0 || !Number.isFinite(lowStockThreshold) || lowStockThreshold < 0)) {
+      flash("Check opening stock and low-stock threshold.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await protectedCall("catalogue/items", {
+        method: "POST",
+        body: {
+          name: name,
+          category: catalogueDraft.category,
+          unit: catalogueDraft.unit || "unit",
+          selling_price_inr: sellingPrice,
+          cost_price_inr: costPrice,
+          track_inventory: Boolean(catalogueDraft.trackInventory),
+          opening_stock: openingStock,
+          low_stock_threshold: lowStockThreshold,
+        },
+      });
+      setCatalogueDraft({
+        name: "",
+        category: "FOOD",
+        unit: "unit",
+        sellingPrice: "",
+        costPrice: "",
+        trackInventory: false,
+        openingStock: "0",
+        lowStockThreshold: "5",
+      });
+      setShowCatalogueAdd(false);
+      flash("Item added to the Ledger catalogue.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to add item.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCatalogueItem(item) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to remove catalogue items.", true);
+      return;
+    }
+    const ok = window.confirm(
+      "Delete " + item.name + " from the active Q Club Ledger catalogue?\n\nHistorical bills will remain unchanged."
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await protectedCall("catalogue/items/" + encodeURIComponent(item.id), { method: "DELETE" });
+      flash(item.name + " removed from the active Ledger catalogue.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to remove item.", true);
     } finally {
       setBusy(false);
     }
@@ -1831,7 +1934,7 @@ export default function QclubLedgerPage() {
                   return (
                     <button key={bill.bill_id} className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")} style={{ color: "inherit", textAlign: "left", cursor: "pointer" }} onClick={function() { loadBill(bill.bill_id); }}>
                       <div className="ql-space"><strong>{bill.bill_no || bill.bill_id}</strong><span className={"ql-badge " + (Number(bill.due_inr) > 0 ? "bad" : "")}>{bill.status}</span></div>
-                      <div className="ql-muted">{(session && session.customer_name) || "Customer"} • {dateTime(bill.finalized_at || bill.created_at)}</div>
+                      <div className="ql-muted">{(session && session.customer_name) || bill.customer_name || "Customer"} • {dateTime(bill.finalized_at || bill.created_at)}</div>
                       <div className="ql-space" style={{ marginTop: 5 }}><span>{money(bill.total_inr)}</span><span className="ql-muted">Due {money(bill.due_inr)}</span></div>
                     </button>
                   );
@@ -1923,18 +2026,125 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Cashfree</span><strong>{health && health.cashfree_ready ? "READY" : "CHECK"}</strong></div>
               <div className="ql-stat"><span className="ql-muted">MSG91</span><strong>{health && health.msg91_ready ? "READY" : "CHECK"}</strong></div>
             </div>
-            {!isAdmin ? <div className="ql-card full" style={{ marginTop: 14 }}><strong>Staff read-only inventory view.</strong><div className="ql-muted">Restock/adjust operations require an Admin PIN session.</div></div> : null}
+
+            {isAdmin ? (
+              <>
+                <div className="ql-section">F&B catalogue</div>
+                <div className="ql-card full">
+                  <div className="ql-space">
+                    <div>
+                      <h3>Ledger Items</h3>
+                      <div className="ql-muted">
+                        {catalogue.length} active item(s). This is the billing catalogue used by Desk Ledger and walk-in F&B.
+                        Removing an item hides it from future sales but keeps old bills intact.
+                      </div>
+                    </div>
+                    <button className="ql-btn primary" onClick={function() { setShowCatalogueAdd(function(value) { return !value; }); }}>
+                      {showCatalogueAdd ? "Close" : "+ Add Item"}
+                    </button>
+                  </div>
+
+                  {showCatalogueAdd ? (
+                    <div className="ql-line" style={{ marginTop: 14 }}>
+                      <div className="ql-form-grid">
+                        <label>
+                          <span className="ql-label">Item name</span>
+                          <input className="ql-input" value={catalogueDraft.name} onChange={function(e) { updateCatalogueDraft("name", e.target.value); }} placeholder="e.g. Coke 750 ml" />
+                        </label>
+                        <label>
+                          <span className="ql-label">Category</span>
+                          <select className="ql-select" value={catalogueDraft.category} onChange={function(e) { updateCatalogueDraft("category", e.target.value); }}>
+                            <option value="FOOD">Food</option>
+                            <option value="BEVERAGES">Beverages</option>
+                            <option value="OTHER">Other</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className="ql-label">Selling price ₹</span>
+                          <input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.sellingPrice} onChange={function(e) { updateCatalogueDraft("sellingPrice", e.target.value); }} />
+                        </label>
+                        <label>
+                          <span className="ql-label">Purchase / cost price ₹ (optional)</span>
+                          <input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.costPrice} onChange={function(e) { updateCatalogueDraft("costPrice", e.target.value); }} />
+                        </label>
+                        <label>
+                          <span className="ql-label">Unit</span>
+                          <input className="ql-input" value={catalogueDraft.unit} onChange={function(e) { updateCatalogueDraft("unit", e.target.value); }} placeholder="unit / bottle / plate" />
+                        </label>
+                        <label className="ql-line" style={{ display: "flex", gap: 10, alignItems: "center", margin: 0 }}>
+                          <input
+                            type="checkbox"
+                            checked={catalogueDraft.trackInventory}
+                            onChange={function(e) { updateCatalogueDraft("trackInventory", e.target.checked); }}
+                            style={{ width: 18, height: 18 }}
+                          />
+                          <span><strong>Track stock</strong><div className="ql-muted">Use for bottled/canned/packaged items that are replenished.</div></span>
+                        </label>
+                        {catalogueDraft.trackInventory ? (
+                          <>
+                            <label>
+                              <span className="ql-label">Opening stock</span>
+                              <input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.openingStock} onChange={function(e) { updateCatalogueDraft("openingStock", e.target.value); }} />
+                            </label>
+                            <label>
+                              <span className="ql-label">Low-stock warning at</span>
+                              <input className="ql-input" type="number" min="0" step="1" value={catalogueDraft.lowStockThreshold} onChange={function(e) { updateCatalogueDraft("lowStockThreshold", e.target.value); }} />
+                            </label>
+                          </>
+                        ) : null}
+                      </div>
+                      <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+                        <button className="ql-btn ghost" disabled={busy} onClick={function() { setShowCatalogueAdd(false); }}>Cancel</button>
+                        <button className="ql-btn primary" disabled={busy} onClick={addCatalogueItem}>{busy ? "Saving…" : "Save Item"}</button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="ql-list" style={{ marginTop: 14, maxHeight: "52vh", overflow: "auto" }}>
+                    {catalogue.length ? catalogue.map(function(item) {
+                      return (
+                        <div className="ql-line ql-space" key={item.id}>
+                          <div>
+                            <strong>{item.name}</strong>
+                            <div className="ql-muted">
+                              {String(item.category || "OTHER").replaceAll("_", " ")} • {money(item.selling_price_inr)}
+                              {item.cost_price_inr != null ? " • cost " + money(item.cost_price_inr) : ""}
+                              {item.track_inventory ? " • stock tracked" : ""}
+                            </div>
+                          </div>
+                          <button className="ql-btn danger" disabled={busy} onClick={function() { removeCatalogueItem(item); }}>Delete Item</button>
+                        </div>
+                      );
+                    }) : <div className="ql-empty">No active catalogue items.</div>}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="ql-card full" style={{ marginTop: 14 }}>
+                <strong>Staff read-only inventory view.</strong>
+                <div className="ql-muted">Adding/removing catalogue items and stock adjustments require an Admin PIN session.</div>
+              </div>
+            )}
+
             <div className="ql-section">Tracked inventory</div>
             <div className="ql-grid">
-              {inventory.map(function(item) {
+              {inventory.length ? inventory.map(function(item) {
                 return (
                   <div className="ql-card" key={item.item_id || item.id}>
-                    <div className="ql-space"><div><h3>{item.name}</h3><div className="ql-muted">Server stock</div></div><span className={"ql-badge " + (item.is_out_of_stock || item.is_low_stock ? "bad" : "")}>{item.current_stock}</span></div>
+                    <div className="ql-space">
+                      <div><h3>{item.name}</h3><div className="ql-muted">Server stock</div></div>
+                      <span className={"ql-badge " + (item.is_out_of_stock || item.is_low_stock ? "bad" : "")}>{item.current_stock}</span>
+                    </div>
                     <div className="ql-muted" style={{ marginTop: 8 }}>Low-stock threshold: {item.low_stock_threshold == null ? "—" : item.low_stock_threshold}</div>
-                    {isAdmin ? <div className="ql-row" style={{ marginTop: 12 }}><button className="ql-btn primary" onClick={function() { adminInventory(item, "restock"); }}>+ Restock</button><button className="ql-btn" onClick={function() { adminInventory(item, "adjust"); }}>Adjust</button></div> : null}
+                    {isAdmin ? (
+                      <div className="ql-row" style={{ marginTop: 12 }}>
+                        <button className="ql-btn primary" onClick={function() { adminInventory(item, "restock"); }}>+ Restock</button>
+                        <button className="ql-btn" onClick={function() { adminInventory(item, "adjust"); }}>Adjust</button>
+                      </div>
+                    ) : null}
                   </div>
                 );
-              })}
+              }) : <div className="ql-card full"><div className="ql-empty">No stock-tracked items yet. Admin can add one above and enable Track stock.</div></div>}
             </div>
           </>
         ) : null}

@@ -1035,6 +1035,125 @@ async function catalogue(req, res) {
   return json(res, 200, { items, catalogue: items, version: "2026-09-21-1" });
 }
 
+async function createCatalogueItem(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+
+  const name = safeText(req.body?.name || "", 160).trim();
+  const category = safeText(req.body?.category || "OTHER", 80).trim().toUpperCase() || "OTHER";
+  const unit = safeText(req.body?.unit || "unit", 40).trim() || "unit";
+  const sellingPrice = Number(req.body?.selling_price_inr ?? req.body?.sellingPriceInr);
+  const rawCost = req.body?.cost_price_inr ?? req.body?.costPriceInr;
+  const costPrice = rawCost == null || String(rawCost).trim() === "" ? null : Number(rawCost);
+  const trackInventory = Boolean(req.body?.track_inventory ?? req.body?.trackInventory ?? false);
+  const openingStock = trackInventory ? Number(req.body?.opening_stock ?? req.body?.openingStock ?? 0) : null;
+  const lowStockThreshold = trackInventory ? Number(req.body?.low_stock_threshold ?? req.body?.lowStockThreshold ?? 5) : null;
+
+  if (!name) return json(res, 400, { ok: false, error: "ITEM_NAME_REQUIRED" });
+  if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+    return json(res, 400, { ok: false, error: "VALID_SELLING_PRICE_REQUIRED" });
+  }
+  if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) {
+    return json(res, 400, { ok: false, error: "INVALID_COST_PRICE" });
+  }
+  if (trackInventory && (!Number.isFinite(openingStock) || openingStock < 0)) {
+    return json(res, 400, { ok: false, error: "INVALID_OPENING_STOCK" });
+  }
+  if (trackInventory && (!Number.isFinite(lowStockThreshold) || lowStockThreshold < 0)) {
+    return json(res, 400, { ok: false, error: "INVALID_LOW_STOCK_THRESHOLD" });
+  }
+
+  const { data: existingByName, error: existingError } = await supabase
+    .from("snooker_catalogue_items")
+    .select("*")
+    .eq("name", name)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const values = {
+    name,
+    category,
+    unit,
+    selling_price_inr: money(sellingPrice),
+    cost_price_inr: costPrice == null ? null : money(costPrice),
+    track_inventory: trackInventory,
+    current_stock: trackInventory ? openingStock : null,
+    low_stock_threshold: trackInventory ? lowStockThreshold : null,
+    active: true,
+    source: "qclub_ledger_admin",
+    updated_at: new Date().toISOString(),
+  };
+
+  let saved = null;
+  if (existingByName) {
+    if (existingByName.active) {
+      return json(res, 409, { ok: false, error: "ITEM_NAME_EXISTS", item_id: existingByName.id });
+    }
+    const { data, error } = await supabase
+      .from("snooker_catalogue_items")
+      .update(values)
+      .eq("id", existingByName.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    saved = data;
+  } else {
+    const itemId = `ledger_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+    const { data, error } = await supabase
+      .from("snooker_catalogue_items")
+      .insert({
+        id: itemId,
+        ...values,
+        sort_order: 100,
+        source_ref: null,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        return json(res, 409, { ok: false, error: "ITEM_NAME_EXISTS" });
+      }
+      throw error;
+    }
+    saved = data;
+  }
+
+  return json(res, 201, { ok: true, item: catalogueDto(saved) });
+}
+
+async function removeCatalogueItem(req, res, itemId) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const safeItemId = safeText(itemId || "", 160);
+  if (!safeItemId) return json(res, 400, { ok: false, error: "ITEM_ID_REQUIRED" });
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("snooker_catalogue_items")
+    .select("*")
+    .eq("id", safeItemId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!existing) return json(res, 404, { ok: false, error: "ITEM_NOT_FOUND" });
+  if (!existing.active) {
+    return json(res, 200, { ok: true, removed: true, item_id: safeItemId, already_inactive: true });
+  }
+
+  const { error } = await supabase
+    .from("snooker_catalogue_items")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", safeItemId);
+  if (error) throw error;
+
+  return json(res, 200, {
+    ok: true,
+    removed: true,
+    item_id: safeItemId,
+    message: "Item removed from the active Ledger catalogue. Historical bills remain unchanged.",
+  });
+}
+
 async function inventory(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1947,8 +2066,13 @@ async function upiPayment(req, res) {
     return json(res, 200, response);
   }
 
-  const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
-  const phone = normalizePhone(req.body?.customer_phone || session?.customer_phone || "");
+  let session = null;
+  if (bill.session_id) {
+    const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
+    session = data || null;
+  }
+  const phone = normalizePhone(req.body?.customer_phone || session?.customer_phone || bill.customer_phone || "");
+  const customerName = safeText(req.body?.customer_name || session?.customer_name || bill.customer_name || "Q Club Customer", 120) || "Q Club Customer";
   if (!phone) {
     return json(res, 409, { ok: false, error: "CUSTOMER_PHONE_REQUIRED_FOR_UPI" });
   }
@@ -1965,7 +2089,7 @@ async function upiPayment(req, res) {
     order_expiry_time: requestedExpiryAt,
     customer_details: {
       customer_id: `snooker_${safeText(billId, 36)}`,
-      customer_name: safeText(session?.customer_name || "Q Club Customer", 120) || "Q Club Customer",
+      customer_name: customerName,
       customer_phone: phone,
     },
     order_meta: {
@@ -2136,8 +2260,12 @@ async function sendReceipt(req, res) {
   const billId = safeText(req.body?.bill_id || req.body?.billId || "", 100);
   const bill = await billDetailPayload(supabase, billId);
   if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
-  const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
-  const phone = normalizeWhatsappPhone(req.body?.phone || session?.customer_phone || "");
+  let session = null;
+  if (bill.session_id) {
+    const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
+    session = data || null;
+  }
+  const phone = normalizeWhatsappPhone(req.body?.phone || session?.customer_phone || bill.customer_phone || "");
   if (!phone) return json(res, 409, { ok: false, error: "PHONE_REQUIRED" });
 
   const authKey = env("MSG91_AUTH_KEY");
@@ -2173,7 +2301,7 @@ async function sendReceipt(req, res) {
   const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
   const summaryBase = (bill.items || []).slice(0, 12).map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`).join("\n") || "Q Club bill";
   const summary = paymentUrlValue ? `${summaryBase}\nPay securely: ${paymentUrlValue}` : summaryBase;
-  const customer = safeText(session?.customer_name || "Customer", 120) || "Customer";
+  const customer = safeText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
   const params = [customer, bill.bill_no, summary, String(money(bill.total_inr))];
   const payload = {
     integrated_number: sender,
@@ -2284,6 +2412,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "bootstrap") return await bootstrap(req, res);
     if (method === "GET" && path === "game-rules") return await gameRules(req, res);
     if (method === "GET" && path === "catalogue") return await catalogue(req, res);
+    if (method === "POST" && path === "catalogue/items") return await createCatalogueItem(req, res);
+    if (parts[0] === "catalogue" && parts[1] === "items" && parts[2] && parts.length === 3 && method === "DELETE") return await removeCatalogueItem(req, res, parts[2]);
     if (method === "GET" && path === "inventory") return await inventory(req, res);
     if (method === "GET" && path === "members/verify") return await verifyMember(req, res);
     if (method === "GET" && path === "dashboard/summary") return await dashboardSummary(req, res);
@@ -2301,8 +2431,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (parts[0] === "games" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
-    if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1]);
-    if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1]);
+    if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
+    if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
 
     if (method === "GET" && path === "bills") return await listBills(req, res);
     if (method === "POST" && path === "bills/finalize") return await finalizeBill(req, res);
