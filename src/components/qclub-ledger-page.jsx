@@ -1118,7 +1118,7 @@ export default function QclubLedgerPage() {
     const body = rows.map(function(bill) {
       const session = sessionLookup[bill.session_id];
       return "<tr><td>" + escapeHtml(bill.bill_no || bill.bill_id) + "</td><td>" +
-        escapeHtml((session && session.customer_name) || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
+        escapeHtml((session && session.customer_name) || bill.customer_name || "") + "</td><td style='text-align:right'>" + money(bill.total_inr) +
         "</td><td style='text-align:right'>" + money(bill.paid_inr) + "</td><td style='text-align:right'>" + money(bill.due_inr) + "</td></tr>";
     }).join("");
     const html = "<!doctype html><html><head><meta charset='utf-8'><title>Q Club Daily Closing " + escapeHtml(businessDate) +
