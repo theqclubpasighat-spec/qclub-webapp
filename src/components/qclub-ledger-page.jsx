@@ -622,7 +622,7 @@ export default function QclubLedgerPage() {
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
 
   const sellableCatalogue = useMemo(function() {
-    return sellableCatalogue.filter(function(item) { return item.sell_in_ledger !== false; });
+    return catalogue.filter(function(item) { return item.sell_in_ledger !== false; });
   }, [catalogue]);
 
   const fnbCategories = useMemo(function() {
@@ -633,7 +633,7 @@ export default function QclubLedgerPage() {
 
   const filteredCatalogue = useMemo(function() {
     const query = fnbSearch.trim().toLowerCase();
-    return catalogue.filter(function(item) {
+    return sellableCatalogue.filter(function(item) {
       const category = String(item.category || "Other").trim() || "Other";
       if (fnbCategory !== "ALL" && category !== fnbCategory) return false;
       if (!query) return true;
