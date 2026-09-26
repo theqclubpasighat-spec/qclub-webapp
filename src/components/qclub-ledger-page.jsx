@@ -842,7 +842,7 @@ export default function QclubLedgerPage() {
     setBusy(true);
     try {
       await protectedCall("sessions/" + sessionId, { method: "PATCH", body: { action } });
-      flash(action === "PAUSE" ? "Table timer paused." : action === "END" ? "Table ended." : "Table timer resumed.");
+      flash(action === "PAUSE" ? "Table timer paused." : action === "END" ? "Table ended. Settle all player accounts, then Close Table." : action === "CLOSE" ? "Table closed and available for the next session." : "Table timer resumed.");
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -1807,7 +1807,7 @@ export default function QclubLedgerPage() {
                               {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
                               {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                               {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
-                              {session.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(session.session_id, "END"); }}>End Table</button> : null}
+                              {session.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(session.session_id, "END"); }}>End Table</button> : <button className="ql-btn primary" onClick={function() { patchSession(session.session_id, "CLOSE"); }}>Close Table</button>}
                             </div>
                           </>
                         ) : (
@@ -2533,8 +2533,13 @@ export default function QclubLedgerPage() {
                     <select className="ql-select" value={startForm.paymentRule} onChange={function(e) {
                       const rule = e.target.value;
                       const next = { ...startForm, paymentRule: rule };
-                      if (startForm.gameType === "NORMAL_SNOOKER" && rule === "HOURLY") next.matchFormat = "FLEX";
-                      else if (next.matchFormat === "FLEX") next.matchFormat = "SINGLES";
+                      if (startForm.gameType === "NORMAL_SNOOKER" && rule === "HOURLY") {
+                        next.matchFormat = "FLEX";
+                      } else if (next.matchFormat === "FLEX") {
+                        next.matchFormat = "SINGLES";
+                        next.players = (startForm.players || []).slice(0, 2);
+                        while (next.players.length < 2) next.players.push({ name: "", phone: "", teamNo: null });
+                      }
                       setStartForm(next);
                     }}>
                       {startForm.gameType === "NORMAL_SNOOKER" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
