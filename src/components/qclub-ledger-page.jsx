@@ -254,6 +254,7 @@ export default function QclubLedgerPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
+  const [paymentPhone, setPaymentPhone] = useState("");
   const [memberCheck, setMemberCheck] = useState(null);
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [ledgerStatus, setLedgerStatus] = useState("ALL");
@@ -1021,6 +1022,7 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash(person.name + " bill " + bill.bill_no + " created.");
       await refreshAll();
@@ -1097,6 +1099,7 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash("Bill " + (bill.bill_no || "") + " finalized.");
       await refreshAll();
@@ -1139,6 +1142,7 @@ export default function QclubLedgerPage() {
         setCashAmount(Number(bill.due_inr || 0).toFixed(2));
         setCashTendered(Number(bill.due_inr || 0).toFixed(2));
         setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
         setWalkInName("");
         setWalkInPhone("");
         setTab("ledger");
@@ -1173,6 +1177,9 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(detail.due_inr || 0).toFixed(2));
       setCashTendered(Number(detail.due_inr || 0).toFixed(2));
       setUpiAmount(Number(detail.due_inr || 0).toFixed(2));
+      if (!opts.preserveContact) {
+        setPaymentPhone(String(detail.customer_phone || "").replace(/\D/g, "").slice(-10));
+      }
       if (!opts.preserveUpi) {
         setUpiOrder(null);
         setShowUpiQrModal(false);
@@ -1186,7 +1193,7 @@ export default function QclubLedgerPage() {
 
   async function refreshBillDetail(options) {
     if (!billDetail || !billDetail.bill_id) return;
-    await loadBill(billDetail.bill_id, options);
+    await loadBill(billDetail.bill_id, { preserveContact: true, ...(options || {}) });
     await refreshAll();
   }
 
@@ -1227,6 +1234,12 @@ export default function QclubLedgerPage() {
       return;
     }
     const session = sessionLookup[billDetail.session_id];
+    const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) {
+      flash("Enter the customer's 10-digit mobile number to generate the Cashfree UPI QR.", true);
+      return;
+    }
+    setPaymentPhone(phone);
     setBusy(true);
     try {
       const result = await protectedCall("payments/upi", {
@@ -1234,7 +1247,7 @@ export default function QclubLedgerPage() {
         body: {
           bill_id: billDetail.bill_id,
           amount_inr: amount,
-          customer_phone: (session && session.customer_phone) || billDetail.customer_phone || "",
+          customer_phone: phone,
           customer_name: (session && session.customer_name) || billDetail.customer_name || "",
           idempotency_key: makeKey("upi"),
         },
@@ -1270,6 +1283,12 @@ export default function QclubLedgerPage() {
   async function sendReceipt() {
     if (!billDetail) return;
     const session = sessionLookup[billDetail.session_id];
+    const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) {
+      flash("Enter the customer's 10-digit mobile number to send the WhatsApp receipt.", true);
+      return;
+    }
+    setPaymentPhone(phone);
     setBusy(true);
     try {
       const payment = upiOrder && upiOrder.payment_id ? upiOrder : null;
@@ -1277,7 +1296,7 @@ export default function QclubLedgerPage() {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          phone: (session && session.customer_phone) || billDetail.customer_phone || "",
+          phone: phone,
           payment_id: payment ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
@@ -2308,6 +2327,16 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>UPI</strong>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for UPI / WhatsApp</label>
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={paymentPhone}
+                        onChange={function(e) { setPaymentPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }}
+                        placeholder="10-digit mobile"
+                      />
+                      <div className="ql-muted" style={{ marginTop: 6 }}>Cash payments do not require a mobile number. Cashfree UPI and WhatsApp receipts do.</div>
                       <label className="ql-label" style={{ marginTop: 8 }}>UPI amount</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={upiAmount} onChange={function(e) { setUpiAmount(e.target.value); }} />
                       <button className="ql-btn gold" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={createUpi}>Generate Cashfree QR</button>
@@ -2315,7 +2344,7 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>WhatsApp receipt sends independently. If a valid Cashfree payment already exists, its payment link is included.</div>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>Uses the mobile entered above. WhatsApp receipt sends independently; if a valid Cashfree payment exists, its payment link is included.</div>
                       <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>{upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt"}</button>
                     </div>
                   </div>
