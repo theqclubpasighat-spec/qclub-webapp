@@ -2502,10 +2502,18 @@ async function upiPayment(req, res) {
     const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
     session = data || null;
   }
-  const phone = normalizePhone(req.body?.customer_phone || session?.customer_phone || bill.customer_phone || "");
+  const requestedPhone = normalizePhone(req.body?.customer_phone || "");
+  const phone = requestedPhone || normalizePhone(session?.customer_phone || bill.customer_phone || "");
   const customerName = safeText(req.body?.customer_name || session?.customer_name || bill.customer_name || "Q Club Customer", 120) || "Q Club Customer";
   if (!phone) {
     return json(res, 409, { ok: false, error: "CUSTOMER_PHONE_REQUIRED_FOR_UPI" });
+  }
+  if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
+    const { error: contactError } = await supabase
+      .from("snooker_bills")
+      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
+      .eq("id", billId);
+    if (contactError) throw contactError;
   }
 
   const paymentId = randomUUID();
@@ -2696,8 +2704,16 @@ async function sendReceipt(req, res) {
     const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
     session = data || null;
   }
-  const phone = normalizeWhatsappPhone(req.body?.phone || session?.customer_phone || bill.customer_phone || "");
+  const requestedPhone = normalizeWhatsappPhone(req.body?.phone || "");
+  const phone = requestedPhone || normalizeWhatsappPhone(session?.customer_phone || bill.customer_phone || "");
   if (!phone) return json(res, 409, { ok: false, error: "PHONE_REQUIRED" });
+  if (requestedPhone && requestedPhone !== normalizeWhatsappPhone(bill.customer_phone || "")) {
+    const { error: contactError } = await supabase
+      .from("snooker_bills")
+      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
+      .eq("id", billId);
+    if (contactError) throw contactError;
+  }
 
   const authKey = env("MSG91_AUTH_KEY");
   const sender = env("MSG91_SENDER_NUMBER");
