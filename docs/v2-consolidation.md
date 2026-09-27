@@ -10,6 +10,9 @@ and `/__v2-preview/food` on Vercel preview deployments. Production builds
 exclude its JavaScript and CSS. Local development requires
 `QCLUB_LOCAL_V2_PREVIEW=1 npm run dev`.
 
+`/__v2-preview/review` provides a same-origin iframe at 320/360/390/430 px
+for responsive layout checks. This is not touch-device or mobile-browser emulation.
+
 The preview adapts V2's felt/brass public design without upgrading production
 React, router, QR or Supabase dependencies. It does not import the production
 App, auth client, background jobs or global styles. Its only API request is a

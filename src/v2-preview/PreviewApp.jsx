@@ -113,7 +113,24 @@ function Food() {
   </section>;
 }
 
+function LayoutReview() {
+  const [width, setWidth] = useState("390");
+  const [page, setPage] = useState("food");
+  return <div className="qclub-v2 v2-review">
+    <h1>Phone layout review</h1>
+    <p>Review the preview at phone widths. Actual device and payment testing remain separate.</p>
+    <div className="v2-review-controls">
+      <label>Phone width <select value={width} onChange={event => setWidth(event.target.value)}>{[320,360,390,430].map(value => <option key={value} value={value}>{value} px</option>)}</select></label>
+      <label>Page <select value={page} onChange={event => setPage(event.target.value)}><option value="">Home</option><option value="food">Q Lounge</option></select></label>
+      <Link to="/">Full preview</Link>
+    </div>
+    <iframe title="Phone preview" src={`/__v2-preview/${page}`} style={{ width: `${width}px` }} className="v2-phone-frame" />
+  </div>;
+}
+
 export default function PreviewApp() {
+  const location = useLocation();
+  if (location.pathname === "/review") return <LayoutReview/>;
   return <div className="qclub-v2">
     <a className="v2-skip" href="#v2-main">Skip to content</a>
     <aside className="v2-preview-note">Design preview · Browsing only. <a href={live}>Open current website ↗</a></aside>

@@ -65,3 +65,8 @@ body:has(.qclub-v2) { margin: 0; background: #091711; }
 @media (min-width: 640px) { .v2-actions { grid-template-columns: 1fr 1fr; } .v2-hero { padding: 72px 24px; } .v2-section { padding: 48px 24px; } .v2-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 1000px) { .v2-menu-toggle { display: none; } .v2-header { display: flex; align-items: center; padding: 0 max(0px, calc((100% - 1160px) / 2)); } .v2-header-row { margin: 0; flex-shrink: 0; } .v2-navigation, .v2-navigation.is-open { display: flex; padding: 0 12px; margin-left: auto; } .v2-feature-grid, .v2-product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .qclub-v2 * { scroll-behavior: auto; } }
+.v2-review { padding: 24px; }
+.v2-review h1 { font-size: 2rem; }
+.v2-review-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 20px; }
+.v2-review-controls select { min-height: 44px; font: inherit; padding: 8px; margin-left: 8px; }
+.v2-phone-frame { display: block; height: 820px; max-width: 100%; border: 0; outline: 1px solid #64715c; background: var(--felt); }
