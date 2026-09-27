@@ -1272,9 +1272,22 @@ export default function QclubLedgerPage() {
     setBusy(true);
     try {
       const result = await protectedCall("payments/" + paymentId);
-      flash("Payment status: " + result.status + ".");
+      const status = String(result.status || "PENDING").toUpperCase();
       if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder({ ...upiOrder, ...result });
+
+      if (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(status)) {
+        setShowUpiQrModal(false);
+        flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+      } else if (["FAILED", "EXPIRED", "CANCELLED"].includes(status)) {
+        setShowUpiQrModal(false);
+        if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder(null);
+        flash(status === "EXPIRED" ? "Payment attempt expired. You can generate a new Cashfree QR." : "Payment was not completed. You can start a new payment attempt.", true);
+      } else {
+        const expiry = result.expires_at ? countdownLabel(result.expires_at, Date.now()) : "";
+        flash("Payment is still pending" + (expiry ? " • " + expiry : "") + ".");
+      }
       await refreshBillDetail({ preserveUpi: true });
+      await refreshAll();
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -2475,10 +2488,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-line ql-space" key={paymentId}>
                           <div><strong>{payment.method} • {money(payment.amount_inr)}</strong><div className="ql-muted">{payment.status} • {paymentId}</div></div>
                           <div className="ql-row">
-                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" onClick={function() { verifyPayment(paymentId); }}>Verify</button> : null}
-                            {isAdmin && ["PENDING", "FAILED", "EXPIRED"].includes(payment.status) ? (
-                              <button className="ql-btn danger" disabled={busy} onClick={function() { clearPaymentAttempt(payment); }}>Clear Attempt</button>
-                            ) : null}
+                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
                           </div>
                         </div>
                       );
