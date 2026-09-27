@@ -1,5 +1,5 @@
 {
-  "commit": "03b6148acb484b2983464df18932e237297e1ada",
+  "commit": "69e79b722bf245eb41dbad123a117371b6d388b1",
   "files": {
     "api/cashfree-webhook.js": "bc1d26d2c68ace92a373aaec18659613de5908c5",
     "api/create-order.js": "71a6bf4c7c6a015211e5bf7c41265bd6bc59a97b",
@@ -15,14 +15,15 @@
     "package.json": "48d5b48c3a9bb07e13ca15e44bbbc0bc51158e1a",
     "src/App.jsx": "b73d540316724dd41ae463b949594b6f22736c26",
     "src/cloud.js": "9c7bfcf44a895273e6d52e49e553f716f51b5d5e",
-    "src/components/qclub-ledger-page.jsx": "af148d45d584bd96e6f8b59bc72996a51f9dab8f",
+    "src/components/qclub-ledger-page.jsx": "bc829e2451e366759552321d00b5dd3f1a58e2ec",
     "src/components/qclub-pay-page.jsx": "5367285b86f767946e7abf25776e1ac3bcb5c8c9",
     "src/components/qclub-qr-page.jsx": "beda5858d8b728912881cf5d9b6d5147f3ad05b3",
-    "src/server/snooker-v1.js": "dcbede02d7dd0b641b60adde208c2e4cc0013094",
+    "src/server/snooker-v1.js": "9b95b82f30696868bbd9de0609c0dadd434a44fd",
     "src/styles.css": "ab1c25928976755f2bfe3648135c010eb6f715da",
     "src/supabase.js": "8417af4e4122eaa6f55e1cba71b3f3f3c9ad3741",
     "supabase/migrations/20260926_consolidate_qclub_fnb_master_catalogue.sql": "aca28fc00daa2ea5e825ce5ec38a89e2308e7ccb",
     "supabase/migrations/20260926_individual_player_ledger.sql": "53d364d2e11b1d0b2a025e23cbfbff9b6703c2f5",
+    "supabase/migrations/20260927_admin_test_payment_cleanup.sql": "eeef3104ade8c43ab26ccab91acd0991a9d8334b",
     "vercel.json": "dd58dc83d827f5c64678b2d4af29253c1ea5fa47"
   }
 }

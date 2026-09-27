@@ -1,6 +1,11 @@
 # V2 consolidation — review checkpoint
 
-Production baseline: `03b6148acb484b2983464df18932e237297e1ada`.
+Production baseline: `69e79b722bf245eb41dbad123a117371b6d388b1`.
+
+Refreshed September 27 with six production commits: walk-in F&B write ordering,
+bill contact capture, Cashfree expiry validation, test-bill accounting exclusion,
+pending-payment UI and automatic expired-attempt release. These three changed
+production files are copied exactly; no billing logic is modified by this preview.
 V2 donor: `a07af1a706c7e8809052599ef9fa3610bfcf2b1d`.
 
 ## First increment

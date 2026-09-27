@@ -254,10 +254,12 @@ export default function QclubLedgerPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
+  const [paymentPhone, setPaymentPhone] = useState("");
   const [memberCheck, setMemberCheck] = useState(null);
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [ledgerStatus, setLedgerStatus] = useState("ALL");
   const [ledgerDate, setLedgerDate] = useState("");
+  const [showExcludedBills, setShowExcludedBills] = useState(false);
   const [startForm, setStartForm] = useState({
     gameType: "NORMAL_SNOOKER",
     matchFormat: "FLEX",
@@ -656,6 +658,7 @@ export default function QclubLedgerPage() {
   const filteredBills = useMemo(function() {
     const query = ledgerSearch.trim().toLowerCase();
     return bills.filter(function(bill) {
+      if (bill.accounting_excluded && !showExcludedBills) return false;
       const session = sessionLookup[bill.session_id];
       const haystack = [
         bill.bill_no,
@@ -680,7 +683,7 @@ export default function QclubLedgerPage() {
       }
       return true;
     });
-  }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup]);
+  }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup, showExcludedBills]);
 
   function startDefaults(gameType) {
     if (gameType === "QCHASE_RUMMY") {
@@ -1021,6 +1024,7 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash(person.name + " bill " + bill.bill_no + " created.");
       await refreshAll();
@@ -1097,6 +1101,7 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash("Bill " + (bill.bill_no || "") + " finalized.");
       await refreshAll();
@@ -1139,6 +1144,7 @@ export default function QclubLedgerPage() {
         setCashAmount(Number(bill.due_inr || 0).toFixed(2));
         setCashTendered(Number(bill.due_inr || 0).toFixed(2));
         setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
         setWalkInName("");
         setWalkInPhone("");
         setTab("ledger");
@@ -1173,6 +1179,9 @@ export default function QclubLedgerPage() {
       setCashAmount(Number(detail.due_inr || 0).toFixed(2));
       setCashTendered(Number(detail.due_inr || 0).toFixed(2));
       setUpiAmount(Number(detail.due_inr || 0).toFixed(2));
+      if (!opts.preserveContact) {
+        setPaymentPhone(String(detail.customer_phone || "").replace(/\D/g, "").slice(-10));
+      }
       if (!opts.preserveUpi) {
         setUpiOrder(null);
         setShowUpiQrModal(false);
@@ -1186,7 +1195,7 @@ export default function QclubLedgerPage() {
 
   async function refreshBillDetail(options) {
     if (!billDetail || !billDetail.bill_id) return;
-    await loadBill(billDetail.bill_id, options);
+    await loadBill(billDetail.bill_id, { preserveContact: true, ...(options || {}) });
     await refreshAll();
   }
 
@@ -1227,6 +1236,12 @@ export default function QclubLedgerPage() {
       return;
     }
     const session = sessionLookup[billDetail.session_id];
+    const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) {
+      flash("Enter the customer's 10-digit mobile number to generate the Cashfree UPI QR.", true);
+      return;
+    }
+    setPaymentPhone(phone);
     setBusy(true);
     try {
       const result = await protectedCall("payments/upi", {
@@ -1234,7 +1249,7 @@ export default function QclubLedgerPage() {
         body: {
           bill_id: billDetail.bill_id,
           amount_inr: amount,
-          customer_phone: (session && session.customer_phone) || billDetail.customer_phone || "",
+          customer_phone: phone,
           customer_name: (session && session.customer_name) || billDetail.customer_name || "",
           idempotency_key: makeKey("upi"),
         },
@@ -1257,9 +1272,22 @@ export default function QclubLedgerPage() {
     setBusy(true);
     try {
       const result = await protectedCall("payments/" + paymentId);
-      flash("Payment status: " + result.status + ".");
+      const status = String(result.status || "PENDING").toUpperCase();
       if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder({ ...upiOrder, ...result });
+
+      if (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(status)) {
+        setShowUpiQrModal(false);
+        flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+      } else if (["FAILED", "EXPIRED", "CANCELLED"].includes(status)) {
+        setShowUpiQrModal(false);
+        if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder(null);
+        flash(status === "EXPIRED" ? "Payment attempt expired. You can generate a new Cashfree QR." : "Payment was not completed. You can start a new payment attempt.", true);
+      } else {
+        const expiry = result.expires_at ? countdownLabel(result.expires_at, Date.now()) : "";
+        flash("Payment is still pending" + (expiry ? " • " + expiry : "") + ".");
+      }
       await refreshBillDetail({ preserveUpi: true });
+      await refreshAll();
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1270,6 +1298,12 @@ export default function QclubLedgerPage() {
   async function sendReceipt() {
     if (!billDetail) return;
     const session = sessionLookup[billDetail.session_id];
+    const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) {
+      flash("Enter the customer's 10-digit mobile number to send the WhatsApp receipt.", true);
+      return;
+    }
+    setPaymentPhone(phone);
     setBusy(true);
     try {
       const payment = upiOrder && upiOrder.payment_id ? upiOrder : null;
@@ -1277,7 +1311,7 @@ export default function QclubLedgerPage() {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          phone: (session && session.customer_phone) || billDetail.customer_phone || "",
+          phone: phone,
           payment_id: payment ? payment.payment_id : undefined,
           idempotency_key: makeKey("receipt"),
         },
@@ -1286,6 +1320,86 @@ export default function QclubLedgerPage() {
       await refreshBillDetail({ preserveUpi: true });
     } catch (error) {
       flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setBillTestExclusion(excluded) {
+    if (!isAdmin || !billDetail) return;
+    let reason = "";
+    if (excluded) {
+      reason = window.prompt(
+        "Reason for excluding this bill from accounting:",
+        "Test transaction"
+      );
+      if (reason == null) return;
+      if (!reason.trim()) {
+        flash("Enter a reason before marking a bill as TEST.", true);
+        return;
+      }
+      const ok = window.confirm(
+        "Mark " + (billDetail.bill_no || "this bill") + " as TEST / excluded from accounting?\n\n" +
+        "The Cashfree/payment audit trail will be preserved, but this bill will be removed from operational revenue, Finance/F&B totals, exports and daily closing."
+      );
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(
+        "Restore " + (billDetail.bill_no || "this bill") + " to normal accounting?\n\n" +
+        "Its existing successful payments will again count in revenue totals."
+      );
+      if (!ok) return;
+    }
+
+    setBusy(true);
+    try {
+      const updated = await protectedCall("bills/" + billDetail.bill_id + "/accounting-exclusion", {
+        method: "PATCH",
+        body: {
+          accounting_excluded: Boolean(excluded),
+          reason: reason.trim(),
+        },
+      });
+      setBillDetail(updated);
+      flash(excluded ? "Bill marked TEST and excluded from accounting." : "Bill restored to accounting.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to update accounting status.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearPaymentAttempt(payment) {
+    if (!isAdmin || !payment) return;
+    const paymentId = payment.payment_id || payment.id;
+    const reason = window.prompt(
+      "Reason for clearing this payment attempt:",
+      "Test / stale payment attempt"
+    );
+    if (reason == null) return;
+    const ok = window.confirm(
+      "Clear this " + String(payment.status || "") + " " + String(payment.method || "") +
+      " attempt for " + money(payment.amount_inr) + "?\n\n" +
+      "Successful VERIFIED/RECEIVED payments cannot be cleared this way."
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const updated = await protectedCall("payments/" + paymentId + "/cancel", {
+        method: "POST",
+        body: { reason: reason.trim() || "Admin cleared payment attempt" },
+      });
+      setBillDetail(updated);
+      if (upiOrder && upiOrder.payment_id === paymentId) {
+        setUpiOrder(null);
+        setShowUpiQrModal(false);
+      }
+      flash("Payment attempt cleared.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to clear payment attempt.", true);
     } finally {
       setBusy(false);
     }
@@ -1339,6 +1453,7 @@ export default function QclubLedgerPage() {
       timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
     }).format(new Date());
     const rows = bills.filter(function(bill) {
+      if (bill.accounting_excluded) return false;
       const value = bill.finalized_at || bill.created_at;
       if (!value) return false;
       return new Intl.DateTimeFormat("en-CA", {
@@ -2261,13 +2376,19 @@ export default function QclubLedgerPage() {
                 <button className="ql-btn" onClick={function() { exportLedgerCsv(filteredBills); }}>Export CSV</button>
                 <button className="ql-btn gold" onClick={printDailyClosing}>Print Daily Closing</button>
                 <button className="ql-btn ghost" onClick={function() { setLedgerSearch(""); setLedgerStatus("ALL"); setLedgerDate(""); }}>Clear</button>
+                {isAdmin ? (
+                  <label className="ql-line" style={{ display: "inline-flex", alignItems: "center", gap: 8, margin: 0, padding: "8px 10px" }}>
+                    <input type="checkbox" checked={showExcludedBills} onChange={function(e) { setShowExcludedBills(e.target.checked); }} />
+                    <span>Show TEST / excluded bills</span>
+                  </label>
+                ) : null}
               </div>
               <div className="ql-list" style={{ marginTop: 12, maxHeight: "70vh", overflow: "auto" }}>
                 {filteredBills.length ? filteredBills.map(function(bill) {
                   const session = sessionLookup[bill.session_id];
                   return (
                     <button key={bill.bill_id} className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")} style={{ color: "inherit", textAlign: "left", cursor: "pointer" }} onClick={function() { loadBill(bill.bill_id); }}>
-                      <div className="ql-space"><strong>{bill.bill_no || bill.bill_id}</strong><span className={"ql-badge " + (Number(bill.due_inr) > 0 ? "bad" : "")}>{bill.status}</span></div>
+                      <div className="ql-space"><strong>{bill.bill_no || bill.bill_id}</strong><span className={"ql-badge " + (bill.accounting_excluded ? "gold" : (Number(bill.due_inr) > 0 ? "bad" : ""))}>{bill.accounting_excluded ? "TEST / EXCLUDED" : bill.status}</span></div>
                       <div className="ql-muted">{(session && session.customer_name) || bill.customer_name || "Customer"} • {dateTime(bill.finalized_at || bill.created_at)}</div>
                       <div className="ql-space" style={{ marginTop: 5 }}><span>{money(bill.total_inr)}</span><span className="ql-muted">Due {money(bill.due_inr)}</span></div>
                     </button>
@@ -2281,7 +2402,7 @@ export default function QclubLedgerPage() {
                 <>
                   <div className="ql-space">
                     <div><h3>{billDetail.bill_no || "Final Bill"}</h3><div className="ql-muted">Server bill ID: {billDetail.bill_id}</div></div>
-                    <span className={"ql-badge " + (Number(billDetail.due_inr) > 0 ? "bad" : "")}>{billDetail.status}</span>
+                    <span className={"ql-badge " + (billDetail.accounting_excluded ? "gold" : (Number(billDetail.due_inr) > 0 ? "bad" : ""))}>{billDetail.accounting_excluded ? "TEST / EXCLUDED" : billDetail.status}</span>
                   </div>
                   <div className="ql-stat-grid" style={{ marginTop: 13 }}>
                     <div className="ql-stat"><span className="ql-muted">Game/Table</span><strong>{money(billDetail.game_total_inr)}</strong></div>
@@ -2294,7 +2415,22 @@ export default function QclubLedgerPage() {
                     <button className="ql-btn" onClick={printReceipt}>Print / Save PDF</button>
                     <button className="ql-btn" onClick={downloadReceipt}>Download Receipt HTML</button>
                     <button className="ql-btn ghost" onClick={refreshBillDetail}>Refresh Bill</button>
+                    {isAdmin ? (
+                      <button
+                        className={billDetail.accounting_excluded ? "ql-btn" : "ql-btn danger"}
+                        disabled={busy}
+                        onClick={function() { setBillTestExclusion(!billDetail.accounting_excluded); }}
+                      >
+                        {billDetail.accounting_excluded ? "Restore to Accounting" : "Mark as TEST / Exclude"}
+                      </button>
+                    ) : null}
                   </div>
+                  {billDetail.accounting_excluded ? (
+                    <div className="ql-line" style={{ marginTop: 10 }}>
+                      <strong>TEST / ACCOUNTING EXCLUDED</strong>
+                      <div className="ql-muted">{billDetail.exclusion_reason || "Excluded by Admin"} • Provider/payment audit history is preserved.</div>
+                    </div>
+                  ) : null}
 
                   <div className="ql-section">Payments — Cash / UPI / Split</div>
                   <div className="ql-paybox">
@@ -2308,6 +2444,16 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>UPI</strong>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for UPI / WhatsApp</label>
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={paymentPhone}
+                        onChange={function(e) { setPaymentPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }}
+                        placeholder="10-digit mobile"
+                      />
+                      <div className="ql-muted" style={{ marginTop: 6 }}>Cash payments do not require a mobile number. Cashfree UPI and WhatsApp receipts do.</div>
                       <label className="ql-label" style={{ marginTop: 8 }}>UPI amount</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={upiAmount} onChange={function(e) { setUpiAmount(e.target.value); }} />
                       <button className="ql-btn gold" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={createUpi}>Generate Cashfree QR</button>
@@ -2315,7 +2461,7 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>WhatsApp receipt sends independently. If a valid Cashfree payment already exists, its payment link is included.</div>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>Uses the mobile entered above. WhatsApp receipt sends independently; if a valid Cashfree payment exists, its payment link is included.</div>
                       <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>{upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt"}</button>
                     </div>
                   </div>
@@ -2341,7 +2487,9 @@ export default function QclubLedgerPage() {
                       return (
                         <div className="ql-line ql-space" key={paymentId}>
                           <div><strong>{payment.method} • {money(payment.amount_inr)}</strong><div className="ql-muted">{payment.status} • {paymentId}</div></div>
-                          {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" onClick={function() { verifyPayment(paymentId); }}>Verify</button> : null}
+                          <div className="ql-row">
+                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
+                          </div>
                         </div>
                       );
                     }) : <div className="ql-empty">No payment recorded yet.</div>}
