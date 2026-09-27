@@ -13,7 +13,8 @@ exclude its JavaScript and CSS. Local development requires
 The preview adapts V2's felt/brass public design without upgrading production
 React, router, QR or Supabase dependencies. It does not import the production
 App, auth client, background jobs or global styles. Its only API request is a
-credential-free GET to the existing public F&B master catalogue. No ordering,
+GET to the existing public F&B master catalogue without an application auth
+token (same-origin cookies allow Vercel's protected preview access). No ordering,
 payment, inventory, attendance or membership write is exposed in this preview.
 Links labelled as live-site links open existing public workflows.
 

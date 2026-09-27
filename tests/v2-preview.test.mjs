@@ -51,7 +51,7 @@ test('image paths reject script URLs, credentials and protocol-relative paths', 
   assert.equal(safeImageUrl('https://example.com/photo.jpg'), 'https://example.com/photo.jpg');
 });
 
-test('preview issues only a credential-free GET to the shared catalogue and rejects HTTP errors', async t => {
+test('preview issues only a GET to the shared catalogue without app authorization and rejects HTTP errors', async t => {
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (...args) => {
     calls.push(args); return { ok: true, json: async () => sample() };
@@ -61,7 +61,8 @@ test('preview issues only a credential-free GET to the shared catalogue and reje
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], '/api/snooker/v1/public-catalogue');
   assert.equal(calls[0][1].method, 'GET');
-  assert.equal(calls[0][1].credentials, 'omit');
+  assert.equal(calls[0][1].credentials, 'same-origin');
+  assert.equal(calls[0][1].headers.Authorization, undefined);
   assert.equal(calls[0][1].cache, 'no-store');
   assert.equal(calls[0][1].signal, controller.signal);
   globalThis.fetch.mock.mockImplementation(async () => ({ ok: false }));

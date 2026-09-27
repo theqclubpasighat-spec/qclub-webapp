@@ -3,8 +3,11 @@
 const previewPath = window.location.pathname === "/__v2-preview" ||
   window.location.pathname.startsWith("/__v2-preview/");
 
-if (__QCLUB_V2_PREVIEW__ && previewPath) {
-  import("./v2-preview/entry.jsx");
-} else {
-  import("./production-entry.jsx");
+async function boot() {
+  if (__QCLUB_V2_PREVIEW__ && previewPath) {
+    await import("./v2-preview/entry.jsx");
+    return;
+  }
+  await import("./production-entry.jsx");
 }
+boot();

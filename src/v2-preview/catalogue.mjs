@@ -29,7 +29,7 @@ export function safeImageUrl(value) {
 
 export async function readCatalogue(signal) {
   const response = await fetch("/api/snooker/v1/public-catalogue", {
-    method: "GET", cache: "no-store", credentials: "omit", signal,
+    method: "GET", cache: "no-store", credentials: "same-origin", signal,
     headers: { Accept: "application/json" },
   });
   if (!response.ok) throw new Error("The menu could not load. Please retry.");
