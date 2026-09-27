@@ -478,15 +478,26 @@ async function dashboardSummary(req, res) {
     { data: upiPayments, error: upiError },
     { data: outstandingBills, error: outstandingError },
   ] = await Promise.all([
-    supabase.from("snooker_bills").select("id").gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
-    supabase.from("snooker_bills").select("due_inr").gt("due_inr", 0),
+    supabase.from("snooker_bills").select("id").eq("accounting_excluded", false).gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bills").select("due_inr").eq("accounting_excluded", false).gt("due_inr", 0),
   ]);
   if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
 
-  const cash = (cashPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const upi = (upiPayments || []).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const paymentBillIds = [...new Set([...(cashPayments || []), ...(upiPayments || [])].map((row) => row.bill_id).filter(Boolean))];
+  let excludedPaymentBillIds = new Set();
+  if (paymentBillIds.length) {
+    const { data: excludedRows, error: excludedError } = await supabase
+      .from("snooker_bills")
+      .select("id")
+      .in("id", paymentBillIds)
+      .eq("accounting_excluded", true);
+    if (excludedError) throw excludedError;
+    excludedPaymentBillIds = new Set((excludedRows || []).map((row) => row.id));
+  }
+  const cash = (cashPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
+  const upi = (upiPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
   const outstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
   return json(res, 200, {
     business_date: bounds.day,
@@ -532,7 +543,7 @@ async function loadFinanceReserveSummary(supabase) {
       .lt("verified_at", bounds.end),
     supabase
       .from("snooker_fnb_lines")
-      .select("item_id,item_name_snapshot,unit_price_snapshot_inr,quantity,line_total_inr,status,added_at")
+      .select("bill_id,item_id,item_name_snapshot,unit_price_snapshot_inr,quantity,line_total_inr,status,added_at")
       .neq("status", "VOIDED")
       .gte("added_at", bounds.start)
       .lt("added_at", bounds.end),
@@ -547,6 +558,18 @@ async function loadFinanceReserveSummary(supabase) {
     throw monthCashError || monthUpiError || monthFnbError || fnbCatalogueError;
   }
 
+  const fnbBillIds = [...new Set((monthFnbLines || []).map((row) => row.bill_id).filter(Boolean))];
+  let excludedFnbBillIds = new Set();
+  if (fnbBillIds.length) {
+    const { data: excludedFnbBills, error: excludedFnbError } = await supabase
+      .from("snooker_bills")
+      .select("id")
+      .in("id", fnbBillIds)
+      .eq("accounting_excluded", true);
+    if (excludedFnbError) throw excludedFnbError;
+    excludedFnbBillIds = new Set((excludedFnbBills || []).map((row) => row.id));
+  }
+
   const monthPayments = [...(monthCashPayments || []), ...(monthUpiPayments || [])];
   const billIds = [...new Set(monthPayments.map((row) => row.bill_id).filter(Boolean))];
 
@@ -559,8 +582,9 @@ async function loadFinanceReserveSummary(supabase) {
     ] = await Promise.all([
       supabase
         .from("snooker_bills")
-        .select("id,bill_no,game_total_inr,fnb_total_inr,discount_inr,total_inr,paid_inr,due_inr,status,finalized_at")
-        .in("id", billIds),
+        .select("id,bill_no,game_total_inr,fnb_total_inr,discount_inr,total_inr,paid_inr,due_inr,status,finalized_at,accounting_excluded")
+        .in("id", billIds)
+        .eq("accounting_excluded", false),
       supabase
         .from("snooker_bill_payments")
         .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
@@ -690,6 +714,7 @@ async function loadFinanceReserveSummary(supabase) {
   let fnbFallbackReserve = 0;
 
   for (const line of monthFnbLines || []) {
+    if (line.bill_id && excludedFnbBillIds.has(line.bill_id)) continue;
     const quantity = Math.max(0, number(line.quantity, 0));
     const lineTotal = Math.max(0, number(line.line_total_inr, 0));
     const sellUnit = quantity > 0
@@ -2319,6 +2344,10 @@ async function billDetailPayload(supabase, billId) {
     status: bill.status,
     revision: bill.revision,
     finalized_at: bill.finalized_at,
+    accounting_excluded: Boolean(bill.accounting_excluded),
+    exclusion_reason: bill.exclusion_reason || null,
+    excluded_at: bill.excluded_at || null,
+    excluded_by: bill.excluded_by || null,
     items: items || [],
     payments: payments || [],
   };
@@ -2366,9 +2395,92 @@ async function listBills(req, res) {
     finalized_at: bill.finalized_at,
     created_at: bill.finalized_at || bill.updated_at,
     updated_at: bill.updated_at,
+    accounting_excluded: Boolean(bill.accounting_excluded),
+    exclusion_reason: bill.exclusion_reason || null,
+    excluded_at: bill.excluded_at || null,
+    excluded_by: bill.excluded_by || null,
   }));
 
   return json(res, 200, { bills });
+}
+
+async function setBillAccountingExclusion(req, res, billId) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const excluded = Boolean(req.body?.accounting_excluded);
+  const reason = safeText(req.body?.reason || "", 500).trim();
+
+  const { data: bill, error: billError } = await supabase
+    .from("snooker_bills")
+    .select("*")
+    .eq("id", billId)
+    .maybeSingle();
+  if (billError) throw billError;
+  if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
+  if (excluded && !reason) return json(res, 400, { ok: false, error: "EXCLUSION_REASON_REQUIRED" });
+
+  const patch = excluded
+    ? {
+        accounting_excluded: true,
+        exclusion_reason: reason,
+        excluded_at: new Date().toISOString(),
+        excluded_by: auth.staff_id,
+        updated_at: new Date().toISOString(),
+      }
+    : {
+        accounting_excluded: false,
+        exclusion_reason: null,
+        excluded_at: null,
+        excluded_by: null,
+        updated_at: new Date().toISOString(),
+      };
+
+  const { error } = await supabase.from("snooker_bills").update(patch).eq("id", billId);
+  if (error) throw error;
+  return json(res, 200, await billDetailPayload(supabase, billId));
+}
+
+async function cancelPaymentAttempt(req, res, paymentId) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const reason = safeText(req.body?.reason || "Admin cleared test/pending payment attempt", 500).trim();
+
+  const { data: payment, error: paymentError } = await supabase
+    .from("snooker_bill_payments")
+    .select("*")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (paymentError) throw paymentError;
+  if (!payment) return json(res, 404, { ok: false, error: "PAYMENT_NOT_FOUND" });
+
+  if (payment.status === "VERIFIED" || payment.status === "RECEIVED") {
+    return json(res, 409, { ok: false, error: "SETTLED_PAYMENT_CANNOT_BE_CLEARED", message: "Mark the bill as TEST / excluded instead. Settled provider history is preserved." });
+  }
+  if (payment.status === "CANCELLED") {
+    return json(res, 200, await billDetailPayload(supabase, payment.bill_id));
+  }
+
+  const expiresMs = Date.parse(payment.expires_at || "");
+  if (payment.status === "PENDING" && Number.isFinite(expiresMs) && expiresMs > Date.now()) {
+    return json(res, 409, { ok: false, error: "PAYMENT_STILL_ACTIVE", message: "This Cashfree attempt has not expired yet. Verify it first or wait for expiry before clearing it." });
+  }
+
+  const { error } = await supabase
+    .from("snooker_bill_payments")
+    .update({
+      status: "CANCELLED",
+      cancel_reason: reason || "Admin cleared payment attempt",
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: auth.staff_id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", paymentId);
+  if (error) throw error;
+
+  await refreshBill(supabase, payment.bill_id);
+  return json(res, 200, await billDetailPayload(supabase, payment.bill_id));
 }
 
 async function cashPayment(req, res) {
@@ -2892,10 +3004,12 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "POST" && path === "bills/finalize") return await finalizeBill(req, res);
     if (method === "POST" && path === "bills/walk-in-fnb") return await createWalkInFnbBill(req, res);
     if (parts[0] === "bills" && parts[1] && parts.length === 2 && method === "GET") return await billDetail(req, res, parts[1]);
+    if (parts[0] === "bills" && parts[1] && parts[2] === "accounting-exclusion" && method === "PATCH") return await setBillAccountingExclusion(req, res, parts[1]);
 
     if (method === "POST" && path === "payments/cash") return await cashPayment(req, res);
     if (method === "POST" && path === "payments/upi") return await upiPayment(req, res);
     if (parts[0] === "payments" && parts[1] && parts.length === 2 && method === "GET") return await paymentStatus(req, res, parts[1]);
+    if (parts[0] === "payments" && parts[1] && parts[2] === "cancel" && method === "POST") return await cancelPaymentAttempt(req, res, parts[1]);
 
     if (method === "POST" && path === "notifications/receipt") return await sendReceipt(req, res);
     if (method === "GET" && path === "inventory/movements") return await inventoryMovements(req, res);
