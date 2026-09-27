@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { allowV2Preview } from './scripts/v2-preview-policy.mjs'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  define: { __QCLUB_V2_PREVIEW__: JSON.stringify(allowV2Preview(process.env, command)) },
   plugins: [
     react(),
     VitePWA({
@@ -51,4 +53,4 @@ export default defineConfig({
     host: true,
     port: 5173
   }
-})
+}))

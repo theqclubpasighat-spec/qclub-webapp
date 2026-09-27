@@ -1,21 +1,13 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
-//import { registerSW } from 'virtual:pwa-register'
-import App from "./App.jsx";
-import "./styles.css";
+// V2 is isolated from production routes, styles, auth and background effects.
+// The build removes this branch entirely when building for production.
+const previewPath = window.location.pathname === "/__v2-preview" ||
+  window.location.pathname.startsWith("/__v2-preview/");
 
-// PWA service worker
-// During cloud-sync debugging, keep this disabled to avoid stale cached bundles.
-// Re-enable after confirming sync is stable.
-// registerSW({
-//   immediate: true,
-// })
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
+async function boot() {
+  if (__QCLUB_V2_PREVIEW__ && previewPath) {
+    await import("./v2-preview/entry.jsx");
+    return;
+  }
+  await import("./production-entry.jsx");
+}
+boot();
