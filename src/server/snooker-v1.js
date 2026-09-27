@@ -2520,7 +2520,7 @@ async function upiPayment(req, res) {
   const orderId = `snk_${paymentId.replace(/-/g, "").slice(0, 24)}`;
   const siteUrl = safeText(env("QCLUB_SITE_URL") || "https://theqclubpasighat.com", 200).replace(/\/$/, "");
 
-  const requestedExpiryAt = new Date(Date.now() + 15 * 60_000).toISOString();
+  const requestedExpiryAt = new Date(Date.now() + 20 * 60_000).toISOString();
   const orderPayload = {
     order_id: orderId,
     order_amount: amount,
