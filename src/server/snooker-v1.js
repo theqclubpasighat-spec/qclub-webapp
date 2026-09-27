@@ -2743,7 +2743,24 @@ async function paymentStatus(req, res, paymentId) {
   const supabase = getSupabaseAdmin();
   const { data } = await supabase.from("snooker_bill_payments").select("*").eq("id", paymentId).maybeSingle();
   if (!data) return json(res, 404, { ok: false, error: "PAYMENT_NOT_FOUND" });
-  const payment = await syncCashfreePayment(supabase, data);
+  let payment = await syncCashfreePayment(supabase, data);
+
+  // Cashfree can remain ACTIVE briefly around its expiry boundary. Once our
+  // persisted order expiry has passed and no success was verified, release the
+  // bill immediately for a fresh payment attempt while preserving the audit row.
+  const expiresMs = Date.parse(payment.expires_at || "");
+  if (payment.status === "PENDING" && Number.isFinite(expiresMs) && expiresMs <= Date.now()) {
+    const { data: expiredPayment, error: expiryError } = await supabase
+      .from("snooker_bill_payments")
+      .update({ status: "EXPIRED", updated_at: new Date().toISOString() })
+      .eq("id", payment.id)
+      .eq("status", "PENDING")
+      .select("*")
+      .single();
+    if (expiryError) throw expiryError;
+    payment = expiredPayment || payment;
+  }
+
   const bill = await refreshBill(supabase, payment.bill_id);
   return json(res, 200, {
     payment_id: payment.id,
