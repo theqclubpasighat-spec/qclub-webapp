@@ -230,6 +230,10 @@ export default function QclubLedgerPage() {
   const [fnbSearch, setFnbSearch] = useState("");
   const [fnbCategory, setFnbCategory] = useState("ALL");
   const [fnbDestination, setFnbDestination] = useState("TABLE");
+  const [fnbTabs, setFnbTabs] = useState([]);
+  const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
+  const [newTabName, setNewTabName] = useState("");
+  const [newTabPhone, setNewTabPhone] = useState("");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
@@ -296,6 +300,8 @@ export default function QclubLedgerPage() {
     setAllSessions([]);
     setSessionDetails({});
     setBills([]);
+    setFnbTabs([]);
+    setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setBillDetail(null);
     setUpiOrder(null);
@@ -348,6 +354,7 @@ export default function QclubLedgerPage() {
         protectedCall("sessions?limit=500"),
         protectedCall("dashboard/summary"),
         protectedCall("operations/inbox"),
+        protectedCall("fnb-tabs"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -359,6 +366,7 @@ export default function QclubLedgerPage() {
       const allPayload = values[7];
       const summaryPayload = values[8];
       const operationsPayload = values[9];
+      const fnbTabPayload = values[10];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -369,6 +377,11 @@ export default function QclubLedgerPage() {
       setSessions(openRows);
       setAllSessions((allPayload && allPayload.sessions) || []);
       setBills((billPayload && billPayload.bills) || []);
+      const openFnbTabs = (fnbTabPayload && fnbTabPayload.tabs) || [];
+      setFnbTabs(openFnbTabs);
+      setSelectedFnbTabId(function(current) {
+        return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+      });
       setOperations(operationsPayload || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       if (isAdmin) {
         try {
@@ -413,10 +426,16 @@ export default function QclubLedgerPage() {
       const values = await Promise.all([
         protectedCall("sessions?scope=active&limit=200"),
         protectedCall("operations/inbox"),
+        protectedCall("fnb-tabs"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
       setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+      const openFnbTabs = (values[2] && values[2].tabs) || [];
+      setFnbTabs(openFnbTabs);
+      setSelectedFnbTabId(function(current) {
+        return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+      });
       await loadSessionDetails(openRows);
     } catch {
       // Keep the last known live state visible; manual refresh surfaces detailed errors.
@@ -628,6 +647,7 @@ export default function QclubLedgerPage() {
   const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
+  const selectedFnbTab = fnbTabs.find(function(row) { return row.tab_id === selectedFnbTabId; }) || null;
 
   const sellableCatalogue = useMemo(function() {
     return catalogue.filter(function(item) { return item.sell_in_ledger !== false; });
