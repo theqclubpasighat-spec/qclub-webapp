@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - android/twa-foundation-20260930
+      - integration/v2-android-release-candidate-20260930
     paths:
       - "android-twa/**"
       - ".github/workflows/qclub-android.yml"
