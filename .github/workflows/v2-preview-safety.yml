@@ -16,7 +16,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: node --test tests/v2-preview.test.mjs
+      - run: node --test tests/v2-preview.test.mjs tests/build-isolation.test.mjs tests/checkout-client.test.mjs
       - name: Production build excludes V2 preview
         run: npm run build && node scripts/check-preview-bundle.mjs absent
         env:
@@ -26,3 +26,9 @@ jobs:
         run: npm run build && node scripts/check-preview-bundle.mjs present
         env:
           VERCEL_ENV: preview
+          QCLUB_SECURITY_REHEARSAL: enabled
+      - name: Production rebuild excludes all preview code after a preview build
+        run: npm run build && node scripts/check-preview-bundle.mjs absent
+        env:
+          VERCEL_ENV: production
+          QCLUB_SECURITY_REHEARSAL: enabled
