@@ -17,6 +17,7 @@ test("Q Lounge is a real production route backed by the shared catalogue", () =>
   assert.match(app, /path="\/food" element=\{<V2Food \/>\}/);
   assert.match(food, /readCatalogue/);
   assert.match(food, /\.\.\/v2-preview\/catalogue\.mjs/);
+  assert.match(food, /to="\/offer"/);
 });
 
 test("production entry loads V2 shell after legacy styles", () => {
