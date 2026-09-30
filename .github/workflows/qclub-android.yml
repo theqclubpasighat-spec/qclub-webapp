@@ -48,12 +48,19 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
-      - name: Build debug APK
-        run: gradle -p android-twa --no-daemon :app:assembleDebug
+      - name: Build debug APK and release AAB
+        run: gradle -p android-twa --no-daemon :app:assembleDebug :app:bundleRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: qclub-android-debug
           path: android-twa/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: qclub-android-release-unsigned
+          path: android-twa/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
