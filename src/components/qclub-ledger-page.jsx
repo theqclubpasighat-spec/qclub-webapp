@@ -1976,6 +1976,7 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Running F&B tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
@@ -2082,13 +2083,15 @@ export default function QclubLedgerPage() {
               <div className="ql-space">
                 <div>
                   <h3>Add F&B</h3>
-                  <div className="ql-muted">Choose a playing table or create a separate walk-in bill. Prices and stock are verified by the server.</div>
+                  <div className="ql-muted">Charge a playing customer, keep a visitor&apos;s Running Tab open for repeated orders, or make a one-off Quick Bill.</div>
                   <div className="ql-row" style={{ marginTop: 10 }}>
-                    <button className={"ql-btn " + (fnbDestination === "TABLE" ? "primary" : "ghost")} onClick={function() { setFnbDestination("TABLE"); }}>Playing Table</button>
-                    <button className={"ql-btn " + (fnbDestination === "WALK_IN" ? "primary" : "ghost")} onClick={function() { setFnbDestination("WALK_IN"); setSelectedSessionId(""); }}>Walk-in / Separate Bill</button>
+                    <button className={"ql-btn " + (fnbDestination === "TABLE" ? "primary" : "ghost")} onClick={function() { setFnbDestination("TABLE"); setSelectedFnbTabId(""); }}>Playing Table</button>
+                    <button className={"ql-btn " + (fnbDestination === "RUNNING_TAB" ? "primary" : "ghost")} onClick={function() { setFnbDestination("RUNNING_TAB"); setSelectedSessionId(""); setSelectedFnbPersonId(""); }}>Running Tab</button>
+                    <button className={"ql-btn " + (fnbDestination === "WALK_IN" ? "primary" : "ghost")} onClick={function() { setFnbDestination("WALK_IN"); setSelectedSessionId(""); setSelectedFnbTabId(""); }}>Quick Bill</button>
                   </div>
                 </div>
-                <div style={{ minWidth: 250 }}>
+
+                <div style={{ minWidth: 280 }}>
                   {fnbDestination === "TABLE" ? (
                     <>
                       <label className="ql-label">Session / Table</label>
@@ -2111,17 +2114,88 @@ export default function QclubLedgerPage() {
                         </>
                       ) : null}
                     </>
+                  ) : fnbDestination === "RUNNING_TAB" ? (
+                    <>
+                      <label className="ql-label">Use an open tab</label>
+                      <select className="ql-select" value={selectedFnbTabId} onChange={function(e) { setSelectedFnbTabId(e.target.value); }}>
+                        <option value="">Select customer tab</option>
+                        {fnbTabs.map(function(row) {
+                          return <option key={row.tab_id} value={row.tab_id}>{row.customer_name} • {money(row.total_inr)}</option>;
+                        })}
+                      </select>
+                      {selectedFnbTab ? <div className="ql-muted" style={{ marginTop: 6 }}>{selectedFnbTab.item_count} item(s) • Running total {money(selectedFnbTab.total_inr)}</div> : null}
+
+                      <div className="ql-section" style={{ marginTop: 14 }}>Open new tab</div>
+                      <label className="ql-label">Customer name</label>
+                      <input className="ql-input" value={newTabName} onChange={function(e) { setNewTabName(e.target.value); }} placeholder="e.g. Kamin" />
+                      <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
+                      <input className="ql-input" inputMode="numeric" value={newTabPhone} onChange={function(e) { setNewTabPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }} placeholder="For UPI / WhatsApp later" />
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Running Tab</button>
+                    </>
                   ) : (
                     <>
                       <label className="ql-label">Visitor name (optional)</label>
-                      <input className="ql-input" value={walkInName} onChange={function(e) { setWalkInName(e.target.value); }} placeholder="Leave blank for Walk-in" />
+                      <input className="ql-input" value={walkInName} onChange={function(e) { setWalkInName(e.target.value); }} placeholder="One-off customer" />
                       <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
-                      <input className="ql-input" value={walkInPhone} onChange={function(e) { setWalkInPhone(e.target.value); }} placeholder="For receipt if wanted" />
+                      <input className="ql-input" value={walkInPhone} onChange={function(e) { setWalkInPhone(e.target.value); }} placeholder="For UPI / receipt if wanted" />
+                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Running Tab when the customer will order again.</div>
                     </>
                   )}
                 </div>
               </div>
             </div>
+
+            {fnbDestination === "RUNNING_TAB" ? (
+              <>
+                <div className="ql-section">Open running tabs — {fnbTabs.length}</div>
+                <div className="ql-grid">
+                  {fnbTabs.length ? fnbTabs.map(function(row) {
+                    const selected = row.tab_id === selectedFnbTabId;
+                    return (
+                      <div className={"ql-card " + (selected ? "wide" : "")} key={row.tab_id} style={selected ? { borderColor: "#69dca0" } : undefined}>
+                        <div className="ql-space">
+                          <div>
+                            <h3>{row.customer_name}</h3>
+                            <div className="ql-muted">{row.customer_phone || "No mobile"} • {row.tab_no}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <strong className="ql-price">{money(row.total_inr)}</strong>
+                            <div className="ql-muted">{row.item_count} item(s)</div>
+                          </div>
+                        </div>
+                        <div className="ql-muted" style={{ marginTop: 7 }}>Last order {row.last_order_at ? new Date(row.last_order_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+                        <div className="ql-row" style={{ marginTop: 10 }}>
+                          <button className={"ql-btn " + (selected ? "primary" : "")} onClick={function() { setSelectedFnbTabId(row.tab_id); }}>+ Add Order</button>
+                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Bill & Close</button>
+                          {Number(row.item_count || 0) === 0 ? <button className="ql-btn danger" disabled={busy} onClick={function() { cancelEmptyRunningFnbTab(row); }}>Cancel</button> : null}
+                        </div>
+
+                        {selected ? (
+                          <div className="ql-list" style={{ marginTop: 12 }}>
+                            {(row.lines || []).filter(function(line) { return line.status === "ACTIVE"; }).length ? (row.lines || []).filter(function(line) { return line.status === "ACTIVE"; }).map(function(line) {
+                              return (
+                                <div className="ql-line" key={line.id}>
+                                  <div className="ql-space">
+                                    <div>
+                                      <strong>{line.item_name_snapshot} × {Number(line.quantity)}</strong>
+                                      <div className="ql-muted">{line.added_at ? new Date(line.added_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <strong>{money(line.line_total_inr)}</strong>
+                                      {isAdmin ? <div><button className="ql-btn danger" style={{ marginTop: 6 }} onClick={function() { voidFnbLine(line); }}>Void</button></div> : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }) : <div className="ql-empty">No orders yet. Select items below and tap Add to Tab.</div>}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }) : <div className="ql-card full"><div className="ql-empty">No running tabs. Enter a customer name above and open one.</div></div>}
+                </div>
+              </>
+            ) : null}
             <div className="ql-section">Live catalogue</div>
             <div className="ql-fnb-tools">
               <div>
@@ -2168,8 +2242,8 @@ export default function QclubLedgerPage() {
                 </div>
                 <div className="ql-row" style={{ justifyContent: "flex-end" }}>
                   {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
-                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || busy || selectedFnbCount <= 0} onClick={addFnb}>
-                    {busy ? "Adding…" : (fnbDestination === "WALK_IN" ? "Create Separate F&B Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill"))}
+                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || (fnbDestination === "RUNNING_TAB" && !selectedFnbTabId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy ? "Adding…" : (fnbDestination === "RUNNING_TAB" ? "Add to " + (selectedFnbTab ? selectedFnbTab.customer_name : "Running Tab") : (fnbDestination === "WALK_IN" ? "Create Quick Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill")))}
                   </button>
                 </div>
               </div>
