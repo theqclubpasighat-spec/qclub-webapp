@@ -45,9 +45,11 @@ export function changesBetween(before, after) {
     const value = after?.[section.id]?.[key] ?? '';
     if (value !== (before?.[section.id]?.[key] ?? '')) (changes[section.id] ||= {})[key] = value;
   }
+  if (JSON.stringify(before?.announcements || []) !== JSON.stringify(after?.announcements || [])) changes.notices = after?.announcements || [];
   return changes;
 }
 export function messageFor(error) {
+  if (error?.code === 'INVALID_NOTICES') return 'Check your notices: use a message and a valid website path or HTTPS link.';
   if (error?.code === 'INVALID_PIN') return 'That PIN was not recognised.';
   if (error?.status === 401) return 'Your session has ended. Sign in again.';
   if (error?.code === 'SIGN_OUT_FAILED') return 'Signed out on this screen, but the server could not revoke the session. It may remain valid until it expires.';

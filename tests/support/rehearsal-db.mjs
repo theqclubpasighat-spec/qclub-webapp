@@ -10,7 +10,7 @@ export async function createFixtureDatabase() {
     create table public.qclub_state(key text primary key,state jsonb,updated_at timestamptz);
     grant select,insert,update on public.snooker_auth_sessions,public.qclub_state to service_role;`);
   await pg.exec(await readFile(new URL('../../supabase/migrations/20260929113230_security_foundation.sql',import.meta.url),'utf8'));
-  const state = { club: { name:'The Q Club',location:'Pasighat · Arunachal Pradesh',tagline:'Play. Chill. Compete.',aboutContent:'A place for good games and great company.' },foodPage:{title:'Fresh from our kitchen',subtitle:'Take a break between frames.'},admin:{mainPin:'PRIVATE-FIXTURE'},paymentOrders:[{id:'do-not-change',amount:490}],players:[{phone:'PRIVATE-FIXTURE'}] };
+  const state = { club: { name:'The Q Club',location:'Pasighat · Arunachal Pradesh',tagline:'Play. Chill. Compete.',aboutContent:'A place for good games and great company.' },foodPage:{title:'Fresh from our kitchen',subtitle:'Take a break between frames.'},admin:{mainPin:'PRIVATE-FIXTURE'},paymentOrders:[{id:'do-not-change',amount:490}],announcements:[{id:'booking-fixture',type:'table_booking',text:'PRIVATE-FIXTURE',bookingId:'keep-booking'},{id:'legacy-fixture',text:'PRIVATE-FIXTURE'}],players:[{phone:'PRIVATE-FIXTURE'}] };
   await pg.query("insert into public.qclub_state values ('main',$1,now())",[JSON.stringify(state)]);
   for (const [id,pin] of [['main','761239'],['staff','852147'],['committee','963258']]) await pg.query('select public.qclub_security_import_credential($1,$2)',[id,await hashPin(pin)]);
   await pg.exec('set role service_role');

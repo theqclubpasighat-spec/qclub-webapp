@@ -1,11 +1,11 @@
+import { applyNotices, noticeProjection } from './notices.js';
 // Security foundation: intentionally separate from every current production route.
 import { createHash, randomBytes, scrypt as derive, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { isIP } from 'node:net';
 const scrypt = promisify(derive);
-export class SecurityError extends Error {
-  constructor(status, code) { super(code); this.status = status; this.code = code; }
-}
+import { SecurityError } from './errors.js';
+export { SecurityError } from './errors.js';
 const fail = (status, code) => { throw new SecurityError(status, code); };
 export const identities = Object.freeze({
   main: { role: 'ADMIN', staff_id: 'admin-main', display_name: 'Q Club Admin' },
@@ -67,17 +67,16 @@ export function publicContent(state) {
   return {
     club: textFields(state?.club, ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent']),
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
-    announcements: (Array.isArray(state?.announcements) ? state.announcements : [])
-      .filter(x => x?.type === undefined || x.type === 'notice')
-      .map(x => textFields(x, ['id', 'text', 'link'])),
+    announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage'];
+const CONTENT_KEYS = ['club', 'foodPage', 'notices'];
 const CLUB_KEYS = ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent'];
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
   const next = structuredClone(current);
   for (const [section, fields] of Object.entries(changes)) {
+    if (section === 'notices') { next.announcements = applyNotices(current, fields); continue; }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
     if (!object(fields) || !Object.keys(fields).length || Object.keys(fields).some(k => !allowed.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
     for (const value of Object.values(fields)) if (typeof value !== 'string' || value.length > 30000) fail(400, 'INVALID_CONTENT_PATCH');
@@ -99,7 +98,7 @@ export async function saveContent(db, actor, body, now = new Date()) {
     .eq('key', 'main').eq('updated_at', row.updated_at).select('updated_at').maybeSingle();
   if (result.error) fail(503, 'STATE_WRITE_FAILED');
   if (!result.data) fail(409, 'STATE_CONFLICT');
-  return { ok: true, updatedAt: result.data.updated_at };
+  return { ok: true, updatedAt: result.data.updated_at, content: publicContent(next) };
 }
 export function requestAddress(req, env) {
   // Vercel overwrites x-forwarded-for. Outside Vercel trust only the socket.

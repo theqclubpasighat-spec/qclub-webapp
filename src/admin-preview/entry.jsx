@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createAdminClient, changesBetween, messageFor, sections } from './client.mjs';
 import './style.css';
+import Notices from './Notices.jsx';
 const client = createAdminClient();
 function Admin() {
   const [actor,setActor] = useState(null), [pin,setPin] = useState('');
@@ -53,7 +54,7 @@ function Admin() {
     if (!Object.keys(changes).length || conflict) return;
     await perform(async () => {
       const result = await client.save(saved.updatedAt,changes);
-      setSaved({ content: structuredClone(draft), updatedAt: result.updatedAt });
+      accept({ content: result.content, updatedAt: result.updatedAt });
       setNotice('Changes saved to the rehearsal website.');
     });
   }
@@ -69,12 +70,12 @@ function Admin() {
       <button className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
     </form> : actor.role !== 'ADMIN' ? <div className="card"><h2>Staff account</h2><p>Website editing is available to administrators. Your operational Ledger access is unchanged.</p></div> : !draft ? <div className="card"><p>Content could not be loaded.</p><button disabled={busy} onClick={()=>perform(async()=>accept(await client.content()))}>Retry</button></div> : <>
       <div className="account"><span className="dot"/>{actor.display_name}<span className="status">{dirty ? 'Unsaved changes' : 'Up to date'}</span></div>
-      <nav aria-label="Content sections">{sections.map((s,i)=><button key={s.title} aria-pressed={tab===i} onClick={()=>setTab(i)}>{s.title}</button>)}</nav>
+      <nav aria-label="Content sections">{sections.map((s,i)=><button key={s.title} aria-pressed={tab===i} onClick={()=>setTab(i)}>{s.title}</button>)}<button aria-pressed={tab===3} onClick={()=>setTab(3)}>Notices</button></nav>
       {conflict && <aside className="card conflict"><h2>Review the newer version</h2><p>Your draft is kept below. Load the latest saved text to compare before replacing your draft.</p>
         <button disabled={busy} onClick={()=>perform(async()=>setLatest(await client.content()))}>Load latest for comparison</button>
-        {latest && <><div className="comparison">{sections.flatMap(s=>s.fields.map(([key,label])=><div key={key}><strong>{label}</strong><p>{latest.content[s.id]?.[key] || 'Empty'}</p></div>))}</div><button disabled={busy} onClick={()=>{if(window.confirm('Replace your unsaved draft with the latest saved content?')) accept(latest);}}>Discard draft and use latest</button></>}
+        {latest && <><div className="comparison">{sections.flatMap(s=>s.fields.map(([key,label])=><div key={key}><strong>{label}</strong><p>{latest.content[s.id]?.[key] || 'Empty'}</p></div>))}{latest.content.announcements?.map(row=><div key={row.id}><strong>Public notice</strong><p>{row.text}</p><p>{row.link}</p></div>)}</div><button disabled={busy} onClick={()=>{if(window.confirm('Replace your unsaved draft with the latest saved content?')) accept(latest);}}>Discard draft and use latest</button></>}
       </aside>}
-      <form onSubmit={save}><section className="card"><h2>{current.title}</h2>{current.fields.map(([key,label])=><div className="field" key={key}><label htmlFor={key}>{label}</label>{tab===1 ? <textarea id={key} rows={5} maxLength={30000} value={draft[current.id]?.[key] || ''} disabled={busy} onChange={e=>setDraft({...draft,[current.id]:{...draft[current.id],[key]:e.target.value}})}/> : <input id={key} maxLength={30000} value={draft[current.id]?.[key] || ''} disabled={busy} onChange={e=>setDraft({...draft,[current.id]:{...draft[current.id],[key]:e.target.value}})}/>}</div>)}</section>
+      <form onSubmit={save}>{tab===3 ? <Notices rows={draft.announcements || []} onChange={rows=>setDraft({...draft,announcements:rows})} busy={busy}/> : <section className="card"><h2>{current.title}</h2>{current.fields.map(([key,label])=><div className="field" key={key}><label htmlFor={key}>{label}</label>{tab===1 ? <textarea id={key} rows={5} maxLength={30000} value={draft[current.id]?.[key] || ''} disabled={busy} onChange={e=>setDraft({...draft,[current.id]:{...draft[current.id],[key]:e.target.value}})}/> : <input id={key} maxLength={30000} value={draft[current.id]?.[key] || ''} disabled={busy} onChange={e=>setDraft({...draft,[current.id]:{...draft[current.id],[key]:e.target.value}})}/>}</div>)}</section>}
       <footer><span>{conflict ? 'Review required' : dirty ? 'Ready when you are' : 'All changes saved'}</span><button className="primary" disabled={busy || !dirty || conflict}>{busy ? 'Saving…' : 'Save changes'}</button></footer></form>
     </>}
   </main>;

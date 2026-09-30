@@ -37,6 +37,13 @@ test('real Postgres admin workflow: login, edit, conflict, staff denial and sign
     const untouched=await fixture.pg.query("select state from public.qclub_state where key='main'");
     assert.equal(untouched.rows[0].state.paymentOrders[0].amount,490);
     assert.equal(untouched.rows[0].state.admin.mainPin,'PRIVATE-FIXTURE');
+    const notices=[{id:'notice_12345678-1234-4123-8123-123456789abc',text:'Friday club evening',link:'/fixtures'}];
+    const published=await admin.save(saved.updatedAt,{notices});
+    assert.deepEqual((await admin.content()).content.announcements,notices);
+    await assert.rejects(admin.save(saved.updatedAt,{notices:[]}),e=>e.status===409);
+    await admin.save(published.updatedAt,{notices:[]});
+    const preserved=await fixture.pg.query("select state from public.qclub_state where key='main'");
+    assert.deepEqual(preserved.rows[0].state.announcements,[{id:'booking-fixture',type:'table_booking',text:'PRIVATE-FIXTURE',bookingId:'keep-booking'},{id:'legacy-fixture',text:'PRIVATE-FIXTURE'}]);
     await admin.logout();const oldToken=capturedToken;
     const revoked=await fetcher('/api/qclub-security?action=session',{method:'GET',headers:{Authorization:oldToken}});
     assert.equal(revoked.status,401);

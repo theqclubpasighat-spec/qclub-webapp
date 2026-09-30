@@ -68,3 +68,14 @@ Open `http://127.0.0.1:5182/__admin-preview`. Synthetic fixture PINs are main `7
 Validation: database-backed workflow tests cover login, content projection, successful save, stale-save rejection, unchanged private/payment data, staff denial, and rejection of a revoked bearer. Both production and opted-in preview bundles compile. The production bundle must contain no admin-preview module or unique editor strings. Browser/mobile visual verification remains pending: the local agent-browser daemon could not bind its socket, and the browser download failed. No claim of browser or real-device acceptance is made.
 
 The next integration still requires public booking/order/payment commands and wider operational permissions before legacy shared-state access can be retired. Do not enable or promote this draft as a live security cutover.
+
+
+## Package 3 progress — public notices
+
+The rehearsal CMS now supports adding, editing and removing explicit public notices, with 2,000-character messages, optional safe website/HTTPS links, a 50-notice limit, and the same revision conflict protection as text editing. After saving, the editor adopts the server's canonical public projection. Content navigation uses a compact two-column grid for narrow screens.
+
+The production announcement array mixes public copy with booking and tournament records. The new API therefore exposes and edits only entries explicitly marked `type: notice`; untyped legacy entries are deliberately excluded pending classification. Saving notices preserves all other array entries, their order, private metadata and unrelated state. It rejects duplicate IDs, collisions with operational records, invalid links and malformed existing notice identity. Removing a notice is a draft change until Save changes succeeds; do not mistake this for a production archive/restore feature.
+
+V2 scheduling, audience targeting, media/catalogue editing and historical restore are not included in this slice. No V2 database rows have been copied into production.
+
+Validation: 24 tests pass with no skips, including a Postgres-backed add/remove workflow that confirms booking and legacy records survive and stale changes fail. Production and preview builds pass. The alternative cloud browser returned `ERR_BLOCKED_BY_CLIENT` for the localhost rehearsal, so mobile visual acceptance remains blocked. No hosted functional preview or live release is claimed.
