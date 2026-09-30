@@ -25,7 +25,7 @@ Do not publish a Play build until all of the following are true:
 
 ## Local build
 
-Use Android Studio with Android SDK 36. If a Gradle wrapper is not yet present, generate one with Gradle 9.4 before CI/release packaging.
+Use Android Studio with Android SDK 36 and JDK 17. The project includes a Gradle wrapper pinned to Gradle 9.4.1, so Windows builds can use `gradlew.bat` and macOS/Linux builds can use `./gradlew`.
 
 The Android Browser Helper dependency is pinned to 2.7.3.
 
