@@ -7,6 +7,8 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "rea
 import { Routes, Route, Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
+import V2Home from "./v2-live/V2Home.jsx";
+import V2Food from "./v2-live/V2Food.jsx";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
@@ -3666,7 +3668,7 @@ latestDataRef.current = fresh;
 ) : null}
 
       <Routes>
-        <Route path="/" element={<Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} />} />
+        <Route path="/" element={admin ? <Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} /> : <V2Home data={data} activeTournament={activeTournament} />} />
         <Route path="/members" element={<MembersPage data={data} admin={admin} commit={commit} />} />
         <Route path="/member-registry" element={<MemberRegistryPage data={data} admin={admin} commit={commit} />} />
         <Route path="/jobs" element={<JobApplicationPage data={data} commit={commit} />} />
@@ -3739,6 +3741,7 @@ latestDataRef.current = fresh;
     />
   }
 />
+<Route path="/food" element={<V2Food />} />
 <Route
   path="/shop/successful-order-receipts"
   element={
