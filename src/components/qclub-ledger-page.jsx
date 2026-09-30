@@ -2461,8 +2461,14 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>Uses the mobile entered above. WhatsApp receipt sends independently; if a valid Cashfree payment exists, its payment link is included.</div>
-                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>{upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt"}</button>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>
+                        {billDetail.status === "PAID"
+                          ? "Receipt was sent automatically when the bill became fully paid. Use the button below only to resend it."
+                          : "WhatsApp receipt will be sent automatically after the bill becomes fully paid. You can still send one manually when needed."}
+                      </div>
+                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>
+                        {billDetail.status === "PAID" ? "Resend Receipt" : (upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt")}
+                      </button>
                     </div>
                   </div>
 
