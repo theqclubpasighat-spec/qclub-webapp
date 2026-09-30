@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.QClubTwa" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:statusBarColor">@color/qclub_background</item>
+        <item name="android:navigationBarColor">@color/qclub_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
