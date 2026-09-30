@@ -30,7 +30,7 @@ test('real Postgres food checkout freezes server price and joins payment finaliz
    insert into public.qclub_fnb_categories values('food',true);
    insert into public.snooker_catalogue_items values('momo','Momo','food',true,true,true,false,80),('tracked','Stock item','food',true,true,true,true,40),('offline','Counter only','food',true,true,false,false,70);
    grant select,insert,update on public.qclub_operational_records,public.snooker_catalogue_items,public.qclub_fnb_categories to service_role;`);
-  for(const name of ['20260930113142_payment_fulfillment_rehearsal.sql','20260930113908_food_checkout_rehearsal.sql'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
+  for(const name of ['20260930113142_payment_fulfillment_rehearsal.sql','20260930113908_food_checkout_rehearsal.sql','20260930173033_checkout_recovery_rehearsal.sql'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
   assert.equal((await pg.query("select has_function_privilege('anon','public.qclub_food_checkout(text,text,text,jsonb,text,text)','EXECUTE') as allowed")).rows[0].allowed,false);
   await pg.exec('set role service_role');
   const db={async rpc(name,args){try{

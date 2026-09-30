@@ -64,3 +64,31 @@ test('receipt storage failure and overlapping taps preserve the active order',as
  await assert.rejects(pending,error=>error.code==='RECOVERY_UNAVAILABLE');assert.deepEqual(client.current(),saved);
  assert.deepEqual(createCheckoutClient({storage:disk,crypto:webcrypto}).current(),saved);
 });
+
+test('cart correction requires durable server closure and preserves the saved details for editing',async()=>{
+ const disk=storage(),requests=[];
+ const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(path,options)=>{
+  const body=JSON.parse(options.body);requests.push({path,body});return {ok:true,json:async()=>({state:'closed',orderId:`qcr_${body.checkoutId}`})};
+ }});const original=client.prepare(items,customer);
+ assert.deepEqual(await client.editCart(),original);assert.equal(client.current(),null);
+ assert.deepEqual(requests[0],{path:'/api/qclub-checkout-recovery-rehearsal',body:{checkoutId:original.body.checkoutId,receiptToken:original.body.receiptToken}});
+ const restored=createCheckoutClient({storage:disk,crypto:webcrypto});assert.equal(restored.current(),null);
+ assert.notEqual(restored.prepare(items,customer).body.checkoutId,original.body.checkoutId);
+});
+test('existing orders, missing-order errors and interrupted correction keep recovery proof',async()=>{
+ for(const state of ['existing','404','offline','mismatch']){
+  const disk=storage();const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(_path,options)=>{
+   if(state==='offline')throw Error('offline');const b=JSON.parse(options.body);
+   return {ok:state!=='404',status:404,json:async()=>({state:state==='mismatch'?'closed':state,orderId:state==='mismatch'?'wrong':`qcr_${b.checkoutId}`,error:'ORDER_NOT_FOUND'})};
+  }});const original=client.prepare(items,customer);
+  await assert.rejects(client.editCart());assert.deepEqual(client.current(),original);
+  assert.deepEqual(createCheckoutClient({storage:disk,crypto:webcrypto}).current(),original);
+ }
+});
+test('failed local removal after server closure can retry the same correction safely',async()=>{
+ const disk=storage(),remove=disk.removeItem;
+ const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(_path,options)=>({ok:true,json:async()=>({state:'closed',orderId:`qcr_${JSON.parse(options.body).checkoutId}`})})});
+ const original=client.prepare(items,customer);disk.removeItem=()=>{throw Error('storage blocked');};
+ await assert.rejects(client.editCart(),e=>e.code==='RECOVERY_UNAVAILABLE');assert.deepEqual(client.current(),original);
+ disk.removeItem=remove;assert.deepEqual(await client.editCart(),original);assert.equal(client.current(),null);
+});

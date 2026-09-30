@@ -29,6 +29,14 @@ function Checkout(){
   if(result.state==='verify_payment')setOrder(await client.verify());
  });}
  async function check(){await run(async()=>setOrder(await client.verify()));}
+ async function editCart(){await run(async()=>{
+  const data=await client.menu();if(!Array.isArray(data.items))throw Error();
+  const saved=await client.editCart();
+  setMenu(data.items);setItem(data.items[0]?.id||'');
+  setCart(saved.body.items.flatMap(line=>{const row=data.items.find(x=>x.id===line.itemId);return row?[{...row,quantity:line.quantity}]:[];}));
+  setName(saved.body.customer.name);setPhone(saved.body.customer.phone);setOrder(null);setAttempt(null);
+  setNotice('The unused checkout is closed. Review your details and available items before creating a new order. Unavailable items have been removed.');
+ });}
  async function newOrder(){await run(async()=>{
   const completed=await client.newOrder();
   setLastReference(completed.orderId);setAttempt(null);setOrder(null);setCart([]);setMenu([]);setItem('');setName('');setPhone('');
@@ -51,6 +59,7 @@ function Checkout(){
  {order?.state==='fulfilled'?<><p>Your test order is recorded. Do not pay again for this order.</p><button disabled={busy} onClick={newOrder}>Start a new order</button></>:<>
  {order?.state==='ready'&&<><p className="amount">₹{(order.amountPaise/100).toFixed(2)}</p><button className="primary" disabled={busy} onClick={pay}>Pay in sandbox</button></>}
  <button disabled={busy} onClick={check}>Check payment status</button><button disabled={busy} onClick={start}>Resume this order</button>
+ <button disabled={busy} onClick={editCart}>Fix a rejected cart</button>
  <p className="muted">If money was debited, check the status before attempting payment again. Refreshing this tab keeps the same order.</p></>}
  </section>:<form onSubmit={start}>
  <section className="panel"><h2>Choose your food</h2>{menu.length===0?<><p>No eligible items are available in this rehearsal.</p><button type="button" disabled={busy} onClick={loadMenu}>Reload menu</button></>:<>
