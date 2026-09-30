@@ -18,6 +18,7 @@ function Checkout(){
  const [menu,setMenu]=useState([]),[item,setItem]=useState(''),[qty,setQty]=useState(1),[cart,setCart]=useState([]);
  const [name,setName]=useState(''),[phone,setPhone]=useState(''),[attempt,setAttempt]=useState(()=>client?.current());
  const [order,setOrder]=useState(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState(initialError?checkoutMessage(initialError):'');
+ const [lastReference,setLastReference]=useState(()=>client?.lastReference());
  const lock=useRef(false);
  async function run(work){if(lock.current)return;lock.current=true;setBusy(true);setNotice('');try{await work();}catch(error){setNotice(checkoutMessage(error));}finally{lock.current=false;setBusy(false);}}
  async function loadMenu(){await run(async()=>{const data=await client.menu();if(!Array.isArray(data.items))throw Error();setMenu(data.items);setItem(data.items[0]?.id||'');});}
@@ -28,6 +29,11 @@ function Checkout(){
   if(result.state==='verify_payment')setOrder(await client.verify());
  });}
  async function check(){await run(async()=>setOrder(await client.verify()));}
+ async function newOrder(){await run(async()=>{
+  const completed=await client.newOrder();
+  setLastReference(completed.orderId);setAttempt(null);setOrder(null);setCart([]);setMenu([]);setItem('');setName('');setPhone('');
+  const data=await client.menu();if(!Array.isArray(data.items))throw Error();setMenu(data.items);setItem(data.items[0]?.id||'');
+ });}
  async function pay(){await run(async()=>{
   const factory=await cashfreeSdk();const cf=factory({mode:'sandbox'});
   // Even a rejected/closed modal must be reconciled by the server before another attempt.
@@ -39,9 +45,10 @@ function Checkout(){
  return <main className="checkout-shell"><div className="test-banner">SANDBOX PREVIEW · No live orders</div><header><span>Q CLUB</span><small>Q Lounge</small></header>
  <h1>{attempt?'Your order':'A break between frames.'}</h1><p className="muted">{attempt?'Keep this tab open until your payment is confirmed.':'Food checkout rehearsal. Use test details only.'}</p>
  {notice&&<div className="message" role="status">{notice}</div>}
+ {!attempt&&lastReference&&<p className="reference">Previous order reference: {lastReference}</p>}
  {initialError?null:attempt?<section className="panel"><h2>{order?.state==='fulfilled'?'Payment confirmed':order?.state==='pending'?'Payment not confirmed yet':'Check your order'}</h2>
  <p className="reference">Reference: qcr_{attempt.body.checkoutId}</p>
- {order?.state==='fulfilled'?<p>Your test order is recorded. Do not pay again.</p>:<>
+ {order?.state==='fulfilled'?<><p>Your test order is recorded. Do not pay again for this order.</p><button disabled={busy} onClick={newOrder}>Start a new order</button></>:<>
  {order?.state==='ready'&&<><p className="amount">₹{(order.amountPaise/100).toFixed(2)}</p><button className="primary" disabled={busy} onClick={pay}>Pay in sandbox</button></>}
  <button disabled={busy} onClick={check}>Check payment status</button><button disabled={busy} onClick={start}>Resume this order</button>
  <p className="muted">If money was debited, check the status before attempting payment again. Refreshing this tab keeps the same order.</p></>}
