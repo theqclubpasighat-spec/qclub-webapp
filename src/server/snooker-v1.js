@@ -1084,6 +1084,112 @@ async function syncActivePersonTimers(supabase, sessionId, action, at = new Date
   }
 }
 
+function normalizeCustomerName(value = "") {
+  return safeText(value, 160).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function customerDto(row) {
+  return {
+    customer_id: row.id,
+    id: row.id,
+    name: row.name,
+    phone: row.phone || null,
+    is_member: Boolean(row.is_member),
+    member_tier: row.member_tier || null,
+    visit_count: number(row.visit_count),
+    last_seen_at: row.last_seen_at || null,
+    source: row.source || null,
+  };
+}
+
+async function rememberCustomer(supabase, { name, phone, isMember = false, memberTier = null, source = "qclub_ledger" } = {}) {
+  const cleanName = safeText(name || "", 160).trim().replace(/\s+/g, " ");
+  if (!cleanName) return null;
+  const normalizedName = normalizeCustomerName(cleanName);
+  const normalizedPhone = normalizePhone(phone || "") || null;
+
+  const { data: existing, error: readError } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("normalized_name", normalizedName)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const now = new Date().toISOString();
+  if (existing) {
+    const patch = {
+      name: cleanName,
+      phone: normalizedPhone || existing.phone || null,
+      normalized_phone: normalizedPhone || existing.normalized_phone || null,
+      is_member: Boolean(existing.is_member || isMember),
+      member_tier: memberTier || existing.member_tier || null,
+      source: safeText(source || existing.source || "qclub_ledger", 80),
+      visit_count: Math.max(1, number(existing.visit_count, 0) + 1),
+      last_seen_at: now,
+      active: true,
+      updated_at: now,
+    };
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .update(patch)
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("snooker_customers")
+    .insert({
+      name: cleanName,
+      normalized_name: normalizedName,
+      phone: normalizedPhone,
+      normalized_phone: normalizedPhone,
+      is_member: Boolean(isMember),
+      member_tier: memberTier || null,
+      source: safeText(source || "qclub_ledger", 80),
+      visit_count: 1,
+      last_seen_at: now,
+      active: true,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function listCustomers(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const requestedLimit = Math.floor(number(req.query?.limit, 200));
+  const limit = Math.min(500, Math.max(1, requestedLimit || 200));
+  const { data, error } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("active", true)
+    .order("last_seen_at", { ascending: false, nullsFirst: false })
+    .order("name")
+    .limit(limit);
+  if (error) throw error;
+  return json(res, 200, { customers: (data || []).map(customerDto) });
+}
+
+async function upsertCustomer(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const customer = await rememberCustomer(getSupabaseAdmin(), {
+    name: req.body?.name,
+    phone: req.body?.phone,
+    isMember: Boolean(req.body?.is_member),
+    memberTier: req.body?.member_tier || null,
+    source: "manual_ledger",
+  });
+  if (!customer) return json(res, 400, { ok: false, error: "CUSTOMER_NAME_REQUIRED" });
+  return json(res, 200, customerDto(customer));
+}
+
 async function bootstrap(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1644,6 +1750,27 @@ async function createSession(req, res) {
     data.participant_ids=(inserted||[]).map((p)=>p.id);
     data.participant_names=(inserted||[]).map((p)=>p.name);
   }
+  if (individual) {
+    for (const person of people) {
+      try {
+        await rememberCustomer(supabase, {
+          name: person.name,
+          phone: person.phone,
+          isMember: person.is_member,
+          source: "table_session",
+        });
+      } catch (customerError) {
+        console.error("customer directory remember failed", { source: "table_session", name: person.name, message: customerError?.message });
+      }
+    }
+  } else if (customerName) {
+    try {
+      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, isMember, source: "table_session" });
+    } catch (customerError) {
+      console.error("customer directory remember failed", { source: "table_session", name: customerName, message: customerError?.message });
+    }
+  }
+
   const response=sessionDto(data);
   await rememberIdempotent(supabase,key,"create_session",data.id,response);
   return json(res,201,response);
@@ -1681,6 +1808,11 @@ async function addSessionPerson(req,res,sessionId){
   if(error)throw error;
   const {data:all}=await supabase.from("snooker_session_people").select("id,name").eq("session_id",sessionId).order("joined_at");
   await supabase.from("snooker_sessions").update({participant_ids:(all||[]).map(p=>p.id),participant_names:(all||[]).map(p=>p.name),updated_at:now}).eq("id",sessionId);
+  try {
+    await rememberCustomer(supabase, { name, phone, source: "joined_player" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "joined_player", name, message: customerError?.message });
+  }
   return json(res,201,data);
 }
 
@@ -1702,7 +1834,13 @@ async function updateSessionPerson(req,res,sessionId,personId){
     patch.status="ACTIVE";patch.left_at=null;patch.timer_running=Boolean(session?.timer_running);patch.timer_started_at=session?.timer_running?now.toISOString():null;
   }
   const {data,error}=await supabase.from("snooker_session_people").update(patch).eq("id",personId).select("*").single();
-  if(error)throw error; return json(res,200,data);
+  if(error)throw error;
+  try {
+    await rememberCustomer(supabase, { name: data.name, phone: data.phone, isMember: data.is_member, source: "player_update" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "player_update", name: data.name, message: customerError?.message });
+  }
+  return json(res,200,data);
 }
 
 async function allocateHourlySession(req,res,sessionId){
@@ -2040,6 +2178,12 @@ async function createFnbTab(req, res) {
   }).select("*").single();
   if (error) throw error;
 
+  try {
+    await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "fnb_running_tab" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "fnb_running_tab", name: customerName, message: customerError?.message });
+  }
+
   const response = await fnbTabPayload(supabase, tab.id);
   await rememberIdempotent(supabase, key, "create_fnb_tab", tab.id, response);
   return json(res, 201, response);
@@ -2070,7 +2214,13 @@ async function updateFnbTab(req, res, tabId) {
 
   const { error } = await supabase.from("snooker_fnb_tabs").update(patch).eq("id", tabId);
   if (error) throw error;
-  return json(res, 200, await fnbTabPayload(supabase, tabId));
+  const updated = await fnbTabPayload(supabase, tabId);
+  try {
+    await rememberCustomer(supabase, { name: updated?.customer_name, phone: updated?.customer_phone, source: "fnb_running_tab" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "fnb_running_tab_update", name: updated?.customer_name, message: customerError?.message });
+  }
+  return json(res, 200, updated);
 }
 
 async function addFnbToTab(req, res, tabId) {
@@ -2515,6 +2665,14 @@ async function createWalkInFnbBill(req, res) {
     // bill_id uses ON DELETE CASCADE for F&B lines / bill items.
     await supabase.from("snooker_bills").delete().eq("id", bill.id);
     throw error;
+  }
+
+  if (customerName) {
+    try {
+      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "quick_fnb_bill" });
+    } catch (customerError) {
+      console.error("customer directory remember failed", { source: "quick_fnb_bill", name: customerName, message: customerError?.message });
+    }
   }
 
   const response = await billDetailPayload(supabase, bill.id);
@@ -3617,6 +3775,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
 
+    if (method === "GET" && path === "customers") return await listCustomers(req, res);
+    if (method === "POST" && path === "customers") return await upsertCustomer(req, res);
     if (method === "GET" && path === "fnb-tabs") return await listFnbTabs(req, res);
     if (method === "POST" && path === "fnb-tabs") return await createFnbTab(req, res);
     if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "GET") {
