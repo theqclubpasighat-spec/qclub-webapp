@@ -2817,6 +2817,13 @@ async function inventoryWrite(req, res, type) {
   return json(res, 200, response);
 }
 
+function msg91BodyText(value = "", maxLength = 1200) {
+  return safeText(value, maxLength)
+    .replace(/[\r\n]+/g, " • ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function sendReceipt(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -2875,10 +2882,18 @@ async function sendReceipt(req, res) {
   }
 
   const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
-  const summaryBase = (bill.items || []).slice(0, 12).map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`).join("\n") || "Q Club bill";
-  const summary = paymentUrlValue ? `${summaryBase}\nPay securely: ${paymentUrlValue}` : summaryBase;
-  const customer = safeText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
-  const params = [customer, bill.bill_no, summary, String(money(bill.total_inr))];
+  const summaryBase = (bill.items || [])
+    .slice(0, 12)
+    .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
+    .join(" • ") || "Q Club bill";
+  const summary = paymentUrlValue ? `${summaryBase} • Pay securely: ${paymentUrlValue}` : summaryBase;
+  const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
+  const params = [
+    customer,
+    msg91BodyText(bill.bill_no, 120),
+    msg91BodyText(summary, 1200),
+    msg91BodyText(String(money(bill.total_inr)), 120),
+  ];
   const payload = {
     integrated_number: sender,
     content_type: "template",
@@ -2889,7 +2904,7 @@ async function sendReceipt(req, res) {
       template: {
         name: template,
         language: { code: "en", policy: "deterministic" },
-        components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: safeText(text, 1200) })) }],
+        components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: msg91BodyText(text, 1200) })) }],
       },
     },
   };
@@ -2909,7 +2924,14 @@ async function sendReceipt(req, res) {
     provider_response: providerResponse, error: upstream.ok ? null : safeText(raw, 1000),
     requested_by: auth.staff_id, sent_at: upstream.ok ? new Date().toISOString() : null, idempotency_key: key || null,
   });
-  const response = { ok: upstream.ok, bill_id: billId, channel: "WHATSAPP", status, provider: "MSG91" };
+  const response = {
+    ok: upstream.ok,
+    bill_id: billId,
+    channel: "WHATSAPP",
+    status,
+    provider: "MSG91",
+    provider_error: upstream.ok ? null : msg91BodyText(providerResponse?.errors || providerResponse?.message || raw, 500),
+  };
   await rememberIdempotent(supabase, key, "send_receipt", billId, response);
   return json(res, upstream.ok ? 200 : 502, response);
 }
