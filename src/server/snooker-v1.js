@@ -2496,6 +2496,16 @@ async function cashPayment(req, res) {
   if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
   if (bill.status === "PAID") return json(res, 409, { ok: false, error: "BILL_ALREADY_PAID" });
 
+  const requestedPhone = normalizePhone(req.body?.customer_phone || "");
+  if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
+    const { error: contactError } = await supabase
+      .from("snooker_bills")
+      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
+      .eq("id", billId);
+    if (contactError) throw contactError;
+    bill.customer_phone = requestedPhone;
+  }
+
   const due = money(bill.due_inr);
   const requested = money(req.body?.amount_applied_inr ?? req.body?.amount_inr ?? due);
   const applied = Math.min(due, requested > 0 ? requested : due);
