@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { allowAdminPreview } from './scripts/admin-preview-policy.mjs'
 import { allowV2Preview } from './scripts/v2-preview-policy.mjs'
 
 export default defineConfig(({ command }) => ({
-  define: { __QCLUB_V2_PREVIEW__: JSON.stringify(allowV2Preview(process.env, command)) },
+  define: { __QCLUB_ADMIN_PREVIEW__: JSON.stringify(allowAdminPreview(process.env, command)), __QCLUB_V2_PREVIEW__: JSON.stringify(allowV2Preview(process.env, command)) },
   plugins: [
     react(),
     VitePWA({
@@ -12,6 +13,8 @@ export default defineConfig(({ command }) => ({
       workbox: {
         cleanupOutdatedCaches: true,
         navigateFallbackDenylist: [
+          /^\/__admin-preview(?:\/|$)/,
+          /^\/api\/qclub-security(?:\/|$)/,
           /^\/QclubLedger(?:\/|$)/i,
           /^\/QclubPay(?:\/|$)/i,
           /^\/QclubQr(?:\/|$)/i,

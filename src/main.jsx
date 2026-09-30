@@ -4,6 +4,11 @@ const previewPath = window.location.pathname === "/__v2-preview" ||
   window.location.pathname.startsWith("/__v2-preview/");
 
 async function boot() {
+  // Dedicated preview entry: no production App effects, cloud sync or PIN cache.
+  if (__QCLUB_ADMIN_PREVIEW__ && window.location.pathname === "/__admin-preview") {
+    await import("./admin-preview/entry.jsx");
+    return;
+  }
   if (__QCLUB_V2_PREVIEW__ && previewPath) {
     await import("./v2-preview/entry.jsx");
     return;

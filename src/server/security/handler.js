@@ -1,4 +1,4 @@
-import { SecurityError, authenticate, privateLogin, publicContent, rehearsalConfig, requestAddress, rotateCredential, saveContent } from './foundation.js';
+import { SecurityError, revokeSession, authenticate, privateLogin, publicContent, rehearsalConfig, requestAddress, rotateCredential, saveContent } from './foundation.js';
 
 export function createSecurityHandler({ env, createDatabase }) {
   return async (req, res) => {
@@ -11,10 +11,11 @@ export function createSecurityHandler({ env, createDatabase }) {
       if (req.headers?.['sec-fetch-site'] === 'cross-site') throw new SecurityError(403, 'CROSS_SITE_REQUEST');
       const action = req.query?.action;
       const method = req.method;
-      const routes = { content: ['GET', 'PATCH'], session: ['GET'], login: ['POST'], rotate: ['POST'] };
+      const routes = { content: ['GET', 'PATCH'], session: ['GET'], login: ['POST'], logout: ['POST'], rotate: ['POST'] };
       if (!Object.hasOwn(routes, action)) throw new SecurityError(404, 'NOT_FOUND');
       if (!routes[action].includes(method)) throw new SecurityError(405, 'METHOD_NOT_ALLOWED');
       const db = createDatabase(config);
+      if (action === 'logout') return reply(200, await revokeSession(db, req));
       if (action === 'rotate') return reply(200, await rotateCredential(db, req));
       if (action === 'login') return reply(200, await privateLogin(db, req, new Date(), requestAddress(req, env)));
       if (action === 'session') {

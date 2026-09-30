@@ -90,7 +90,7 @@ export async function saveContent(db, actor, body, now = new Date()) {
   if (typeof body?.baseUpdatedAt !== 'string' || !Number.isFinite(Date.parse(body.baseUpdatedAt))) fail(400, 'REVISION_REQUIRED');
   const { data: row, error } = await db.from('qclub_state').select('state,updated_at').eq('key', 'main').single();
   if (error || !row) fail(503, 'STATE_UNAVAILABLE');
-  if (Date.parse(row.updated_at) !== Date.parse(body.baseUpdatedAt)) fail(409, 'STATE_CONFLICT');
+  if (row.updated_at !== body.baseUpdatedAt) fail(409, 'STATE_CONFLICT');
   const next = contentPatch(row.state, body.changes);
   const updatedAt = new Date(Math.max(now.getTime(), Date.parse(row.updated_at) + 1)).toISOString();
   Object.assign(next, { updated_at: updatedAt, updatedAt, __cloudUpdatedAt: updatedAt });
@@ -149,4 +149,13 @@ export async function rotateCredential(db, req) {
   if (error) fail(503, 'CREDENTIAL_CHANGE_FAILED');
   if (!data?.ok) fail(data?.conflict ? 409 : 403, data?.conflict ? 'CREDENTIAL_CONFLICT' : 'FORBIDDEN');
   return { ok: true, version: data.version, signInAgain: credentialId === 'main' };
+}
+
+// Idempotent logout: deleting local state alone does not revoke a copied bearer token.
+export async function revokeSession(db, req, now = new Date()) {
+  const hashed = tokenHash(bearer(req));
+  const result = await db.from('snooker_auth_sessions').update({ revoked_at: now.toISOString() })
+    .eq('token_hash', hashed).is('revoked_at', null).select('id');
+  if (result.error) fail(503, 'SIGN_OUT_FAILED');
+  return { ok: true };
 }
