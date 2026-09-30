@@ -1084,8 +1084,12 @@ async function syncActivePersonTimers(supabase, sessionId, action, at = new Date
   }
 }
 
+function canonicalCustomerName(value = "") {
+  return safeText(value, 160).trim().replace(/\s+/g, " ").toUpperCase();
+}
+
 function normalizeCustomerName(value = "") {
-  return safeText(value, 160).trim().replace(/\s+/g, " ").toLowerCase();
+  return canonicalCustomerName(value).toLowerCase();
 }
 
 function customerDto(row) {
@@ -1103,7 +1107,7 @@ function customerDto(row) {
 }
 
 async function rememberCustomer(supabase, { name, phone, isMember = false, memberTier = null, source = "qclub_ledger" } = {}) {
-  const cleanName = safeText(name || "", 160).trim().replace(/\s+/g, " ");
+  const cleanName = canonicalCustomerName(name || "");
   if (!cleanName) return null;
   const normalizedName = normalizeCustomerName(cleanName);
   const normalizedPhone = normalizePhone(phone || "") || null;
@@ -1685,7 +1689,7 @@ async function createSession(req, res) {
   const rawPeople = Array.isArray(req.body?.people) ? req.body.people : [];
   const individual = rawPeople.length > 0 || safeText(req.body?.account_mode || "",30).toUpperCase()==="INDIVIDUAL";
   let people = rawPeople.map((p)=>({
-    name:safeText(p?.name || "",160).trim(),
+    name:canonicalCustomerName(p?.name || ""),
     phone:normalizePhone(p?.phone || "") || null,
     is_member:Boolean(p?.is_member),
     team_no:p?.team_no==null?null:number(p.team_no),
@@ -1708,7 +1712,7 @@ async function createSession(req, res) {
   if(gameType==="QCHASE_RUMMY" && (people.length<2||people.length>6)) return json(res,400,{ok:false,error:"QCHASE_REQUIRES_TWO_TO_SIX_PLAYERS"});
 
   const first=people[0] || null;
-  const customerName=individual ? first?.name : (safeText(req.body?.customer_name || req.body?.customerName || "",160)||null);
+  const customerName=individual ? first?.name : (canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "")||null);
   const customerPhone=individual ? first?.phone : (normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "")||null);
   let isMember=Boolean(first?.is_member ?? req.body?.is_member ?? false);
   if(isMember){
@@ -1795,7 +1799,7 @@ async function addSessionPerson(req,res,sessionId){
   if(!session||session.account_mode!=="INDIVIDUAL"||!["ACTIVE","PAUSED"].includes(session.status)) return json(res,409,{ok:false,error:"INDIVIDUAL_SESSION_NOT_ACTIVE"});
   const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).neq("status","SETTLED");
   if(number(count)>=6)return json(res,409,{ok:false,error:"MAX_SIX_PLAYERS"});
-  const name=safeText(req.body?.name||"",160).trim(); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
+  const name=canonicalCustomerName(req.body?.name||""); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
   const phone=normalizePhone(req.body?.phone||"")||null;
   const teamNo=req.body?.team_no==null?null:number(req.body.team_no);
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
@@ -1825,7 +1829,7 @@ async function updateSessionPerson(req,res,sessionId,personId){
   const action=safeText(req.body?.action||"",30).toUpperCase();
   const now=new Date();
   const patch={updated_by:auth.staff_id,updated_at:now.toISOString()};
-  if(req.body?.name!==undefined)patch.name=safeText(req.body.name,160).trim()||person.name;
+  if(req.body?.name!==undefined)patch.name=canonicalCustomerName(req.body.name)||person.name;
   if(req.body?.phone!==undefined)patch.phone=normalizePhone(req.body.phone)||null;
   if(req.body?.team_no!==undefined)patch.team_no=req.body.team_no==null?null:number(req.body.team_no);
   if(action==="LEAVE"){
@@ -1896,7 +1900,7 @@ async function finalizePersonBill(req,res,sessionId,personId){
   const billNo=`QP-${datePart}-${suffix}`;
   const {data:bill,error}=await supabase.from("snooker_bills").insert({
     id:billId,bill_no:billNo,session_id:null,source_session_id:sessionId,person_id:personId,bill_source:"PLAYER_ACCOUNT",
-    customer_name:person.name,customer_phone:person.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
+    customer_name:canonicalCustomerName(person.name),customer_phone:person.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
   }).select("*").single();if(error)throw error;
   const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:personId,charge_id:ch.id,...(ch.metadata||{})}}));
   if(items.length){const {error:ie}=await supabase.from("snooker_bill_items").insert(items);if(ie)throw ie;}
@@ -2157,7 +2161,7 @@ async function createFnbTab(req, res) {
   const old = await previousIdempotent(supabase, key, "create_fnb_tab");
   if (old) return json(res, 200, old);
 
-  const customerName = safeText(req.body?.customer_name || req.body?.customerName || "", 160).trim();
+  const customerName = canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "");
   const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
   const notes = safeText(req.body?.notes || "", 500).trim() || null;
   if (!customerName) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
@@ -2205,7 +2209,7 @@ async function updateFnbTab(req, res, tabId) {
 
   const patch = { updated_at: new Date().toISOString() };
   if (req.body?.customer_name !== undefined) {
-    const name = safeText(req.body.customer_name || "", 160).trim();
+    const name = canonicalCustomerName(req.body.customer_name || "");
     if (!name) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
     patch.customer_name = name;
   }
@@ -2506,7 +2510,7 @@ async function createWalkInFnbBill(req, res) {
   const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   if (!rawLines.length) return json(res, 400, { ok: false, error: "FNB_LINES_REQUIRED" });
 
-  const customerName = safeText(req.body?.customer_name || req.body?.customerName || "", 160) || null;
+  const customerName = canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "") || null;
   const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
 
   // Validate every requested line before creating any bill or stock movement.
