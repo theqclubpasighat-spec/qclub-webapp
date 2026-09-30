@@ -91,7 +91,7 @@ with raw as (
 ),
 clean as (
   select
-    btrim(regexp_replace(name,'\s+',' ','g')) as name,
+    upper(btrim(regexp_replace(name,'\s+',' ','g'))) as name,
     lower(btrim(regexp_replace(name,'\s+',' ','g'))) as normalized_name,
     nullif(right(regexp_replace(coalesce(phone,''),'\D','','g'),10),'') as normalized_phone,
     is_member,
