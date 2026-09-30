@@ -1132,9 +1132,108 @@ export default function QclubLedgerPage() {
     }
   }
 
+  async function createRunningFnbTab() {
+    const name = newTabName.trim();
+    if (!name) {
+      flash("Enter the customer's name before opening a tab.", true);
+      return;
+    }
+    const phone = String(newTabPhone || "").replace(/\D/g, "").slice(-10);
+    if (phone && !/^\d{10}$/.test(phone)) {
+      flash("Enter a valid 10-digit mobile number or leave it blank.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const opened = await protectedCall("fnb-tabs", {
+        method: "POST",
+        body: {
+          customer_name: name,
+          customer_phone: phone || null,
+          idempotency_key: makeKey("fnb-tab"),
+        },
+      });
+      setNewTabName("");
+      setNewTabPhone("");
+      setFnbDestination("RUNNING_TAB");
+      await refreshAll();
+      setSelectedFnbTabId(opened.tab_id);
+      flash("Running tab opened for " + opened.customer_name + ".");
+    } catch (error) {
+      flash(error.message || "Unable to open running tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeRunningFnbTab(tabRow) {
+    const activeTab = tabRow || selectedFnbTab;
+    if (!activeTab) {
+      flash("Select a running tab first.", true);
+      return;
+    }
+    if (!(Number(activeTab.total_inr || 0) > 0)) {
+      flash("This tab has no items to bill.", true);
+      return;
+    }
+    const ok = window.confirm(
+      "Close " + activeTab.customer_name + "'s tab and create the bill for " + money(activeTab.total_inr) + "?"
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const bill = await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
+        method: "POST",
+        body: { idempotency_key: makeKey("close-fnb-tab") },
+      });
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
+      setSelectedFnbTabId("");
+      setQuantities({});
+      setTab("ledger");
+      flash(activeTab.customer_name + "'s tab closed. Bill " + (bill.bill_no || "") + " is ready for payment.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to close running tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelEmptyRunningFnbTab(tabRow) {
+    if (!tabRow) return;
+    if (Number(tabRow.item_count || 0) > 0) {
+      flash("This tab already has orders. Void the items as Admin or close it into a bill.", true);
+      return;
+    }
+    const ok = window.confirm("Cancel empty tab for " + tabRow.customer_name + "?");
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      await protectedCall("fnb-tabs/" + tabRow.tab_id, { method: "DELETE" });
+      if (selectedFnbTabId === tabRow.tab_id) setSelectedFnbTabId("");
+      flash("Empty running tab cancelled.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to cancel tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addFnb() {
     if (fnbDestination === "TABLE" && !selectedSession) {
       flash("Select an active table/session first.", true);
+      return;
+    }
+    if (fnbDestination === "RUNNING_TAB" && !selectedFnbTab) {
+      flash("Select an open running tab first.", true);
       return;
     }
     const lines = sellableCatalogue.map(function(item) {
@@ -1150,7 +1249,16 @@ export default function QclubLedgerPage() {
     }
     setBusy(true);
     try {
-      if (fnbDestination === "WALK_IN") {
+      if (fnbDestination === "RUNNING_TAB") {
+        const updatedTab = await protectedCall("fnb-tabs/" + selectedFnbTab.tab_id + "/fnb", {
+          method: "POST",
+          body: {
+            lines: lines,
+            idempotency_key: makeKey("fnb-tab-order"),
+          },
+        });
+        flash("Added to " + updatedTab.customer_name + "'s tab. Running total " + money(updatedTab.total_inr) + ".");
+      } else if (fnbDestination === "WALK_IN") {
         const bill = await protectedCall("bills/walk-in-fnb", {
           method: "POST",
           body: {
