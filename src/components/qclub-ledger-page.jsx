@@ -767,19 +767,19 @@ export default function QclubLedgerPage() {
 
   function applyCustomerToStartPlayer(index, customer) {
     const players = (startForm.players || []).map(function(player, i) {
-      return i === index ? { ...player, name: customer.name || "", phone: customer.phone || "" } : player;
+      return i === index ? { ...player, name: String(customer.name || "").toUpperCase(), phone: customer.phone || "" } : player;
     });
     setMemberCheck(null);
     setStartForm({ ...startForm, players, isMember: index === 0 ? Boolean(customer.is_member) : startForm.isMember });
   }
 
   function applyCustomerToNewTab(customer) {
-    setNewTabName(customer.name || "");
+    setNewTabName(String(customer.name || "").toUpperCase());
     setNewTabPhone(customer.phone || "");
   }
 
   function applyCustomerToWalkIn(customer) {
-    setWalkInName(customer.name || "");
+    setWalkInName(String(customer.name || "").toUpperCase());
     setWalkInPhone(customer.phone || "");
   }
 
@@ -826,7 +826,7 @@ export default function QclubLedgerPage() {
   function normalizedStartPlayers(form) {
     return (form.players || []).map(function(player, index) {
       return {
-        name: String(player.name || "").trim(),
+        name: String(player.name || "").trim().toUpperCase(),
         phone: String(player.phone || "").replace(/\D/g, "").slice(-10),
         is_member: index === 0 ? Boolean(form.isMember) : false,
         team_no: form.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null,
@@ -863,10 +863,10 @@ export default function QclubLedgerPage() {
   }
 
   function updateStartPlayer(index, field, value) {
-    let nextValue = value;
+    let nextValue = field === "name" ? String(value || "").toUpperCase() : value;
     let matched = null;
     if (field === "name") {
-      const exact = customerMatches(value, 2);
+      const exact = customerMatches(nextValue, 2);
       if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value)) matched = exact[0];
     } else if (field === "phone") {
       matched = customerByPhone(value);
@@ -978,7 +978,7 @@ export default function QclubLedgerPage() {
     try {
       await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
         method: "PATCH",
-        body: { name: name.trim(), phone: normalized || null },
+        body: { name: name.trim().toUpperCase(), phone: normalized || null },
       });
       flash("Player updated.");
       await refreshAll();
@@ -992,7 +992,8 @@ export default function QclubLedgerPage() {
   async function joinPlayer(session) {
     const name = window.prompt("Joining player name:");
     if (!name || !name.trim()) return;
-    const matches = customerMatches(name.trim(), 2);
+    const canonicalJoinName = name.trim().toUpperCase();
+    const matches = customerMatches(canonicalJoinName, 2);
     const knownCustomer = matches.length === 1 ? matches[0] : null;
     const phoneRaw = knownCustomer && knownCustomer.phone
       ? knownCustomer.phone
@@ -1009,9 +1010,9 @@ export default function QclubLedgerPage() {
     try {
       await protectedCall("sessions/" + session.session_id + "/people", {
         method: "POST",
-        body: { name: name.trim(), phone: phone || null, team_no: teamNo },
+        body: { name: canonicalJoinName, phone: phone || null, team_no: teamNo },
       });
-      flash(name.trim() + " joined the table.");
+      flash(canonicalJoinName + " joined the table.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to add player.", true);
@@ -2228,7 +2229,7 @@ export default function QclubLedgerPage() {
                         className="ql-input"
                         value={newTabName}
                         onChange={function(e) {
-                          const value = e.target.value;
+                          const value = e.target.value.toUpperCase();
                           setNewTabName(value);
                           const exact = customerMatches(value, 2);
                           if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setNewTabPhone(exact[0].phone);
@@ -2246,7 +2247,7 @@ export default function QclubLedgerPage() {
                           const value = e.target.value.replace(/\D/g, "").slice(0, 10);
                           setNewTabPhone(value);
                           const match = customerByPhone(value);
-                          if (match) setNewTabName(match.name || newTabName);
+                          if (match) setNewTabName(String(match.name || newTabName).toUpperCase());
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
@@ -2259,7 +2260,7 @@ export default function QclubLedgerPage() {
                         className="ql-input"
                         value={walkInName}
                         onChange={function(e) {
-                          const value = e.target.value;
+                          const value = e.target.value.toUpperCase();
                           setWalkInName(value);
                           const exact = customerMatches(value, 2);
                           if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setWalkInPhone(exact[0].phone);
@@ -2277,7 +2278,7 @@ export default function QclubLedgerPage() {
                           const value = e.target.value.replace(/\D/g, "").slice(0, 10);
                           setWalkInPhone(value);
                           const match = customerByPhone(value);
-                          if (match) setWalkInName(match.name || walkInName);
+                          if (match) setWalkInName(String(match.name || walkInName).toUpperCase());
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
