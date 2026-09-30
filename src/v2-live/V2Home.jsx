@@ -26,7 +26,7 @@ export default function V2Home({ data, activeTournament }) {
 
   const features = [
     { title: "Book a table", text: "Reserve snooker, mini snooker or American pool.", to: "/book", icon: "◉" },
-    { title: "Q Lounge", text: "Browse the club food and refreshment catalogue.", to: "/food", icon: "☕" },
+    { title: "Q Lounge", text: "Browse the menu and continue to the existing food-order checkout.", to: "/food", icon: "☕" },
     { title: "The Q Shop", text: "Cue sticks, cases, chalk and club accessories.", to: "/shop", icon: "◇" },
     { title: "Membership", text: "Member rates, RFID access and club privileges.", to: "/membership", icon: "✦" },
   ];
