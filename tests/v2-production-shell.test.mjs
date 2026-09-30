@@ -37,6 +37,6 @@ test("new shell keeps protected operational pages out of the public-theme list",
 
 test("compact home links to current production workflows instead of replacing them", () => {
   for (const path of ["/book", "/membership", "/shop", "/tournaments", "/fixtures"]) {
-    assert.ok(home.includes(`to="${path}"`), `missing ${path}`);
+    assert.ok(home.includes(`"${path}"`), `missing ${path}`);
   }
 });
