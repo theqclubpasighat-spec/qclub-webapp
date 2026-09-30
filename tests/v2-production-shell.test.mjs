@@ -41,3 +41,24 @@ test("compact home links to current production workflows instead of replacing th
     assert.ok(home.includes(`"${path}"`), `missing ${path}`);
   }
 });
+
+
+test("critical production workflows remain routed through their existing components", () => {
+  const required = [
+    'path="/book"',
+    'path="/membership"',
+    'path="/offer"',
+    'path="/shop"',
+    'path="/admin/orders"',
+    'path="/food-print-bridge"',
+    'path="/QclubLedger"',
+    'path="/QclubPay"',
+    'path="/QclubQr"',
+    '<QclubLedgerPage />',
+    '<QclubPayPage />',
+    '<QclubQrPage />',
+  ];
+  for (const marker of required) {
+    assert.ok(app.includes(marker), `missing production route/component marker: ${marker}`);
+  }
+});
