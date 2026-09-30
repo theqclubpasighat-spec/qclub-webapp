@@ -231,6 +231,7 @@ export default function QclubLedgerPage() {
   const [fnbCategory, setFnbCategory] = useState("ALL");
   const [fnbDestination, setFnbDestination] = useState("TABLE");
   const [fnbTabs, setFnbTabs] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
   const [newTabName, setNewTabName] = useState("");
   const [newTabPhone, setNewTabPhone] = useState("");
@@ -301,6 +302,7 @@ export default function QclubLedgerPage() {
     setSessionDetails({});
     setBills([]);
     setFnbTabs([]);
+    setCustomers([]);
     setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setBillDetail(null);
@@ -355,6 +357,7 @@ export default function QclubLedgerPage() {
         protectedCall("dashboard/summary"),
         protectedCall("operations/inbox"),
         protectedCall("fnb-tabs"),
+        protectedCall("customers?limit=300"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -367,6 +370,7 @@ export default function QclubLedgerPage() {
       const summaryPayload = values[8];
       const operationsPayload = values[9];
       const fnbTabPayload = values[10];
+      const customerPayload = values[11];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -379,6 +383,7 @@ export default function QclubLedgerPage() {
       setBills((billPayload && billPayload.bills) || []);
       const openFnbTabs = (fnbTabPayload && fnbTabPayload.tabs) || [];
       setFnbTabs(openFnbTabs);
+      setCustomers((customerPayload && customerPayload.customers) || []);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
       });
@@ -705,6 +710,79 @@ export default function QclubLedgerPage() {
     });
   }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup, showExcludedBills]);
 
+  function normalizeCustomerLookup(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function customerMatches(value, limit) {
+    const query = normalizeCustomerLookup(value);
+    if (!query) return [];
+    const tokens = query.split(/\s+/).filter(Boolean);
+    return customers
+      .filter(function(customer) {
+        const haystack = normalizeCustomerLookup(customer.name).replace(/\s+/g, "");
+        return tokens.every(function(token) { return haystack.includes(token); });
+      })
+      .sort(function(a, b) {
+        const aName = normalizeCustomerLookup(a.name);
+        const bName = normalizeCustomerLookup(b.name);
+        const aExact = aName === query ? 1 : 0;
+        const bExact = bName === query ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+        return Number(b.visit_count || 0) - Number(a.visit_count || 0);
+      })
+      .slice(0, limit || 6);
+  }
+
+  function customerByPhone(value) {
+    const phone = String(value || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) return null;
+    return customers.find(function(customer) {
+      return String(customer.phone || "").replace(/\D/g, "").slice(-10) === phone;
+    }) || null;
+  }
+
+  function renderCustomerMatches(value, onPick) {
+    const matches = customerMatches(value, 5);
+    const normalized = normalizeCustomerLookup(value);
+    if (!normalized || (matches.length === 1 && normalizeCustomerLookup(matches[0].name) === normalized)) return null;
+    return (
+      <div className="ql-row" style={{ marginTop: 6, gap: 6 }}>
+        {matches.map(function(customer) {
+          return (
+            <button
+              type="button"
+              className="ql-btn ghost"
+              key={customer.customer_id || customer.id}
+              onClick={function() { onPick(customer); }}
+              style={{ padding: "7px 9px" }}
+            >
+              {customer.name}{customer.phone ? " • " + String(customer.phone).slice(-4) : ""}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function applyCustomerToStartPlayer(index, customer) {
+    const players = (startForm.players || []).map(function(player, i) {
+      return i === index ? { ...player, name: customer.name || "", phone: customer.phone || "" } : player;
+    });
+    setMemberCheck(null);
+    setStartForm({ ...startForm, players, isMember: index === 0 ? Boolean(customer.is_member) : startForm.isMember });
+  }
+
+  function applyCustomerToNewTab(customer) {
+    setNewTabName(customer.name || "");
+    setNewTabPhone(customer.phone || "");
+  }
+
+  function applyCustomerToWalkIn(customer) {
+    setWalkInName(customer.name || "");
+    setWalkInPhone(customer.phone || "");
+  }
+
   function startDefaults(gameType) {
     if (gameType === "QCHASE_RUMMY") {
       return {
@@ -785,11 +863,26 @@ export default function QclubLedgerPage() {
   }
 
   function updateStartPlayer(index, field, value) {
+    let nextValue = value;
+    let matched = null;
+    if (field === "name") {
+      const exact = customerMatches(value, 2);
+      if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value)) matched = exact[0];
+    } else if (field === "phone") {
+      matched = customerByPhone(value);
+    }
+
     const players = (startForm.players || []).map(function(player, i) {
-      return i === index ? { ...player, [field]: value } : player;
+      if (i !== index) return player;
+      if (matched) return { ...player, name: matched.name || player.name, phone: matched.phone || value };
+      return { ...player, [field]: nextValue };
     });
     setMemberCheck(null);
-    setStartForm({ ...startForm, players, isMember: index === 0 && field !== "phone" && field !== "name" ? startForm.isMember : false });
+    setStartForm({
+      ...startForm,
+      players,
+      isMember: index === 0 && matched ? Boolean(matched.is_member) : (index === 0 && (field === "phone" || field === "name") ? false : startForm.isMember),
+    });
   }
 
   function addStartPlayer() {
@@ -899,7 +992,11 @@ export default function QclubLedgerPage() {
   async function joinPlayer(session) {
     const name = window.prompt("Joining player name:");
     if (!name || !name.trim()) return;
-    const phoneRaw = window.prompt("Mobile (optional):", "") || "";
+    const matches = customerMatches(name.trim(), 2);
+    const knownCustomer = matches.length === 1 ? matches[0] : null;
+    const phoneRaw = knownCustomer && knownCustomer.phone
+      ? knownCustomer.phone
+      : (window.prompt("Mobile (optional):", "") || "");
     const phone = String(phoneRaw).replace(/\D/g, "").slice(-10);
     let teamNo = null;
     if (session.match_format === "DOUBLES") {
@@ -2127,17 +2224,63 @@ export default function QclubLedgerPage() {
 
                       <div className="ql-section" style={{ marginTop: 14 }}>Open new tab</div>
                       <label className="ql-label">Customer name</label>
-                      <input className="ql-input" value={newTabName} onChange={function(e) { setNewTabName(e.target.value); }} placeholder="e.g. Kamin" />
+                      <input
+                        className="ql-input"
+                        value={newTabName}
+                        onChange={function(e) {
+                          const value = e.target.value;
+                          setNewTabName(value);
+                          const exact = customerMatches(value, 2);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setNewTabPhone(exact[0].phone);
+                        }}
+                        placeholder="Type a regular customer's name"
+                        autoComplete="off"
+                      />
+                      {renderCustomerMatches(newTabName, applyCustomerToNewTab)}
                       <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
-                      <input className="ql-input" inputMode="numeric" value={newTabPhone} onChange={function(e) { setNewTabPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }} placeholder="For UPI / WhatsApp later" />
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        value={newTabPhone}
+                        onChange={function(e) {
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setNewTabPhone(value);
+                          const match = customerByPhone(value);
+                          if (match) setNewTabName(match.name || newTabName);
+                        }}
+                        placeholder="Auto-fills for known regulars"
+                      />
                       <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Running Tab</button>
                     </>
                   ) : (
                     <>
                       <label className="ql-label">Visitor name (optional)</label>
-                      <input className="ql-input" value={walkInName} onChange={function(e) { setWalkInName(e.target.value); }} placeholder="One-off customer" />
+                      <input
+                        className="ql-input"
+                        value={walkInName}
+                        onChange={function(e) {
+                          const value = e.target.value;
+                          setWalkInName(value);
+                          const exact = customerMatches(value, 2);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setWalkInPhone(exact[0].phone);
+                        }}
+                        placeholder="Type name — regulars auto-fill"
+                        autoComplete="off"
+                      />
+                      {renderCustomerMatches(walkInName, applyCustomerToWalkIn)}
                       <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
-                      <input className="ql-input" value={walkInPhone} onChange={function(e) { setWalkInPhone(e.target.value); }} placeholder="For UPI / receipt if wanted" />
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        value={walkInPhone}
+                        onChange={function(e) {
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setWalkInPhone(value);
+                          const match = customerByPhone(value);
+                          if (match) setWalkInName(match.name || walkInName);
+                        }}
+                        placeholder="Auto-fills for known regulars"
+                      />
                       <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Running Tab when the customer will order again.</div>
                     </>
                   )}
@@ -2925,7 +3068,11 @@ export default function QclubLedgerPage() {
                       {startForm.matchFormat === "FLEX" && (startForm.players || []).length > 1 ? <button className="ql-btn danger" type="button" onClick={function() { removeStartPlayer(index); }}>Remove</button> : null}
                     </div>
                     <div className="ql-form-grid" style={{ marginTop: 8 }}>
-                      <label><span className="ql-label">Name</span><input className="ql-input" value={player.name} onChange={function(e) { updateStartPlayer(index, "name", e.target.value); }} placeholder="Player name" /></label>
+                      <label>
+                        <span className="ql-label">Name</span>
+                        <input className="ql-input" value={player.name} onChange={function(e) { updateStartPlayer(index, "name", e.target.value); }} placeholder="Type regular player name" autoComplete="off" />
+                        {renderCustomerMatches(player.name, function(customer) { applyCustomerToStartPlayer(index, customer); })}
+                      </label>
                       <label><span className="ql-label">Mobile (optional)</span><input className="ql-input" inputMode="numeric" value={player.phone} onChange={function(e) { updateStartPlayer(index, "phone", e.target.value.replace(/\D/g,"").slice(0,10)); }} placeholder="For UPI / receipt" /></label>
                     </div>
                   </div>
