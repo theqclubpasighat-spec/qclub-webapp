@@ -1953,6 +1953,398 @@ async function addFnb(req,res,sessionId){
   }
   const response={session_id:sessionId,lines:created};await rememberIdempotent(supabase,key,"add_fnb",sessionId,response);return json(res,201,response);
 }
+async function fnbTabPayload(supabase, tabId) {
+  const { data: tab, error: tabError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (tabError) throw tabError;
+  if (!tab) return null;
+
+  const { data: lines, error: lineError } = await supabase
+    .from("snooker_fnb_lines")
+    .select("*")
+    .eq("tab_id", tabId)
+    .order("added_at");
+  if (lineError) throw lineError;
+
+  const activeLines = (lines || []).filter((line) => line.status === "ACTIVE");
+  const total = money(activeLines.reduce((sum, line) => sum + number(line.line_total_inr), 0));
+  const itemCount = activeLines.reduce((sum, line) => sum + number(line.quantity), 0);
+
+  return {
+    tab_id: tab.id,
+    id: tab.id,
+    tab_no: tab.tab_no,
+    customer_name: tab.customer_name,
+    customer_phone: tab.customer_phone || null,
+    status: tab.status,
+    linked_bill_id: tab.linked_bill_id || null,
+    opened_at: tab.opened_at,
+    last_order_at: tab.last_order_at,
+    closed_at: tab.closed_at || null,
+    opened_by: tab.opened_by || null,
+    closed_by: tab.closed_by || null,
+    notes: tab.notes || null,
+    total_inr: total,
+    item_count: itemCount,
+    lines: lines || [],
+  };
+}
+
+async function listFnbTabs(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const scope = safeText(req.query?.scope || "open", 30).toLowerCase();
+  let query = supabase.from("snooker_fnb_tabs").select("*").order("last_order_at", { ascending: false }).limit(200);
+  if (scope !== "all") query = query.eq("status", "OPEN");
+  const { data: tabs, error } = await query;
+  if (error) throw error;
+
+  const payloads = [];
+  for (const tab of tabs || []) {
+    const detail = await fnbTabPayload(supabase, tab.id);
+    if (detail) payloads.push(detail);
+  }
+  return json(res, 200, { tabs: payloads });
+}
+
+async function createFnbTab(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "create_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const customerName = safeText(req.body?.customer_name || req.body?.customerName || "", 160).trim();
+  const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
+  const notes = safeText(req.body?.notes || "", 500).trim() || null;
+  if (!customerName) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
+
+  const id = randomUUID();
+  const suffix = id.replace(/-/g, "").slice(-6).toUpperCase();
+  const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const tabNo = `QT-${datePart}-${suffix}`;
+
+  const { data: tab, error } = await supabase.from("snooker_fnb_tabs").insert({
+    id,
+    tab_no: tabNo,
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    status: "OPEN",
+    opened_by: auth.staff_id,
+    notes,
+  }).select("*").single();
+  if (error) throw error;
+
+  const response = await fnbTabPayload(supabase, tab.id);
+  await rememberIdempotent(supabase, key, "create_fnb_tab", tab.id, response);
+  return json(res, 201, response);
+}
+
+async function updateFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+
+  const { data: current, error: readError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const patch = { updated_at: new Date().toISOString() };
+  if (req.body?.customer_name !== undefined) {
+    const name = safeText(req.body.customer_name || "", 160).trim();
+    if (!name) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
+    patch.customer_name = name;
+  }
+  if (req.body?.customer_phone !== undefined) patch.customer_phone = normalizePhone(req.body.customer_phone || "") || null;
+  if (req.body?.notes !== undefined) patch.notes = safeText(req.body.notes || "", 500).trim() || null;
+
+  const { error } = await supabase.from("snooker_fnb_tabs").update(patch).eq("id", tabId);
+  if (error) throw error;
+  return json(res, 200, await fnbTabPayload(supabase, tabId));
+}
+
+async function addFnbToTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "add_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const { data: tab, error: tabError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (tabError) throw tabError;
+  if (!tab) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (tab.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (!rawLines.length) return json(res, 400, { ok: false, error: "FNB_LINES_REQUIRED" });
+
+  const prepared = [];
+  const requestedByItem = new Map();
+
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const line = rawLines[i] || {};
+    const itemId = safeText(line.item_id || line.itemId || "", 160);
+    const qty = number(line.quantity ?? line.qty, 0);
+    if (!itemId || qty <= 0) return json(res, 400, { ok: false, error: "INVALID_FNB_LINE" });
+
+    const { data: item, error: itemError } = await supabase
+      .from("snooker_catalogue_items")
+      .select("*")
+      .eq("id", itemId)
+      .eq("active", true)
+      .maybeSingle();
+    if (itemError) throw itemError;
+    if (!item) return json(res, 404, { ok: false, error: "ITEM_NOT_FOUND", item_id: itemId });
+    if (item.selling_price_inr == null || number(item.selling_price_inr) <= 0) {
+      return json(res, 409, { ok: false, error: "PRICE_NOT_CONFIGURED", item_id: itemId, name: item.name });
+    }
+
+    const cumulativeQty = number(requestedByItem.get(item.id), 0) + qty;
+    requestedByItem.set(item.id, cumulativeQty);
+    if (item.track_inventory && number(item.current_stock) < cumulativeQty) {
+      return json(res, 409, {
+        ok: false,
+        error: "INSUFFICIENT_STOCK",
+        item_id: item.id,
+        available: number(item.current_stock),
+        requested: cumulativeQty,
+      });
+    }
+
+    prepared.push({
+      item,
+      qty,
+      lineTotal: money(number(item.selling_price_inr) * qty),
+      lineKey: key ? `${key}:${i}` : null,
+    });
+  }
+
+  const created = [];
+  const stockApplied = [];
+  try {
+    for (const row of prepared) {
+      const { item, qty, lineTotal, lineKey } = row;
+      const { data: inserted, error } = await supabase.from("snooker_fnb_lines").insert({
+        session_id: null,
+        bill_id: null,
+        tab_id: tabId,
+        person_id: null,
+        item_id: item.id,
+        item_name_snapshot: item.name,
+        unit_price_snapshot_inr: money(item.selling_price_inr),
+        quantity: qty,
+        line_total_inr: lineTotal,
+        added_by: auth.staff_id,
+        idempotency_key: lineKey,
+      }).select("*").single();
+      if (error) throw error;
+      created.push(inserted);
+
+      if (item.track_inventory) {
+        await applyStockMovement(supabase, {
+          item,
+          delta: -qty,
+          type: "SALE",
+          referenceType: "FNB_TAB_LINE",
+          referenceId: inserted.id,
+          reason: `Running tab ${tab.tab_no}`,
+          staffId: auth.staff_id,
+          key: `sale:${inserted.id}`,
+        });
+        stockApplied.push({ item, qty, lineId: inserted.id });
+      }
+    }
+
+    await supabase.from("snooker_fnb_tabs").update({
+      last_order_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", tabId);
+  } catch (error) {
+    for (const applied of stockApplied.reverse()) {
+      try {
+        const { data: latestItem } = await supabase
+          .from("snooker_catalogue_items")
+          .select("*")
+          .eq("id", applied.item.id)
+          .maybeSingle();
+        if (latestItem) {
+          await applyStockMovement(supabase, {
+            item: latestItem,
+            delta: applied.qty,
+            type: "CORRECTION",
+            referenceType: "FNB_TAB_ROLLBACK",
+            referenceId: applied.lineId,
+            reason: "Rollback failed running-tab order",
+            staffId: auth.staff_id,
+            key: `rollback-sale:${applied.lineId}`,
+          });
+        }
+      } catch (rollbackError) {
+        console.error("running tab stock rollback failed", { line_id: applied.lineId, message: rollbackError?.message });
+      }
+    }
+    if (created.length) await supabase.from("snooker_fnb_lines").delete().in("id", created.map((line) => line.id));
+    throw error;
+  }
+
+  const response = await fnbTabPayload(supabase, tabId);
+  await rememberIdempotent(supabase, key, "add_fnb_tab", tabId, response);
+  return json(res, 201, response);
+}
+
+async function closeFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "close_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const { data: current, error: readError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (current.status === "CLOSED" && current.linked_bill_id) {
+    const response = await billDetailPayload(supabase, current.linked_bill_id);
+    await rememberIdempotent(supabase, key, "close_fnb_tab", current.linked_bill_id, response);
+    return json(res, 200, response);
+  }
+  if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const { data: claimed, error: claimError } = await supabase
+    .from("snooker_fnb_tabs")
+    .update({ status: "CLOSING", updated_at: new Date().toISOString() })
+    .eq("id", tabId)
+    .eq("status", "OPEN")
+    .select("*")
+    .maybeSingle();
+  if (claimError) throw claimError;
+  if (!claimed) return json(res, 409, { ok: false, error: "FNB_TAB_CLOSE_IN_PROGRESS" });
+
+  let bill = null;
+  try {
+    const { data: lines, error: lineError } = await supabase
+      .from("snooker_fnb_lines")
+      .select("*")
+      .eq("tab_id", tabId)
+      .eq("status", "ACTIVE")
+      .order("added_at");
+    if (lineError) throw lineError;
+    if (!(lines || []).length) {
+      await supabase.from("snooker_fnb_tabs").update({ status: "OPEN", updated_at: new Date().toISOString() }).eq("id", tabId);
+      return json(res, 409, { ok: false, error: "FNB_TAB_EMPTY" });
+    }
+
+    const total = money((lines || []).reduce((sum, line) => sum + number(line.line_total_inr), 0));
+    const billId = randomUUID();
+    const suffix = billId.replace(/-/g, "").slice(-6).toUpperCase();
+    const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+    const billNo = `QF-${datePart}-${suffix}`;
+
+    const { data: createdBill, error: billError } = await supabase.from("snooker_bills").insert({
+      id: billId,
+      bill_no: billNo,
+      session_id: null,
+      bill_source: "WALK_IN_FNB",
+      customer_name: claimed.customer_name,
+      customer_phone: claimed.customer_phone,
+      game_total_inr: 0,
+      fnb_total_inr: total,
+      discount_inr: 0,
+      total_inr: total,
+      paid_inr: 0,
+      due_inr: total,
+      status: "UNPAID",
+      revision: "1",
+      finalized_by: auth.staff_id,
+      idempotency_key: key || null,
+    }).select("*").single();
+    if (billError) throw billError;
+    bill = createdBill;
+
+    const lineIds = (lines || []).map((line) => line.id);
+    const { error: linkError } = await supabase.from("snooker_fnb_lines").update({ bill_id: bill.id }).in("id", lineIds);
+    if (linkError) throw linkError;
+
+    const items = (lines || []).map((line) => ({
+      bill_id: bill.id,
+      item_type: "FNB",
+      reference_id: line.id,
+      description: line.item_name_snapshot,
+      quantity: number(line.quantity),
+      unit_price_inr: money(line.unit_price_snapshot_inr),
+      line_total_inr: money(line.line_total_inr),
+      metadata: { item_id: line.item_id, source: "RUNNING_FNB_TAB", tab_id: tabId, tab_no: claimed.tab_no },
+    }));
+    const { error: itemError } = await supabase.from("snooker_bill_items").insert(items);
+    if (itemError) throw itemError;
+
+    const { error: closeError } = await supabase.from("snooker_fnb_tabs").update({
+      status: "CLOSED",
+      linked_bill_id: bill.id,
+      closed_at: new Date().toISOString(),
+      closed_by: auth.staff_id,
+      updated_at: new Date().toISOString(),
+    }).eq("id", tabId);
+    if (closeError) throw closeError;
+
+    const response = await billDetailPayload(supabase, bill.id);
+    await rememberIdempotent(supabase, key, "close_fnb_tab", bill.id, response);
+    return json(res, 201, response);
+  } catch (error) {
+    if (bill?.id) {
+      await supabase.from("snooker_fnb_lines").update({ bill_id: null }).eq("tab_id", tabId).eq("bill_id", bill.id);
+      await supabase.from("snooker_bills").delete().eq("id", bill.id);
+    }
+    await supabase.from("snooker_fnb_tabs").update({ status: "OPEN", updated_at: new Date().toISOString() }).eq("id", tabId);
+    throw error;
+  }
+}
+
+async function cancelEmptyFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const { data: tab } = await supabase.from("snooker_fnb_tabs").select("*").eq("id", tabId).maybeSingle();
+  if (!tab) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (tab.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const { count, error: countError } = await supabase
+    .from("snooker_fnb_lines")
+    .select("*", { count: "exact", head: true })
+    .eq("tab_id", tabId)
+    .eq("status", "ACTIVE");
+  if (countError) throw countError;
+  if (number(count) > 0) return json(res, 409, { ok: false, error: "FNB_TAB_HAS_ITEMS", message: "Void the tab items first or close the tab into a bill." });
+
+  const { error } = await supabase.from("snooker_fnb_tabs").update({
+    status: "CANCELLED",
+    closed_at: new Date().toISOString(),
+    closed_by: auth.staff_id,
+    updated_at: new Date().toISOString(),
+  }).eq("id", tabId);
+  if (error) throw error;
+  return json(res, 200, { ok: true, tab_id: tabId, status: "CANCELLED" });
+}
+
 async function createWalkInFnbBill(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -3224,6 +3616,20 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
+
+    if (method === "GET" && path === "fnb-tabs") return await listFnbTabs(req, res);
+    if (method === "POST" && path === "fnb-tabs") return await createFnbTab(req, res);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "GET") {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const payload = await fnbTabPayload(getSupabaseAdmin(), parts[1]);
+      if (!payload) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+      return json(res, 200, payload);
+    }
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "PATCH") return await updateFnbTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts[2] === "fnb" && method === "POST") return await addFnbToTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts[2] === "close" && method === "POST") return await closeFnbTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "DELETE") return await cancelEmptyFnbTab(req, res, parts[1]);
 
     if (method === "GET" && path === "bills") return await listBills(req, res);
     if (method === "POST" && path === "bills/finalize") return await finalizeBill(req, res);
