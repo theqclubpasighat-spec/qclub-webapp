@@ -33,42 +33,42 @@ with raw as (
 
   union all
   select p.value->>'name', p.value->>'mobile', true, p.value->>'tier', 'member_registry',
-         nullif(p.value->>'updatedAt','')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'memberRegistry')='array' then s.state->'memberRegistry' else '[]'::jsonb end) p(value)
   where s.key='main'
 
   union all
   select p.value->>'name', p.value->>'mobile', false, null, 'archived_food_order',
-         nullif(coalesce(p.value->>'updatedAt',p.value->>'createdAt'),'')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'archivedFoodOrders')='array' then s.state->'archivedFoodOrders' else '[]'::jsonb end) p(value)
   where s.key='main'
 
   union all
   select p.value->>'customerName', p.value->>'customerMobile', false, null, 'food_order',
-         nullif(p.value->>'createdAt','')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'foodOrders')='array' then s.state->'foodOrders' else '[]'::jsonb end) p(value)
   where s.key='main'
 
   union all
   select p.value->>'customer_name', p.value->>'customer_phone', false, null, 'payment_order',
-         nullif(coalesce(p.value->>'created_at',p.value->>'createdAt'),'')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'paymentOrders')='array' then s.state->'paymentOrders' else '[]'::jsonb end) p(value)
   where s.key='main'
 
   union all
   select p.value->>'customerName', p.value->>'customerMobile', false, null, 'shop_receipt',
-         nullif(coalesce(p.value->>'updatedAt',p.value->>'createdAt'),'')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'shopReceipts')='array' then s.state->'shopReceipts' else '[]'::jsonb end) p(value)
   where s.key='main'
 
   union all
   select p.value->>'name', p.value->>'mobile', false, null, 'booking',
-         nullif(coalesce(p.value->>'updatedAt',p.value->>'createdAt'),'')::timestamptz
+         null::timestamptz
   from public.qclub_state s,
        lateral jsonb_array_elements(case when jsonb_typeof(s.state->'booking'->'requests')='array' then s.state->'booking'->'requests' else '[]'::jsonb end) p(value)
   where s.key='main'
