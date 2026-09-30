@@ -93,3 +93,19 @@ This is an incomplete, disabled payment integration. The next steps are server-a
 A paid booking record does not establish slot availability. A paid shop receipt does not adjust stock. The operational table's legacy policies remain unchanged, so this package does not close existing direct-write exposure. Those constraints must be resolved before cutover.
 
 The new SQL migration was generated with Supabase CLI and executed only in disposable PGlite tests. Validation includes malformed/forged commands, pending/mismatched gateway evidence, denied client execution, retry preservation of staff state, record collisions, duplicate-payment rollback and unchanged shared state. Gateway contract references reviewed: https://www.cashfree.com/docs/api-reference/payments/latest/orders/get-order and https://www.cashfree.com/docs/api-reference/payments/latest/payments/get-payments-for-an-order . Adapter version is explicitly pinned to 2025-01-01; sandbox acceptance of that version remains to be verified before activation.
+
+## Package 5 progress — server-priced food checkout
+
+The new `/api/qclub-checkout-rehearsal` endpoint connects private order creation to a sandbox order adapter. It remains hard-disabled in production and uses the dedicated rehearsal database and sandbox credentials. No live food page calls it.
+
+The browser command accepts a stable checkout UUID, a receipt capability token, item IDs/quantities and customer name/phone. Prices, totals, option overrides and duplicate item IDs are rejected. The receipt token must be generated using 32 random bytes by the future client and retained for retries; only its hash is stored on the server. This package does not yet provide browser token persistence/recovery or return-page UI.
+
+The database resolves prices from `snooker_catalogue_items`, checks active category/item and online visibility flags, and freezes the cart, customer and integer-paise amount in one private intent. The same checkout ID and request fingerprint reuse those terms on retry; a changed cart/customer/token conflicts. A transient gateway failure therefore does not create a new private order or silently reprice the retry. Catalogue row/category locks protect quote creation from concurrent changes.
+
+The sandbox adapter submits the stable order ID and checkout UUID as an idempotency key. A duplicate-order 409 response is recovered by reading that same order, and the caller verifies returned identity/currency/amount before exposing its payment session. The adapter never uses production credentials or a configurable gateway host. Gateway calls were simulated in tests; sandbox network acceptance remains unverified. The current explicit API version is 2025-01-01. No real/sandbox payment was initiated during this implementation.
+
+Stock-tracked food is deliberately rejected with `STOCK_RESERVATION_REQUIRED`; option-bearing commands are rejected because the authoritative shared menu currently publishes base items. This is a restricted rehearsal subset, not permission to remove products or options from live production. It does not reserve inventory, cover shop or table checkout, add payment-return URLs, deliver MSG91 messages, or perform printing. Receipt expiry/recovery and late-payment reconciliation must be completed before customer use.
+
+The endpoint has a separate checkout namespace in the fail-closed network-attempt limiter (five requests per 15 minutes), which is adequate only for rehearsal and needs operational sizing before rollout.
+
+Validation adds request-tampering checks, fixed sandbox/idempotency checks and a Postgres-backed creation-to-fulfilment test. The latter simulates a lost gateway response, changes the catalogue price, retries the same checkout, confirms frozen terms and verifies a single paid operational record. It also checks unavailable/tracked products and conflicting receipt/cart retries. These tests do not establish real browser, gateway or inventory compatibility.
