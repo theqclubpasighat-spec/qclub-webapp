@@ -1215,6 +1215,7 @@ export default function QclubLedgerPage() {
           bill_id: billDetail.bill_id,
           amount_applied_inr: amount,
           cash_tendered_inr: tendered,
+          customer_phone: String(paymentPhone || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10) || null,
           idempotency_key: makeKey("cash"),
           staff_notes: "QClubLedger web terminal",
         },
