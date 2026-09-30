@@ -2515,6 +2515,9 @@ async function cashPayment(req, res) {
   }).select("*").single();
   if (error) throw error;
   const updatedBill = await refreshBill(supabase, billId);
+  const autoReceipt = updatedBill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, billId, payment.id, "CASH_RECEIVED")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
   const response = {
     payment_id: payment.id,
     bill_id: billId,
@@ -2525,6 +2528,7 @@ async function cashPayment(req, res) {
     status: "RECEIVED",
     bill_status: updatedBill.status,
     due_inr: money(updatedBill.due_inr),
+    auto_receipt: autoReceipt,
   };
   await rememberIdempotent(supabase, key, "cash_payment", payment.id, response);
   return json(res, 201, response);
@@ -2731,7 +2735,10 @@ async function syncCashfreePayment(supabase, payment) {
       updated_at: new Date().toISOString(),
     }).eq("id", payment.id).select("*").single();
     if (error) throw error;
-    await refreshBill(supabase, payment.bill_id);
+    const refreshedBill = await refreshBill(supabase, payment.bill_id);
+    if (status === "VERIFIED" && refreshedBill?.status === "PAID") {
+      await autoSendPaidReceipt(supabase, payment.bill_id, updated.id, "CASHFREE_STATUS_SYNC");
+    }
     return updated;
   }
   return payment;
@@ -2762,6 +2769,9 @@ async function paymentStatus(req, res, paymentId) {
   }
 
   const bill = await refreshBill(supabase, payment.bill_id);
+  const autoReceipt = payment.status === "VERIFIED" && bill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, payment.bill_id, payment.id, "PAYMENT_STATUS_VERIFY")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
   return json(res, 200, {
     payment_id: payment.id,
     bill_id: payment.bill_id,
@@ -2773,6 +2783,7 @@ async function paymentStatus(req, res, paymentId) {
     verified_at: payment.verified_at,
     bill_status: bill?.status,
     due_inr: bill ? money(bill.due_inr) : null,
+    auto_receipt: autoReceipt,
   });
 }
 
@@ -2822,6 +2833,166 @@ function msg91BodyText(value = "", maxLength = 1200) {
     .replace(/[\r\n]+/g, " • ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger = "PAYMENT_SETTLED") {
+  try {
+    const bill = await billDetailPayload(supabase, billId);
+    if (!bill) return { attempted: false, status: "SKIPPED", reason: "BILL_NOT_FOUND" };
+    if (bill.status !== "PAID" || number(bill.due_inr) > 0.009) {
+      return { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+    }
+    if (bill.accounting_excluded) {
+      return { attempted: false, status: "SKIPPED", reason: "ACCOUNTING_EXCLUDED" };
+    }
+
+    let session = null;
+    if (bill.session_id) {
+      const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
+      session = data || null;
+    }
+    const phone = normalizeWhatsappPhone(bill.customer_phone || session?.customer_phone || "");
+    if (!phone) {
+      return { attempted: false, status: "SKIPPED", reason: "PHONE_UNAVAILABLE" };
+    }
+
+    const authKey = env("MSG91_AUTH_KEY");
+    const sender = env("MSG91_SENDER_NUMBER");
+    const template = env("MSG91_SNOOKER_RECEIPT_TEMPLATE") || env("MSG91_FOOD_SUCCESS_TEMPLATE") || "food_success_items";
+    if (!authKey || !sender || !template) {
+      return { attempted: false, status: "SKIPPED", reason: "MSG91_NOT_CONFIGURED" };
+    }
+
+    // One automatic paid receipt per bill + destination phone. The unique
+    // notification idempotency key protects against duplicate Cashfree webhooks,
+    // manual Verify clicks and concurrent settlement callbacks.
+    const notificationKey = `auto-paid-receipt:${billId}:${phone}`;
+    let { data: existing, error: existingError } = await supabase
+      .from("snooker_notification_requests")
+      .select("*")
+      .eq("idempotency_key", notificationKey)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) {
+      return {
+        attempted: false,
+        status: existing.status,
+        reason: existing.status === "SENT" ? "ALREADY_SENT" : "AUTO_ATTEMPT_ALREADY_RECORDED",
+        notification_id: existing.id,
+      };
+    }
+
+    let reservation = null;
+    const { data: inserted, error: reserveError } = await supabase
+      .from("snooker_notification_requests")
+      .insert({
+        bill_id: billId,
+        phone,
+        channel: "WHATSAPP",
+        status: "PENDING",
+        provider: "MSG91",
+        requested_by: "AUTO_PAYMENT_SETTLEMENT",
+        idempotency_key: notificationKey,
+      })
+      .select("*")
+      .single();
+
+    if (reserveError) {
+      if (reserveError.code === "23505") {
+        const { data: raced } = await supabase
+          .from("snooker_notification_requests")
+          .select("*")
+          .eq("idempotency_key", notificationKey)
+          .maybeSingle();
+        return {
+          attempted: false,
+          status: raced?.status || "PENDING",
+          reason: raced?.status === "SENT" ? "ALREADY_SENT" : "AUTO_ATTEMPT_ALREADY_RECORDED",
+          notification_id: raced?.id || null,
+        };
+      }
+      throw reserveError;
+    }
+    reservation = inserted;
+
+    const summaryBase = (bill.items || [])
+      .slice(0, 12)
+      .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
+      .join(" • ") || "Q Club bill";
+    const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
+    const params = [
+      customer,
+      msg91BodyText(bill.bill_no, 120),
+      msg91BodyText(summaryBase, 1200),
+      msg91BodyText(String(money(bill.total_inr)), 120),
+    ];
+    const payload = {
+      integrated_number: sender,
+      content_type: "template",
+      payload: {
+        to: phone,
+        messaging_product: "whatsapp",
+        type: "template",
+        template: {
+          name: template,
+          language: { code: "en", policy: "deterministic" },
+          components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: msg91BodyText(text, 1200) })) }],
+        },
+      },
+    };
+
+    let upstream = null;
+    let raw = "";
+    let providerResponse = null;
+    try {
+      upstream = await fetch("https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authkey: authKey },
+        body: JSON.stringify(payload),
+      });
+      raw = await upstream.text();
+      try { providerResponse = raw ? JSON.parse(raw) : null; } catch { providerResponse = { raw: safeText(raw, 2000) }; }
+    } catch (deliveryError) {
+      const errorText = safeText(deliveryError?.message || "MSG91 request failed", 1000);
+      await supabase.from("snooker_notification_requests").update({
+        status: "FAILED",
+        error: errorText,
+        provider_response: { trigger, payment_id: paymentId, network_error: errorText },
+      }).eq("id", reservation.id);
+      return { attempted: true, status: "FAILED", reason: "PROVIDER_REQUEST_FAILED", notification_id: reservation.id };
+    }
+
+    const notificationStatus = upstream.ok ? "SENT" : "FAILED";
+    const errorText = upstream.ok ? null : safeText(raw, 1000);
+    const mergedProviderResponse = providerResponse && typeof providerResponse === "object"
+      ? { ...providerResponse, trigger, payment_id: paymentId }
+      : { response: providerResponse, trigger, payment_id: paymentId };
+
+    const { error: updateError } = await supabase.from("snooker_notification_requests").update({
+      status: notificationStatus,
+      provider_response: mergedProviderResponse,
+      error: errorText,
+      sent_at: upstream.ok ? new Date().toISOString() : null,
+    }).eq("id", reservation.id);
+    if (updateError) throw updateError;
+
+    return {
+      attempted: true,
+      status: notificationStatus,
+      reason: upstream.ok ? "AUTO_SENT" : "PROVIDER_REJECTED",
+      notification_id: reservation.id,
+    };
+  } catch (error) {
+    // Payment settlement must never fail because WhatsApp failed.
+    console.error("auto paid receipt failed", {
+      bill_id: billId,
+      payment_id: paymentId,
+      trigger,
+      message: error?.message,
+      code: error?.code,
+    });
+    return { attempted: true, status: "FAILED", reason: "AUTO_RECEIPT_ERROR" };
+  }
 }
 
 async function sendReceipt(req, res) {
@@ -2984,15 +3155,20 @@ async function cashfreeWebhook(req, res) {
   else if (["FAILED", "USER_DROPPED", "CANCELLED", "CANCELED"].includes(paymentStatusValue)) status = "FAILED";
   else if (paymentStatusValue === "PENDING") status = "PENDING";
 
-  await supabase.from("snooker_bill_payments").update({
+  const { data: updatedPayment, error: paymentUpdateError } = await supabase.from("snooker_bill_payments").update({
     status,
     cashfree_payment_id: safeText(body?.data?.payment?.cf_payment_id || "", 160) || payment.cashfree_payment_id,
     verified_at: status === "VERIFIED" ? new Date().toISOString() : payment.verified_at,
     provider_payload: { ...(payment.provider_payload || {}), webhook: body },
     updated_at: new Date().toISOString(),
-  }).eq("id", payment.id);
-  await refreshBill(supabase, payment.bill_id);
-  return json(res, 200, { ok: true, received: true });
+  }).eq("id", payment.id).select("*").single();
+  if (paymentUpdateError) throw paymentUpdateError;
+
+  const refreshedBill = await refreshBill(supabase, payment.bill_id);
+  const autoReceipt = status === "VERIFIED" && refreshedBill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, payment.bill_id, updatedPayment?.id || payment.id, "CASHFREE_WEBHOOK")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+  return json(res, 200, { ok: true, received: true, auto_receipt: autoReceipt });
 }
 
 export async function handleSnookerV1(req, res, rawPath = "") {
