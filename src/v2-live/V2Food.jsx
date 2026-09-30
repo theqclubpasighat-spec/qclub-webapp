@@ -110,9 +110,12 @@ export default function V2Food() {
         <div>
           <p className="v2-live-eyebrow">A break between frames</p>
           <h1>Q Lounge</h1>
-          <p className="v2-live-muted">Food & refreshments from the club’s shared catalogue.</p>
+          <p className="v2-live-muted">Browse the shared club catalogue here, then use Order Food for the existing secure checkout.</p>
         </div>
-        <Link className="v2-live-button" to="/">Home</Link>
+        <div className="v2-live-inline-actions">
+          <Link className="v2-live-button v2-live-primary" to="/offer">Order Food</Link>
+          <Link className="v2-live-button" to="/">Home</Link>
+        </div>
       </div>
 
       {status === "loading" ? <p role="status" className="v2-live-state">Loading the club menu…</p> : null}
