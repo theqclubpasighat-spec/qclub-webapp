@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [integration/v2-mobile-preview-20260927]
+    branches: [integration/v2-mobile-preview-20260927, integration/v2-production-shell-20260930]
 permissions:
   contents: read
 jobs:
@@ -16,7 +16,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: node --test tests/v2-preview.test.mjs
+      - run: node --test tests/v2-preview.test.mjs tests/v2-production-shell.test.mjs
       - name: Production build excludes V2 preview
         run: npm run build && node scripts/check-preview-bundle.mjs absent
         env:
