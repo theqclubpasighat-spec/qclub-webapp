@@ -636,7 +636,7 @@ export default function QclubLedgerPage() {
       stopped = true;
       window.clearInterval(pollTimer);
     };
-  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshAll, flash]);
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshBillingOverview, flash]);
 
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
@@ -1195,7 +1195,8 @@ export default function QclubLedgerPage() {
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash(person.name + " bill " + bill.bill_no + " created. The player stays active and can keep playing after payment.");
-      await refreshAll();
+      runInBackground(refreshOneSession(session.session_id));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to create player bill.", true);
     } finally {
@@ -1272,7 +1273,8 @@ export default function QclubLedgerPage() {
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash("Bill " + (bill.bill_no || "") + " finalized.");
-      await refreshAll();
+      runInBackground(refreshOneSession(session.session_id));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1467,7 +1469,7 @@ export default function QclubLedgerPage() {
 
   async function loadBill(billId, options) {
     const opts = options || {};
-    setBusy(true);
+    if (!opts.silent) setBusy(true);
     try {
       const detail = await protectedCall("bills/" + billId);
       setBillDetail(detail);
@@ -1484,7 +1486,7 @@ export default function QclubLedgerPage() {
     } catch (error) {
       flash(error.message, true);
     } finally {
-      setBusy(false);
+      if (!opts.silent) setBusy(false);
     }
   }
 
@@ -1515,8 +1517,22 @@ export default function QclubLedgerPage() {
           staff_notes: "QClubLedger web terminal",
         },
       });
+      setBillDetail(function(current) {
+        if (!current) return current;
+        const due = result.due_inr == null ? current.due_inr : Number(result.due_inr);
+        return {
+          ...current,
+          status: result.bill_status || current.status,
+          due_inr: due,
+          paid_inr: Math.max(0, Number(current.total_inr || 0) - Number(due || 0)),
+        };
+      });
+      setCashAmount(Number(result.due_inr || 0).toFixed(2));
+      setCashTendered(Number(result.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(result.due_inr || 0).toFixed(2));
       flash(Number(result.change_inr) > 0 ? "Cash recorded. Return change " + money(result.change_inr) + "." : "Cash payment recorded.");
-      await refreshBillDetail();
+      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1596,7 +1612,7 @@ export default function QclubLedgerPage() {
         });
       }
       if (billDetail && billDetail.bill_id) {
-        runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true }));
+        runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
       }
       runInBackground(refreshBillingOverview());
     } catch (error) {
@@ -1628,7 +1644,7 @@ export default function QclubLedgerPage() {
         },
       });
       flash(payment && payment.payment_url ? "Receipt and Cashfree payment link submitted to MSG91." : "Receipt submitted to MSG91.");
-      await refreshBillDetail({ preserveUpi: true });
+      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1673,7 +1689,7 @@ export default function QclubLedgerPage() {
       });
       setBillDetail(updated);
       flash(excluded ? "Bill marked TEST and excluded from accounting." : "Bill restored to accounting.");
-      await refreshAll();
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to update accounting status.", true);
     } finally {
@@ -1708,7 +1724,7 @@ export default function QclubLedgerPage() {
         setShowUpiQrModal(false);
       }
       flash("Payment attempt cleared.");
-      await refreshAll();
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to clear payment attempt.", true);
     } finally {
