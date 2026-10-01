@@ -274,7 +274,7 @@ export default function QclubLedgerPage() {
     frameRate: "",
     isMember: false,
     players: [
-      { name: "", phone: "", teamNo: null },
+      { name: "", phone: "", customerId: null, teamNo: null },
       { name: "", phone: "", teamNo: null },
     ],
   });
@@ -827,7 +827,7 @@ export default function QclubLedgerPage() {
 
   function applyCustomerToStartPlayer(index, customer) {
     const players = (startForm.players || []).map(function(player, i) {
-      return i === index ? { ...player, name: String(customer.name || "").toUpperCase(), phone: customer.phone || "" } : player;
+      return i === index ? { ...player, customerId: customer.customer_id || customer.id || null, name: String(customer.name || "").toUpperCase(), phone: customer.phone || "" } : player;
     });
     setMemberCheck(null);
     setStartForm({ ...startForm, players, isMember: index === 0 ? Boolean(customer.is_member) : startForm.isMember });
@@ -889,6 +889,7 @@ export default function QclubLedgerPage() {
         name: String(player.name || "").trim().toUpperCase(),
         phone: String(player.phone || "").replace(/\D/g, "").slice(-10),
         is_member: index === 0 ? Boolean(form.isMember) : false,
+        customer_id: player.customerId || null,
         team_no: form.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null,
       };
     }).filter(function(player) { return player.name; });
@@ -897,7 +898,7 @@ export default function QclubLedgerPage() {
   function resizeStartPlayers(matchFormat) {
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     const current = (startForm.players || []).slice(0, wanted);
-    while (current.length < wanted) current.push({ name: "", phone: "", teamNo: null });
+    while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null });
     return current;
   }
 
@@ -918,7 +919,7 @@ export default function QclubLedgerPage() {
     const next = { ...startForm, matchFormat };
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     next.players = (startForm.players || []).slice(0, wanted);
-    while (next.players.length < wanted) next.players.push({ name: "", phone: "", teamNo: null });
+    while (next.players.length < wanted) next.players.push({ name: "", phone: "", customerId: null, teamNo: null });
     setStartForm(next);
   }
 
@@ -1089,7 +1090,7 @@ export default function QclubLedgerPage() {
         method: "PATCH",
         body: { action },
       });
-      flash(person.name + (action === "LEAVE" ? " left the table." : " rejoined the table."));
+      flash(person.name + (action === "LEAVE" ? " left the game/table. Historical games and charges are preserved." : " rejoined the table."));
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -2309,7 +2310,7 @@ export default function QclubLedgerPage() {
                                       <button className="ql-btn" onClick={function() { setPlayerAccountView({ sessionId: session.session_id, personId: person.person_id }); }}>View Account</button>
                                       <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
                                       <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
-                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
+                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave Game/Table</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
                                       {Number(person.current_due_inr || 0) > 0
                                         ? <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay {money(person.current_due_inr)}</button>
                                         : <span className="ql-badge good">PAID UP</span>}
@@ -3352,7 +3353,7 @@ export default function QclubLedgerPage() {
 
             <div className="ql-line" style={{ marginTop: 14 }}>
               <strong>Pay-and-continue</strong>
-              <div className="ql-muted">Paying this account settles money only. The player remains ACTIVE and can continue playing and ordering until staff taps Leave or the table is closed.</div>
+              <div className="ql-muted">Paying this account settles money only. The player remains ACTIVE and can continue playing and ordering until staff taps Leave Game/Table or the table is closed.</div>
             </div>
 
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
