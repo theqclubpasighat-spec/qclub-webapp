@@ -3226,7 +3226,7 @@ export default function QclubLedgerPage() {
               ) : startForm.gameType === "QCHASE_RUMMY" ? (
                 <div className="full ql-line"><strong>QChase / Rummy</strong><div className="ql-muted">2–6 players. Each completed game charges only the players who actually played that game.</div></div>
               ) : (
-                <div className="full ql-line"><strong>Kitty</strong><div className="ql-muted">2–6 individual players. No singles/doubles and no shared billing rule. The game runs on time: Liberwin/Wiraka ₹600/hr; Mini Snooker ₹500/hr. Only the winner is charged, minimum ₹100. If there is no winner, that game time carries forward until a later game produces a winner.</div></div>
+                <div className="full ql-line"><strong>Kitty</strong><div className="ql-muted">2–6 individual players. No singles/doubles and no shared billing rule. The game runs on time: Liberwin/Wiraka ₹600/hr; Mini Snooker ₹500/hr. Only the winner is charged, minimum ₹100, rounded to the nearest ₹10. If there is no winner, that game time carries forward until a later game produces a winner.</div></div>
               )}
 
               {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" ? (
