@@ -59,6 +59,9 @@ export default function TableDisplayPage({ tableKey: fixedTableKey }) {
   const payment = data?.payment || null;
   const liveTable = session?.billing_mode === "HOURLY" ? (liveSeconds / 3600) * Number(session.hourly_rate_inr || 0) : Number(session?.game_charges_inr || 0);
   const liveTotal = liveTable + Number(session?.fnb_total_inr || 0);
+  const kittyChainSeconds = Number(session?.kitty_chain_seconds_live || liveSeconds || 0);
+  const kittyRawCharge = Math.max(100, (kittyChainSeconds / 3600) * Number(session?.hourly_rate_inr || 0));
+  const kittyWinnerCharge = Math.max(100, Math.round(kittyRawCharge / 10) * 10);
 
   return (
     <main style={{ minHeight:"100vh", background:"#06100b", color:"#f7fbf8", fontFamily:"Inter,system-ui,sans-serif", padding:"clamp(18px,4vw,46px)" }}>
@@ -95,8 +98,10 @@ export default function TableDisplayPage({ tableKey: fixedTableKey }) {
             {session.game_type === "KITTY" ? (
               <div style={{ margin:"24px auto", maxWidth:720, border:"1px solid #294334", borderRadius:18, padding:22 }}>
                 <div style={{ color:"#9fb3a6" }}>CURRENT KITTY CHAIN</div>
-                <div style={{ fontSize:36, fontWeight:950 }}>{clock(session.kitty_chain_seconds_live || liveSeconds)}</div>
-                <div style={{ marginTop:8 }}>Only the winner is charged • Minimum ₹100 • No-winner time carries forward</div>
+                <div style={{ fontSize:36, fontWeight:950 }}>{clock(kittyChainSeconds)}</div>
+                <div style={{ color:"#9fb3a6", marginTop:12 }}>WINNER CHARGE IF GAME ENDS NOW</div>
+                <div style={{ fontSize:46, fontWeight:950 }}>{money(kittyWinnerCharge)}</div>
+                <div style={{ marginTop:8 }}>Only the winner is charged • Minimum ₹100 • Rounded to nearest ₹10 • No-winner time carries forward</div>
               </div>
             ) : (
               <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:14, maxWidth:720, margin:"24px auto" }}>
