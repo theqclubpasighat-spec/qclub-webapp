@@ -466,6 +466,86 @@ async function publicPaymentSession(req, res, paymentId) {
   });
 }
 
+
+async function publicTableDisplay(req, res, tableKey) {
+  const match = /^T([1-4])$/i.exec(safeText(tableKey || "", 10));
+  if (!match) return json(res, 404, { ok: false, error: "TABLE_DISPLAY_NOT_FOUND" });
+  const tableNo = Number(match[1]);
+  const supabase = getSupabaseAdmin();
+  const { data: table, error: tableError } = await supabase.from("snooker_tables").select("*").eq("table_no", tableNo).eq("active", true).maybeSingle();
+  if (tableError) throw tableError;
+  if (!table) return json(res, 404, { ok: false, error: "TABLE_NOT_FOUND" });
+
+  const { data: session } = await supabase.from("snooker_sessions").select("*").eq("table_id", table.id).in("status", ["ACTIVE","PAUSED","ENDED"]).order("started_at", { ascending: false }).limit(1).maybeSingle();
+  const rules = [];
+  if (table.table_type === "FULL_SIZE_SNOOKER") {
+    rules.push(
+      { title: "Normal Snooker", value: "Member ₹500/hr • Non-member ₹600/hr" },
+      { title: "6-Ball Snooker", value: "₹100/player or ₹200/game" },
+      { title: "10-Ball Snooker", value: "₹200/player" },
+      { title: "15-Ball Snooker", value: "₹300/player or ₹600/game" },
+      { title: "QChase / Rummy", value: "₹100 per game per player" },
+      { title: "Kitty", value: "₹600/hr • winner pays • minimum ₹100" },
+      { title: "Kitty carry", value: "No-winner time carries to the next game until a winner" }
+    );
+  } else if (table.table_type === "MINI_SNOOKER") {
+    rules.push(
+      { title: "Normal Mini Snooker", value: "Member ₹400/hr • Non-member ₹500/hr" },
+      { title: "Kitty", value: "₹500/hr • winner pays • minimum ₹100" },
+      { title: "Kitty carry", value: "No-winner time carries to the next game until a winner" }
+    );
+  } else {
+    rules.push({ title: "American Pool", value: "Member ₹300/hr • Non-member ₹400/hr" });
+  }
+
+  if (!session) return json(res, 200, { ok: true, state: "STANDBY", table: tableDto(table), standby_rules: rules });
+
+  const [{ data: rule }, { data: fnb }, { data: games }] = await Promise.all([
+    supabase.from("snooker_game_rules").select("*").eq("game_type", session.game_type).maybeSingle(),
+    supabase.from("snooker_fnb_lines").select("line_total_inr,status").eq("session_id", session.id),
+    supabase.from("snooker_completed_games").select("*").eq("session_id", session.id).eq("status","COMPLETED").order("completed_at"),
+  ]);
+  const fnbTotal = money((fnb || []).filter((x) => x.status !== "VOIDED").reduce((sum,x)=>sum+number(x.line_total_inr),0));
+  const gameCharges = money((games || []).reduce((sum,x)=>sum+number(x.calculated_charge_inr),0));
+  const rate = session.game_type === "KITTY"
+    ? money(table.price_per_hour_inr)
+    : money(session.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
+
+  let kittyChainSeconds = null;
+  if (session.game_type === "KITTY") {
+    const lastWinner = [...(games || [])].reverse().find((g) => Array.isArray(g.winner_person_ids) && g.winner_person_ids.length);
+    const chainStart = Date.parse(lastWinner?.completed_at || session.started_at || "");
+    kittyChainSeconds = Number.isFinite(chainStart) ? Math.max(0, Math.floor((Date.now() - chainStart) / 1000)) : 0;
+  }
+
+  const sessionPayload = {
+    ...sessionDto(session),
+    game_label: rule?.display_name || session.game_type,
+    billing_mode: rule?.billing_mode || null,
+    hourly_rate_inr: rate,
+    fnb_total_inr: fnbTotal,
+    game_charges_inr: gameCharges,
+    kitty_chain_seconds_live: kittyChainSeconds,
+  };
+
+  if (session.status !== "ENDED") return json(res, 200, { ok: true, state: "PLAYING", table: tableDto(table), standby_rules: rules, session: sessionPayload });
+
+  let bill = null;
+  if (session.account_mode === "LEGACY") {
+    const { data } = await supabase.from("snooker_bills").select("*").eq("session_id", session.id).neq("status","CANCELLED").order("finalized_at",{ascending:false}).limit(1).maybeSingle();
+    bill = data || null;
+  }
+  if (!bill) return json(res, 200, { ok: true, state: "PLAYING", table: tableDto(table), standby_rules: rules, session: sessionPayload });
+
+  let payment = null;
+  if (number(bill.due_inr) > 0) {
+    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).eq("method","UPI").eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
+    if (data) payment = { payment_id: data.id, status: data.status, amount_inr: money(data.amount_inr), qr_url: qrElementUrl(data) };
+  }
+  const billPayload = { bill_id: bill.id, bill_no: bill.bill_no, game_total_inr: money(bill.game_total_inr), fnb_total_inr: money(bill.fnb_total_inr), total_inr: money(bill.total_inr), due_inr: money(bill.due_inr), status: bill.status };
+  return json(res, 200, { ok: true, state: bill.status === "PAID" ? "PAID" : "PAYMENT", table: tableDto(table), standby_rules: rules, session: sessionPayload, bill: billPayload, payment });
+}
+
 async function dashboardSummary(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1631,9 +1711,9 @@ async function rememberIdempotent(supabase, key, scope, resourceId, responseBody
 
 function compatibleGame(tableType, gameType) {
   if (tableType === "POOL") return gameType === "NORMAL_POOL";
-  if (tableType === "MINI_SNOOKER") return gameType === "NORMAL_SNOOKER";
+  if (tableType === "MINI_SNOOKER") return ["NORMAL_SNOOKER", "KITTY"].includes(gameType);
   if (tableType === "FULL_SIZE_SNOOKER") {
-    return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER"].includes(gameType);
+    return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "KITTY"].includes(gameType);
   }
   return false;
 }
@@ -3768,6 +3848,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
+    if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
