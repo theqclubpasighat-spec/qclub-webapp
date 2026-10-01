@@ -16,9 +16,9 @@ function clock(seconds) {
   return h + ":" + m + ":" + r;
 }
 
-export default function TableDisplayPage() {
+export default function TableDisplayPage({ tableKey: fixedTableKey }) {
   const params = useParams();
-  const tableKey = String(params.tableKey || "").toUpperCase();
+  const tableKey = String(fixedTableKey || params.tableKey || "").toUpperCase();
   const [data, setData] = useState(null);
   const [now, setNow] = useState(Date.now());
 
