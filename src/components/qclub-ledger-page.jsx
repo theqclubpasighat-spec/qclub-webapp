@@ -219,6 +219,7 @@ export default function QclubLedgerPage() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedFnbPersonId, setSelectedFnbPersonId] = useState("");
   const [gameEntry, setGameEntry] = useState(null);
+  const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
   const [showUpiQrModal, setShowUpiQrModal] = useState(false);
@@ -305,6 +306,7 @@ export default function QclubLedgerPage() {
     setCustomers([]);
     setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+    setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
     setShowUpiQrModal(false);
@@ -653,6 +655,12 @@ export default function QclubLedgerPage() {
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
   const selectedFnbTab = fnbTabs.find(function(row) { return row.tab_id === selectedFnbTabId; }) || null;
+  const playerAccountSession = playerAccountView
+    ? sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; }) || null
+    : null;
+  const playerAccountPerson = playerAccountView
+    ? ((((sessionDetails[playerAccountView.sessionId] || {}).people) || []).find(function(person) { return person.person_id === playerAccountView.personId; }) || null)
+    : null;
 
   const sellableCatalogue = useMemo(function() {
     return catalogue.filter(function(item) { return item.sell_in_ledger !== false; });
@@ -1119,10 +1127,6 @@ export default function QclubLedgerPage() {
   }
 
   async function finalizePerson(session, person) {
-    if (session.payment_rule === "HOURLY" && Number(person.table_charges_inr || 0) <= 0) {
-      flash("Allocate the hourly table charge first.", true);
-      return;
-    }
     if (!(Number(person.unbilled_inr || 0) > 0)) {
       if (Number(person.billed_due_inr || 0) > 0 && person.bills && person.bills.length) {
         const latest = person.bills[person.bills.length - 1];
@@ -1144,7 +1148,7 @@ export default function QclubLedgerPage() {
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
-      flash(person.name + " bill " + bill.bill_no + " created.");
+      flash(person.name + " bill " + bill.bill_no + " created. The player stays active and can keep playing after payment.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to create player bill.", true);
@@ -2134,11 +2138,37 @@ export default function QclubLedgerPage() {
                                         <div className="ql-muted">current due</div>
                                       </div>
                                     </div>
+                                    {(person.account_entries || []).length ? (
+                                      <div style={{ marginTop: 9 }}>
+                                        <div className="ql-muted" style={{ marginBottom: 5 }}>Recent account activity</div>
+                                        {(person.account_entries || []).slice(-3).reverse().map(function(entry) {
+                                          return (
+                                            <div className="ql-space" key={entry.charge_id} style={{ gap: 8, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                                              <div style={{ minWidth: 0 }}>
+                                                <span className="ql-muted" style={{ marginRight: 7 }}>
+                                                  {entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                                                </span>
+                                                <span>{entry.description}</span>
+                                              </div>
+                                              <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                                                <strong>{money(entry.amount_inr)}</strong>
+                                                <span className={"ql-badge " + (entry.settlement_status === "PAID" ? "good" : entry.settlement_status === "BILLED" ? "gold" : "")} style={{ marginLeft: 6 }}>
+                                                  {entry.settlement_status}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : <div className="ql-muted" style={{ marginTop: 8 }}>No charges yet.</div>}
                                     <div className="ql-row" style={{ marginTop: 8 }}>
+                                      <button className="ql-btn" onClick={function() { setPlayerAccountView({ sessionId: session.session_id, personId: person.person_id }); }}>View Account</button>
                                       <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
                                       <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
                                       {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
-                                      <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay Account</button>
+                                      {Number(person.current_due_inr || 0) > 0
+                                        ? <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay {money(person.current_due_inr)}</button>
+                                        : <span className="ql-badge good">PAID UP</span>}
                                     </div>
                                   </div>
                                 );
@@ -3094,6 +3124,101 @@ export default function QclubLedgerPage() {
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setStartTable(null); }}>Cancel</button>
               <button className="ql-btn primary" disabled={busy} onClick={createSession}>Save & Start Session</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {playerAccountView && playerAccountPerson ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setPlayerAccountView(null); }}>
+          <div className="ql-modal" style={{ maxWidth: 760 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>{playerAccountPerson.name} — Running Account</h3>
+                <div className="ql-muted">
+                  {playerAccountSession ? String(playerAccountSession.game_type || "").replaceAll("_", " ") : "Table session"}
+                  {playerAccountPerson.team_no ? " • Team " + playerAccountPerson.team_no : ""}
+                  {" • "}{playerAccountPerson.status}
+                </div>
+              </div>
+              <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>✕</button>
+            </div>
+
+            <div className="ql-grid" style={{ marginTop: 14 }}>
+              <div className="ql-card">
+                <div className="ql-muted">CURRENT DUE</div>
+                <strong className="ql-price">{money(playerAccountPerson.current_due_inr)}</strong>
+                <div className="ql-muted">Unbilled {money(playerAccountPerson.unbilled_inr)} • Billed due {money(playerAccountPerson.billed_due_inr)}</div>
+              </div>
+              <div className="ql-card">
+                <div className="ql-muted">SESSION TOTALS</div>
+                <strong>Game {money(playerAccountPerson.game_charges_inr)}</strong>
+                <div className="ql-muted">F&B {money(playerAccountPerson.fnb_charges_inr)} • Table {money(playerAccountPerson.table_charges_inr)}</div>
+              </div>
+            </div>
+
+            <div className="ql-section">Account activity</div>
+            <div className="ql-list">
+              {(playerAccountPerson.account_entries || []).length ? (playerAccountPerson.account_entries || []).slice().reverse().map(function(entry) {
+                return (
+                  <div className="ql-line" key={entry.charge_id}>
+                    <div className="ql-space">
+                      <div>
+                        <strong>{entry.description}</strong>
+                        <div className="ql-muted">
+                          {entry.created_at ? new Date(entry.created_at).toLocaleString() : ""}
+                          {" • "}{String(entry.charge_type || "").replaceAll("_", " ")}
+                          {entry.bill_no ? " • " + entry.bill_no : ""}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <strong>{money(entry.amount_inr)}</strong>
+                        <div><span className={"ql-badge " + (entry.settlement_status === "PAID" ? "good" : entry.settlement_status === "BILLED" ? "gold" : "")}>{entry.settlement_status}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : <div className="ql-empty">No charges yet.</div>}
+            </div>
+
+            {(playerAccountPerson.bills || []).length ? (
+              <>
+                <div className="ql-section">Bills / settlements</div>
+                <div className="ql-list">
+                  {(playerAccountPerson.bills || []).slice().reverse().map(function(bill) {
+                    return (
+                      <div className="ql-line ql-space" key={bill.bill_id}>
+                        <div>
+                          <strong>{bill.bill_no}</strong>
+                          <div className="ql-muted">{bill.status} • Paid {money(bill.paid_inr)} • Due {money(bill.due_inr)}</div>
+                        </div>
+                        <button className="ql-btn" onClick={async function() {
+                          await loadBill(bill.bill_id);
+                          setPlayerAccountView(null);
+                          setTab("ledger");
+                        }}>Open Bill</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            <div className="ql-line" style={{ marginTop: 14 }}>
+              <strong>Pay-and-continue</strong>
+              <div className="ql-muted">Paying this account settles money only. The player remains ACTIVE and can continue playing and ordering until staff taps Leave or the table is closed.</div>
+            </div>
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+              <button className="ql-btn" onClick={function() { setSelectedSessionId(playerAccountView.sessionId); setSelectedFnbPersonId(playerAccountView.personId); setPlayerAccountView(null); setTab("fnb"); }}>+ F&B</button>
+              {Number(playerAccountPerson.current_due_inr || 0) > 0 ? (
+                <button className="ql-btn primary" onClick={function() {
+                  const session = sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; });
+                  setPlayerAccountView(null);
+                  if (session) finalizePerson(session, playerAccountPerson);
+                }}>Pay {money(playerAccountPerson.current_due_inr)}</button>
+              ) : <span className="ql-badge good">PAID UP</span>}
+              <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>Close</button>
             </div>
           </div>
         </div>
