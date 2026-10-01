@@ -1127,6 +1127,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
     return {
       id: person.id,
       person_id: person.id,
+      customer_id: person.customer_id || null,
       name: person.name,
       phone: person.phone,
       is_member: person.is_member,
@@ -1292,6 +1293,57 @@ async function upsertCustomer(req, res) {
   });
   if (!customer) return json(res, 400, { ok: false, error: "CUSTOMER_NAME_REQUIRED" });
   return json(res, 200, customerDto(customer));
+}
+
+
+async function listPlayerTabs(req,res){
+  const auth=await requireAuth(req,res); if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const {data:people,error}=await supabase.from("snooker_session_people").select("id,customer_id,session_id,name,phone,status,joined_at,left_at").not("customer_id","is",null).order("updated_at",{ascending:false}).limit(1000);
+  if(error)throw error;
+  const personIds=(people||[]).map(p=>p.id);
+  let charges=[];
+  if(personIds.length){const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null);if(q.error)throw q.error;charges=q.data||[];}
+  const customerIds=[...new Set((people||[]).map(p=>p.customer_id).filter(Boolean))];
+  let customers=[],bills=[],sessions=[];
+  if(customerIds.length){
+    const [cq,bq]=await Promise.all([
+      supabase.from("snooker_customers").select("*").in("id",customerIds),
+      supabase.from("snooker_bills").select("*").in("customer_id",customerIds).neq("status","CANCELLED")
+    ]);
+    if(cq.error||bq.error)throw cq.error||bq.error;customers=cq.data||[];bills=bq.data||[];
+  }
+  const sessionIds=[...new Set((people||[]).map(p=>p.session_id).filter(Boolean))];
+  if(sessionIds.length){const sq=await supabase.from("snooker_sessions").select("id,table_id,game_type,status").in("id",sessionIds);if(sq.error)throw sq.error;sessions=sq.data||[];}
+  const customerMap=new Map(customers.map(c=>[c.id,c])),sessionMap=new Map(sessions.map(x=>[x.id,x]));
+  const tabs=customerIds.map(customerId=>{
+    const customer=customerMap.get(customerId); const ownPeople=(people||[]).filter(p=>p.customer_id===customerId); const ownIds=new Set(ownPeople.map(p=>p.id));
+    const ownCharges=charges.filter(c=>ownIds.has(c.person_id)); const ownBills=bills.filter(b=>b.customer_id===customerId);
+    const unbilled=money(ownCharges.reduce((sum,c)=>sum+number(c.amount_inr),0)); const billedDue=money(ownBills.reduce((sum,b)=>sum+number(b.due_inr),0));
+    const activeLocations=ownPeople.filter(p=>p.status==="ACTIVE").map(p=>{const x=sessionMap.get(p.session_id);return x&&["ACTIVE","PAUSED"].includes(x.status)?{session_id:x.id,table_id:x.table_id,game_type:x.game_type}:null;}).filter(Boolean);
+    return {customer_id:customerId,name:customer?.name||ownPeople[0]?.name||"PLAYER",phone:customer?.phone||ownPeople[0]?.phone||null,is_member:Boolean(customer?.is_member),unbilled_inr:unbilled,billed_due_inr:billedDue,current_due_inr:money(unbilled+billedDue),active_locations:activeLocations,charge_count:ownCharges.length};
+  }).filter(t=>t.current_due_inr>0.009||t.active_locations.length).sort((a,b)=>b.current_due_inr-a.current_due_inr);
+  return json(res,200,{tabs});
+}
+
+async function finalizePlayerTab(req,res,customerId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const supabase=getSupabaseAdmin();const key=idempotencyKey(req);const old=await previousIdempotent(supabase,key,"finalize_club_tab");if(old)return json(res,200,old);
+  const {data:customer}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  const {data:people,error:pe}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",customerId);if(pe)throw pe;
+  const personIds=(people||[]).map(p=>p.id);if(!personIds.length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+  const {data:charges,error:ce}=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");if(ce)throw ce;
+  if(!(charges||[]).length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+  const gameTotal=money((charges||[]).filter(x=>x.charge_type!=="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));
+  const fnbTotal=money((charges||[]).filter(x=>x.charge_type==="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));const total=money(gameTotal+fnbTotal);
+  const billId=randomUUID(),suffix=billId.replace(/-/g,"").slice(-6).toUpperCase(),datePart=new Date().toISOString().slice(2,10).replace(/-/g,""),billNo=`QC-${datePart}-${suffix}`;
+  const {data:bill,error}=await supabase.from("snooker_bills").insert({id:billId,bill_no:billNo,session_id:null,source_session_id:null,person_id:null,customer_id:customerId,bill_source:"PLAYER_ACCOUNT",customer_name:customer.name,customer_phone:customer.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null}).select("*").single();if(error)throw error;
+  const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:ch.person_id,session_id:ch.session_id,charge_id:ch.id,...(ch.metadata||{})}}));
+  if(items.length){const ie=await supabase.from("snooker_bill_items").insert(items);if(ie.error)throw ie.error;}
+  const ids=(charges||[]).map(x=>x.id);await supabase.from("snooker_person_charges").update({bill_id:billId}).in("id",ids);
+  const fnbIds=(charges||[]).filter(x=>x.charge_type==="FNB"&&x.reference_id).map(x=>x.reference_id);if(fnbIds.length)await supabase.from("snooker_fnb_lines").update({bill_id:billId}).in("id",fnbIds);
+  const response=await billDetailPayload(supabase,billId);await rememberIdempotent(supabase,key,"finalize_club_tab",billId,response);return json(res,201,response);
 }
 
 async function bootstrap(req, res) {
@@ -1841,8 +1893,13 @@ async function createSession(req, res) {
   if(error) throw error;
 
   if(individual){
-    const rows=people.map((p)=>({
-      session_id:data.id,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
+    const customerRows=[];
+    for (const p of people) {
+      try { customerRows.push(await rememberCustomer(supabase,{name:p.name,phone:p.phone,isMember:p.is_member,source:"table_session"})); }
+      catch { customerRows.push(null); }
+    }
+    const rows=people.map((p,index)=>({
+      session_id:data.id,customer_id:customerRows[index]?.id||null,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
       status:"ACTIVE",joined_at:now,timer_running:rule.billing_mode==="HOURLY",timer_started_at:rule.billing_mode==="HOURLY"?now:null,
       created_by:auth.staff_id,updated_by:auth.staff_id,
     }));
@@ -1904,8 +1961,10 @@ async function addSessionPerson(req,res,sessionId){
   const teamNo=req.body?.team_no==null?null:number(req.body.team_no);
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
   const now=new Date().toISOString();
+  let linkedCustomer=null;
+  try { linkedCustomer=await rememberCustomer(supabase,{name,phone,source:"joined_player"}); } catch {}
   const {data,error}=await supabase.from("snooker_session_people").insert({
-    session_id:sessionId,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
+    session_id:sessionId,customer_id:linkedCustomer?.id||null,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
     timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,
     created_by:auth.staff_id,updated_by:auth.staff_id
   }).select("*").single();
@@ -3029,6 +3088,7 @@ async function billDetailPayload(supabase, billId) {
     source_session_id: bill.source_session_id || null,
     person_id: bill.person_id || null,
     bill_source: bill.bill_source || "GAME_SESSION",
+    customer_id: bill.customer_id || null,
     customer_name: bill.customer_name || null,
     customer_phone: bill.customer_phone || null,
     game_total_inr: money(bill.game_total_inr),
@@ -3923,6 +3983,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
 
     if (method === "GET" && path === "customers") return await listCustomers(req, res);
+    if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);
     if (method === "POST" && path === "customers") return await upsertCustomer(req, res);
     if (method === "GET" && path === "fnb-tabs") return await listFnbTabs(req, res);
     if (method === "POST" && path === "fnb-tabs") return await createFnbTab(req, res);
