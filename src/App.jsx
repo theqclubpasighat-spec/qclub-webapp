@@ -130,6 +130,11 @@ const QclubLedgerPage = lazy(() =>
     default: module.default,
   }))
 );
+const TableDisplayPage = lazy(() =>
+  import("./components/table-display-page.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 const QclubPayPage = lazy(() =>
   import("./components/qclub-pay-page.jsx").then((module) => ({
     default: module.default,
@@ -4164,6 +4169,7 @@ latestDataRef.current = fresh;
   }
 />
                 <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
+        <Route path="/:tableKey(T1|T2|T3|T4)" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage /></Suspense>} />
         <Route
           path="/QclubLedger"
           element={
