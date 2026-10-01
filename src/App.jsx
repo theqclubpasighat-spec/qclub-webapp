@@ -4169,7 +4169,10 @@ latestDataRef.current = fresh;
   }
 />
                 <Route path="/payment-status" element={<PaymentStatus data={data} commit={commit} />} />
-        <Route path="/:tableKey(T1|T2|T3|T4)" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage /></Suspense>} />
+        <Route path="/T1" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage tableKey="T1" /></Suspense>} />
+        <Route path="/T2" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage tableKey="T2" /></Suspense>} />
+        <Route path="/T3" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage tableKey="T3" /></Suspense>} />
+        <Route path="/T4" element={<Suspense fallback={<div style={{padding:40}}>Loading table display…</div>}><TableDisplayPage tableKey="T4" /></Suspense>} />
         <Route
           path="/QclubLedger"
           element={
