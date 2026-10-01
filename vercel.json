@@ -16,5 +16,8 @@
       "source": "/:path*",
       "destination": "/index.html"
     }
+  ],
+  "regions": [
+    "sin1"
   ]
 }
