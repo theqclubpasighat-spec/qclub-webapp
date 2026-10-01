@@ -2058,7 +2058,7 @@ async function finalizePersonBill(req,res,sessionId,personId){
   const billId=randomUUID(),suffix=billId.replace(/-/g,"").slice(-6).toUpperCase(),datePart=new Date().toISOString().slice(2,10).replace(/-/g,"");
   const billNo=`QP-${datePart}-${suffix}`;
   const {data:bill,error}=await supabase.from("snooker_bills").insert({
-    id:billId,bill_no:billNo,session_id:null,source_session_id:sessionId,person_id:personId,bill_source:"PLAYER_ACCOUNT",
+    id:billId,bill_no:billNo,session_id:null,source_session_id:sessionId,person_id:personId,customer_id:person.customer_id||null,bill_source:"PLAYER_ACCOUNT",
     customer_name:canonicalCustomerName(person.name),customer_phone:person.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
   }).select("*").single();if(error)throw error;
   const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:personId,charge_id:ch.id,...(ch.metadata||{})}}));
