@@ -1975,7 +1975,18 @@ async function addSessionPerson(req,res,sessionId){
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
   const now=new Date().toISOString();
   let linkedCustomer=null;
-  try { linkedCustomer=await rememberCustomer(supabase,{name,phone,source:"joined_player"}); } catch {}
+  const requestedCustomerId=safeText(req.body?.customer_id || "",100) || null;
+  try {
+    if(requestedCustomerId){
+      const {data:known}=await supabase.from("snooker_customers").select("*").eq("id",requestedCustomerId).eq("active",true).maybeSingle();
+      if(known) linkedCustomer=known;
+    }
+    if(!linkedCustomer) linkedCustomer=await rememberCustomer(supabase,{name,phone,source:"joined_player"});
+  } catch {}
+  if(linkedCustomer?.id){
+    const {data:activeElsewhere}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",linkedCustomer.id).eq("status","ACTIVE").neq("session_id",sessionId).limit(1);
+    if((activeElsewhere||[]).length)return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"This player is still active on another table. Use Leave Game/Table there first."});
+  }
   const {data,error}=await supabase.from("snooker_session_people").insert({
     session_id:sessionId,customer_id:linkedCustomer?.id||null,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
     timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,
