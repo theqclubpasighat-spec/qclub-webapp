@@ -1844,6 +1844,7 @@ async function createSession(req, res) {
     name:canonicalCustomerName(p?.name || ""),
     phone:normalizePhone(p?.phone || "") || null,
     is_member:Boolean(p?.is_member),
+    customer_id:safeText(p?.customer_id || "",100) || null,
     team_no:p?.team_no==null?null:number(p.team_no),
   })).filter((p)=>p.name);
   if(individual && !people.length) return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
@@ -1895,8 +1896,20 @@ async function createSession(req, res) {
   if(individual){
     const customerRows=[];
     for (const p of people) {
-      try { customerRows.push(await rememberCustomer(supabase,{name:p.name,phone:p.phone,isMember:p.is_member,source:"table_session"})); }
+      try {
+        if (p.customer_id) {
+          const { data: linked } = await supabase.from("snooker_customers").select("*").eq("id",p.customer_id).eq("active",true).maybeSingle();
+          if (linked) { customerRows.push(linked); continue; }
+        }
+        customerRows.push(await rememberCustomer(supabase,{name:p.name,phone:p.phone,isMember:p.is_member,source:"table_session"}));
+      }
       catch { customerRows.push(null); }
+    }
+    const activeCustomerIds=customerRows.map(c=>c?.id).filter(Boolean);
+    if (activeCustomerIds.length) {
+      const { data: alreadyActive } = await supabase.from("snooker_session_people").select("customer_id,session_id,status").in("customer_id",activeCustomerIds).eq("status","ACTIVE");
+      const other=(alreadyActive||[]).filter(p=>p.session_id!==data.id);
+      if(other.length){ await supabase.from("snooker_sessions").delete().eq("id",data.id); return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"A selected player is still active on another table. Use Leave Game/Table there before moving the player."}); }
     }
     const rows=people.map((p,index)=>({
       session_id:data.id,customer_id:customerRows[index]?.id||null,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
@@ -2118,7 +2131,7 @@ async function recordGame(req,res,sessionId){
   if (session.game_type === "KITTY") {
     const selectedIds = Array.isArray(req.body?.player_ids) ? req.body.player_ids.map(String) : [];
     if (selectedIds.length < 2 || selectedIds.length > 6) return json(res,400,{ok:false,error:"KITTY_REQUIRES_TWO_TO_SIX_PLAYERS"});
-    const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
+    const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
     if ((people || []).length !== selectedIds.length) return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
     const noWinner = Boolean(req.body?.kitty_no_winner);
     const winnerId = safeText(req.body?.winner_person_id || "",100);
@@ -2133,7 +2146,8 @@ async function recordGame(req,res,sessionId){
     const chainSeconds = Number.isFinite(chainStartMs) ? Math.max(0,Math.floor((now.getTime()-chainStartMs)/1000)) : 0;
     const rate = money(table?.price_per_hour_inr);
     if (!(rate > 0)) return json(res,409,{ok:false,error:"KITTY_RATE_NOT_CONFIGURED"});
-    const winnerCharge = noWinner ? 0 : money(Math.max(100,(chainSeconds/3600)*rate));
+    const rawWinnerCharge = Math.max(100,(chainSeconds/3600)*rate);
+    const winnerCharge = noWinner ? 0 : Math.max(100, Math.round(rawWinnerCharge / 10) * 10);
     const gameNumber = number((priorGames || []).slice(-1)[0]?.game_number,0)+1;
     const names = selectedIds.map((id)=>(people||[]).find((p)=>p.id===id)?.name||"Player");
     const allocations = noWinner ? [] : [{person_id:winnerId,amount_inr:winnerCharge}];
@@ -2146,7 +2160,7 @@ async function recordGame(req,res,sessionId){
     if (error) throw error;
     if (!noWinner) {
       const winner=(people||[]).find((p)=>p.id===winnerId);
-      await createPersonCharge(supabase,{sessionId,personId:winnerId,type:"GAME",referenceId:game.id,description:"Kitty — winner pays "+Math.round(chainSeconds/60)+" min",amount:winnerCharge,staffId:auth.staff_id,metadata:{game_number:gameNumber,kitty:true,chain_seconds:chainSeconds,hourly_rate_inr:rate,minimum_inr:100,person_name:winner?.name}});
+      await createPersonCharge(supabase,{sessionId,personId:winnerId,type:"GAME",referenceId:game.id,description:"Kitty — winner pays "+Math.round(chainSeconds/60)+" min",amount:winnerCharge,staffId:auth.staff_id,metadata:{game_number:gameNumber,kitty:true,chain_seconds:chainSeconds,hourly_rate_inr:rate,minimum_inr:100,rounding:"NEAREST_10",raw_charge_inr:money(rawWinnerCharge),person_name:winner?.name}});
     }
     const response={...game,game_id:game.id,kitty_no_winner:noWinner,kitty_chain_seconds:chainSeconds,winner_charge_inr:winnerCharge,charge_allocations:allocations};
     await rememberIdempotent(supabase,key,"record_game",game.id,response);
@@ -2154,7 +2168,7 @@ async function recordGame(req,res,sessionId){
   }
   const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
   if(!selectedIds.length)return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
-  const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
+  const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
   if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
   if(session.match_format==="SINGLES" && selectedIds.length!==2)return json(res,400,{ok:false,error:"SINGLES_FRAME_REQUIRES_TWO_PLAYERS"});
   if(session.match_format==="DOUBLES"){
