@@ -111,8 +111,8 @@ async function apiRequest(path, options) {
 function allowedGames(table, rules) {
   const map = {
     POOL: ["NORMAL_POOL"],
-    MINI_SNOOKER: ["NORMAL_SNOOKER"],
-    FULL_SIZE_SNOOKER: ["NORMAL_SNOOKER", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "QCHASE_RUMMY"],
+    MINI_SNOOKER: ["NORMAL_SNOOKER", "KITTY"],
+    FULL_SIZE_SNOOKER: ["NORMAL_SNOOKER", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "QCHASE_RUMMY", "KITTY"],
   };
   const keys = map[(table && table.table_type) || ""] || [];
   return (rules || []).filter(function(rule) { return keys.includes(rule.game_type); });
@@ -219,6 +219,7 @@ export default function QclubLedgerPage() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedFnbPersonId, setSelectedFnbPersonId] = useState("");
   const [gameEntry, setGameEntry] = useState(null);
+  const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
   const [showUpiQrModal, setShowUpiQrModal] = useState(false);
@@ -230,6 +231,12 @@ export default function QclubLedgerPage() {
   const [fnbSearch, setFnbSearch] = useState("");
   const [fnbCategory, setFnbCategory] = useState("ALL");
   const [fnbDestination, setFnbDestination] = useState("TABLE");
+  const [fnbTabs, setFnbTabs] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [playerTabs, setPlayerTabs] = useState([]);
+  const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
+  const [newTabName, setNewTabName] = useState("");
+  const [newTabPhone, setNewTabPhone] = useState("");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
@@ -267,7 +274,7 @@ export default function QclubLedgerPage() {
     frameRate: "",
     isMember: false,
     players: [
-      { name: "", phone: "", teamNo: null },
+      { name: "", phone: "", customerId: null, teamNo: null },
       { name: "", phone: "", teamNo: null },
     ],
   });
@@ -296,7 +303,11 @@ export default function QclubLedgerPage() {
     setAllSessions([]);
     setSessionDetails({});
     setBills([]);
+    setFnbTabs([]);
+    setCustomers([]);
+    setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+    setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
     setShowUpiQrModal(false);
@@ -320,6 +331,52 @@ export default function QclubLedgerPage() {
       throw error;
     }
   }, [logout, token]);
+
+  function runInBackground(promise) {
+    Promise.resolve(promise).catch(function() {
+      // Foreground action already succeeded. Periodic sync/manual refresh will reconcile.
+    });
+  }
+
+  const refreshOneSession = useCallback(async function(sessionId) {
+    if (!sessionId) return;
+    const detail = await protectedCall("sessions/" + sessionId);
+    setSessionDetails(function(current) {
+      return { ...current, [sessionId]: detail };
+    });
+  }, [protectedCall]);
+
+  const refreshBillingOverview = useCallback(async function() {
+    if (!token) return;
+    const calls = [
+      protectedCall("bills?limit=500"),
+      protectedCall("dashboard/summary"),
+    ];
+    if (isAdmin) calls.push(protectedCall("finance/reserve"));
+    const values = await Promise.all(calls);
+    setBills((values[0] && values[0].bills) || []);
+    setSummary(values[1] || null);
+    if (isAdmin && values[2]) {
+      setFinance(values[2]);
+      setFnbCostDraft(makeFnbCostDraft(values[2]));
+    }
+  }, [isAdmin, protectedCall, token]);
+
+  const refreshFnbFastState = useCallback(async function() {
+    if (!token) return;
+    const values = await Promise.all([
+      protectedCall("catalogue"),
+      protectedCall("inventory"),
+      protectedCall("fnb-tabs"),
+    ]);
+    setCatalogue((values[0] && (values[0].items || values[0].catalogue)) || []);
+    setInventory((values[1] && (values[1].items || values[1].inventory)) || []);
+    const openFnbTabs = (values[2] && values[2].tabs) || [];
+    setFnbTabs(openFnbTabs);
+    setSelectedFnbTabId(function(current) {
+      return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+    });
+  }, [protectedCall, token]);
 
   const loadSessionDetails = useCallback(async function(rows) {
     const result = {};
@@ -348,6 +405,9 @@ export default function QclubLedgerPage() {
         protectedCall("sessions?limit=500"),
         protectedCall("dashboard/summary"),
         protectedCall("operations/inbox"),
+        protectedCall("fnb-tabs"),
+        protectedCall("customers?limit=300"),
+        protectedCall("player-tabs"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -359,6 +419,9 @@ export default function QclubLedgerPage() {
       const allPayload = values[7];
       const summaryPayload = values[8];
       const operationsPayload = values[9];
+      const fnbTabPayload = values[10];
+      const customerPayload = values[11];
+      const playerTabPayload = values[12];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -369,6 +432,13 @@ export default function QclubLedgerPage() {
       setSessions(openRows);
       setAllSessions((allPayload && allPayload.sessions) || []);
       setBills((billPayload && billPayload.bills) || []);
+      const openFnbTabs = (fnbTabPayload && fnbTabPayload.tabs) || [];
+      setFnbTabs(openFnbTabs);
+      setCustomers((customerPayload && customerPayload.customers) || []);
+      setPlayerTabs((playerTabPayload && playerTabPayload.tabs) || []);
+      setSelectedFnbTabId(function(current) {
+        return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+      });
       setOperations(operationsPayload || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       if (isAdmin) {
         try {
@@ -413,10 +483,18 @@ export default function QclubLedgerPage() {
       const values = await Promise.all([
         protectedCall("sessions?scope=active&limit=200"),
         protectedCall("operations/inbox"),
+        protectedCall("fnb-tabs"),
+        protectedCall("player-tabs"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
       setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+      const openFnbTabs = (values[2] && values[2].tabs) || [];
+      setPlayerTabs((values[3] && values[3].tabs) || []);
+      setFnbTabs(openFnbTabs);
+      setSelectedFnbTabId(function(current) {
+        return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+      });
       await loadSessionDetails(openRows);
     } catch {
       // Keep the last known live state visible; manual refresh surfaces detailed errors.
@@ -433,7 +511,7 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     if (!token) return undefined;
-    const timer = window.setInterval(refreshLiveState, 5000);
+    const timer = window.setInterval(refreshLiveState, 10000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
 
@@ -551,7 +629,7 @@ export default function QclubLedgerPage() {
               // Keep the terminal payment state visible even if bill refresh is temporarily unavailable.
             }
           }
-          refreshAll();
+          runInBackground(refreshBillingOverview());
         }
       } catch {
         // A transient status-check failure must not close the QR or mark payment failed.
@@ -564,7 +642,7 @@ export default function QclubLedgerPage() {
       stopped = true;
       window.clearInterval(pollTimer);
     };
-  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshAll, flash]);
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshBillingOverview, flash]);
 
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
@@ -628,6 +706,13 @@ export default function QclubLedgerPage() {
   const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
+  const selectedFnbTab = fnbTabs.find(function(row) { return row.tab_id === selectedFnbTabId; }) || null;
+  const playerAccountSession = playerAccountView
+    ? sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; }) || null
+    : null;
+  const playerAccountPerson = playerAccountView
+    ? ((((sessionDetails[playerAccountView.sessionId] || {}).people) || []).find(function(person) { return person.person_id === playerAccountView.personId; }) || null)
+    : null;
 
   const sellableCatalogue = useMemo(function() {
     return catalogue.filter(function(item) { return item.sell_in_ledger !== false; });
@@ -685,8 +770,81 @@ export default function QclubLedgerPage() {
     });
   }, [bills, ledgerDate, ledgerSearch, ledgerStatus, sessionLookup, showExcludedBills]);
 
+  function normalizeCustomerLookup(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function customerMatches(value, limit) {
+    const query = normalizeCustomerLookup(value);
+    if (!query) return [];
+    const tokens = query.split(/\s+/).filter(Boolean);
+    return customers
+      .filter(function(customer) {
+        const haystack = normalizeCustomerLookup(customer.name).replace(/\s+/g, "");
+        return tokens.every(function(token) { return haystack.includes(token); });
+      })
+      .sort(function(a, b) {
+        const aName = normalizeCustomerLookup(a.name);
+        const bName = normalizeCustomerLookup(b.name);
+        const aExact = aName === query ? 1 : 0;
+        const bExact = bName === query ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+        return Number(b.visit_count || 0) - Number(a.visit_count || 0);
+      })
+      .slice(0, limit || 6);
+  }
+
+  function customerByPhone(value) {
+    const phone = String(value || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) return null;
+    return customers.find(function(customer) {
+      return String(customer.phone || "").replace(/\D/g, "").slice(-10) === phone;
+    }) || null;
+  }
+
+  function renderCustomerMatches(value, onPick) {
+    const matches = customerMatches(value, 5);
+    const normalized = normalizeCustomerLookup(value);
+    if (!normalized || (matches.length === 1 && normalizeCustomerLookup(matches[0].name) === normalized)) return null;
+    return (
+      <div className="ql-row" style={{ marginTop: 6, gap: 6 }}>
+        {matches.map(function(customer) {
+          return (
+            <button
+              type="button"
+              className="ql-btn ghost"
+              key={customer.customer_id || customer.id}
+              onClick={function() { onPick(customer); }}
+              style={{ padding: "7px 9px" }}
+            >
+              {customer.name}{customer.phone ? " • " + String(customer.phone).slice(-4) : ""}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function applyCustomerToStartPlayer(index, customer) {
+    const players = (startForm.players || []).map(function(player, i) {
+      return i === index ? { ...player, customerId: customer.customer_id || customer.id || null, name: String(customer.name || "").toUpperCase(), phone: customer.phone || "" } : player;
+    });
+    setMemberCheck(null);
+    setStartForm({ ...startForm, players, isMember: index === 0 ? Boolean(customer.is_member) : startForm.isMember });
+  }
+
+  function applyCustomerToNewTab(customer) {
+    setNewTabName(String(customer.name || "").toUpperCase());
+    setNewTabPhone(customer.phone || "");
+  }
+
+  function applyCustomerToWalkIn(customer) {
+    setWalkInName(String(customer.name || "").toUpperCase());
+    setWalkInPhone(customer.phone || "");
+  }
+
   function startDefaults(gameType) {
-    if (gameType === "QCHASE_RUMMY") {
+    if (gameType === "QCHASE_RUMMY" || gameType === "KITTY") {
       return {
         gameType,
         matchFormat: "FLEX",
@@ -728,9 +886,10 @@ export default function QclubLedgerPage() {
   function normalizedStartPlayers(form) {
     return (form.players || []).map(function(player, index) {
       return {
-        name: String(player.name || "").trim(),
+        name: String(player.name || "").trim().toUpperCase(),
         phone: String(player.phone || "").replace(/\D/g, "").slice(-10),
         is_member: index === 0 ? Boolean(form.isMember) : false,
+        customer_id: player.customerId || null,
         team_no: form.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null,
       };
     }).filter(function(player) { return player.name; });
@@ -739,7 +898,7 @@ export default function QclubLedgerPage() {
   function resizeStartPlayers(matchFormat) {
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     const current = (startForm.players || []).slice(0, wanted);
-    while (current.length < wanted) current.push({ name: "", phone: "", teamNo: null });
+    while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null });
     return current;
   }
 
@@ -760,16 +919,31 @@ export default function QclubLedgerPage() {
     const next = { ...startForm, matchFormat };
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     next.players = (startForm.players || []).slice(0, wanted);
-    while (next.players.length < wanted) next.players.push({ name: "", phone: "", teamNo: null });
+    while (next.players.length < wanted) next.players.push({ name: "", phone: "", customerId: null, teamNo: null });
     setStartForm(next);
   }
 
   function updateStartPlayer(index, field, value) {
+    let nextValue = field === "name" ? String(value || "").toUpperCase() : value;
+    let matched = null;
+    if (field === "name") {
+      const exact = customerMatches(nextValue, 2);
+      if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value)) matched = exact[0];
+    } else if (field === "phone") {
+      matched = customerByPhone(value);
+    }
+
     const players = (startForm.players || []).map(function(player, i) {
-      return i === index ? { ...player, [field]: value } : player;
+      if (i !== index) return player;
+      if (matched) return { ...player, name: matched.name || player.name, phone: matched.phone || value };
+      return { ...player, [field]: nextValue };
     });
     setMemberCheck(null);
-    setStartForm({ ...startForm, players, isMember: index === 0 && field !== "phone" && field !== "name" ? startForm.isMember : false });
+    setStartForm({
+      ...startForm,
+      players,
+      isMember: index === 0 && matched ? Boolean(matched.is_member) : (index === 0 && (field === "phone" || field === "name") ? false : startForm.isMember),
+    });
   }
 
   function addStartPlayer() {
@@ -813,6 +987,7 @@ export default function QclubLedgerPage() {
     if (startForm.matchFormat === "SINGLES" && players.length !== 2) return flash("Singles requires exactly 2 named players.", true);
     if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
     if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
+    if (startForm.gameType === "KITTY" && (players.length < 2 || players.length > 6)) return flash("Kitty requires 2 to 6 players.", true);
     if (startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" && !(Number(startForm.frameRate) > 0)) {
       return flash("Enter the total frame charge for Normal Snooker loser-pays.", true);
     }
@@ -865,7 +1040,7 @@ export default function QclubLedgerPage() {
     try {
       await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
         method: "PATCH",
-        body: { name: name.trim(), phone: normalized || null },
+        body: { name: name.trim().toUpperCase(), phone: normalized || null },
       });
       flash("Player updated.");
       await refreshAll();
@@ -879,7 +1054,12 @@ export default function QclubLedgerPage() {
   async function joinPlayer(session) {
     const name = window.prompt("Joining player name:");
     if (!name || !name.trim()) return;
-    const phoneRaw = window.prompt("Mobile (optional):", "") || "";
+    const canonicalJoinName = name.trim().toUpperCase();
+    const matches = customerMatches(canonicalJoinName, 2);
+    const knownCustomer = matches.length === 1 ? matches[0] : null;
+    const phoneRaw = knownCustomer && knownCustomer.phone
+      ? knownCustomer.phone
+      : (window.prompt("Mobile (optional):", "") || "");
     const phone = String(phoneRaw).replace(/\D/g, "").slice(-10);
     let teamNo = null;
     if (session.match_format === "DOUBLES") {
@@ -892,9 +1072,9 @@ export default function QclubLedgerPage() {
     try {
       await protectedCall("sessions/" + session.session_id + "/people", {
         method: "POST",
-        body: { name: name.trim(), phone: phone || null, team_no: teamNo },
+        body: { name: canonicalJoinName, phone: phone || null, team_no: teamNo },
       });
-      flash(name.trim() + " joined the table.");
+      flash(canonicalJoinName + " joined the table.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to add player.", true);
@@ -910,7 +1090,7 @@ export default function QclubLedgerPage() {
         method: "PATCH",
         body: { action },
       });
-      flash(person.name + (action === "LEAVE" ? " left the table." : " rejoined the table."));
+      flash(person.name + (action === "LEAVE" ? " left the game/table. Historical games and charges are preserved." : " rejoined the table."));
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -930,6 +1110,8 @@ export default function QclubLedgerPage() {
       losingTeam: "",
       payerMode: "SPLIT",
       payerPersonId: "",
+      kittyResult: "WINNER",
+      kittyWinnerId: "",
     });
   }
 
@@ -940,7 +1122,9 @@ export default function QclubLedgerPage() {
     let selectedIds = gameEntry.selectedIds || [];
     let loserIds = [];
     if (!selectedIds.length) return flash("Select the players in this game.", true);
-    if (session.payment_rule === "LOSER_PAYS") {
+    if (session.game_type === "KITTY") {
+      if (gameEntry.kittyResult !== "NO_WINNER" && !gameEntry.kittyWinnerId) return flash("Select the Kitty winner or choose No Winner / Kitty.", true);
+    } else if (session.payment_rule === "LOSER_PAYS") {
       if (session.match_format === "DOUBLES") {
         if (!gameEntry.losingTeam) return flash("Select the losing team.", true);
         loserIds = people.filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam) && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
@@ -958,11 +1142,13 @@ export default function QclubLedgerPage() {
           player_ids: selectedIds,
           loser_person_ids: loserIds,
           payer_person_id: gameEntry.payerMode === "ONE" ? gameEntry.payerPersonId : null,
+          kitty_no_winner: session.game_type === "KITTY" && gameEntry.kittyResult === "NO_WINNER",
+          winner_person_id: session.game_type === "KITTY" && gameEntry.kittyResult !== "NO_WINNER" ? gameEntry.kittyWinnerId : null,
           idempotency_key: makeKey("game"),
         },
       });
       setGameEntry(null);
-      flash(session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
+      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
@@ -1000,11 +1186,25 @@ export default function QclubLedgerPage() {
     }
   }
 
+  async function finalizeClubTab(playerTab) {
+    if (!playerTab || !(Number(playerTab.unbilled_inr || 0) > 0)) return flash("No new unbilled charges for " + (playerTab?.name || "this player") + ".", true);
+    setBusy(true);
+    try {
+      const bill = await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", { method:"POST", body:{ idempotency_key:makeKey("club-tab") } });
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g,"").slice(-10));
+      setTab("ledger");
+      flash(playerTab.name + " club tab finalized. Charges from every table are on one bill.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshLiveState());
+    } catch (error) { flash(error.message || "Unable to finalize club tab.", true); }
+    finally { setBusy(false); }
+  }
+
   async function finalizePerson(session, person) {
-    if (session.payment_rule === "HOURLY" && Number(person.table_charges_inr || 0) <= 0) {
-      flash("Allocate the hourly table charge first.", true);
-      return;
-    }
     if (!(Number(person.unbilled_inr || 0) > 0)) {
       if (Number(person.billed_due_inr || 0) > 0 && person.bills && person.bills.length) {
         const latest = person.bills[person.bills.length - 1];
@@ -1026,8 +1226,9 @@ export default function QclubLedgerPage() {
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
-      flash(person.name + " bill " + bill.bill_no + " created.");
-      await refreshAll();
+      flash(person.name + " bill " + bill.bill_no + " created. The player stays active and can keep playing after payment.");
+      runInBackground(refreshOneSession(session.session_id));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to create player bill.", true);
     } finally {
@@ -1104,9 +1305,111 @@ export default function QclubLedgerPage() {
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
       setTab("ledger");
       flash("Bill " + (bill.bill_no || "") + " finalized.");
-      await refreshAll();
+      runInBackground(refreshOneSession(session.session_id));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRunningFnbTab() {
+    const name = newTabName.trim();
+    if (!name) {
+      flash("Enter the customer's name before opening a tab.", true);
+      return;
+    }
+    const phone = String(newTabPhone || "").replace(/\D/g, "").slice(-10);
+    if (phone && !/^\d{10}$/.test(phone)) {
+      flash("Enter a valid 10-digit mobile number or leave it blank.", true);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const opened = await protectedCall("fnb-tabs", {
+        method: "POST",
+        body: {
+          customer_name: name,
+          customer_phone: phone || null,
+          idempotency_key: makeKey("fnb-tab"),
+        },
+      });
+      setNewTabName("");
+      setNewTabPhone("");
+      setFnbDestination("RUNNING_TAB");
+      setFnbTabs(function(current) {
+        return [opened, ...current.filter(function(row) { return row.tab_id !== opened.tab_id; })];
+      });
+      setSelectedFnbTabId(opened.tab_id);
+      flash("Running tab opened for " + opened.customer_name + ".");
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to open running tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeRunningFnbTab(tabRow) {
+    const activeTab = tabRow || selectedFnbTab;
+    if (!activeTab) {
+      flash("Select a running tab first.", true);
+      return;
+    }
+    if (!(Number(activeTab.total_inr || 0) > 0)) {
+      flash("This tab has no items to bill.", true);
+      return;
+    }
+    const ok = window.confirm(
+      "Close " + activeTab.customer_name + "'s tab and create the bill for " + money(activeTab.total_inr) + "?"
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const bill = await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
+        method: "POST",
+        body: { idempotency_key: makeKey("close-fnb-tab") },
+      });
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g, "").slice(-10));
+      setSelectedFnbTabId("");
+      setQuantities({});
+      setTab("ledger");
+      setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== activeTab.tab_id; }); });
+      flash(activeTab.customer_name + "'s tab closed. Bill " + (bill.bill_no || "") + " is ready for payment.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to close running tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelEmptyRunningFnbTab(tabRow) {
+    if (!tabRow) return;
+    if (Number(tabRow.item_count || 0) > 0) {
+      flash("This tab already has orders. Void the items as Admin or close it into a bill.", true);
+      return;
+    }
+    const ok = window.confirm("Cancel empty tab for " + tabRow.customer_name + "?");
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      await protectedCall("fnb-tabs/" + tabRow.tab_id, { method: "DELETE" });
+      if (selectedFnbTabId === tabRow.tab_id) setSelectedFnbTabId("");
+      setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== tabRow.tab_id; }); });
+      flash("Empty running tab cancelled.");
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to cancel tab.", true);
     } finally {
       setBusy(false);
     }
@@ -1115,6 +1418,10 @@ export default function QclubLedgerPage() {
   async function addFnb() {
     if (fnbDestination === "TABLE" && !selectedSession) {
       flash("Select an active table/session first.", true);
+      return;
+    }
+    if (fnbDestination === "RUNNING_TAB" && !selectedFnbTab) {
+      flash("Select an open running tab first.", true);
       return;
     }
     const lines = sellableCatalogue.map(function(item) {
@@ -1129,8 +1436,18 @@ export default function QclubLedgerPage() {
       return;
     }
     setBusy(true);
+    let updatedTab = null;
     try {
-      if (fnbDestination === "WALK_IN") {
+      if (fnbDestination === "RUNNING_TAB") {
+        updatedTab = await protectedCall("fnb-tabs/" + selectedFnbTab.tab_id + "/fnb", {
+          method: "POST",
+          body: {
+            lines: lines,
+            idempotency_key: makeKey("fnb-tab-order"),
+          },
+        });
+        flash("Added to " + updatedTab.customer_name + "'s tab. Running total " + money(updatedTab.total_inr) + ".");
+      } else if (fnbDestination === "WALK_IN") {
         const bill = await protectedCall("bills/walk-in-fnb", {
           method: "POST",
           body: {
@@ -1162,7 +1479,19 @@ export default function QclubLedgerPage() {
         flash("F&B added" + (owner ? " to " + owner.name + "'s account." : " to the live table bill."));
       }
       setQuantities({});
-      await refreshAll();
+      if (fnbDestination === "RUNNING_TAB" && typeof updatedTab !== "undefined" && updatedTab) {
+        setFnbTabs(function(current) {
+          const found = current.some(function(row) { return row.tab_id === updatedTab.tab_id; });
+          return found
+            ? current.map(function(row) { return row.tab_id === updatedTab.tab_id ? updatedTab : row; })
+            : [updatedTab, ...current];
+        });
+      }
+      if (fnbDestination === "TABLE" && selectedSession) {
+        runInBackground(refreshOneSession(selectedSession.session_id));
+      }
+      runInBackground(refreshFnbFastState());
+      if (fnbDestination === "WALK_IN") runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1172,7 +1501,7 @@ export default function QclubLedgerPage() {
 
   async function loadBill(billId, options) {
     const opts = options || {};
-    setBusy(true);
+    if (!opts.silent) setBusy(true);
     try {
       const detail = await protectedCall("bills/" + billId);
       setBillDetail(detail);
@@ -1189,14 +1518,14 @@ export default function QclubLedgerPage() {
     } catch (error) {
       flash(error.message, true);
     } finally {
-      setBusy(false);
+      if (!opts.silent) setBusy(false);
     }
   }
 
   async function refreshBillDetail(options) {
     if (!billDetail || !billDetail.bill_id) return;
     await loadBill(billDetail.bill_id, { preserveContact: true, ...(options || {}) });
-    await refreshAll();
+    runInBackground(refreshBillingOverview());
   }
 
   async function recordCash() {
@@ -1215,12 +1544,27 @@ export default function QclubLedgerPage() {
           bill_id: billDetail.bill_id,
           amount_applied_inr: amount,
           cash_tendered_inr: tendered,
+          customer_phone: String(paymentPhone || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10) || null,
           idempotency_key: makeKey("cash"),
           staff_notes: "QClubLedger web terminal",
         },
       });
+      setBillDetail(function(current) {
+        if (!current) return current;
+        const due = result.due_inr == null ? current.due_inr : Number(result.due_inr);
+        return {
+          ...current,
+          status: result.bill_status || current.status,
+          due_inr: due,
+          paid_inr: Math.max(0, Number(current.total_inr || 0) - Number(due || 0)),
+        };
+      });
+      setCashAmount(Number(result.due_inr || 0).toFixed(2));
+      setCashTendered(Number(result.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(result.due_inr || 0).toFixed(2));
       flash(Number(result.change_inr) > 0 ? "Cash recorded. Return change " + money(result.change_inr) + "." : "Cash payment recorded.");
-      await refreshBillDetail();
+      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1259,8 +1603,11 @@ export default function QclubLedgerPage() {
       cashfreeQrStartedRef.current = "";
       setQrClock(Date.now());
       setShowUpiQrModal(true);
+      setBillDetail(function(current) {
+        return current ? { ...current, customer_phone: phone } : current;
+      });
       flash("Cashfree UPI order created. The secure QR is loading.");
-      await refreshBillDetail({ preserveUpi: true });
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1286,8 +1633,20 @@ export default function QclubLedgerPage() {
         const expiry = result.expires_at ? countdownLabel(result.expires_at, Date.now()) : "";
         flash("Payment is still pending" + (expiry ? " • " + expiry : "") + ".");
       }
-      await refreshBillDetail({ preserveUpi: true });
-      await refreshAll();
+      if (result.bill_status || result.due_inr != null) {
+        setBillDetail(function(current) {
+          if (!current) return current;
+          return {
+            ...current,
+            status: result.bill_status || current.status,
+            due_inr: result.due_inr == null ? current.due_inr : result.due_inr,
+          };
+        });
+      }
+      if (billDetail && billDetail.bill_id) {
+        runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+      }
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1317,7 +1676,7 @@ export default function QclubLedgerPage() {
         },
       });
       flash(payment && payment.payment_url ? "Receipt and Cashfree payment link submitted to MSG91." : "Receipt submitted to MSG91.");
-      await refreshBillDetail({ preserveUpi: true });
+      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1362,7 +1721,7 @@ export default function QclubLedgerPage() {
       });
       setBillDetail(updated);
       flash(excluded ? "Bill marked TEST and excluded from accounting." : "Bill restored to accounting.");
-      await refreshAll();
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to update accounting status.", true);
     } finally {
@@ -1397,7 +1756,7 @@ export default function QclubLedgerPage() {
         setShowUpiQrModal(false);
       }
       flash("Payment attempt cleared.");
-      await refreshAll();
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message || "Unable to clear payment attempt.", true);
     } finally {
@@ -1847,7 +2206,25 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Running F&B tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
+            <div className="ql-section">Open Player Tabs</div>
+            {playerTabs.length ? (
+              <div className="ql-grid" style={{ marginBottom: 14 }}>
+                {playerTabs.map(function(playerTab) {
+                  const locations=(playerTab.active_locations || []).map(function(x){ return String(x.table_id || "").replace("table_","T") + " " + String(x.game_type || "").replaceAll("_"," "); }).join(" • ");
+                  return (
+                    <div className="ql-card" key={playerTab.customer_id}>
+                      <div className="ql-space"><div><h3>{playerTab.name}</h3><div className="ql-muted">{locations || "In club • not currently playing"}</div></div><strong>{money(playerTab.current_due_inr)}</strong></div>
+                      <div className="ql-muted" style={{ marginTop:8 }}>Unbilled {money(playerTab.unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
+                      <div className="ql-row" style={{ marginTop:10 }}>
+                        {Number(playerTab.unbilled_inr || 0) > 0 ? <button className="ql-btn primary" onClick={function(){ finalizeClubTab(playerTab); }}>Pay / Close Tab</button> : <span className="ql-badge gold">Existing bill due</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open player tabs.</div>}
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
@@ -1906,11 +2283,37 @@ export default function QclubLedgerPage() {
                                         <div className="ql-muted">current due</div>
                                       </div>
                                     </div>
+                                    {(person.account_entries || []).length ? (
+                                      <div style={{ marginTop: 9 }}>
+                                        <div className="ql-muted" style={{ marginBottom: 5 }}>Recent account activity</div>
+                                        {(person.account_entries || []).slice(-3).reverse().map(function(entry) {
+                                          return (
+                                            <div className="ql-space" key={entry.charge_id} style={{ gap: 8, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                                              <div style={{ minWidth: 0 }}>
+                                                <span className="ql-muted" style={{ marginRight: 7 }}>
+                                                  {entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                                                </span>
+                                                <span>{entry.description}</span>
+                                              </div>
+                                              <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                                                <strong>{money(entry.amount_inr)}</strong>
+                                                <span className={"ql-badge " + (entry.settlement_status === "PAID" ? "good" : entry.settlement_status === "BILLED" ? "gold" : "")} style={{ marginLeft: 6 }}>
+                                                  {entry.settlement_status}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : <div className="ql-muted" style={{ marginTop: 8 }}>No charges yet.</div>}
                                     <div className="ql-row" style={{ marginTop: 8 }}>
+                                      <button className="ql-btn" onClick={function() { setPlayerAccountView({ sessionId: session.session_id, personId: person.person_id }); }}>View Account</button>
                                       <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
                                       <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
-                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
-                                      <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay Account</button>
+                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave Game/Table</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
+                                      {Number(person.current_due_inr || 0) > 0
+                                        ? <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay {money(person.current_due_inr)}</button>
+                                        : <span className="ql-badge good">PAID UP</span>}
                                     </div>
                                   </div>
                                 );
@@ -1953,13 +2356,15 @@ export default function QclubLedgerPage() {
               <div className="ql-space">
                 <div>
                   <h3>Add F&B</h3>
-                  <div className="ql-muted">Choose a playing table or create a separate walk-in bill. Prices and stock are verified by the server.</div>
+                  <div className="ql-muted">Charge a playing customer, keep a visitor&apos;s Running Tab open for repeated orders, or make a one-off Quick Bill.</div>
                   <div className="ql-row" style={{ marginTop: 10 }}>
-                    <button className={"ql-btn " + (fnbDestination === "TABLE" ? "primary" : "ghost")} onClick={function() { setFnbDestination("TABLE"); }}>Playing Table</button>
-                    <button className={"ql-btn " + (fnbDestination === "WALK_IN" ? "primary" : "ghost")} onClick={function() { setFnbDestination("WALK_IN"); setSelectedSessionId(""); }}>Walk-in / Separate Bill</button>
+                    <button className={"ql-btn " + (fnbDestination === "TABLE" ? "primary" : "ghost")} onClick={function() { setFnbDestination("TABLE"); setSelectedFnbTabId(""); }}>Playing Table</button>
+                    <button className={"ql-btn " + (fnbDestination === "RUNNING_TAB" ? "primary" : "ghost")} onClick={function() { setFnbDestination("RUNNING_TAB"); setSelectedSessionId(""); setSelectedFnbPersonId(""); }}>Running Tab</button>
+                    <button className={"ql-btn " + (fnbDestination === "WALK_IN" ? "primary" : "ghost")} onClick={function() { setFnbDestination("WALK_IN"); setSelectedSessionId(""); setSelectedFnbTabId(""); }}>Quick Bill</button>
                   </div>
                 </div>
-                <div style={{ minWidth: 250 }}>
+
+                <div style={{ minWidth: 280 }}>
                   {fnbDestination === "TABLE" ? (
                     <>
                       <label className="ql-label">Session / Table</label>
@@ -1982,17 +2387,134 @@ export default function QclubLedgerPage() {
                         </>
                       ) : null}
                     </>
+                  ) : fnbDestination === "RUNNING_TAB" ? (
+                    <>
+                      <label className="ql-label">Use an open tab</label>
+                      <select className="ql-select" value={selectedFnbTabId} onChange={function(e) { setSelectedFnbTabId(e.target.value); }}>
+                        <option value="">Select customer tab</option>
+                        {fnbTabs.map(function(row) {
+                          return <option key={row.tab_id} value={row.tab_id}>{row.customer_name} • {money(row.total_inr)}</option>;
+                        })}
+                      </select>
+                      {selectedFnbTab ? <div className="ql-muted" style={{ marginTop: 6 }}>{selectedFnbTab.item_count} item(s) • Running total {money(selectedFnbTab.total_inr)}</div> : null}
+
+                      <div className="ql-section" style={{ marginTop: 14 }}>Open new tab</div>
+                      <label className="ql-label">Customer name</label>
+                      <input
+                        className="ql-input"
+                        value={newTabName}
+                        onChange={function(e) {
+                          const value = e.target.value.toUpperCase();
+                          setNewTabName(value);
+                          const exact = customerMatches(value, 2);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setNewTabPhone(exact[0].phone);
+                        }}
+                        placeholder="Type a regular customer's name"
+                        autoComplete="off"
+                      />
+                      {renderCustomerMatches(newTabName, applyCustomerToNewTab)}
+                      <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        value={newTabPhone}
+                        onChange={function(e) {
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setNewTabPhone(value);
+                          const match = customerByPhone(value);
+                          if (match) setNewTabName(String(match.name || newTabName).toUpperCase());
+                        }}
+                        placeholder="Auto-fills for known regulars"
+                      />
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Running Tab</button>
+                    </>
                   ) : (
                     <>
                       <label className="ql-label">Visitor name (optional)</label>
-                      <input className="ql-input" value={walkInName} onChange={function(e) { setWalkInName(e.target.value); }} placeholder="Leave blank for Walk-in" />
+                      <input
+                        className="ql-input"
+                        value={walkInName}
+                        onChange={function(e) {
+                          const value = e.target.value.toUpperCase();
+                          setWalkInName(value);
+                          const exact = customerMatches(value, 2);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setWalkInPhone(exact[0].phone);
+                        }}
+                        placeholder="Type name — regulars auto-fill"
+                        autoComplete="off"
+                      />
+                      {renderCustomerMatches(walkInName, applyCustomerToWalkIn)}
                       <label className="ql-label" style={{ marginTop: 8 }}>Mobile (optional)</label>
-                      <input className="ql-input" value={walkInPhone} onChange={function(e) { setWalkInPhone(e.target.value); }} placeholder="For receipt if wanted" />
+                      <input
+                        className="ql-input"
+                        inputMode="numeric"
+                        value={walkInPhone}
+                        onChange={function(e) {
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setWalkInPhone(value);
+                          const match = customerByPhone(value);
+                          if (match) setWalkInName(String(match.name || walkInName).toUpperCase());
+                        }}
+                        placeholder="Auto-fills for known regulars"
+                      />
+                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Running Tab when the customer will order again.</div>
                     </>
                   )}
                 </div>
               </div>
             </div>
+
+            {fnbDestination === "RUNNING_TAB" ? (
+              <>
+                <div className="ql-section">Open running tabs — {fnbTabs.length}</div>
+                <div className="ql-grid">
+                  {fnbTabs.length ? fnbTabs.map(function(row) {
+                    const selected = row.tab_id === selectedFnbTabId;
+                    return (
+                      <div className={"ql-card " + (selected ? "wide" : "")} key={row.tab_id} style={selected ? { borderColor: "#69dca0" } : undefined}>
+                        <div className="ql-space">
+                          <div>
+                            <h3>{row.customer_name}</h3>
+                            <div className="ql-muted">{row.customer_phone || "No mobile"} • {row.tab_no}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <strong className="ql-price">{money(row.total_inr)}</strong>
+                            <div className="ql-muted">{row.item_count} item(s)</div>
+                          </div>
+                        </div>
+                        <div className="ql-muted" style={{ marginTop: 7 }}>Last order {row.last_order_at ? new Date(row.last_order_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+                        <div className="ql-row" style={{ marginTop: 10 }}>
+                          <button className={"ql-btn " + (selected ? "primary" : "")} onClick={function() { setSelectedFnbTabId(row.tab_id); }}>+ Add Order</button>
+                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Bill & Close</button>
+                          {Number(row.item_count || 0) === 0 ? <button className="ql-btn danger" disabled={busy} onClick={function() { cancelEmptyRunningFnbTab(row); }}>Cancel</button> : null}
+                        </div>
+
+                        {selected ? (
+                          <div className="ql-list" style={{ marginTop: 12 }}>
+                            {(row.lines || []).filter(function(line) { return line.status === "ACTIVE"; }).length ? (row.lines || []).filter(function(line) { return line.status === "ACTIVE"; }).map(function(line) {
+                              return (
+                                <div className="ql-line" key={line.id}>
+                                  <div className="ql-space">
+                                    <div>
+                                      <strong>{line.item_name_snapshot} × {Number(line.quantity)}</strong>
+                                      <div className="ql-muted">{line.added_at ? new Date(line.added_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <strong>{money(line.line_total_inr)}</strong>
+                                      {isAdmin ? <div><button className="ql-btn danger" style={{ marginTop: 6 }} onClick={function() { voidFnbLine(line); }}>Void</button></div> : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }) : <div className="ql-empty">No orders yet. Select items below and tap Add to Tab.</div>}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }) : <div className="ql-card full"><div className="ql-empty">No running tabs. Enter a customer name above and open one.</div></div>}
+                </div>
+              </>
+            ) : null}
             <div className="ql-section">Live catalogue</div>
             <div className="ql-fnb-tools">
               <div>
@@ -2039,8 +2561,8 @@ export default function QclubLedgerPage() {
                 </div>
                 <div className="ql-row" style={{ justifyContent: "flex-end" }}>
                   {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
-                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || busy || selectedFnbCount <= 0} onClick={addFnb}>
-                    {busy ? "Adding…" : (fnbDestination === "WALK_IN" ? "Create Separate F&B Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill"))}
+                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || (fnbDestination === "RUNNING_TAB" && !selectedFnbTabId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy ? "Adding…" : (fnbDestination === "RUNNING_TAB" ? "Add to " + (selectedFnbTab ? selectedFnbTab.customer_name : "Running Tab") : (fnbDestination === "WALK_IN" ? "Create Quick Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill")))}
                   </button>
                 </div>
               </div>
@@ -2461,8 +2983,14 @@ export default function QclubLedgerPage() {
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
-                      <div className="ql-muted" style={{ margin: "9px 0" }}>Uses the mobile entered above. WhatsApp receipt sends independently; if a valid Cashfree payment exists, its payment link is included.</div>
-                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>{upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt"}</button>
+                      <div className="ql-muted" style={{ margin: "9px 0" }}>
+                        {billDetail.status === "PAID"
+                          ? "Receipt was sent automatically when the bill became fully paid. Use the button below only to resend it."
+                          : "WhatsApp receipt will be sent automatically after the bill becomes fully paid. You can still send one manually when needed."}
+                      </div>
+                      <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>
+                        {billDetail.status === "PAID" ? "Resend Receipt" : (upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt")}
+                      </button>
                     </div>
                   </div>
 
@@ -2666,7 +3194,7 @@ export default function QclubLedgerPage() {
                 </select>
               </div>
 
-              {startForm.gameType !== "QCHASE_RUMMY" ? (
+              {startForm.gameType !== "QCHASE_RUMMY" && startForm.gameType !== "KITTY" ? (
                 <>
                   <div>
                     <label className="ql-label">Match format</label>
@@ -2695,8 +3223,10 @@ export default function QclubLedgerPage() {
                     </select>
                   </div>
                 </>
-              ) : (
+              ) : startForm.gameType === "QCHASE_RUMMY" ? (
                 <div className="full ql-line"><strong>QChase / Rummy</strong><div className="ql-muted">2–6 players. Each completed game charges only the players who actually played that game.</div></div>
+              ) : (
+                <div className="full ql-line"><strong>Kitty</strong><div className="ql-muted">2–6 individual players. No singles/doubles and no shared billing rule. The game runs on time: Liberwin/Wiraka ₹600/hr; Mini Snooker ₹500/hr. Only the winner is charged, minimum ₹100, rounded to the nearest ₹10. If there is no winner, that game time carries forward until a later game produces a winner.</div></div>
               )}
 
               {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" ? (
@@ -2716,7 +3246,11 @@ export default function QclubLedgerPage() {
                       {startForm.matchFormat === "FLEX" && (startForm.players || []).length > 1 ? <button className="ql-btn danger" type="button" onClick={function() { removeStartPlayer(index); }}>Remove</button> : null}
                     </div>
                     <div className="ql-form-grid" style={{ marginTop: 8 }}>
-                      <label><span className="ql-label">Name</span><input className="ql-input" value={player.name} onChange={function(e) { updateStartPlayer(index, "name", e.target.value); }} placeholder="Player name" /></label>
+                      <label>
+                        <span className="ql-label">Name</span>
+                        <input className="ql-input" value={player.name} onChange={function(e) { updateStartPlayer(index, "name", e.target.value); }} placeholder="Type regular player name" autoComplete="off" />
+                        {renderCustomerMatches(player.name, function(customer) { applyCustomerToStartPlayer(index, customer); })}
+                      </label>
                       <label><span className="ql-label">Mobile (optional)</span><input className="ql-input" inputMode="numeric" value={player.phone} onChange={function(e) { updateStartPlayer(index, "phone", e.target.value.replace(/\D/g,"").slice(0,10)); }} placeholder="For UPI / receipt" /></label>
                     </div>
                   </div>
@@ -2737,6 +3271,101 @@ export default function QclubLedgerPage() {
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setStartTable(null); }}>Cancel</button>
               <button className="ql-btn primary" disabled={busy} onClick={createSession}>Save & Start Session</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {playerAccountView && playerAccountPerson ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setPlayerAccountView(null); }}>
+          <div className="ql-modal" style={{ maxWidth: 760 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>{playerAccountPerson.name} — Running Account</h3>
+                <div className="ql-muted">
+                  {playerAccountSession ? String(playerAccountSession.game_type || "").replaceAll("_", " ") : "Table session"}
+                  {playerAccountPerson.team_no ? " • Team " + playerAccountPerson.team_no : ""}
+                  {" • "}{playerAccountPerson.status}
+                </div>
+              </div>
+              <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>✕</button>
+            </div>
+
+            <div className="ql-grid" style={{ marginTop: 14 }}>
+              <div className="ql-card">
+                <div className="ql-muted">CURRENT DUE</div>
+                <strong className="ql-price">{money(playerAccountPerson.current_due_inr)}</strong>
+                <div className="ql-muted">Unbilled {money(playerAccountPerson.unbilled_inr)} • Billed due {money(playerAccountPerson.billed_due_inr)}</div>
+              </div>
+              <div className="ql-card">
+                <div className="ql-muted">SESSION TOTALS</div>
+                <strong>Game {money(playerAccountPerson.game_charges_inr)}</strong>
+                <div className="ql-muted">F&B {money(playerAccountPerson.fnb_charges_inr)} • Table {money(playerAccountPerson.table_charges_inr)}</div>
+              </div>
+            </div>
+
+            <div className="ql-section">Account activity</div>
+            <div className="ql-list">
+              {(playerAccountPerson.account_entries || []).length ? (playerAccountPerson.account_entries || []).slice().reverse().map(function(entry) {
+                return (
+                  <div className="ql-line" key={entry.charge_id}>
+                    <div className="ql-space">
+                      <div>
+                        <strong>{entry.description}</strong>
+                        <div className="ql-muted">
+                          {entry.created_at ? new Date(entry.created_at).toLocaleString() : ""}
+                          {" • "}{String(entry.charge_type || "").replaceAll("_", " ")}
+                          {entry.bill_no ? " • " + entry.bill_no : ""}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <strong>{money(entry.amount_inr)}</strong>
+                        <div><span className={"ql-badge " + (entry.settlement_status === "PAID" ? "good" : entry.settlement_status === "BILLED" ? "gold" : "")}>{entry.settlement_status}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : <div className="ql-empty">No charges yet.</div>}
+            </div>
+
+            {(playerAccountPerson.bills || []).length ? (
+              <>
+                <div className="ql-section">Bills / settlements</div>
+                <div className="ql-list">
+                  {(playerAccountPerson.bills || []).slice().reverse().map(function(bill) {
+                    return (
+                      <div className="ql-line ql-space" key={bill.bill_id}>
+                        <div>
+                          <strong>{bill.bill_no}</strong>
+                          <div className="ql-muted">{bill.status} • Paid {money(bill.paid_inr)} • Due {money(bill.due_inr)}</div>
+                        </div>
+                        <button className="ql-btn" onClick={async function() {
+                          await loadBill(bill.bill_id);
+                          setPlayerAccountView(null);
+                          setTab("ledger");
+                        }}>Open Bill</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            <div className="ql-line" style={{ marginTop: 14 }}>
+              <strong>Pay-and-continue</strong>
+              <div className="ql-muted">Paying this account settles money only. The player remains ACTIVE and can continue playing and ordering until staff taps Leave Game/Table or the table is closed.</div>
+            </div>
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+              <button className="ql-btn" onClick={function() { setSelectedSessionId(playerAccountView.sessionId); setSelectedFnbPersonId(playerAccountView.personId); setPlayerAccountView(null); setTab("fnb"); }}>+ F&B</button>
+              {Number(playerAccountPerson.current_due_inr || 0) > 0 ? (
+                <button className="ql-btn primary" onClick={function() {
+                  const session = sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; });
+                  setPlayerAccountView(null);
+                  if (session) finalizePerson(session, playerAccountPerson);
+                }}>Pay {money(playerAccountPerson.current_due_inr)}</button>
+              ) : <span className="ql-badge good">PAID UP</span>}
+              <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>Close</button>
             </div>
           </div>
         </div>

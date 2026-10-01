@@ -466,6 +466,86 @@ async function publicPaymentSession(req, res, paymentId) {
   });
 }
 
+
+async function publicTableDisplay(req, res, tableKey) {
+  const match = /^T([1-4])$/i.exec(safeText(tableKey || "", 10));
+  if (!match) return json(res, 404, { ok: false, error: "TABLE_DISPLAY_NOT_FOUND" });
+  const tableNo = Number(match[1]);
+  const supabase = getSupabaseAdmin();
+  const { data: table, error: tableError } = await supabase.from("snooker_tables").select("*").eq("table_no", tableNo).eq("active", true).maybeSingle();
+  if (tableError) throw tableError;
+  if (!table) return json(res, 404, { ok: false, error: "TABLE_NOT_FOUND" });
+
+  const { data: session } = await supabase.from("snooker_sessions").select("*").eq("table_id", table.id).in("status", ["ACTIVE","PAUSED","ENDED"]).order("started_at", { ascending: false }).limit(1).maybeSingle();
+  const rules = [];
+  if (table.table_type === "FULL_SIZE_SNOOKER") {
+    rules.push(
+      { title: "Normal Snooker", value: "Member ₹500/hr • Non-member ₹600/hr" },
+      { title: "6-Ball Snooker", value: "₹100/player or ₹200/game" },
+      { title: "10-Ball Snooker", value: "₹200/player" },
+      { title: "15-Ball Snooker", value: "₹300/player or ₹600/game" },
+      { title: "QChase / Rummy", value: "₹100 per game per player" },
+      { title: "Kitty", value: "₹600/hr • winner pays • minimum ₹100" },
+      { title: "Kitty carry", value: "No-winner time carries to the next game until a winner" }
+    );
+  } else if (table.table_type === "MINI_SNOOKER") {
+    rules.push(
+      { title: "Normal Mini Snooker", value: "Member ₹400/hr • Non-member ₹500/hr" },
+      { title: "Kitty", value: "₹500/hr • winner pays • minimum ₹100" },
+      { title: "Kitty carry", value: "No-winner time carries to the next game until a winner" }
+    );
+  } else {
+    rules.push({ title: "American Pool", value: "Member ₹300/hr • Non-member ₹400/hr" });
+  }
+
+  if (!session) return json(res, 200, { ok: true, state: "STANDBY", table: tableDto(table), standby_rules: rules });
+
+  const [{ data: rule }, { data: fnb }, { data: games }] = await Promise.all([
+    supabase.from("snooker_game_rules").select("*").eq("game_type", session.game_type).maybeSingle(),
+    supabase.from("snooker_fnb_lines").select("line_total_inr,status").eq("session_id", session.id),
+    supabase.from("snooker_completed_games").select("*").eq("session_id", session.id).eq("status","COMPLETED").order("completed_at"),
+  ]);
+  const fnbTotal = money((fnb || []).filter((x) => x.status !== "VOIDED").reduce((sum,x)=>sum+number(x.line_total_inr),0));
+  const gameCharges = money((games || []).reduce((sum,x)=>sum+number(x.calculated_charge_inr),0));
+  const rate = session.game_type === "KITTY"
+    ? money(table.price_per_hour_inr)
+    : money(session.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
+
+  let kittyChainSeconds = null;
+  if (session.game_type === "KITTY") {
+    const lastWinner = [...(games || [])].reverse().find((g) => Array.isArray(g.winner_person_ids) && g.winner_person_ids.length);
+    const chainStart = Date.parse(lastWinner?.completed_at || session.started_at || "");
+    kittyChainSeconds = Number.isFinite(chainStart) ? Math.max(0, Math.floor((Date.now() - chainStart) / 1000)) : 0;
+  }
+
+  const sessionPayload = {
+    ...sessionDto(session),
+    game_label: rule?.display_name || session.game_type,
+    billing_mode: rule?.billing_mode || null,
+    hourly_rate_inr: rate,
+    fnb_total_inr: fnbTotal,
+    game_charges_inr: gameCharges,
+    kitty_chain_seconds_live: kittyChainSeconds,
+  };
+
+  if (session.status !== "ENDED") return json(res, 200, { ok: true, state: "PLAYING", table: tableDto(table), standby_rules: rules, session: sessionPayload });
+
+  let bill = null;
+  if (session.account_mode === "LEGACY") {
+    const { data } = await supabase.from("snooker_bills").select("*").eq("session_id", session.id).neq("status","CANCELLED").order("finalized_at",{ascending:false}).limit(1).maybeSingle();
+    bill = data || null;
+  }
+  if (!bill) return json(res, 200, { ok: true, state: "PLAYING", table: tableDto(table), standby_rules: rules, session: sessionPayload });
+
+  let payment = null;
+  if (number(bill.due_inr) > 0) {
+    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).eq("method","UPI").eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
+    if (data) payment = { payment_id: data.id, status: data.status, amount_inr: money(data.amount_inr), qr_url: qrElementUrl(data) };
+  }
+  const billPayload = { bill_id: bill.id, bill_no: bill.bill_no, game_total_inr: money(bill.game_total_inr), fnb_total_inr: money(bill.fnb_total_inr), total_inr: money(bill.total_inr), due_inr: money(bill.due_inr), status: bill.status };
+  return json(res, 200, { ok: true, state: bill.status === "PAID" ? "PAID" : "PAYMENT", table: tableDto(table), standby_rules: rules, session: sessionPayload, bill: billPayload, payment });
+}
+
 async function dashboardSummary(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1020,14 +1100,34 @@ async function individualSessionSnapshot(supabase, sessionId) {
   return (people || []).map((person) => {
     const own = activeCharges.filter((x) => x.person_id === person.id);
     const ownBills = (bills || []).filter((x) => x.person_id === person.id && x.status !== "CANCELLED");
+    const billById = new Map(ownBills.map((bill) => [bill.id, bill]));
     const unbilled = own.filter((x) => !x.bill_id);
     const sumType = (type) => money(own.filter((x) => x.charge_type === type).reduce((s,x)=>s+number(x.amount_inr),0));
     const unbilledTotal = money(unbilled.reduce((s,x)=>s+number(x.amount_inr),0));
     const billedDue = money(ownBills.reduce((s,x)=>s+number(x.due_inr),0));
     const billedPaid = money(ownBills.reduce((s,x)=>s+number(x.paid_inr),0));
+    const accountEntries = own.map((charge) => {
+      const linkedBill = charge.bill_id ? billById.get(charge.bill_id) : null;
+      const settlement = !charge.bill_id
+        ? "RUNNING"
+        : linkedBill?.status === "PAID"
+          ? "PAID"
+          : "BILLED";
+      return {
+        charge_id: charge.id,
+        charge_type: charge.charge_type,
+        description: charge.description,
+        amount_inr: money(charge.amount_inr),
+        created_at: charge.created_at,
+        bill_id: charge.bill_id || null,
+        bill_no: linkedBill?.bill_no || null,
+        settlement_status: settlement,
+      };
+    });
     return {
       id: person.id,
       person_id: person.id,
+      customer_id: person.customer_id || null,
       name: person.name,
       phone: person.phone,
       is_member: person.is_member,
@@ -1044,6 +1144,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       billed_due_inr: billedDue,
       paid_inr: billedPaid,
       current_due_inr: money(unbilledTotal + billedDue),
+      account_entries: accountEntries,
       bills: ownBills.map((b)=>({bill_id:b.id,bill_no:b.bill_no,status:b.status,total_inr:money(b.total_inr),paid_inr:money(b.paid_inr),due_inr:money(b.due_inr)})),
     };
   });
@@ -1082,6 +1183,167 @@ async function syncActivePersonTimers(supabase, sessionId, action, at = new Date
       }).eq("id", person.id);
     }
   }
+}
+
+function canonicalCustomerName(value = "") {
+  return safeText(value, 160).trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function normalizeCustomerName(value = "") {
+  return canonicalCustomerName(value).toLowerCase();
+}
+
+function customerDto(row) {
+  return {
+    customer_id: row.id,
+    id: row.id,
+    name: row.name,
+    phone: row.phone || null,
+    is_member: Boolean(row.is_member),
+    member_tier: row.member_tier || null,
+    visit_count: number(row.visit_count),
+    last_seen_at: row.last_seen_at || null,
+    source: row.source || null,
+  };
+}
+
+async function rememberCustomer(supabase, { name, phone, isMember = false, memberTier = null, source = "qclub_ledger" } = {}) {
+  const cleanName = canonicalCustomerName(name || "");
+  if (!cleanName) return null;
+  const normalizedName = normalizeCustomerName(cleanName);
+  const normalizedPhone = normalizePhone(phone || "") || null;
+
+  const { data: existing, error: readError } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("normalized_name", normalizedName)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const now = new Date().toISOString();
+  if (existing) {
+    const patch = {
+      name: cleanName,
+      phone: normalizedPhone || existing.phone || null,
+      normalized_phone: normalizedPhone || existing.normalized_phone || null,
+      is_member: Boolean(existing.is_member || isMember),
+      member_tier: memberTier || existing.member_tier || null,
+      source: safeText(source || existing.source || "qclub_ledger", 80),
+      visit_count: Math.max(1, number(existing.visit_count, 0) + 1),
+      last_seen_at: now,
+      active: true,
+      updated_at: now,
+    };
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .update(patch)
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("snooker_customers")
+    .insert({
+      name: cleanName,
+      normalized_name: normalizedName,
+      phone: normalizedPhone,
+      normalized_phone: normalizedPhone,
+      is_member: Boolean(isMember),
+      member_tier: memberTier || null,
+      source: safeText(source || "qclub_ledger", 80),
+      visit_count: 1,
+      last_seen_at: now,
+      active: true,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function listCustomers(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const requestedLimit = Math.floor(number(req.query?.limit, 200));
+  const limit = Math.min(500, Math.max(1, requestedLimit || 200));
+  const { data, error } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("active", true)
+    .order("last_seen_at", { ascending: false, nullsFirst: false })
+    .order("name")
+    .limit(limit);
+  if (error) throw error;
+  return json(res, 200, { customers: (data || []).map(customerDto) });
+}
+
+async function upsertCustomer(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const customer = await rememberCustomer(getSupabaseAdmin(), {
+    name: req.body?.name,
+    phone: req.body?.phone,
+    isMember: Boolean(req.body?.is_member),
+    memberTier: req.body?.member_tier || null,
+    source: "manual_ledger",
+  });
+  if (!customer) return json(res, 400, { ok: false, error: "CUSTOMER_NAME_REQUIRED" });
+  return json(res, 200, customerDto(customer));
+}
+
+
+async function listPlayerTabs(req,res){
+  const auth=await requireAuth(req,res); if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const {data:people,error}=await supabase.from("snooker_session_people").select("id,customer_id,session_id,name,phone,status,joined_at,left_at").not("customer_id","is",null).order("updated_at",{ascending:false}).limit(1000);
+  if(error)throw error;
+  const personIds=(people||[]).map(p=>p.id);
+  let charges=[];
+  if(personIds.length){const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null);if(q.error)throw q.error;charges=q.data||[];}
+  const customerIds=[...new Set((people||[]).map(p=>p.customer_id).filter(Boolean))];
+  let customers=[],bills=[],sessions=[];
+  if(customerIds.length){
+    const [cq,bq]=await Promise.all([
+      supabase.from("snooker_customers").select("*").in("id",customerIds),
+      supabase.from("snooker_bills").select("*").in("customer_id",customerIds).neq("status","CANCELLED")
+    ]);
+    if(cq.error||bq.error)throw cq.error||bq.error;customers=cq.data||[];bills=bq.data||[];
+  }
+  const sessionIds=[...new Set((people||[]).map(p=>p.session_id).filter(Boolean))];
+  if(sessionIds.length){const sq=await supabase.from("snooker_sessions").select("id,table_id,game_type,status").in("id",sessionIds);if(sq.error)throw sq.error;sessions=sq.data||[];}
+  const customerMap=new Map(customers.map(c=>[c.id,c])),sessionMap=new Map(sessions.map(x=>[x.id,x]));
+  const tabs=customerIds.map(customerId=>{
+    const customer=customerMap.get(customerId); const ownPeople=(people||[]).filter(p=>p.customer_id===customerId); const ownIds=new Set(ownPeople.map(p=>p.id));
+    const ownCharges=charges.filter(c=>ownIds.has(c.person_id)); const ownBills=bills.filter(b=>b.customer_id===customerId);
+    const unbilled=money(ownCharges.reduce((sum,c)=>sum+number(c.amount_inr),0)); const billedDue=money(ownBills.reduce((sum,b)=>sum+number(b.due_inr),0));
+    const activeLocations=ownPeople.filter(p=>p.status==="ACTIVE").map(p=>{const x=sessionMap.get(p.session_id);return x&&["ACTIVE","PAUSED"].includes(x.status)?{session_id:x.id,table_id:x.table_id,game_type:x.game_type}:null;}).filter(Boolean);
+    return {customer_id:customerId,name:customer?.name||ownPeople[0]?.name||"PLAYER",phone:customer?.phone||ownPeople[0]?.phone||null,is_member:Boolean(customer?.is_member),unbilled_inr:unbilled,billed_due_inr:billedDue,current_due_inr:money(unbilled+billedDue),active_locations:activeLocations,charge_count:ownCharges.length};
+  }).filter(t=>t.current_due_inr>0.009||t.active_locations.length).sort((a,b)=>b.current_due_inr-a.current_due_inr);
+  return json(res,200,{tabs});
+}
+
+async function finalizePlayerTab(req,res,customerId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const supabase=getSupabaseAdmin();const key=idempotencyKey(req);const old=await previousIdempotent(supabase,key,"finalize_club_tab");if(old)return json(res,200,old);
+  const {data:customer}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  const {data:people,error:pe}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",customerId);if(pe)throw pe;
+  const personIds=(people||[]).map(p=>p.id);if(!personIds.length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+  const {data:charges,error:ce}=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");if(ce)throw ce;
+  if(!(charges||[]).length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+  const gameTotal=money((charges||[]).filter(x=>x.charge_type!=="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));
+  const fnbTotal=money((charges||[]).filter(x=>x.charge_type==="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));const total=money(gameTotal+fnbTotal);
+  const billId=randomUUID(),suffix=billId.replace(/-/g,"").slice(-6).toUpperCase(),datePart=new Date().toISOString().slice(2,10).replace(/-/g,""),billNo=`QC-${datePart}-${suffix}`;
+  const {data:bill,error}=await supabase.from("snooker_bills").insert({id:billId,bill_no:billNo,session_id:null,source_session_id:null,person_id:null,customer_id:customerId,bill_source:"PLAYER_ACCOUNT",customer_name:customer.name,customer_phone:customer.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null}).select("*").single();if(error)throw error;
+  const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:ch.person_id,session_id:ch.session_id,charge_id:ch.id,...(ch.metadata||{})}}));
+  if(items.length){const ie=await supabase.from("snooker_bill_items").insert(items);if(ie.error)throw ie.error;}
+  const ids=(charges||[]).map(x=>x.id);await supabase.from("snooker_person_charges").update({bill_id:billId}).in("id",ids);
+  const fnbIds=(charges||[]).filter(x=>x.charge_type==="FNB"&&x.reference_id).map(x=>x.reference_id);if(fnbIds.length)await supabase.from("snooker_fnb_lines").update({bill_id:billId}).in("id",fnbIds);
+  const response=await billDetailPayload(supabase,billId);await rememberIdempotent(supabase,key,"finalize_club_tab",billId,response);return json(res,201,response);
 }
 
 async function bootstrap(req, res) {
@@ -1501,9 +1763,9 @@ async function rememberIdempotent(supabase, key, scope, resourceId, responseBody
 
 function compatibleGame(tableType, gameType) {
   if (tableType === "POOL") return gameType === "NORMAL_POOL";
-  if (tableType === "MINI_SNOOKER") return gameType === "NORMAL_SNOOKER";
+  if (tableType === "MINI_SNOOKER") return ["NORMAL_SNOOKER", "KITTY"].includes(gameType);
   if (tableType === "FULL_SIZE_SNOOKER") {
-    return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER"].includes(gameType);
+    return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "KITTY"].includes(gameType);
   }
   return false;
 }
@@ -1579,9 +1841,10 @@ async function createSession(req, res) {
   const rawPeople = Array.isArray(req.body?.people) ? req.body.people : [];
   const individual = rawPeople.length > 0 || safeText(req.body?.account_mode || "",30).toUpperCase()==="INDIVIDUAL";
   let people = rawPeople.map((p)=>({
-    name:safeText(p?.name || "",160).trim(),
+    name:canonicalCustomerName(p?.name || ""),
     phone:normalizePhone(p?.phone || "") || null,
     is_member:Boolean(p?.is_member),
+    customer_id:safeText(p?.customer_id || "",100) || null,
     team_no:p?.team_no==null?null:number(p.team_no),
   })).filter((p)=>p.name);
   if(individual && !people.length) return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
@@ -1602,7 +1865,7 @@ async function createSession(req, res) {
   if(gameType==="QCHASE_RUMMY" && (people.length<2||people.length>6)) return json(res,400,{ok:false,error:"QCHASE_REQUIRES_TWO_TO_SIX_PLAYERS"});
 
   const first=people[0] || null;
-  const customerName=individual ? first?.name : (safeText(req.body?.customer_name || req.body?.customerName || "",160)||null);
+  const customerName=individual ? first?.name : (canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "")||null);
   const customerPhone=individual ? first?.phone : (normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "")||null);
   let isMember=Boolean(first?.is_member ?? req.body?.is_member ?? false);
   if(isMember){
@@ -1631,8 +1894,25 @@ async function createSession(req, res) {
   if(error) throw error;
 
   if(individual){
-    const rows=people.map((p)=>({
-      session_id:data.id,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
+    const customerRows=[];
+    for (const p of people) {
+      try {
+        if (p.customer_id) {
+          const { data: linked } = await supabase.from("snooker_customers").select("*").eq("id",p.customer_id).eq("active",true).maybeSingle();
+          if (linked) { customerRows.push(linked); continue; }
+        }
+        customerRows.push(await rememberCustomer(supabase,{name:p.name,phone:p.phone,isMember:p.is_member,source:"table_session"}));
+      }
+      catch { customerRows.push(null); }
+    }
+    const activeCustomerIds=customerRows.map(c=>c?.id).filter(Boolean);
+    if (activeCustomerIds.length) {
+      const { data: alreadyActive } = await supabase.from("snooker_session_people").select("customer_id,session_id,status").in("customer_id",activeCustomerIds).eq("status","ACTIVE");
+      const other=(alreadyActive||[]).filter(p=>p.session_id!==data.id);
+      if(other.length){ await supabase.from("snooker_sessions").delete().eq("id",data.id); return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"A selected player is still active on another table. Use Leave Game/Table there before moving the player."}); }
+    }
+    const rows=people.map((p,index)=>({
+      session_id:data.id,customer_id:customerRows[index]?.id||null,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
       status:"ACTIVE",joined_at:now,timer_running:rule.billing_mode==="HOURLY",timer_started_at:rule.billing_mode==="HOURLY"?now:null,
       created_by:auth.staff_id,updated_by:auth.staff_id,
     }));
@@ -1644,6 +1924,27 @@ async function createSession(req, res) {
     data.participant_ids=(inserted||[]).map((p)=>p.id);
     data.participant_names=(inserted||[]).map((p)=>p.name);
   }
+  if (individual) {
+    for (const person of people) {
+      try {
+        await rememberCustomer(supabase, {
+          name: person.name,
+          phone: person.phone,
+          isMember: person.is_member,
+          source: "table_session",
+        });
+      } catch (customerError) {
+        console.error("customer directory remember failed", { source: "table_session", name: person.name, message: customerError?.message });
+      }
+    }
+  } else if (customerName) {
+    try {
+      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, isMember, source: "table_session" });
+    } catch (customerError) {
+      console.error("customer directory remember failed", { source: "table_session", name: customerName, message: customerError?.message });
+    }
+  }
+
   const response=sessionDto(data);
   await rememberIdempotent(supabase,key,"create_session",data.id,response);
   return json(res,201,response);
@@ -1668,19 +1969,37 @@ async function addSessionPerson(req,res,sessionId){
   if(!session||session.account_mode!=="INDIVIDUAL"||!["ACTIVE","PAUSED"].includes(session.status)) return json(res,409,{ok:false,error:"INDIVIDUAL_SESSION_NOT_ACTIVE"});
   const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).neq("status","SETTLED");
   if(number(count)>=6)return json(res,409,{ok:false,error:"MAX_SIX_PLAYERS"});
-  const name=safeText(req.body?.name||"",160).trim(); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
+  const name=canonicalCustomerName(req.body?.name||""); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
   const phone=normalizePhone(req.body?.phone||"")||null;
   const teamNo=req.body?.team_no==null?null:number(req.body.team_no);
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
   const now=new Date().toISOString();
+  let linkedCustomer=null;
+  const requestedCustomerId=safeText(req.body?.customer_id || "",100) || null;
+  try {
+    if(requestedCustomerId){
+      const {data:known}=await supabase.from("snooker_customers").select("*").eq("id",requestedCustomerId).eq("active",true).maybeSingle();
+      if(known) linkedCustomer=known;
+    }
+    if(!linkedCustomer) linkedCustomer=await rememberCustomer(supabase,{name,phone,source:"joined_player"});
+  } catch {}
+  if(linkedCustomer?.id){
+    const {data:activeElsewhere}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",linkedCustomer.id).eq("status","ACTIVE").neq("session_id",sessionId).limit(1);
+    if((activeElsewhere||[]).length)return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"This player is still active on another table. Use Leave Game/Table there first."});
+  }
   const {data,error}=await supabase.from("snooker_session_people").insert({
-    session_id:sessionId,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
+    session_id:sessionId,customer_id:linkedCustomer?.id||null,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
     timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,
     created_by:auth.staff_id,updated_by:auth.staff_id
   }).select("*").single();
   if(error)throw error;
   const {data:all}=await supabase.from("snooker_session_people").select("id,name").eq("session_id",sessionId).order("joined_at");
   await supabase.from("snooker_sessions").update({participant_ids:(all||[]).map(p=>p.id),participant_names:(all||[]).map(p=>p.name),updated_at:now}).eq("id",sessionId);
+  try {
+    await rememberCustomer(supabase, { name, phone, source: "joined_player" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "joined_player", name, message: customerError?.message });
+  }
   return json(res,201,data);
 }
 
@@ -1693,7 +2012,7 @@ async function updateSessionPerson(req,res,sessionId,personId){
   const action=safeText(req.body?.action||"",30).toUpperCase();
   const now=new Date();
   const patch={updated_by:auth.staff_id,updated_at:now.toISOString()};
-  if(req.body?.name!==undefined)patch.name=safeText(req.body.name,160).trim()||person.name;
+  if(req.body?.name!==undefined)patch.name=canonicalCustomerName(req.body.name)||person.name;
   if(req.body?.phone!==undefined)patch.phone=normalizePhone(req.body.phone)||null;
   if(req.body?.team_no!==undefined)patch.team_no=req.body.team_no==null?null:number(req.body.team_no);
   if(action==="LEAVE"){
@@ -1702,7 +2021,13 @@ async function updateSessionPerson(req,res,sessionId,personId){
     patch.status="ACTIVE";patch.left_at=null;patch.timer_running=Boolean(session?.timer_running);patch.timer_started_at=session?.timer_running?now.toISOString():null;
   }
   const {data,error}=await supabase.from("snooker_session_people").update(patch).eq("id",personId).select("*").single();
-  if(error)throw error; return json(res,200,data);
+  if(error)throw error;
+  try {
+    await rememberCustomer(supabase, { name: data.name, phone: data.phone, isMember: data.is_member, source: "player_update" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "player_update", name: data.name, message: customerError?.message });
+  }
+  return json(res,200,data);
 }
 
 async function allocateHourlySession(req,res,sessionId){
@@ -1757,8 +2082,8 @@ async function finalizePersonBill(req,res,sessionId,personId){
   const billId=randomUUID(),suffix=billId.replace(/-/g,"").slice(-6).toUpperCase(),datePart=new Date().toISOString().slice(2,10).replace(/-/g,"");
   const billNo=`QP-${datePart}-${suffix}`;
   const {data:bill,error}=await supabase.from("snooker_bills").insert({
-    id:billId,bill_no:billNo,session_id:null,source_session_id:sessionId,person_id:personId,bill_source:"PLAYER_ACCOUNT",
-    customer_name:person.name,customer_phone:person.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
+    id:billId,bill_no:billNo,session_id:null,source_session_id:sessionId,person_id:personId,customer_id:person.customer_id||null,bill_source:"PLAYER_ACCOUNT",
+    customer_name:canonicalCustomerName(person.name),customer_phone:person.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
   }).select("*").single();if(error)throw error;
   const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:personId,charge_id:ch.id,...(ch.metadata||{})}}));
   if(items.length){const {error:ie}=await supabase.from("snooker_bill_items").insert(items);if(ie)throw ie;}
@@ -1814,9 +2139,47 @@ async function recordGame(req,res,sessionId){
     const {data,error}=await supabase.from("snooker_completed_games").insert({session_id:sessionId,game_number:gameNumber,game_type:session.game_type,billing_mode:rule.billing_mode,rate_snapshot_inr:rate,player_ids:playerIds,player_names:playerNames,player_count_snapshot:count,calculated_charge_inr:charge,completed_by:auth.staff_id,idempotency_key:key||null}).select("*").single();if(error)throw error;
     const response={...data,game_id:data.id};await rememberIdempotent(supabase,key,"record_game",data.id,response);return json(res,201,response);
   }
+  if (session.game_type === "KITTY") {
+    const selectedIds = Array.isArray(req.body?.player_ids) ? req.body.player_ids.map(String) : [];
+    if (selectedIds.length < 2 || selectedIds.length > 6) return json(res,400,{ok:false,error:"KITTY_REQUIRES_TWO_TO_SIX_PLAYERS"});
+    const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
+    if ((people || []).length !== selectedIds.length) return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
+    const noWinner = Boolean(req.body?.kitty_no_winner);
+    const winnerId = safeText(req.body?.winner_person_id || "",100);
+    if (!noWinner && (!winnerId || !selectedIds.includes(winnerId))) return json(res,400,{ok:false,error:"KITTY_WINNER_REQUIRED"});
+    const [{ data: priorGames }, { data: table }] = await Promise.all([
+      supabase.from("snooker_completed_games").select("*").eq("session_id",sessionId).eq("status","COMPLETED").order("completed_at"),
+      supabase.from("snooker_tables").select("*").eq("id",session.table_id).maybeSingle(),
+    ]);
+    const lastWinner = [...(priorGames || [])].reverse().find((g)=>Array.isArray(g.winner_person_ids)&&g.winner_person_ids.length);
+    const chainStartMs = Date.parse(lastWinner?.completed_at || session.started_at || "");
+    const now = new Date();
+    const chainSeconds = Number.isFinite(chainStartMs) ? Math.max(0,Math.floor((now.getTime()-chainStartMs)/1000)) : 0;
+    const rate = money(table?.price_per_hour_inr);
+    if (!(rate > 0)) return json(res,409,{ok:false,error:"KITTY_RATE_NOT_CONFIGURED"});
+    const rawWinnerCharge = Math.max(100,(chainSeconds/3600)*rate);
+    const winnerCharge = noWinner ? 0 : Math.max(100, Math.round(rawWinnerCharge / 10) * 10);
+    const gameNumber = number((priorGames || []).slice(-1)[0]?.game_number,0)+1;
+    const names = selectedIds.map((id)=>(people||[]).find((p)=>p.id===id)?.name||"Player");
+    const allocations = noWinner ? [] : [{person_id:winnerId,amount_inr:winnerCharge}];
+    const { data: game, error } = await supabase.from("snooker_completed_games").insert({
+      session_id:sessionId,game_number:gameNumber,game_type:"KITTY",billing_mode:"HOURLY",rate_snapshot_inr:rate,
+      player_ids:selectedIds,player_names:names,player_count_snapshot:selectedIds.length,calculated_charge_inr:winnerCharge,
+      settlement_rule:"WINNER_PAYS_TIME",match_format:"FLEX",winner_person_ids:noWinner?[]:[winnerId],loser_person_ids:[],
+      charge_allocations:allocations,completed_at:now.toISOString(),completed_by:auth.staff_id,idempotency_key:key||null
+    }).select("*").single();
+    if (error) throw error;
+    if (!noWinner) {
+      const winner=(people||[]).find((p)=>p.id===winnerId);
+      await createPersonCharge(supabase,{sessionId,personId:winnerId,type:"GAME",referenceId:game.id,description:"Kitty — winner pays "+Math.round(chainSeconds/60)+" min",amount:winnerCharge,staffId:auth.staff_id,metadata:{game_number:gameNumber,kitty:true,chain_seconds:chainSeconds,hourly_rate_inr:rate,minimum_inr:100,rounding:"NEAREST_10",raw_charge_inr:money(rawWinnerCharge),person_name:winner?.name}});
+    }
+    const response={...game,game_id:game.id,kitty_no_winner:noWinner,kitty_chain_seconds:chainSeconds,winner_charge_inr:winnerCharge,charge_allocations:allocations};
+    await rememberIdempotent(supabase,key,"record_game",game.id,response);
+    return json(res,201,response);
+  }
   const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
   if(!selectedIds.length)return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
-  const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
+  const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
   if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
   if(session.match_format==="SINGLES" && selectedIds.length!==2)return json(res,400,{ok:false,error:"SINGLES_FRAME_REQUIRES_TWO_PLAYERS"});
   if(session.match_format==="DOUBLES"){
@@ -1953,6 +2316,410 @@ async function addFnb(req,res,sessionId){
   }
   const response={session_id:sessionId,lines:created};await rememberIdempotent(supabase,key,"add_fnb",sessionId,response);return json(res,201,response);
 }
+async function fnbTabPayload(supabase, tabId) {
+  const { data: tab, error: tabError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (tabError) throw tabError;
+  if (!tab) return null;
+
+  const { data: lines, error: lineError } = await supabase
+    .from("snooker_fnb_lines")
+    .select("*")
+    .eq("tab_id", tabId)
+    .order("added_at");
+  if (lineError) throw lineError;
+
+  const activeLines = (lines || []).filter((line) => line.status === "ACTIVE");
+  const total = money(activeLines.reduce((sum, line) => sum + number(line.line_total_inr), 0));
+  const itemCount = activeLines.reduce((sum, line) => sum + number(line.quantity), 0);
+
+  return {
+    tab_id: tab.id,
+    id: tab.id,
+    tab_no: tab.tab_no,
+    customer_name: tab.customer_name,
+    customer_phone: tab.customer_phone || null,
+    status: tab.status,
+    linked_bill_id: tab.linked_bill_id || null,
+    opened_at: tab.opened_at,
+    last_order_at: tab.last_order_at,
+    closed_at: tab.closed_at || null,
+    opened_by: tab.opened_by || null,
+    closed_by: tab.closed_by || null,
+    notes: tab.notes || null,
+    total_inr: total,
+    item_count: itemCount,
+    lines: lines || [],
+  };
+}
+
+async function listFnbTabs(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const scope = safeText(req.query?.scope || "open", 30).toLowerCase();
+  let query = supabase.from("snooker_fnb_tabs").select("*").order("last_order_at", { ascending: false }).limit(200);
+  if (scope !== "all") query = query.eq("status", "OPEN");
+  const { data: tabs, error } = await query;
+  if (error) throw error;
+
+  const payloads = [];
+  for (const tab of tabs || []) {
+    const detail = await fnbTabPayload(supabase, tab.id);
+    if (detail) payloads.push(detail);
+  }
+  return json(res, 200, { tabs: payloads });
+}
+
+async function createFnbTab(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "create_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const customerName = canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "");
+  const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
+  const notes = safeText(req.body?.notes || "", 500).trim() || null;
+  if (!customerName) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
+
+  const id = randomUUID();
+  const suffix = id.replace(/-/g, "").slice(-6).toUpperCase();
+  const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const tabNo = `QT-${datePart}-${suffix}`;
+
+  const { data: tab, error } = await supabase.from("snooker_fnb_tabs").insert({
+    id,
+    tab_no: tabNo,
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    status: "OPEN",
+    opened_by: auth.staff_id,
+    notes,
+  }).select("*").single();
+  if (error) throw error;
+
+  try {
+    await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "fnb_running_tab" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "fnb_running_tab", name: customerName, message: customerError?.message });
+  }
+
+  const response = await fnbTabPayload(supabase, tab.id);
+  await rememberIdempotent(supabase, key, "create_fnb_tab", tab.id, response);
+  return json(res, 201, response);
+}
+
+async function updateFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+
+  const { data: current, error: readError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const patch = { updated_at: new Date().toISOString() };
+  if (req.body?.customer_name !== undefined) {
+    const name = canonicalCustomerName(req.body.customer_name || "");
+    if (!name) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
+    patch.customer_name = name;
+  }
+  if (req.body?.customer_phone !== undefined) patch.customer_phone = normalizePhone(req.body.customer_phone || "") || null;
+  if (req.body?.notes !== undefined) patch.notes = safeText(req.body.notes || "", 500).trim() || null;
+
+  const { error } = await supabase.from("snooker_fnb_tabs").update(patch).eq("id", tabId);
+  if (error) throw error;
+  const updated = await fnbTabPayload(supabase, tabId);
+  try {
+    await rememberCustomer(supabase, { name: updated?.customer_name, phone: updated?.customer_phone, source: "fnb_running_tab" });
+  } catch (customerError) {
+    console.error("customer directory remember failed", { source: "fnb_running_tab_update", name: updated?.customer_name, message: customerError?.message });
+  }
+  return json(res, 200, updated);
+}
+
+async function addFnbToTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "add_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const { data: tab, error: tabError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (tabError) throw tabError;
+  if (!tab) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (tab.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (!rawLines.length) return json(res, 400, { ok: false, error: "FNB_LINES_REQUIRED" });
+
+  const prepared = [];
+  const requestedByItem = new Map();
+
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const line = rawLines[i] || {};
+    const itemId = safeText(line.item_id || line.itemId || "", 160);
+    const qty = number(line.quantity ?? line.qty, 0);
+    if (!itemId || qty <= 0) return json(res, 400, { ok: false, error: "INVALID_FNB_LINE" });
+
+    const { data: item, error: itemError } = await supabase
+      .from("snooker_catalogue_items")
+      .select("*")
+      .eq("id", itemId)
+      .eq("active", true)
+      .maybeSingle();
+    if (itemError) throw itemError;
+    if (!item) return json(res, 404, { ok: false, error: "ITEM_NOT_FOUND", item_id: itemId });
+    if (item.selling_price_inr == null || number(item.selling_price_inr) <= 0) {
+      return json(res, 409, { ok: false, error: "PRICE_NOT_CONFIGURED", item_id: itemId, name: item.name });
+    }
+
+    const cumulativeQty = number(requestedByItem.get(item.id), 0) + qty;
+    requestedByItem.set(item.id, cumulativeQty);
+    if (item.track_inventory && number(item.current_stock) < cumulativeQty) {
+      return json(res, 409, {
+        ok: false,
+        error: "INSUFFICIENT_STOCK",
+        item_id: item.id,
+        available: number(item.current_stock),
+        requested: cumulativeQty,
+      });
+    }
+
+    prepared.push({
+      item,
+      qty,
+      lineTotal: money(number(item.selling_price_inr) * qty),
+      lineKey: key ? `${key}:${i}` : null,
+    });
+  }
+
+  const created = [];
+  const stockApplied = [];
+  try {
+    for (const row of prepared) {
+      const { item, qty, lineTotal, lineKey } = row;
+      const { data: inserted, error } = await supabase.from("snooker_fnb_lines").insert({
+        session_id: null,
+        bill_id: null,
+        tab_id: tabId,
+        person_id: null,
+        item_id: item.id,
+        item_name_snapshot: item.name,
+        unit_price_snapshot_inr: money(item.selling_price_inr),
+        quantity: qty,
+        line_total_inr: lineTotal,
+        added_by: auth.staff_id,
+        idempotency_key: lineKey,
+      }).select("*").single();
+      if (error) throw error;
+      created.push(inserted);
+
+      if (item.track_inventory) {
+        await applyStockMovement(supabase, {
+          item,
+          delta: -qty,
+          type: "SALE",
+          referenceType: "FNB_TAB_LINE",
+          referenceId: inserted.id,
+          reason: `Running tab ${tab.tab_no}`,
+          staffId: auth.staff_id,
+          key: `sale:${inserted.id}`,
+        });
+        stockApplied.push({ item, qty, lineId: inserted.id });
+      }
+    }
+
+    await supabase.from("snooker_fnb_tabs").update({
+      last_order_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", tabId);
+  } catch (error) {
+    for (const applied of stockApplied.reverse()) {
+      try {
+        const { data: latestItem } = await supabase
+          .from("snooker_catalogue_items")
+          .select("*")
+          .eq("id", applied.item.id)
+          .maybeSingle();
+        if (latestItem) {
+          await applyStockMovement(supabase, {
+            item: latestItem,
+            delta: applied.qty,
+            type: "CORRECTION",
+            referenceType: "FNB_TAB_ROLLBACK",
+            referenceId: applied.lineId,
+            reason: "Rollback failed running-tab order",
+            staffId: auth.staff_id,
+            key: `rollback-sale:${applied.lineId}`,
+          });
+        }
+      } catch (rollbackError) {
+        console.error("running tab stock rollback failed", { line_id: applied.lineId, message: rollbackError?.message });
+      }
+    }
+    if (created.length) await supabase.from("snooker_fnb_lines").delete().in("id", created.map((line) => line.id));
+    throw error;
+  }
+
+  const response = await fnbTabPayload(supabase, tabId);
+  await rememberIdempotent(supabase, key, "add_fnb_tab", tabId, response);
+  return json(res, 201, response);
+}
+
+async function closeFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "close_fnb_tab");
+  if (old) return json(res, 200, old);
+
+  const { data: current, error: readError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("id", tabId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (current.status === "CLOSED" && current.linked_bill_id) {
+    const response = await billDetailPayload(supabase, current.linked_bill_id);
+    await rememberIdempotent(supabase, key, "close_fnb_tab", current.linked_bill_id, response);
+    return json(res, 200, response);
+  }
+  if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const { data: claimed, error: claimError } = await supabase
+    .from("snooker_fnb_tabs")
+    .update({ status: "CLOSING", updated_at: new Date().toISOString() })
+    .eq("id", tabId)
+    .eq("status", "OPEN")
+    .select("*")
+    .maybeSingle();
+  if (claimError) throw claimError;
+  if (!claimed) return json(res, 409, { ok: false, error: "FNB_TAB_CLOSE_IN_PROGRESS" });
+
+  let bill = null;
+  try {
+    const { data: lines, error: lineError } = await supabase
+      .from("snooker_fnb_lines")
+      .select("*")
+      .eq("tab_id", tabId)
+      .eq("status", "ACTIVE")
+      .order("added_at");
+    if (lineError) throw lineError;
+    if (!(lines || []).length) {
+      await supabase.from("snooker_fnb_tabs").update({ status: "OPEN", updated_at: new Date().toISOString() }).eq("id", tabId);
+      return json(res, 409, { ok: false, error: "FNB_TAB_EMPTY" });
+    }
+
+    const total = money((lines || []).reduce((sum, line) => sum + number(line.line_total_inr), 0));
+    const billId = randomUUID();
+    const suffix = billId.replace(/-/g, "").slice(-6).toUpperCase();
+    const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+    const billNo = `QF-${datePart}-${suffix}`;
+
+    const { data: createdBill, error: billError } = await supabase.from("snooker_bills").insert({
+      id: billId,
+      bill_no: billNo,
+      session_id: null,
+      bill_source: "WALK_IN_FNB",
+      customer_name: claimed.customer_name,
+      customer_phone: claimed.customer_phone,
+      game_total_inr: 0,
+      fnb_total_inr: total,
+      discount_inr: 0,
+      total_inr: total,
+      paid_inr: 0,
+      due_inr: total,
+      status: "UNPAID",
+      revision: "1",
+      finalized_by: auth.staff_id,
+      idempotency_key: key || null,
+    }).select("*").single();
+    if (billError) throw billError;
+    bill = createdBill;
+
+    const lineIds = (lines || []).map((line) => line.id);
+    const { error: linkError } = await supabase.from("snooker_fnb_lines").update({ bill_id: bill.id }).in("id", lineIds);
+    if (linkError) throw linkError;
+
+    const items = (lines || []).map((line) => ({
+      bill_id: bill.id,
+      item_type: "FNB",
+      reference_id: line.id,
+      description: line.item_name_snapshot,
+      quantity: number(line.quantity),
+      unit_price_inr: money(line.unit_price_snapshot_inr),
+      line_total_inr: money(line.line_total_inr),
+      metadata: { item_id: line.item_id, source: "RUNNING_FNB_TAB", tab_id: tabId, tab_no: claimed.tab_no },
+    }));
+    const { error: itemError } = await supabase.from("snooker_bill_items").insert(items);
+    if (itemError) throw itemError;
+
+    const { error: closeError } = await supabase.from("snooker_fnb_tabs").update({
+      status: "CLOSED",
+      linked_bill_id: bill.id,
+      closed_at: new Date().toISOString(),
+      closed_by: auth.staff_id,
+      updated_at: new Date().toISOString(),
+    }).eq("id", tabId);
+    if (closeError) throw closeError;
+
+    const response = await billDetailPayload(supabase, bill.id);
+    await rememberIdempotent(supabase, key, "close_fnb_tab", bill.id, response);
+    return json(res, 201, response);
+  } catch (error) {
+    if (bill?.id) {
+      await supabase.from("snooker_fnb_lines").update({ bill_id: null }).eq("tab_id", tabId).eq("bill_id", bill.id);
+      await supabase.from("snooker_bills").delete().eq("id", bill.id);
+    }
+    await supabase.from("snooker_fnb_tabs").update({ status: "OPEN", updated_at: new Date().toISOString() }).eq("id", tabId);
+    throw error;
+  }
+}
+
+async function cancelEmptyFnbTab(req, res, tabId) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const { data: tab } = await supabase.from("snooker_fnb_tabs").select("*").eq("id", tabId).maybeSingle();
+  if (!tab) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+  if (tab.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+
+  const { count, error: countError } = await supabase
+    .from("snooker_fnb_lines")
+    .select("*", { count: "exact", head: true })
+    .eq("tab_id", tabId)
+    .eq("status", "ACTIVE");
+  if (countError) throw countError;
+  if (number(count) > 0) return json(res, 409, { ok: false, error: "FNB_TAB_HAS_ITEMS", message: "Void the tab items first or close the tab into a bill." });
+
+  const { error } = await supabase.from("snooker_fnb_tabs").update({
+    status: "CANCELLED",
+    closed_at: new Date().toISOString(),
+    closed_by: auth.staff_id,
+    updated_at: new Date().toISOString(),
+  }).eq("id", tabId);
+  if (error) throw error;
+  return json(res, 200, { ok: true, tab_id: tabId, status: "CANCELLED" });
+}
+
 async function createWalkInFnbBill(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -1964,7 +2731,7 @@ async function createWalkInFnbBill(req, res) {
   const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   if (!rawLines.length) return json(res, 400, { ok: false, error: "FNB_LINES_REQUIRED" });
 
-  const customerName = safeText(req.body?.customer_name || req.body?.customerName || "", 160) || null;
+  const customerName = canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "") || null;
   const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
 
   // Validate every requested line before creating any bill or stock movement.
@@ -2125,6 +2892,14 @@ async function createWalkInFnbBill(req, res) {
     throw error;
   }
 
+  if (customerName) {
+    try {
+      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "quick_fnb_bill" });
+    } catch (customerError) {
+      console.error("customer directory remember failed", { source: "quick_fnb_bill", name: customerName, message: customerError?.message });
+    }
+  }
+
   const response = await billDetailPayload(supabase, bill.id);
   await rememberIdempotent(supabase, key, "walkin_fnb_bill", bill.id, response);
   return json(res, 201, response);
@@ -2188,7 +2963,12 @@ async function refreshBill(supabase, billId) {
   }).eq("id", billId).select("*").single();
   if (error) throw error;
   if (updated.bill_source === "PLAYER_ACCOUNT" && updated.person_id && status === "PAID") {
-    await supabase.from("snooker_session_people").update({status:"SETTLED",settled_at:new Date().toISOString(),timer_running:false,updated_at:new Date().toISOString()}).eq("id",updated.person_id);
+    // Payment settles money only. Presence remains controlled by Leave/Rejoin,
+    // so a player can pay mid-session and continue playing without interruption.
+    await supabase.from("snooker_session_people").update({
+      settled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", updated.person_id);
   }
   return { ...updated, payments: list };
 }
@@ -2333,6 +3113,7 @@ async function billDetailPayload(supabase, billId) {
     source_session_id: bill.source_session_id || null,
     person_id: bill.person_id || null,
     bill_source: bill.bill_source || "GAME_SESSION",
+    customer_id: bill.customer_id || null,
     customer_name: bill.customer_name || null,
     customer_phone: bill.customer_phone || null,
     game_total_inr: money(bill.game_total_inr),
@@ -2496,6 +3277,16 @@ async function cashPayment(req, res) {
   if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
   if (bill.status === "PAID") return json(res, 409, { ok: false, error: "BILL_ALREADY_PAID" });
 
+  const requestedPhone = normalizePhone(req.body?.customer_phone || "");
+  if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
+    const { error: contactError } = await supabase
+      .from("snooker_bills")
+      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
+      .eq("id", billId);
+    if (contactError) throw contactError;
+    bill.customer_phone = requestedPhone;
+  }
+
   const due = money(bill.due_inr);
   const requested = money(req.body?.amount_applied_inr ?? req.body?.amount_inr ?? due);
   const applied = Math.min(due, requested > 0 ? requested : due);
@@ -2515,6 +3306,9 @@ async function cashPayment(req, res) {
   }).select("*").single();
   if (error) throw error;
   const updatedBill = await refreshBill(supabase, billId);
+  const autoReceipt = updatedBill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, billId, payment.id, "CASH_RECEIVED")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
   const response = {
     payment_id: payment.id,
     bill_id: billId,
@@ -2525,6 +3319,7 @@ async function cashPayment(req, res) {
     status: "RECEIVED",
     bill_status: updatedBill.status,
     due_inr: money(updatedBill.due_inr),
+    auto_receipt: autoReceipt,
   };
   await rememberIdempotent(supabase, key, "cash_payment", payment.id, response);
   return json(res, 201, response);
@@ -2731,7 +3526,10 @@ async function syncCashfreePayment(supabase, payment) {
       updated_at: new Date().toISOString(),
     }).eq("id", payment.id).select("*").single();
     if (error) throw error;
-    await refreshBill(supabase, payment.bill_id);
+    const refreshedBill = await refreshBill(supabase, payment.bill_id);
+    if (status === "VERIFIED" && refreshedBill?.status === "PAID") {
+      await autoSendPaidReceipt(supabase, payment.bill_id, updated.id, "CASHFREE_STATUS_SYNC");
+    }
     return updated;
   }
   return payment;
@@ -2762,6 +3560,9 @@ async function paymentStatus(req, res, paymentId) {
   }
 
   const bill = await refreshBill(supabase, payment.bill_id);
+  const autoReceipt = payment.status === "VERIFIED" && bill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, payment.bill_id, payment.id, "PAYMENT_STATUS_VERIFY")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
   return json(res, 200, {
     payment_id: payment.id,
     bill_id: payment.bill_id,
@@ -2773,6 +3574,7 @@ async function paymentStatus(req, res, paymentId) {
     verified_at: payment.verified_at,
     bill_status: bill?.status,
     due_inr: bill ? money(bill.due_inr) : null,
+    auto_receipt: autoReceipt,
   });
 }
 
@@ -2815,6 +3617,173 @@ async function inventoryWrite(req, res, type) {
   const response = { item_id: itemId, quantity_before: result.before, quantity_after: result.after, quantity_delta: delta, movement_type: movementType };
   await rememberIdempotent(supabase, key, scope, itemId, response);
   return json(res, 200, response);
+}
+
+function msg91BodyText(value = "", maxLength = 1200) {
+  return safeText(value, maxLength)
+    .replace(/[\r\n]+/g, " • ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger = "PAYMENT_SETTLED") {
+  try {
+    const bill = await billDetailPayload(supabase, billId);
+    if (!bill) return { attempted: false, status: "SKIPPED", reason: "BILL_NOT_FOUND" };
+    if (bill.status !== "PAID" || number(bill.due_inr) > 0.009) {
+      return { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+    }
+    if (bill.accounting_excluded) {
+      return { attempted: false, status: "SKIPPED", reason: "ACCOUNTING_EXCLUDED" };
+    }
+
+    let session = null;
+    if (bill.session_id) {
+      const { data } = await supabase.from("snooker_sessions").select("*").eq("id", bill.session_id).maybeSingle();
+      session = data || null;
+    }
+    const phone = normalizeWhatsappPhone(bill.customer_phone || session?.customer_phone || "");
+    if (!phone) {
+      return { attempted: false, status: "SKIPPED", reason: "PHONE_UNAVAILABLE" };
+    }
+
+    const authKey = env("MSG91_AUTH_KEY");
+    const sender = env("MSG91_SENDER_NUMBER");
+    const template = env("MSG91_SNOOKER_RECEIPT_TEMPLATE") || env("MSG91_FOOD_SUCCESS_TEMPLATE") || "food_success_items";
+    if (!authKey || !sender || !template) {
+      return { attempted: false, status: "SKIPPED", reason: "MSG91_NOT_CONFIGURED" };
+    }
+
+    // One automatic paid receipt per bill + destination phone. The unique
+    // notification idempotency key protects against duplicate Cashfree webhooks,
+    // manual Verify clicks and concurrent settlement callbacks.
+    const notificationKey = `auto-paid-receipt:${billId}:${phone}`;
+    let { data: existing, error: existingError } = await supabase
+      .from("snooker_notification_requests")
+      .select("*")
+      .eq("idempotency_key", notificationKey)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) {
+      return {
+        attempted: false,
+        status: existing.status,
+        reason: existing.status === "SENT" ? "ALREADY_SENT" : "AUTO_ATTEMPT_ALREADY_RECORDED",
+        notification_id: existing.id,
+      };
+    }
+
+    let reservation = null;
+    const { data: inserted, error: reserveError } = await supabase
+      .from("snooker_notification_requests")
+      .insert({
+        bill_id: billId,
+        phone,
+        channel: "WHATSAPP",
+        status: "PENDING",
+        provider: "MSG91",
+        requested_by: "AUTO_PAYMENT_SETTLEMENT",
+        idempotency_key: notificationKey,
+      })
+      .select("*")
+      .single();
+
+    if (reserveError) {
+      if (reserveError.code === "23505") {
+        const { data: raced } = await supabase
+          .from("snooker_notification_requests")
+          .select("*")
+          .eq("idempotency_key", notificationKey)
+          .maybeSingle();
+        return {
+          attempted: false,
+          status: raced?.status || "PENDING",
+          reason: raced?.status === "SENT" ? "ALREADY_SENT" : "AUTO_ATTEMPT_ALREADY_RECORDED",
+          notification_id: raced?.id || null,
+        };
+      }
+      throw reserveError;
+    }
+    reservation = inserted;
+
+    const summaryBase = (bill.items || [])
+      .slice(0, 12)
+      .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
+      .join(" • ") || "Q Club bill";
+    const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
+    const params = [
+      customer,
+      msg91BodyText(bill.bill_no, 120),
+      msg91BodyText(summaryBase, 1200),
+      msg91BodyText(String(money(bill.total_inr)), 120),
+    ];
+    const payload = {
+      integrated_number: sender,
+      content_type: "template",
+      payload: {
+        to: phone,
+        messaging_product: "whatsapp",
+        type: "template",
+        template: {
+          name: template,
+          language: { code: "en", policy: "deterministic" },
+          components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: msg91BodyText(text, 1200) })) }],
+        },
+      },
+    };
+
+    let upstream = null;
+    let raw = "";
+    let providerResponse = null;
+    try {
+      upstream = await fetch("https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authkey: authKey },
+        body: JSON.stringify(payload),
+      });
+      raw = await upstream.text();
+      try { providerResponse = raw ? JSON.parse(raw) : null; } catch { providerResponse = { raw: safeText(raw, 2000) }; }
+    } catch (deliveryError) {
+      const errorText = safeText(deliveryError?.message || "MSG91 request failed", 1000);
+      await supabase.from("snooker_notification_requests").update({
+        status: "FAILED",
+        error: errorText,
+        provider_response: { trigger, payment_id: paymentId, network_error: errorText },
+      }).eq("id", reservation.id);
+      return { attempted: true, status: "FAILED", reason: "PROVIDER_REQUEST_FAILED", notification_id: reservation.id };
+    }
+
+    const notificationStatus = upstream.ok ? "SENT" : "FAILED";
+    const errorText = upstream.ok ? null : safeText(raw, 1000);
+    const mergedProviderResponse = providerResponse && typeof providerResponse === "object"
+      ? { ...providerResponse, trigger, payment_id: paymentId }
+      : { response: providerResponse, trigger, payment_id: paymentId };
+
+    const { error: updateError } = await supabase.from("snooker_notification_requests").update({
+      status: notificationStatus,
+      provider_response: mergedProviderResponse,
+      error: errorText,
+      sent_at: upstream.ok ? new Date().toISOString() : null,
+    }).eq("id", reservation.id);
+    if (updateError) throw updateError;
+
+    return {
+      attempted: true,
+      status: notificationStatus,
+      reason: upstream.ok ? "AUTO_SENT" : "PROVIDER_REJECTED",
+      notification_id: reservation.id,
+    };
+  } catch (error) {
+    // Payment settlement must never fail because WhatsApp failed.
+    console.error("auto paid receipt failed", {
+      bill_id: billId,
+      payment_id: paymentId,
+      trigger,
+      message: error?.message,
+      code: error?.code,
+    });
+    return { attempted: true, status: "FAILED", reason: "AUTO_RECEIPT_ERROR" };
+  }
 }
 
 async function sendReceipt(req, res) {
@@ -2875,10 +3844,18 @@ async function sendReceipt(req, res) {
   }
 
   const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
-  const summaryBase = (bill.items || []).slice(0, 12).map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`).join("\n") || "Q Club bill";
-  const summary = paymentUrlValue ? `${summaryBase}\nPay securely: ${paymentUrlValue}` : summaryBase;
-  const customer = safeText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
-  const params = [customer, bill.bill_no, summary, String(money(bill.total_inr))];
+  const summaryBase = (bill.items || [])
+    .slice(0, 12)
+    .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
+    .join(" • ") || "Q Club bill";
+  const summary = paymentUrlValue ? `${summaryBase} • Pay securely: ${paymentUrlValue}` : summaryBase;
+  const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
+  const params = [
+    customer,
+    msg91BodyText(bill.bill_no, 120),
+    msg91BodyText(summary, 1200),
+    msg91BodyText(String(money(bill.total_inr)), 120),
+  ];
   const payload = {
     integrated_number: sender,
     content_type: "template",
@@ -2889,7 +3866,7 @@ async function sendReceipt(req, res) {
       template: {
         name: template,
         language: { code: "en", policy: "deterministic" },
-        components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: safeText(text, 1200) })) }],
+        components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: msg91BodyText(text, 1200) })) }],
       },
     },
   };
@@ -2909,7 +3886,14 @@ async function sendReceipt(req, res) {
     provider_response: providerResponse, error: upstream.ok ? null : safeText(raw, 1000),
     requested_by: auth.staff_id, sent_at: upstream.ok ? new Date().toISOString() : null, idempotency_key: key || null,
   });
-  const response = { ok: upstream.ok, bill_id: billId, channel: "WHATSAPP", status, provider: "MSG91" };
+  const response = {
+    ok: upstream.ok,
+    bill_id: billId,
+    channel: "WHATSAPP",
+    status,
+    provider: "MSG91",
+    provider_error: upstream.ok ? null : msg91BodyText(providerResponse?.errors || providerResponse?.message || raw, 500),
+  };
   await rememberIdempotent(supabase, key, "send_receipt", billId, response);
   return json(res, upstream.ok ? 200 : 502, response);
 }
@@ -2962,15 +3946,20 @@ async function cashfreeWebhook(req, res) {
   else if (["FAILED", "USER_DROPPED", "CANCELLED", "CANCELED"].includes(paymentStatusValue)) status = "FAILED";
   else if (paymentStatusValue === "PENDING") status = "PENDING";
 
-  await supabase.from("snooker_bill_payments").update({
+  const { data: updatedPayment, error: paymentUpdateError } = await supabase.from("snooker_bill_payments").update({
     status,
     cashfree_payment_id: safeText(body?.data?.payment?.cf_payment_id || "", 160) || payment.cashfree_payment_id,
     verified_at: status === "VERIFIED" ? new Date().toISOString() : payment.verified_at,
     provider_payload: { ...(payment.provider_payload || {}), webhook: body },
     updated_at: new Date().toISOString(),
-  }).eq("id", payment.id);
-  await refreshBill(supabase, payment.bill_id);
-  return json(res, 200, { ok: true, received: true });
+  }).eq("id", payment.id).select("*").single();
+  if (paymentUpdateError) throw paymentUpdateError;
+
+  const refreshedBill = await refreshBill(supabase, payment.bill_id);
+  const autoReceipt = status === "VERIFIED" && refreshedBill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, payment.bill_id, updatedPayment?.id || payment.id, "CASHFREE_WEBHOOK")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+  return json(res, 200, { ok: true, received: true, auto_receipt: autoReceipt });
 }
 
 export async function handleSnookerV1(req, res, rawPath = "") {
@@ -2981,6 +3970,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
+    if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
@@ -3016,6 +4006,24 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void-admin" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "games" && parts[1] && parts[2] === "void" && method === "POST") return await voidGame(req, res, parts[1], ["ADMIN"]);
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
+
+    if (method === "GET" && path === "customers") return await listCustomers(req, res);
+    if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);
+    if (method === "POST" && path === "customers") return await upsertCustomer(req, res);
+    if (method === "GET" && path === "fnb-tabs") return await listFnbTabs(req, res);
+    if (method === "POST" && path === "fnb-tabs") return await createFnbTab(req, res);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "GET") {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const payload = await fnbTabPayload(getSupabaseAdmin(), parts[1]);
+      if (!payload) return json(res, 404, { ok: false, error: "FNB_TAB_NOT_FOUND" });
+      return json(res, 200, payload);
+    }
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "PATCH") return await updateFnbTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts[2] === "fnb" && method === "POST") return await addFnbToTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts[2] === "close" && method === "POST") return await closeFnbTab(req, res, parts[1]);
+    if (parts[0] === "fnb-tabs" && parts[1] && parts.length === 2 && method === "DELETE") return await cancelEmptyFnbTab(req, res, parts[1]);
 
     if (method === "GET" && path === "bills") return await listBills(req, res);
     if (method === "POST" && path === "bills/finalize") return await finalizeBill(req, res);
