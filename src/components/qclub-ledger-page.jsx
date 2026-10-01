@@ -111,8 +111,8 @@ async function apiRequest(path, options) {
 function allowedGames(table, rules) {
   const map = {
     POOL: ["NORMAL_POOL"],
-    MINI_SNOOKER: ["NORMAL_SNOOKER"],
-    FULL_SIZE_SNOOKER: ["NORMAL_SNOOKER", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "QCHASE_RUMMY"],
+    MINI_SNOOKER: ["NORMAL_SNOOKER", "KITTY"],
+    FULL_SIZE_SNOOKER: ["NORMAL_SNOOKER", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "QCHASE_RUMMY", "KITTY"],
   };
   const keys = map[(table && table.table_type) || ""] || [];
   return (rules || []).filter(function(rule) { return keys.includes(rule.game_type); });
@@ -1102,6 +1102,8 @@ export default function QclubLedgerPage() {
       losingTeam: "",
       payerMode: "SPLIT",
       payerPersonId: "",
+      kittyResult: "WINNER",
+      kittyWinnerId: "",
     });
   }
 
@@ -1112,7 +1114,9 @@ export default function QclubLedgerPage() {
     let selectedIds = gameEntry.selectedIds || [];
     let loserIds = [];
     if (!selectedIds.length) return flash("Select the players in this game.", true);
-    if (session.payment_rule === "LOSER_PAYS") {
+    if (session.game_type === "KITTY") {
+      if (gameEntry.kittyResult !== "NO_WINNER" && !gameEntry.kittyWinnerId) return flash("Select the Kitty winner or choose No Winner / Kitty.", true);
+    } else if (session.payment_rule === "LOSER_PAYS") {
       if (session.match_format === "DOUBLES") {
         if (!gameEntry.losingTeam) return flash("Select the losing team.", true);
         loserIds = people.filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam) && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
@@ -1130,11 +1134,13 @@ export default function QclubLedgerPage() {
           player_ids: selectedIds,
           loser_person_ids: loserIds,
           payer_person_id: gameEntry.payerMode === "ONE" ? gameEntry.payerPersonId : null,
+          kitty_no_winner: session.game_type === "KITTY" && gameEntry.kittyResult === "NO_WINNER",
+          winner_person_id: session.game_type === "KITTY" && gameEntry.kittyResult !== "NO_WINNER" ? gameEntry.kittyWinnerId : null,
           idempotency_key: makeKey("game"),
         },
       });
       setGameEntry(null);
-      flash(session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
+      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
