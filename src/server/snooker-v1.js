@@ -2056,6 +2056,43 @@ async function recordGame(req,res,sessionId){
     const {data,error}=await supabase.from("snooker_completed_games").insert({session_id:sessionId,game_number:gameNumber,game_type:session.game_type,billing_mode:rule.billing_mode,rate_snapshot_inr:rate,player_ids:playerIds,player_names:playerNames,player_count_snapshot:count,calculated_charge_inr:charge,completed_by:auth.staff_id,idempotency_key:key||null}).select("*").single();if(error)throw error;
     const response={...data,game_id:data.id};await rememberIdempotent(supabase,key,"record_game",data.id,response);return json(res,201,response);
   }
+  if (session.game_type === "KITTY") {
+    const selectedIds = Array.isArray(req.body?.player_ids) ? req.body.player_ids.map(String) : [];
+    if (selectedIds.length < 2 || selectedIds.length > 6) return json(res,400,{ok:false,error:"KITTY_REQUIRES_TWO_TO_SIX_PLAYERS"});
+    const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
+    if ((people || []).length !== selectedIds.length) return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
+    const noWinner = Boolean(req.body?.kitty_no_winner);
+    const winnerId = safeText(req.body?.winner_person_id || "",100);
+    if (!noWinner && (!winnerId || !selectedIds.includes(winnerId))) return json(res,400,{ok:false,error:"KITTY_WINNER_REQUIRED"});
+    const [{ data: priorGames }, { data: table }] = await Promise.all([
+      supabase.from("snooker_completed_games").select("*").eq("session_id",sessionId).eq("status","COMPLETED").order("completed_at"),
+      supabase.from("snooker_tables").select("*").eq("id",session.table_id).maybeSingle(),
+    ]);
+    const lastWinner = [...(priorGames || [])].reverse().find((g)=>Array.isArray(g.winner_person_ids)&&g.winner_person_ids.length);
+    const chainStartMs = Date.parse(lastWinner?.completed_at || session.started_at || "");
+    const now = new Date();
+    const chainSeconds = Number.isFinite(chainStartMs) ? Math.max(0,Math.floor((now.getTime()-chainStartMs)/1000)) : 0;
+    const rate = money(table?.price_per_hour_inr);
+    if (!(rate > 0)) return json(res,409,{ok:false,error:"KITTY_RATE_NOT_CONFIGURED"});
+    const winnerCharge = noWinner ? 0 : money(Math.max(100,(chainSeconds/3600)*rate));
+    const gameNumber = number((priorGames || []).slice(-1)[0]?.game_number,0)+1;
+    const names = selectedIds.map((id)=>(people||[]).find((p)=>p.id===id)?.name||"Player");
+    const allocations = noWinner ? [] : [{person_id:winnerId,amount_inr:winnerCharge}];
+    const { data: game, error } = await supabase.from("snooker_completed_games").insert({
+      session_id:sessionId,game_number:gameNumber,game_type:"KITTY",billing_mode:"HOURLY",rate_snapshot_inr:rate,
+      player_ids:selectedIds,player_names:names,player_count_snapshot:selectedIds.length,calculated_charge_inr:winnerCharge,
+      settlement_rule:"WINNER_PAYS_TIME",match_format:"FLEX",winner_person_ids:noWinner?[]:[winnerId],loser_person_ids:[],
+      charge_allocations:allocations,completed_at:now.toISOString(),completed_by:auth.staff_id,idempotency_key:key||null
+    }).select("*").single();
+    if (error) throw error;
+    if (!noWinner) {
+      const winner=(people||[]).find((p)=>p.id===winnerId);
+      await createPersonCharge(supabase,{sessionId,personId:winnerId,type:"GAME",referenceId:game.id,description:"Kitty — winner pays "+Math.round(chainSeconds/60)+" min",amount:winnerCharge,staffId:auth.staff_id,metadata:{game_number:gameNumber,kitty:true,chain_seconds:chainSeconds,hourly_rate_inr:rate,minimum_inr:100,person_name:winner?.name}});
+    }
+    const response={...game,game_id:game.id,kitty_no_winner:noWinner,kitty_chain_seconds:chainSeconds,winner_charge_inr:winnerCharge,charge_allocations:allocations};
+    await rememberIdempotent(supabase,key,"record_game",game.id,response);
+    return json(res,201,response);
+  }
   const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
   if(!selectedIds.length)return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
   const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds);
