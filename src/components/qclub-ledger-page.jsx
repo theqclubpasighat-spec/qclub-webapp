@@ -233,6 +233,7 @@ export default function QclubLedgerPage() {
   const [fnbDestination, setFnbDestination] = useState("TABLE");
   const [fnbTabs, setFnbTabs] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [playerTabs, setPlayerTabs] = useState([]);
   const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
   const [newTabName, setNewTabName] = useState("");
   const [newTabPhone, setNewTabPhone] = useState("");
@@ -406,6 +407,7 @@ export default function QclubLedgerPage() {
         protectedCall("operations/inbox"),
         protectedCall("fnb-tabs"),
         protectedCall("customers?limit=300"),
+        protectedCall("player-tabs"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -419,6 +421,7 @@ export default function QclubLedgerPage() {
       const operationsPayload = values[9];
       const fnbTabPayload = values[10];
       const customerPayload = values[11];
+      const playerTabPayload = values[12];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -432,6 +435,7 @@ export default function QclubLedgerPage() {
       const openFnbTabs = (fnbTabPayload && fnbTabPayload.tabs) || [];
       setFnbTabs(openFnbTabs);
       setCustomers((customerPayload && customerPayload.customers) || []);
+      setPlayerTabs((playerTabPayload && playerTabPayload.tabs) || []);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
       });
@@ -480,11 +484,13 @@ export default function QclubLedgerPage() {
         protectedCall("sessions?scope=active&limit=200"),
         protectedCall("operations/inbox"),
         protectedCall("fnb-tabs"),
+        protectedCall("player-tabs"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
       setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       const openFnbTabs = (values[2] && values[2].tabs) || [];
+      setPlayerTabs((values[3] && values[3].tabs) || []);
       setFnbTabs(openFnbTabs);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
@@ -1176,6 +1182,24 @@ export default function QclubLedgerPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function finalizeClubTab(playerTab) {
+    if (!playerTab || !(Number(playerTab.unbilled_inr || 0) > 0)) return flash("No new unbilled charges for " + (playerTab?.name || "this player") + ".", true);
+    setBusy(true);
+    try {
+      const bill = await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", { method:"POST", body:{ idempotency_key:makeKey("club-tab") } });
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g,"").slice(-10));
+      setTab("ledger");
+      flash(playerTab.name + " club tab finalized. Charges from every table are on one bill.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshLiveState());
+    } catch (error) { flash(error.message || "Unable to finalize club tab.", true); }
+    finally { setBusy(false); }
   }
 
   async function finalizePerson(session, person) {
@@ -2182,6 +2206,23 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Running F&B tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
+            <div className="ql-section">Open Player Tabs</div>
+            {playerTabs.length ? (
+              <div className="ql-grid" style={{ marginBottom: 14 }}>
+                {playerTabs.map(function(playerTab) {
+                  const locations=(playerTab.active_locations || []).map(function(x){ return String(x.table_id || "").replace("table_","T") + " " + String(x.game_type || "").replaceAll("_"," "); }).join(" • ");
+                  return (
+                    <div className="ql-card" key={playerTab.customer_id}>
+                      <div className="ql-space"><div><h3>{playerTab.name}</h3><div className="ql-muted">{locations || "In club • not currently playing"}</div></div><strong>{money(playerTab.current_due_inr)}</strong></div>
+                      <div className="ql-muted" style={{ marginTop:8 }}>Unbilled {money(playerTab.unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
+                      <div className="ql-row" style={{ marginTop:10 }}>
+                        {Number(playerTab.unbilled_inr || 0) > 0 ? <button className="ql-btn primary" onClick={function(){ finalizeClubTab(playerTab); }}>Pay / Close Tab</button> : <span className="ql-badge gold">Existing bill due</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open player tabs.</div>}
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
