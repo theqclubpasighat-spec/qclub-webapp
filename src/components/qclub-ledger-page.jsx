@@ -844,7 +844,7 @@ export default function QclubLedgerPage() {
   }
 
   function startDefaults(gameType) {
-    if (gameType === "QCHASE_RUMMY") {
+    if (gameType === "QCHASE_RUMMY" || gameType === "KITTY") {
       return {
         gameType,
         matchFormat: "FLEX",
@@ -986,6 +986,7 @@ export default function QclubLedgerPage() {
     if (startForm.matchFormat === "SINGLES" && players.length !== 2) return flash("Singles requires exactly 2 named players.", true);
     if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
     if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
+    if (startForm.gameType === "KITTY" && (players.length < 2 || players.length > 6)) return flash("Kitty requires 2 to 6 players.", true);
     if (startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" && !(Number(startForm.frameRate) > 0)) {
       return flash("Enter the total frame charge for Normal Snooker loser-pays.", true);
     }
@@ -3192,7 +3193,7 @@ export default function QclubLedgerPage() {
                 </select>
               </div>
 
-              {startForm.gameType !== "QCHASE_RUMMY" ? (
+              {startForm.gameType !== "QCHASE_RUMMY" && startForm.gameType !== "KITTY" ? (
                 <>
                   <div>
                     <label className="ql-label">Match format</label>
@@ -3221,8 +3222,10 @@ export default function QclubLedgerPage() {
                     </select>
                   </div>
                 </>
-              ) : (
+              ) : startForm.gameType === "QCHASE_RUMMY" ? (
                 <div className="full ql-line"><strong>QChase / Rummy</strong><div className="ql-muted">2–6 players. Each completed game charges only the players who actually played that game.</div></div>
+              ) : (
+                <div className="full ql-line"><strong>Kitty</strong><div className="ql-muted">2–6 individual players. No singles/doubles and no shared billing rule. The game runs on time: Liberwin/Wiraka ₹600/hr; Mini Snooker ₹500/hr. Only the winner is charged, minimum ₹100. If there is no winner, that game time carries forward until a later game produces a winner.</div></div>
               )}
 
               {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" ? (
