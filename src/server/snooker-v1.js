@@ -1020,11 +1020,30 @@ async function individualSessionSnapshot(supabase, sessionId) {
   return (people || []).map((person) => {
     const own = activeCharges.filter((x) => x.person_id === person.id);
     const ownBills = (bills || []).filter((x) => x.person_id === person.id && x.status !== "CANCELLED");
+    const billById = new Map(ownBills.map((bill) => [bill.id, bill]));
     const unbilled = own.filter((x) => !x.bill_id);
     const sumType = (type) => money(own.filter((x) => x.charge_type === type).reduce((s,x)=>s+number(x.amount_inr),0));
     const unbilledTotal = money(unbilled.reduce((s,x)=>s+number(x.amount_inr),0));
     const billedDue = money(ownBills.reduce((s,x)=>s+number(x.due_inr),0));
     const billedPaid = money(ownBills.reduce((s,x)=>s+number(x.paid_inr),0));
+    const accountEntries = own.map((charge) => {
+      const linkedBill = charge.bill_id ? billById.get(charge.bill_id) : null;
+      const settlement = !charge.bill_id
+        ? "RUNNING"
+        : linkedBill?.status === "PAID"
+          ? "PAID"
+          : "BILLED";
+      return {
+        charge_id: charge.id,
+        charge_type: charge.charge_type,
+        description: charge.description,
+        amount_inr: money(charge.amount_inr),
+        created_at: charge.created_at,
+        bill_id: charge.bill_id || null,
+        bill_no: linkedBill?.bill_no || null,
+        settlement_status: settlement,
+      };
+    });
     return {
       id: person.id,
       person_id: person.id,
@@ -1044,6 +1063,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       billed_due_inr: billedDue,
       paid_inr: billedPaid,
       current_due_inr: money(unbilledTotal + billedDue),
+      account_entries: accountEntries,
       bills: ownBills.map((b)=>({bill_id:b.id,bill_no:b.bill_no,status:b.status,total_inr:money(b.total_inr),paid_inr:money(b.paid_inr),due_inr:money(b.due_inr)})),
     };
   });
@@ -2742,7 +2762,12 @@ async function refreshBill(supabase, billId) {
   }).eq("id", billId).select("*").single();
   if (error) throw error;
   if (updated.bill_source === "PLAYER_ACCOUNT" && updated.person_id && status === "PAID") {
-    await supabase.from("snooker_session_people").update({status:"SETTLED",settled_at:new Date().toISOString(),timer_running:false,updated_at:new Date().toISOString()}).eq("id",updated.person_id);
+    // Payment settles money only. Presence remains controlled by Leave/Rejoin,
+    // so a player can pay mid-session and continue playing without interruption.
+    await supabase.from("snooker_session_people").update({
+      settled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", updated.person_id);
   }
   return { ...updated, payments: list };
 }
