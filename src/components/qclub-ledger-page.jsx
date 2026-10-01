@@ -331,6 +331,52 @@ export default function QclubLedgerPage() {
     }
   }, [logout, token]);
 
+  function runInBackground(promise) {
+    Promise.resolve(promise).catch(function() {
+      // Foreground action already succeeded. Periodic sync/manual refresh will reconcile.
+    });
+  }
+
+  const refreshOneSession = useCallback(async function(sessionId) {
+    if (!sessionId) return;
+    const detail = await protectedCall("sessions/" + sessionId);
+    setSessionDetails(function(current) {
+      return { ...current, [sessionId]: detail };
+    });
+  }, [protectedCall]);
+
+  const refreshBillingOverview = useCallback(async function() {
+    if (!token) return;
+    const calls = [
+      protectedCall("bills?limit=500"),
+      protectedCall("dashboard/summary"),
+    ];
+    if (isAdmin) calls.push(protectedCall("finance/reserve"));
+    const values = await Promise.all(calls);
+    setBills((values[0] && values[0].bills) || []);
+    setSummary(values[1] || null);
+    if (isAdmin && values[2]) {
+      setFinance(values[2]);
+      setFnbCostDraft(makeFnbCostDraft(values[2]));
+    }
+  }, [isAdmin, protectedCall, token]);
+
+  const refreshFnbFastState = useCallback(async function() {
+    if (!token) return;
+    const values = await Promise.all([
+      protectedCall("catalogue"),
+      protectedCall("inventory"),
+      protectedCall("fnb-tabs"),
+    ]);
+    setCatalogue((values[0] && (values[0].items || values[0].catalogue)) || []);
+    setInventory((values[1] && (values[1].items || values[1].inventory)) || []);
+    const openFnbTabs = (values[2] && values[2].tabs) || [];
+    setFnbTabs(openFnbTabs);
+    setSelectedFnbTabId(function(current) {
+      return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
+    });
+  }, [protectedCall, token]);
+
   const loadSessionDetails = useCallback(async function(rows) {
     const result = {};
     await Promise.all((rows || []).map(async function(session) {
@@ -459,7 +505,7 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     if (!token) return undefined;
-    const timer = window.setInterval(refreshLiveState, 5000);
+    const timer = window.setInterval(refreshLiveState, 10000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
 
@@ -577,7 +623,7 @@ export default function QclubLedgerPage() {
               // Keep the terminal payment state visible even if bill refresh is temporarily unavailable.
             }
           }
-          refreshAll();
+          runInBackground(refreshBillingOverview());
         }
       } catch {
         // A transient status-check failure must not close the QR or mark payment failed.
@@ -1259,9 +1305,12 @@ export default function QclubLedgerPage() {
       setNewTabName("");
       setNewTabPhone("");
       setFnbDestination("RUNNING_TAB");
-      await refreshAll();
+      setFnbTabs(function(current) {
+        return [opened, ...current.filter(function(row) { return row.tab_id !== opened.tab_id; })];
+      });
       setSelectedFnbTabId(opened.tab_id);
       flash("Running tab opened for " + opened.customer_name + ".");
+      runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to open running tab.", true);
     } finally {
@@ -1298,8 +1347,10 @@ export default function QclubLedgerPage() {
       setSelectedFnbTabId("");
       setQuantities({});
       setTab("ledger");
+      setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== activeTab.tab_id; }); });
       flash(activeTab.customer_name + "'s tab closed. Bill " + (bill.bill_no || "") + " is ready for payment.");
-      await refreshAll();
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to close running tab.", true);
     } finally {
@@ -1320,8 +1371,9 @@ export default function QclubLedgerPage() {
     try {
       await protectedCall("fnb-tabs/" + tabRow.tab_id, { method: "DELETE" });
       if (selectedFnbTabId === tabRow.tab_id) setSelectedFnbTabId("");
+      setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== tabRow.tab_id; }); });
       flash("Empty running tab cancelled.");
-      await refreshAll();
+      runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to cancel tab.", true);
     } finally {
@@ -1350,9 +1402,10 @@ export default function QclubLedgerPage() {
       return;
     }
     setBusy(true);
+    let updatedTab = null;
     try {
       if (fnbDestination === "RUNNING_TAB") {
-        const updatedTab = await protectedCall("fnb-tabs/" + selectedFnbTab.tab_id + "/fnb", {
+        updatedTab = await protectedCall("fnb-tabs/" + selectedFnbTab.tab_id + "/fnb", {
           method: "POST",
           body: {
             lines: lines,
@@ -1392,7 +1445,19 @@ export default function QclubLedgerPage() {
         flash("F&B added" + (owner ? " to " + owner.name + "'s account." : " to the live table bill."));
       }
       setQuantities({});
-      await refreshAll();
+      if (fnbDestination === "RUNNING_TAB" && typeof updatedTab !== "undefined" && updatedTab) {
+        setFnbTabs(function(current) {
+          const found = current.some(function(row) { return row.tab_id === updatedTab.tab_id; });
+          return found
+            ? current.map(function(row) { return row.tab_id === updatedTab.tab_id ? updatedTab : row; })
+            : [updatedTab, ...current];
+        });
+      }
+      if (fnbDestination === "TABLE" && selectedSession) {
+        runInBackground(refreshOneSession(selectedSession.session_id));
+      }
+      runInBackground(refreshFnbFastState());
+      if (fnbDestination === "WALK_IN") runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1426,7 +1491,7 @@ export default function QclubLedgerPage() {
   async function refreshBillDetail(options) {
     if (!billDetail || !billDetail.bill_id) return;
     await loadBill(billDetail.bill_id, { preserveContact: true, ...(options || {}) });
-    await refreshAll();
+    runInBackground(refreshBillingOverview());
   }
 
   async function recordCash() {
@@ -1490,8 +1555,11 @@ export default function QclubLedgerPage() {
       cashfreeQrStartedRef.current = "";
       setQrClock(Date.now());
       setShowUpiQrModal(true);
+      setBillDetail(function(current) {
+        return current ? { ...current, customer_phone: phone } : current;
+      });
       flash("Cashfree UPI order created. The secure QR is loading.");
-      await refreshBillDetail({ preserveUpi: true });
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1517,8 +1585,20 @@ export default function QclubLedgerPage() {
         const expiry = result.expires_at ? countdownLabel(result.expires_at, Date.now()) : "";
         flash("Payment is still pending" + (expiry ? " • " + expiry : "") + ".");
       }
-      await refreshBillDetail({ preserveUpi: true });
-      await refreshAll();
+      if (result.bill_status || result.due_inr != null) {
+        setBillDetail(function(current) {
+          if (!current) return current;
+          return {
+            ...current,
+            status: result.bill_status || current.status,
+            due_inr: result.due_inr == null ? current.due_inr : result.due_inr,
+          };
+        });
+      }
+      if (billDetail && billDetail.bill_id) {
+        runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true }));
+      }
+      runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
     } finally {
