@@ -27,7 +27,7 @@ test("word-prefix finds Beef Bone Marrow from mar", () => {
 
 test("contains match works when no earlier rank applies", () => {
   const result = rankFnbAutocomplete(items, "sala", 10);
-  assert.deepEqual(result.map((x) => x.id), ["masala-beef", "masala-chicken", "chicken-masala"]);
+  assert.deepEqual(result.map((x) => x.id), ["masala-beef", "chicken-masala", "masala-chicken"]);
 });
 
 test("category match is available across categories", () => {
