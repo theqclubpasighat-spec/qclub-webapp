@@ -21,11 +21,11 @@ test('Postgres recovery closes only unused IDs and blocks delayed creation witho
   await pg.exec(`reset role;
    create table public.qclub_operational_records(id uuid primary key default gen_random_uuid(),record_type text not null,record_key text not null,payload jsonb not null,source text not null,status text not null,updated_at timestamptz,unique(record_type,record_key));
    create table public.qclub_fnb_categories(category_key text primary key,active boolean not null);
-   create table public.snooker_catalogue_items(id text primary key,name text,qlounge_category_key text,active boolean,show_on_qlounge boolean,online_order_enabled boolean,track_inventory boolean,selling_price_inr numeric);
+   create table public.snooker_catalogue_items(id text primary key,name text,qlounge_category_key text,active boolean,show_on_qlounge boolean,online_order_enabled boolean,track_inventory boolean,selling_price_inr numeric,current_stock numeric,updated_at timestamptz default now());
    insert into public.qclub_fnb_categories values('food',true);
-   insert into public.snooker_catalogue_items values('momo','Momo','food',true,true,true,false,80);
+   insert into public.snooker_catalogue_items(id,name,qlounge_category_key,active,show_on_qlounge,online_order_enabled,track_inventory,selling_price_inr,current_stock) values('momo','Momo','food',true,true,true,false,80,null);
    grant select,insert,update on public.qclub_operational_records,public.snooker_catalogue_items,public.qclub_fnb_categories to service_role;`);
-  for(const name of ['20260930113142_payment_fulfillment_rehearsal.sql','20260930113908_food_checkout_rehearsal.sql','20260930173033_checkout_recovery_rehearsal.sql'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
+  for(const name of ['20260930113142_payment_fulfillment_rehearsal.sql','20260930113908_food_checkout_rehearsal.sql','20260930173033_checkout_recovery_rehearsal.sql','20261002_online_stock_reservations_rehearsal.sql'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
   for(const role of ['anon','authenticated']){
    assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_close_unused_checkout(text,text)','EXECUTE') as allowed`)).rows[0].allowed,false);
    assert.equal((await pg.query(`select has_table_privilege('${role}','qclub_private.closed_checkouts','SELECT,INSERT,UPDATE,DELETE') as allowed`)).rows[0].allowed,false);
