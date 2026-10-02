@@ -33,6 +33,8 @@ declare
   label text;
   context text;
   effect_payload jsonb;
+  notification_data jsonb;
+  member_row jsonb;
 begin
   if new.status is distinct from 'fulfilled' or old.status='fulfilled' then return new; end if;
 
@@ -58,6 +60,22 @@ begin
       else ''
     end;
     if label<>'' then
+      notification_data:=new.payload;
+      if new.record_type='membership_activation' then
+        select value into member_row
+        from public.qclub_state q,
+             lateral jsonb_array_elements(case when jsonb_typeof(q.state->'memberRegistry')='array'
+               then q.state->'memberRegistry' else '[]'::jsonb end)
+        where q.key='main'
+          and right(regexp_replace(coalesce(value->>'mobile',''),'[^0-9]','','g'),10)=phone
+        limit 1;
+        if member_row is not null then
+          notification_data:=notification_data||jsonb_build_object(
+            'validUntil',member_row->>'validUntil',
+            'activatedAt',clock_timestamp()::text
+          );
+        end if;
+      end if;
       effect_payload:=jsonb_build_object(
         'provider','msg91',
         'label',label,
@@ -65,7 +83,7 @@ begin
         'phone',phone,
         'orderId',new.order_id,
         'amount',new.amount_paise/100.0,
-        'data',new.payload
+        'data',notification_data
       );
       insert into qclub_private.payment_effect_outbox(order_id,effect_type,payload)
       values(new.order_id,'whatsapp_success',effect_payload)
