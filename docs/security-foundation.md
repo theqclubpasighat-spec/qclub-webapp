@@ -291,3 +291,18 @@ The recovery RPCs are executable only by `service_role`; `anon` and `authenticat
 Postgres validation drives a print effect through all ten failed delivery attempts into the dead-letter state, verifies the aggregate health counters, explicitly requeues it, confirms the paid order and operational record are byte-for-byte unaffected, and successfully claims the recovered job again. Additional command-layer tests confirm that summary output is aggregate-only and malformed retry commands or sent/active jobs fail closed.
 
 No effect worker is scheduled, no live MSG91 send is enabled, no PrintBridge is connected, and no production database/API/environment change is part of Package 17.
+
+
+## Package 18 — V2 CMS parity: membership tiers and table rates
+
+The secure rehearsal CMS now carries forward two useful V2 management capabilities without importing the old V2 backend: membership tier management and public table-rate management.
+
+Membership editing exposes only the existing public tier fields: stable ID, tier name, monthly price, benefits and public note. Table-rate editing exposes only the existing public booking-table fields: stable ID, label, standard hourly rate and member hourly rate. The server accepts complete replacement arrays only after strict validation, duplicate-ID rejection, bounded lengths/counts and bounded non-negative money values.
+
+The table-rate patch changes only `booking.tables`. Existing booking requests, blocked slots and every other booking field are preserved. Membership changes alter only the public membership catalogue. Payment orders, customer data, PINs, player data and operational state remain outside the CMS contract.
+
+Both sections use the existing revision-protected qclub_state compare-and-swap, so concurrent edits conflict instead of silently overwriting newer production-style data. The same server-side ADMIN role check protects writes. GET projection remains public-safe: booking requests, customer mobiles and unknown/private fields are omitted.
+
+The admin preview adds mobile-friendly form editors rather than JSON text boxes. Browser verification covers both new tabs and asserts that editing rates does not mutate booking requests or blocked slots.
+
+This remains rehearsal-only. No production membership price or table rate has been changed by Package 18.
