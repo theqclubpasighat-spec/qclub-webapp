@@ -5408,7 +5408,7 @@ async function uploadMemberPhoto(memberId, file) {
 }
 
   return (
-    <div className="container">
+    <div className="container v2-members-page">
       <div className="sectionTitle">
         <span className="dot" />
         <span>Members</span>
