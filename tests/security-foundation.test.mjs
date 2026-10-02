@@ -101,7 +101,7 @@ test('network limit does not trust spoofed client headers outside Vercel', () =>
 
 test('membership and table-rate CMS patches are validated and preserve booking operations',()=>{
   const before={
-    memberships:[{id:'membership_bronze',tier:'Bronze',price:799,perks:['Member pricing'],note:'Non-transferable'}],
+    memberships:[{id:'membership_bronze',tier:'Bronze',price:799,perks:['Member pricing'],note:'Non-transferable',private:'keep-tier'}],
     booking:{tables:[{id:'tbl_1',label:'T1 Liberwin',pricePerHour:400,memberPricePerHour:300,private:'keep'}],requests:[{id:'booking-private',mobile:'9999999999'}],blockedSlots:[{id:'block-1'}]},
     paymentOrders:[{id:'paid-private'}],
   };
@@ -114,6 +114,8 @@ test('membership and table-rate CMS patches are validated and preserve booking o
   });
   assert.equal(next.memberships[0].price,499);
   assert.equal(next.booking.tables[0].pricePerHour,450);
+  assert.equal(next.booking.tables[0].private,'keep');
+  assert.equal(next.memberships[0].private,'keep-tier');
   assert.deepEqual(next.booking.requests,before.booking.requests);
   assert.deepEqual(next.booking.blockedSlots,before.booking.blockedSlots);
   assert.deepEqual(next.paymentOrders,before.paymentOrders);
