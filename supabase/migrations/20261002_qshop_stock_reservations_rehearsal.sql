@@ -27,7 +27,7 @@ create function qclub_private.adjust_shop_stock(
 )
 returns boolean language plpgsql security invoker set search_path=pg_catalog as $$
 declare
-  state jsonb;
+  v_state jsonb;
   items jsonb;
   item jsonb;
   options jsonb;
@@ -42,10 +42,10 @@ begin
     or p_delta is null or p_delta=0 then return false;
   end if;
 
-  select q.state into state from public.qclub_state q where q.key='main' for update;
-  if state is null then return false; end if;
-  items:=case when jsonb_typeof(state#>'{shopCatalog,items}')='array'
-    then state#>'{shopCatalog,items}' else '[]'::jsonb end;
+  select q.state into v_state from public.qclub_state q where q.key='main' for update;
+  if v_state is null then return false; end if;
+  items:=case when jsonb_typeof(v_state#>'{shopCatalog,items}')='array'
+    then v_state#>'{shopCatalog,items}' else '[]'::jsonb end;
 
   select (ordinality-1)::integer,value into item_index,item
   from jsonb_array_elements(items) with ordinality
@@ -76,8 +76,8 @@ begin
   end if;
 
   items:=jsonb_set(items,array[item_index::text],item,true);
-  state:=jsonb_set(state,'{shopCatalog,items}',items,true);
-  update public.qclub_state set state=state,updated_at=clock_timestamp() where key='main';
+  v_state:=jsonb_set(v_state,'{shopCatalog,items}',items,true);
+  update public.qclub_state set state=v_state,updated_at=clock_timestamp() where key='main';
   return true;
 end $$;
 revoke all on function qclub_private.adjust_shop_stock(text,text,integer) from public,anon,authenticated;
