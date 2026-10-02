@@ -69,8 +69,11 @@ test("V2 body skin is scoped to allowlisted public pages only", () => {
   assert.match(css, /body\.qclub-v2-live \.membershipTierCard/);
   assert.match(css, /body\.qclub-v2-live \.pageHead/);
   assert.doesNotMatch(css, /body:not\(\.qclub-v2-live\)/);
+  const allowlistMatch = shell.match(/const PUBLIC_V2_PATHS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(allowlistMatch, "public V2 route allowlist missing");
+  const allowlist = allowlistMatch[1].toLowerCase();
   for (const protectedPath of ["/QclubLedger", "/QclubPay", "/QclubQr", "/admin/orders", "/food-print-bridge", "/T1", "/T2", "/T3", "/T4"]) {
-    assert.ok(!shell.toLowerCase().includes(`"${protectedPath.toLowerCase()}"`), `protected route leaked into public V2 theme: ${protectedPath}`);
+    assert.ok(!allowlist.includes(`"${protectedPath.toLowerCase()}"`), `protected route leaked into public V2 theme: ${protectedPath}`);
   }
 });
 
