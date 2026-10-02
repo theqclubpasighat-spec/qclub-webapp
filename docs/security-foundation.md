@@ -147,3 +147,20 @@ The rehearsal branch now incorporates production commit `99428d38a3c82e71ce6a4a6
 The two branches changed disjoint files. Production files were incorporated using their exact Git blob IDs. The production baseline was advanced to that exact main commit, including its Vercel configuration, the new display component and five new migrations (30 protected files total). The inherited baseline had retained an older Vercel configuration hash; the updated assertion now checks the actual current production file. This reconciliation does not certify all recent Ledger features end-to-end: it verifies that this draft preserves their source exactly.
 
 All 50 local application/database regression checks pass after reconciliation. CI runs the full suite, production/preview/production build isolation, and the synthetic mobile checkout workflow against the combined branch. The Android repository main remains `09118147c4b645413a617dd53fc11cf083669d5e` at this check; no Android files were changed. No production deployment or remote migration was performed by this reconciliation.
+
+
+## Package 9 progress — Cashfree return and webhook recovery
+
+This package closes the rehearsal gap where a successful Cashfree payment could remain unfulfilled if the browser closed, navigated away or returned through Cashfree instead of the popup callback. It remains rehearsal-only and does not alter the live Cashfree routes.
+
+Sandbox order creation now requires an explicit `QCLUB_REHEARSAL_PUBLIC_URL`. The URL must be HTTPS (localhost is allowed for local rehearsal), cannot contain credentials and explicitly refuses `theqclubpasighat.com`. Cashfree order metadata supplies both a return URL back to `/__checkout-preview?order_id={order_id}` and a notify URL at `/api/qclub-payment-webhook-rehearsal`. The dedicated rehearsal App ID/secret and fixed Cashfree sandbox host remain mandatory; there is still no fallback to production credentials.
+
+The checkout client reconciles a Cashfree return only when the returned order ID exactly matches the same-tab saved checkout identity. It then asks the existing server verification endpoint for status; a return URL, SDK callback or query parameter never marks an order paid. Mismatched return IDs preserve the original recovery record and stop fulfilment.
+
+A new webhook endpoint disables automatic body parsing, verifies Cashfree's HMAC-SHA256 signature over the exact timestamp plus raw request body, and ignores non-success events. For a signed success event, the webhook still does not trust the webhook's amount or paid flag: it re-reads the order and payments from the fixed Cashfree sandbox API and requires the authoritative order ID, INR amount and a successful payment to match the private intent before fulfilment.
+
+Because webhooks do not have the browser's receipt capability, the rehearsal database now exposes two service-role-only RPCs for intent lookup and finalization. Neither `anon` nor `authenticated` can execute them. The service fulfilment path uses the same immutable private terms, unique gateway payment identity and insert-only operational-record behavior as browser verification. It can reconcile a genuine late successful payment even after the browser receipt window has expired; repeated webhook delivery is idempotent and does not re-run gateway verification after fulfilment.
+
+Validation adds strict raw-body signature tests, callback-URL tests, exact return-ID recovery, service-role permission checks, an expired-intent webhook recovery case and duplicate webhook replay. All gateway responses in automated tests remain synthetic. A real Cashfree sandbox order/payment and physical Android/iPhone acceptance are still required before any release claim. The preview deployment also needs the isolated rehearsal database variables, Cashfree sandbox credentials and `QCLUB_REHEARSAL_PUBLIC_URL` configured before hosted end-to-end testing.
+
+No production database migration, production environment variable change, live Cashfree order, MSG91 message, stock movement or production deployment is part of this package.
