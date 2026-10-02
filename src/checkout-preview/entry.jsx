@@ -19,10 +19,23 @@ function Checkout(){
  const [name,setName]=useState(''),[phone,setPhone]=useState(''),[attempt,setAttempt]=useState(()=>client?.current());
  const [order,setOrder]=useState(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState(initialError?checkoutMessage(initialError):'');
  const [lastReference,setLastReference]=useState(()=>client?.lastReference());
+ const returnOrderId=new URLSearchParams(window.location.search).get('order_id');
  const lock=useRef(false);
  async function run(work){if(lock.current)return;lock.current=true;setBusy(true);setNotice('');try{await work();}catch(error){setNotice(checkoutMessage(error));}finally{lock.current=false;setBusy(false);}}
  async function loadMenu(){await run(async()=>{const data=await client.menu();if(!Array.isArray(data.items))throw Error();setMenu(data.items);setItem(data.items[0]?.id||'');});}
- useEffect(()=>{if(client&&!attempt)loadMenu();},[]);
+ useEffect(()=>{
+  if(!client)return;
+  if(returnOrderId&&attempt){
+   run(async()=>{
+    const result=await client.resumeReturn(returnOrderId);
+    setOrder(result);
+    history.replaceState({},'',window.location.pathname);
+    setNotice(result.state==='fulfilled'?'Payment confirmed by the server. Do not pay again.':'Returned from Cashfree. Payment is not confirmed yet; check status before retrying.');
+   });
+   return;
+  }
+  if(!attempt)loadMenu();
+ },[]);
  async function start(e){e?.preventDefault();await run(async()=>{
   if(!client.current()){const saved=client.prepare(cart.map(x=>({itemId:x.id,quantity:x.quantity})),{name,phone});setAttempt(saved);}
   const result=await client.start();setOrder(result);
