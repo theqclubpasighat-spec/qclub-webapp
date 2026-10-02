@@ -66,10 +66,14 @@ async function fixture(){
     qclub_payment_stale_intents:['p_before','p_limit'],
   };
   const db={async rpc(name,args){try{
+    if(!Object.hasOwn(specs,name))throw Error('Unknown RPC');
     const values=specs[name].map(k=>k==='p_items'?JSON.stringify(args[k]):args[k]);
     const params=name==='qclub_shop_checkout'
       ? ['$1::text','$2::text','$3::text','$4::jsonb','$5::text','$6::text']
-      : values.map((_,i)=>'
+      : values.map((_,i)=>'$'+(i+1));
+    const result=await pg.query(`select public.${name}(${params.join(',')}) as result`,values);
+    return {data:result.rows[0].result};
+  }catch(error){return {error};}}};
   return {...base,db};
 }
 
