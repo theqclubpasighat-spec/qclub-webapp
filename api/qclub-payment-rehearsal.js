@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { rehearsalConfig, SecurityError } from '../src/server/security/foundation.js';
 import { fulfillPayment, sandboxGateway } from '../src/server/payments/fulfillment.js';
 import { processCashfreeWebhook } from '../src/server/payments/webhook.js';
+import { reconcileStalePayments } from '../src/server/payments/reconcile.js';
+import { timingSafeEqual } from 'node:crypto';
 
 export const config={api:{bodyParser:false}};
 
@@ -26,6 +28,12 @@ function actionOf(req){
   if(direct)return direct;
   try{return new URL(req.url||'/', 'https://rehearsal.invalid').searchParams.get('action')||'';}catch{return '';}
 }
+function reconcileAuthorized(req,env){
+  const configured=String(env.QCLUB_REHEARSAL_RECONCILE_SECRET||'');
+  const supplied=String(req.headers?.['x-qclub-reconcile-secret']||'');
+  if(configured.length<32||supplied.length!==configured.length)return false;
+  return timingSafeEqual(Buffer.from(supplied),Buffer.from(configured));
+}
 
 export default async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
@@ -45,11 +53,16 @@ export default async function handler(req,res) {
         secret:process.env.QCLUB_REHEARSAL_CASHFREE_SECRET,
       }));
     }
+    if(action==='reconcile'){
+      if(!reconcileAuthorized(req,process.env))throw new SecurityError(401,'RECONCILE_AUTH_REQUIRED');
+      if(raw && raw!=='{}')throw new SecurityError(400,'INVALID_RECONCILE_COMMAND');
+      return res.status(200).json(await reconcileStalePayments(db,sandboxGateway(process.env),{limit:10}));
+    }
     if(action)throw new SecurityError(404,'ACTION_NOT_FOUND');
     if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
     return res.status(200).json(await fulfillPayment(db,sandboxGateway(process.env),parseJson(raw)));
   }catch(error){
-    const fallback=action==='webhook'?'WEBHOOK_UNAVAILABLE':'PAYMENT_UNAVAILABLE';
+    const fallback=action==='webhook'?'WEBHOOK_UNAVAILABLE':action==='reconcile'?'RECONCILE_UNAVAILABLE':'PAYMENT_UNAVAILABLE';
     return res.status(error instanceof SecurityError?error.status:503).json({ok:false,error:error instanceof SecurityError?error.code:fallback});
   }
 }
