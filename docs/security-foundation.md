@@ -187,6 +187,23 @@ The customer preview can recover a server-confirmed terminal order. It preserves
 
 Validation now includes oversell prevention, idempotent reservation reuse, exact stock restoration after terminal Cashfree state, no second decrement on successful payment, mixed-cart rollback, pending-payment reservation retention, browser terminal recovery and the previous checkout/recovery suite. The full application/database suite reached 61/61 passing checks after the compatibility fixes.
 
-Remaining release gate: there is not yet a scheduled reconciliation sweep for a customer who abandons a reserved order, never returns to the checkout and produces no useful webhook after Cashfree expiry. Such stock remains safely unavailable rather than being released speculatively. A server-side reconciler must query Cashfree for stale pending intents and invoke the same terminal-close path before production use. Real Cashfree sandbox acceptance and physical Android/iPhone testing are also still required.
+Package 11 adds the server-side stale-intent reconciler described below. Automatic scheduling is deliberately not enabled yet; without an authorized invocation, an abandoned order that never returns and produces no useful webhook remains safely reserved rather than being released speculatively. Real Cashfree sandbox acceptance and physical Android/iPhone testing are also still required.
 
 No production database migration, live stock movement, production Cashfree order, production environment-variable change, MSG91 send or Android change is part of Package 10.
+
+
+## Package 11 progress — stale Cashfree reconciliation
+
+Package 11 adds a bounded reconciliation path for checkout reservations that outlive the browser. It does not infer failure from local age. Instead, a service-role-only database function discovers only expired, pending rehearsal food intents, and the server independently re-reads Cashfree for every discovered order before taking any action.
+
+The discovery function `qclub_payment_stale_intents(before, limit)` is restricted to `q_lounge_order` intents with rehearsal `qcr_...` order IDs, no terminal marker, and an expiry at or before the requested cutoff. It returns at most 20 oldest rows. `anon` and `authenticated` cannot execute it.
+
+The existing rehearsal payment function now also accepts `?action=reconcile`, protected by a separate `QCLUB_REHEARSAL_RECONCILE_SECRET` supplied in `x-qclub-reconcile-secret`. The secret must be at least 32 bytes and is compared using `timingSafeEqual`. The action accepts no customer-supplied reconciliation parameters and runs a fixed maximum batch of 10. It returns only aggregate counts: checked, fulfilled, released, pending and errors.
+
+For each stale order, the reconciler calls the same server-only Cashfree verification path already used by signed webhooks. A verified PAID order with a matching SUCCESS transaction is fulfilled and consumes its stock reservation. EXPIRED or TERMINATED with no SUCCESS/PENDING transaction releases stock through the same idempotent terminal-close RPC. ACTIVE, TERMINATION_REQUESTED, PENDING-payment and inconsistent gateway states remain reserved. A failure on one order increments the error count and does not release that order or abort the remaining batch.
+
+The action shares the existing rehearsal payment serverless function, so it does not increase the Vercel function count. It is also protected by the existing rehearsal deployment gate: production Vercel and the known production/staging database project references are refused before database access.
+
+Validation covers mixed fulfilled/released/pending/error batches, service-role-only stale discovery, qcr-food scoping, exclusion of future and already-terminal intents, a hard 20-row database cap, and the disabled-by-default HTTP gate. After correcting an SQL literal editing error found by CI, the complete application/database suite passes 64/64 checks. Build isolation also passes on the corrected head.
+
+No cron/scheduler has been enabled and no reconciliation secret has been installed in a hosted environment. Scheduling remains a release-time operational decision after isolated rehearsal infrastructure and real Cashfree sandbox acceptance are available. No production database migration, stock movement, Cashfree order, MSG91 send, Android change or production deployment is part of Package 11.
