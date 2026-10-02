@@ -1299,12 +1299,32 @@ async function upsertCustomer(req, res) {
 async function listPlayerTabs(req,res){
   const auth=await requireAuth(req,res); if(!auth)return;
   const supabase=getSupabaseAdmin();
-  const {data:people,error}=await supabase.from("snooker_session_people").select("id,customer_id,session_id,name,phone,status,joined_at,left_at").not("customer_id","is",null).order("updated_at",{ascending:false}).limit(1000);
-  if(error)throw error;
+
+  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError}] = await Promise.all([
+    supabase.from("snooker_session_people").select("id,customer_id,session_id,name,phone,status,joined_at,left_at").not("customer_id","is",null).order("updated_at",{ascending:false}).limit(1000),
+    supabase.from("snooker_fnb_tabs").select("*").eq("status","OPEN").not("customer_id","is",null).order("last_order_at",{ascending:false}).limit(500),
+  ]);
+  if(peopleError||fnbTabError)throw peopleError||fnbTabError;
+
   const personIds=(people||[]).map(p=>p.id);
   let charges=[];
-  if(personIds.length){const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null);if(q.error)throw q.error;charges=q.data||[];}
-  const customerIds=[...new Set((people||[]).map(p=>p.customer_id).filter(Boolean))];
+  if(personIds.length){
+    const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null);
+    if(q.error)throw q.error;charges=q.data||[];
+  }
+
+  const fnbTabIds=(openFnbTabs||[]).map(t=>t.id);
+  let runningFnbLines=[];
+  if(fnbTabIds.length){
+    const q=await supabase.from("snooker_fnb_lines").select("*").in("tab_id",fnbTabIds).eq("status","ACTIVE").is("bill_id",null);
+    if(q.error)throw q.error;runningFnbLines=q.data||[];
+  }
+
+  const customerIds=[...new Set([
+    ...(people||[]).map(p=>p.customer_id),
+    ...(openFnbTabs||[]).map(t=>t.customer_id),
+  ].filter(Boolean))];
+
   let customers=[],bills=[],sessions=[];
   if(customerIds.length){
     const [cq,bq]=await Promise.all([
@@ -1314,36 +1334,147 @@ async function listPlayerTabs(req,res){
     if(cq.error||bq.error)throw cq.error||bq.error;customers=cq.data||[];bills=bq.data||[];
   }
   const sessionIds=[...new Set((people||[]).map(p=>p.session_id).filter(Boolean))];
-  if(sessionIds.length){const sq=await supabase.from("snooker_sessions").select("id,table_id,game_type,status").in("id",sessionIds);if(sq.error)throw sq.error;sessions=sq.data||[];}
-  const customerMap=new Map(customers.map(c=>[c.id,c])),sessionMap=new Map(sessions.map(x=>[x.id,x]));
+  if(sessionIds.length){
+    const sq=await supabase.from("snooker_sessions").select("id,table_id,game_type,status").in("id",sessionIds);
+    if(sq.error)throw sq.error;sessions=sq.data||[];
+  }
+
+  const customerMap=new Map(customers.map(c=>[c.id,c]));
+  const sessionMap=new Map(sessions.map(x=>[x.id,x]));
   const tabs=customerIds.map(customerId=>{
-    const customer=customerMap.get(customerId); const ownPeople=(people||[]).filter(p=>p.customer_id===customerId); const ownIds=new Set(ownPeople.map(p=>p.id));
-    const ownCharges=charges.filter(c=>ownIds.has(c.person_id)); const ownBills=bills.filter(b=>b.customer_id===customerId);
-    const unbilled=money(ownCharges.reduce((sum,c)=>sum+number(c.amount_inr),0)); const billedDue=money(ownBills.reduce((sum,b)=>sum+number(b.due_inr),0));
-    const activeLocations=ownPeople.filter(p=>p.status==="ACTIVE").map(p=>{const x=sessionMap.get(p.session_id);return x&&["ACTIVE","PAUSED"].includes(x.status)?{session_id:x.id,table_id:x.table_id,game_type:x.game_type}:null;}).filter(Boolean);
-    return {customer_id:customerId,name:customer?.name||ownPeople[0]?.name||"PLAYER",phone:customer?.phone||ownPeople[0]?.phone||null,is_member:Boolean(customer?.is_member),unbilled_inr:unbilled,billed_due_inr:billedDue,current_due_inr:money(unbilled+billedDue),active_locations:activeLocations,charge_count:ownCharges.length};
-  }).filter(t=>t.current_due_inr>0.009||t.active_locations.length).sort((a,b)=>b.current_due_inr-a.current_due_inr);
+    const customer=customerMap.get(customerId);
+    const ownPeople=(people||[]).filter(p=>p.customer_id===customerId);
+    const ownIds=new Set(ownPeople.map(p=>p.id));
+    const ownCharges=charges.filter(c=>ownIds.has(c.person_id));
+    const ownBills=bills.filter(b=>b.customer_id===customerId);
+    const ownFnbTabs=(openFnbTabs||[]).filter(t=>t.customer_id===customerId);
+    const ownFnbTabIds=new Set(ownFnbTabs.map(t=>t.id));
+    const ownRunningFnb=runningFnbLines.filter(line=>ownFnbTabIds.has(line.tab_id));
+
+    const playerUnbilled=money(ownCharges.reduce((sum,c)=>sum+number(c.amount_inr),0));
+    const runningFnbUnbilled=money(ownRunningFnb.reduce((sum,line)=>sum+number(line.line_total_inr),0));
+    const unbilled=money(playerUnbilled+runningFnbUnbilled);
+    const billedDue=money(ownBills.reduce((sum,b)=>sum+number(b.due_inr),0));
+    const activeLocations=ownPeople.filter(p=>p.status==="ACTIVE").map(p=>{
+      const x=sessionMap.get(p.session_id);
+      return x&&["ACTIVE","PAUSED"].includes(x.status)?{session_id:x.id,table_id:x.table_id,game_type:x.game_type}:null;
+    }).filter(Boolean);
+
+    return {
+      customer_id:customerId,
+      name:customer?.name||ownFnbTabs[0]?.customer_name||ownPeople[0]?.name||"CUSTOMER",
+      phone:customer?.phone||ownFnbTabs[0]?.customer_phone||ownPeople[0]?.phone||null,
+      is_member:Boolean(customer?.is_member),
+      player_unbilled_inr:playerUnbilled,
+      fnb_unbilled_inr:runningFnbUnbilled,
+      unbilled_inr:unbilled,
+      billed_due_inr:billedDue,
+      current_due_inr:money(unbilled+billedDue),
+      active_locations:activeLocations,
+      open_fnb_tab_ids:ownFnbTabs.map(t=>t.id),
+      charge_count:ownCharges.length+ownRunningFnb.length,
+    };
+  }).filter(t=>t.current_due_inr>0.009||t.active_locations.length||t.open_fnb_tab_ids.length).sort((a,b)=>b.current_due_inr-a.current_due_inr);
+
   return json(res,200,{tabs});
 }
 
 async function finalizePlayerTab(req,res,customerId){
   const auth=await requireAuth(req,res);if(!auth)return;
-  const supabase=getSupabaseAdmin();const key=idempotencyKey(req);const old=await previousIdempotent(supabase,key,"finalize_club_tab");if(old)return json(res,200,old);
-  const {data:customer}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  const supabase=getSupabaseAdmin();
+  const key=idempotencyKey(req);
+  const old=await previousIdempotent(supabase,key,"finalize_club_tab");
+  if(old)return json(res,200,old);
+
+  const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(customerError)throw customerError;
   if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
-  const {data:people,error:pe}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",customerId);if(pe)throw pe;
-  const personIds=(people||[]).map(p=>p.id);if(!personIds.length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
-  const {data:charges,error:ce}=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");if(ce)throw ce;
-  if(!(charges||[]).length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+
+  const [{data:people,error:pe},{data:openFnbTabs,error:fte}] = await Promise.all([
+    supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",customerId),
+    supabase.from("snooker_fnb_tabs").select("*").eq("customer_id",customerId).eq("status","OPEN").order("opened_at"),
+  ]);
+  if(pe||fte)throw pe||fte;
+
+  const personIds=(people||[]).map(p=>p.id);
+  let charges=[];
+  if(personIds.length){
+    const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");
+    if(q.error)throw q.error;charges=q.data||[];
+  }
+
+  const fnbTabIds=(openFnbTabs||[]).map(t=>t.id);
+  let runningFnbLines=[];
+  if(fnbTabIds.length){
+    const q=await supabase.from("snooker_fnb_lines").select("*").in("tab_id",fnbTabIds).eq("status","ACTIVE").is("bill_id",null).order("added_at");
+    if(q.error)throw q.error;runningFnbLines=q.data||[];
+  }
+
+  if(!(charges||[]).length && !runningFnbLines.length)return json(res,409,{ok:false,error:"NOTHING_TO_BILL"});
+
   const gameTotal=money((charges||[]).filter(x=>x.charge_type!=="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));
-  const fnbTotal=money((charges||[]).filter(x=>x.charge_type==="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));const total=money(gameTotal+fnbTotal);
-  const billId=randomUUID(),suffix=billId.replace(/-/g,"").slice(-6).toUpperCase(),datePart=new Date().toISOString().slice(2,10).replace(/-/g,""),billNo=`QC-${datePart}-${suffix}`;
-  const {data:bill,error}=await supabase.from("snooker_bills").insert({id:billId,bill_no:billNo,session_id:null,source_session_id:null,person_id:null,customer_id:customerId,bill_source:"PLAYER_ACCOUNT",customer_name:customer.name,customer_phone:customer.phone,game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null}).select("*").single();if(error)throw error;
-  const items=(charges||[]).map(ch=>({bill_id:billId,item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",reference_id:ch.reference_id,description:ch.description,quantity:1,unit_price_inr:money(ch.amount_inr),line_total_inr:money(ch.amount_inr),metadata:{person_id:ch.person_id,session_id:ch.session_id,charge_id:ch.id,...(ch.metadata||{})}}));
-  if(items.length){const ie=await supabase.from("snooker_bill_items").insert(items);if(ie.error)throw ie.error;}
-  const ids=(charges||[]).map(x=>x.id);await supabase.from("snooker_person_charges").update({bill_id:billId}).in("id",ids);
-  const fnbIds=(charges||[]).filter(x=>x.charge_type==="FNB"&&x.reference_id).map(x=>x.reference_id);if(fnbIds.length)await supabase.from("snooker_fnb_lines").update({bill_id:billId}).in("id",fnbIds);
-  const response=await billDetailPayload(supabase,billId);await rememberIdempotent(supabase,key,"finalize_club_tab",billId,response);return json(res,201,response);
+  const playerFnb=money((charges||[]).filter(x=>x.charge_type==="FNB").reduce((sum,x)=>sum+number(x.amount_inr),0));
+  const runningFnb=money(runningFnbLines.reduce((sum,x)=>sum+number(x.line_total_inr),0));
+  const fnbTotal=money(playerFnb+runningFnb);
+  const total=money(gameTotal+fnbTotal);
+
+  const billId=randomUUID();
+  const suffix=billId.replace(/-/g,"").slice(-6).toUpperCase();
+  const datePart=new Date().toISOString().slice(2,10).replace(/-/g,"");
+  const billNo=`QC-${datePart}-${suffix}`;
+
+  const {data:bill,error}=await supabase.from("snooker_bills").insert({
+    id:billId,bill_no:billNo,session_id:null,source_session_id:null,person_id:null,customer_id:customerId,
+    bill_source:"PLAYER_ACCOUNT",customer_name:customer.name,customer_phone:customer.phone,
+    game_total_inr:gameTotal,fnb_total_inr:fnbTotal,discount_inr:0,total_inr:total,paid_inr:0,due_inr:total,
+    status:total<=0?"PAID":"UNPAID",revision:"1",finalized_by:auth.staff_id,idempotency_key:key||null
+  }).select("*").single();
+  if(error)throw error;
+
+  const chargeItems=(charges||[]).map(ch=>({
+    bill_id:billId,
+    item_type:ch.charge_type==="FNB"?"FNB":ch.charge_type==="TABLE"?"TABLE_TIME":"GAME",
+    reference_id:ch.reference_id,
+    description:ch.description,
+    quantity:1,
+    unit_price_inr:money(ch.amount_inr),
+    line_total_inr:money(ch.amount_inr),
+    metadata:{person_id:ch.person_id,session_id:ch.session_id,charge_id:ch.id,...(ch.metadata||{})}
+  }));
+  const runningItems=runningFnbLines.map(line=>({
+    bill_id:billId,
+    item_type:"FNB",
+    reference_id:line.id,
+    description:line.item_name_snapshot,
+    quantity:number(line.quantity),
+    unit_price_inr:money(line.unit_price_snapshot_inr),
+    line_total_inr:money(line.line_total_inr),
+    metadata:{item_id:line.item_id,source:"RUNNING_FNB_TAB",tab_id:line.tab_id}
+  }));
+  const items=[...chargeItems,...runningItems];
+  if(items.length){
+    const ie=await supabase.from("snooker_bill_items").insert(items);
+    if(ie.error)throw ie.error;
+  }
+
+  const chargeIds=(charges||[]).map(x=>x.id);
+  if(chargeIds.length)await supabase.from("snooker_person_charges").update({bill_id:billId}).in("id",chargeIds);
+
+  const playerFnbIds=(charges||[]).filter(x=>x.charge_type==="FNB"&&x.reference_id).map(x=>x.reference_id);
+  const runningFnbIds=runningFnbLines.map(x=>x.id);
+  const allFnbIds=[...new Set([...playerFnbIds,...runningFnbIds])];
+  if(allFnbIds.length)await supabase.from("snooker_fnb_lines").update({bill_id:billId}).in("id",allFnbIds);
+
+  if(fnbTabIds.length){
+    const now=new Date().toISOString();
+    await supabase.from("snooker_fnb_tabs").update({
+      status:"CLOSED",linked_bill_id:billId,closed_at:now,closed_by:auth.staff_id,updated_at:now
+    }).in("id",fnbTabIds);
+  }
+
+  const response=await billDetailPayload(supabase,billId);
+  await rememberIdempotent(supabase,key,"finalize_club_tab",billId,response);
+  return json(res,201,response);
 }
 
 async function bootstrap(req, res) {
@@ -2340,6 +2471,7 @@ async function fnbTabPayload(supabase, tabId) {
     tab_id: tab.id,
     id: tab.id,
     tab_no: tab.tab_no,
+    customer_id: tab.customer_id || null,
     customer_name: tab.customer_name,
     customer_phone: tab.customer_phone || null,
     status: tab.status,
@@ -2384,8 +2516,35 @@ async function createFnbTab(req, res) {
 
   const customerName = canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "");
   const customerPhone = normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "") || null;
+  const requestedCustomerId = safeText(req.body?.customer_id || req.body?.customerId || "", 100) || null;
   const notes = safeText(req.body?.notes || "", 500).trim() || null;
   if (!customerName) return json(res, 400, { ok: false, error: "TAB_CUSTOMER_NAME_REQUIRED" });
+
+  let customer = null;
+  if (requestedCustomerId) {
+    const { data, error } = await supabase.from("snooker_customers").select("*").eq("id", requestedCustomerId).eq("active", true).maybeSingle();
+    if (error) throw error;
+    customer = data || null;
+  }
+  if (!customer) {
+    customer = await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "fnb_running_tab" });
+  }
+  if (!customer) return json(res, 400, { ok: false, error: "CUSTOMER_REQUIRED" });
+
+  const { data: existing, error: existingError } = await supabase
+    .from("snooker_fnb_tabs")
+    .select("*")
+    .eq("customer_id", customer.id)
+    .eq("status", "OPEN")
+    .order("last_order_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) {
+    const response = await fnbTabPayload(supabase, existing.id);
+    await rememberIdempotent(supabase, key, "create_fnb_tab", existing.id, response);
+    return json(res, 200, { ...response, reused: true });
+  }
 
   const id = randomUUID();
   const suffix = id.replace(/-/g, "").slice(-6).toUpperCase();
@@ -2395,19 +2554,14 @@ async function createFnbTab(req, res) {
   const { data: tab, error } = await supabase.from("snooker_fnb_tabs").insert({
     id,
     tab_no: tabNo,
-    customer_name: customerName,
-    customer_phone: customerPhone,
+    customer_id: customer.id,
+    customer_name: customer.name || customerName,
+    customer_phone: customer.phone || customerPhone,
     status: "OPEN",
     opened_by: auth.staff_id,
     notes,
   }).select("*").single();
   if (error) throw error;
-
-  try {
-    await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "fnb_running_tab" });
-  } catch (customerError) {
-    console.error("customer directory remember failed", { source: "fnb_running_tab", name: customerName, message: customerError?.message });
-  }
 
   const response = await fnbTabPayload(supabase, tab.id);
   await rememberIdempotent(supabase, key, "create_fnb_tab", tab.id, response);
@@ -2603,6 +2757,11 @@ async function closeFnbTab(req, res, tabId) {
     return json(res, 200, response);
   }
   if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+  if (current.customer_id) {
+    // A customer-linked F&B tab is part of the same Club Tab as game/table charges.
+    // Finalizing from the F&B screen must therefore reconcile all unbilled activity together.
+    return await finalizePlayerTab(req, res, current.customer_id);
+  }
 
   const { data: claimed, error: claimError } = await supabase
     .from("snooker_fnb_tabs")
