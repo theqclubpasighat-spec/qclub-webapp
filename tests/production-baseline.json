@@ -1,5 +1,5 @@
 {
-  "commit": "c1bb4c7d9177b071d0eb09ab39ccb10476ec663f",
+  "commit": "99428d38a3c82e71ce6a4a6dd8ee115e1d0596f6 + reviewed V2 production shell (2026-10-02)",
   "files": {
     "api/cashfree-webhook.js": "bc1d26d2c68ace92a373aaec18659613de5908c5",
     "api/create-order.js": "71a6bf4c7c6a015211e5bf7c41265bd6bc59a97b",
@@ -13,7 +13,7 @@
     "api/whatsapp-send.js": "cfdb62af8d6d8d1f6f636aac9376903b1a5234a5",
     "package-lock.json": "f2ecd6381b18a0aa56eb8a34f5e4b8c0ff79ff70",
     "package.json": "48d5b48c3a9bb07e13ca15e44bbbc0bc51158e1a",
-    "src/App.jsx": "945e1c002da6fad24c6ccb5f707316078dd200c7",
+    "src/App.jsx": "60361d65bbedc8fd43374aed5a58bd06af717f3d",
     "src/cloud.js": "9c7bfcf44a895273e6d52e49e553f716f51b5d5e",
     "src/components/qclub-ledger-page.jsx": "504aa385ac6408028ea8878ebb61f6030a1f8646",
     "src/components/qclub-pay-page.jsx": "5367285b86f767946e7abf25776e1ac3bcb5c8c9",
