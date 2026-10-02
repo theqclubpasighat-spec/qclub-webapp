@@ -64,7 +64,7 @@ try{
  await button('About & policies');await browser('wait','#aboutContent');await layout('policies-360');
  await button('Food page');await browser('wait','#title');await browser('fill','#subtitle','A mobile-friendly kitchen break.');await save();await layout('food-360');
  await button('Memberships');await browser('wait','#price-membership_bronze');await browser('fill','#price-membership_bronze','899');await save();await layout('memberships-360');
- await button('Rates');await browser('wait','#standard-snk12');await browser('fill','#standard-snk12','650');await save();await layout('rates-360');
+ await button('Rates');await browser('wait','--text','Table rates');assert.equal(await evaluate('Array.from(document.querySelectorAll("nav button")).find(e=>e.textContent==="Rates")?.getAttribute("aria-pressed")'),'true');await browser('wait','#standard-snk12');await browser('fill','#standard-snk12','650');await save();await layout('rates-360');
  await button('Notices');await browser('wait','--text','No public notices yet.');await button('Add notice');await browser('wait','textarea');await snapshot('new-notice');
  await browser('fill','textarea','Practice night starts at 6 pm.');await browser('fill','input','/fixtures');await save();await layout('notices-360');
  const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.memberships[0].price,899);assert.equal(after.booking.tables[0].pricePerHour,650);assert.equal(after.booking.requests[0].mobile,'PRIVATE-FIXTURE');assert.equal(after.booking.tables[0].privateRateFlag,'PRIVATE-FIXTURE');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);
