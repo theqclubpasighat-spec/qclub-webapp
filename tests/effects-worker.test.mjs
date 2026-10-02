@@ -128,3 +128,46 @@ test('Indian mobile beginning with 91 is still prefixed with country code exactl
   await dispatchWhatsappEffect(db,env,async(_url,options)=>{sent=JSON.parse(options.body);return {ok:true,status:200,text:async()=>''};});
   assert.equal(sent.payload.to,'919123456789');
 });
+
+
+test('effect queue summary and retry commands expose only aggregate health and failed-job recovery',async()=>{
+  const calls=[];
+  const id='00000000-0000-4000-8000-000000000099';
+  const db={async rpc(name,args){
+    calls.push({name,args});
+    if(name==='qclub_payment_effect_summary')return {data:{
+      pending:2,processing:1,sent:9,failed:1,stale_processing:1,
+      oldest_pending_at:'2026-10-02T10:00:00Z',oldest_failed_at:'2026-10-02T09:00:00Z',
+      payload:{must:'not leak'},
+    }};
+    if(name==='qclub_payment_effect_retry_failed')return {data:{ok:true,status:'pending',id,orderId:'qcr_fixture',effectType:'print_food'}};
+    return {error:new Error('unexpected')};
+  }};
+  const summary=await effectWorkerCommand(db,{command:'summary'});
+  assert.deepEqual(summary,{ok:true,summary:{
+    pending:2,processing:1,sent:9,failed:1,staleProcessing:1,
+    oldestPendingAt:'2026-10-02T10:00:00Z',oldestFailedAt:'2026-10-02T09:00:00Z',
+  }});
+  assert.equal(JSON.stringify(summary).includes('must'),false);
+  const retried=await effectWorkerCommand(db,{command:'retry',id});
+  assert.equal(retried.status,'pending');assert.equal(retried.id,id);
+  assert.deepEqual(calls[0],{name:'qclub_payment_effect_summary',args:{}});
+  assert.deepEqual(calls[1],{name:'qclub_payment_effect_retry_failed',args:{p_id:id}});
+  for(const body of [
+    {command:'summary',extra:true},
+    {command:'retry',id:'bad'},
+    {command:'retry',id,success:true},
+  ]) await assert.rejects(effectWorkerCommand(db,body),e=>e.code==='INVALID_EFFECT_COMMAND');
+});
+
+test('effect retry propagates not-found and non-failed conflicts without mutating payment state',async()=>{
+  const id='00000000-0000-4000-8000-000000000098';
+  await assert.rejects(
+    effectWorkerCommand({rpc:async()=>({data:{ok:false}})},{command:'retry',id}),
+    e=>e.code==='EFFECT_NOT_FOUND'&&e.status===404
+  );
+  await assert.rejects(
+    effectWorkerCommand({rpc:async()=>({data:{ok:false,conflict:true,status:'sent'}})},{command:'retry',id}),
+    e=>e.code==='EFFECT_QUEUE_CONFLICT'&&e.status===409
+  );
+});
