@@ -4,6 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 const TABLE = "qclub_state";
 const KEY = "main";
 const CURRENCY = "INR";
+const QLOUNGE_SUCCESS_TEMPLATE = "qlounge_order_success_v2";
+const QLOUNGE_TEMPLATE_NAMESPACE = "81882be1_5490_4998_98fb_29f89d47fdb4";
+const QLOUNGE_SERVICE_NOTE = "Ready-to-serve items will be handed over immediately. Prepared items may take up to 15 minutes.";
 
 function env(name = "") {
   return String(process.env[name] || "").trim();
@@ -161,8 +164,8 @@ const MSG91_TEMPLATE_SPECS = {
   success: {
     food: {
       envName: "MSG91_FOOD_SUCCESS_TEMPLATE",
-      fallbackTemplate: "food_success_items",
-      params: ["customer_name", "food_order_no", "food_items", "amount"],
+      fallbackTemplate: QLOUNGE_SUCCESS_TEMPLATE,
+      params: ["customer_name", "food_order_no", "food_items", "amount", "service_note"],
     },
     shop: {
   envName: "MSG91_QSHOP_SUCCESS_TEMPLATE",
@@ -216,6 +219,7 @@ function getTemplateSpec(kind = "", context = "") {
 }
 
 function getSuccessTemplateName(context = "") {
+  if (contextKey(context) === "food") return QLOUNGE_SUCCESS_TEMPLATE;
   const spec = getTemplateSpec("success", context);
   return spec ? env(spec.envName) || spec.fallbackTemplate || "" : "";
 }
@@ -278,8 +282,22 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
 }
 
     if (clean === "food") {
+    const foodEntries = parseTrustedArray(orderTags.food_items_json || "[]", []);
+    const foodItemsFromJson = foodEntries
+      .map((entry) => {
+        const name = safeText(entry?.name || entry?.displayName || "Item", 300) || "Item";
+        const qty = Math.max(0, safeNum(entry?.qty, 0));
+        const price = safeNum(entry?.price, 0);
+        const lineTotal = safeNum(entry?.lineTotal ?? price * qty, price * qty);
+        if (!qty) return "";
+        return `${name} x ${qty} = ₹${lineTotal}`;
+      })
+      .filter(Boolean)
+      .join(" • ");
+
     const foodItemsText = safeText(
-      orderTags.food_items ||
+      foodItemsFromJson ||
+        orderTags.food_items ||
         orderTags.items ||
         orderTags.items_text ||
         orderTags.food_items_text ||
@@ -291,6 +309,7 @@ function buildSuccessTemplateParams({ context = "", orderId = "", amount = 0, or
       `QC-${String(orderId || "").slice(-6)}`,
       foodItemsText,
       safeAmount,
+      QLOUNGE_SERVICE_NOTE,
     ];
   }
 
@@ -399,41 +418,69 @@ async function sendMsg91Template({
     );
   }
 
-  const payload = {
-    integrated_number: integratedNumber,
-    content_type: "template",
-    payload: {
-      to: normalizedPhone,
-      messaging_product: "whatsapp",
-      type: "template",
-      template: {
-        name: safeText(templateName, 120),
-        language: {
-          code: "en",
-          policy: "deterministic",
-        },
-        components: Array.isArray(templateParams) && templateParams.length
-          ? [
+  const isQloungeSuccess = safeText(templateName, 120) === QLOUNGE_SUCCESS_TEMPLATE;
+  const payload = isQloungeSuccess
+    ? {
+        integrated_number: integratedNumber,
+        content_type: "template",
+        payload: {
+          messaging_product: "whatsapp",
+          type: "template",
+          template: {
+            name: QLOUNGE_SUCCESS_TEMPLATE,
+            language: { code: "en", policy: "deterministic" },
+            namespace: QLOUNGE_TEMPLATE_NAMESPACE,
+            to_and_components: [
               {
-                type: "body",
-                parameters: templateParams.map((value) => ({
-                  type: "text",
-                  text: safeText(value, 1200),
-                })),
+                to: [normalizedPhone],
+                components: Object.fromEntries(
+                  templateParams.map((value, index) => [
+                    `body_${index + 1}`,
+                    { type: "text", value: safeText(value, 1200) },
+                  ])
+                ),
               },
-            ]
-          : [],
-      },
-    },
-    meta: {
-      label: safeText(label, 120),
-      textPreview: safeText(textPreview, 1200),
-      provider: "msg91",
-    },
-  };
+            ],
+          },
+        },
+      }
+    : {
+        integrated_number: integratedNumber,
+        content_type: "template",
+        payload: {
+          to: normalizedPhone,
+          messaging_product: "whatsapp",
+          type: "template",
+          template: {
+            name: safeText(templateName, 120),
+            language: {
+              code: "en",
+              policy: "deterministic",
+            },
+            components: Array.isArray(templateParams) && templateParams.length
+              ? [
+                  {
+                    type: "body",
+                    parameters: templateParams.map((value) => ({
+                      type: "text",
+                      text: safeText(value, 1200),
+                    })),
+                  },
+                ]
+              : [],
+          },
+        },
+        meta: {
+          label: safeText(label, 120),
+          textPreview: safeText(textPreview, 1200),
+          provider: "msg91",
+        },
+      };
 
   const response = await fetch(
-    "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/",
+    isQloungeSuccess
+      ? "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/"
+      : "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/",
     {
       method: "POST",
       headers: {
