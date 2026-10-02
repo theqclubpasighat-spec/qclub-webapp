@@ -5,7 +5,7 @@ export class AdminApiError extends Error {
 export function createAdminClient(fetcher = globalThis.fetch) {
   let token = null;
   async function request(action, method = 'GET', body) {
-    const response = await fetcher(`/api/qclub-security?action=${action}`, {
+    const response = await fetcher(`/api/qclub-checkout-rehearsal?scope=security&action=${action}`, {
       method, cache: 'no-store', credentials: 'omit', redirect: 'error',
       headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
