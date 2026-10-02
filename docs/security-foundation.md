@@ -164,3 +164,8 @@ Because webhooks do not have the browser's receipt capability, the rehearsal dat
 Validation adds strict raw-body signature tests, callback-URL tests, exact return-ID recovery, service-role permission checks, an expired-intent webhook recovery case and duplicate webhook replay. All gateway responses in automated tests remain synthetic. A real Cashfree sandbox order/payment and physical Android/iPhone acceptance are still required before any release claim. The preview deployment also needs the isolated rehearsal database variables, Cashfree sandbox credentials and `QCLUB_REHEARSAL_PUBLIC_URL` configured before hosted end-to-end testing. Reusing the existing payment function keeps the deployment within the current Vercel Hobby serverless-function limit.
 
 No production database migration, production environment variable change, live Cashfree order, MSG91 message, stock movement or production deployment is part of this package.
+
+
+### Rehearsal API consolidation
+
+The Vercel Hobby function-count limit is satisfied by consolidating the rehearsal menu and unused-checkout recovery actions into the existing `/api/qclub-checkout-rehearsal` function. Menu uses `?action=menu`; recovery uses `?action=recover`; normal checkout creation keeps the original route without an action. The signed Cashfree webhook remains an action on the existing payment rehearsal function. No production API route was removed or merged.
