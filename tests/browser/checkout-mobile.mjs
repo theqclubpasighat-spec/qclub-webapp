@@ -32,8 +32,8 @@ const server=await createServer({server:{host:'127.0.0.1',port:5183,strictPort:t
   try{
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>20000)throw Error('Fixture body too large');}
    const body=raw?JSON.parse(raw):{};
-   if(route==='/api/qclub-menu-rehearsal')return reply(200,{items:[...(!unavailable?[{id:'momo',name:'Momo',price:80,category:'Food'}]:[]),{id:'tea',name:'Tea',price:30,category:'Drinks'}]});
-   if(route==='/api/qclub-checkout-rehearsal'){
+   if(route==='/api/qclub-checkout-rehearsal'&&req.url?.includes('action=menu'))return reply(200,{items:[...(!unavailable?[{id:'momo',name:'Momo',price:80,category:'Food'}]:[]),{id:'tea',name:'Tea',price:30,category:'Drinks'}]});
+   if(route==='/api/qclub-checkout-rehearsal'&&!req.url?.includes('action=')){
     const id=`qcr_${body.checkoutId}`;creations.push(id);
     if(closed.has(id))return reply(409,{error:'CHECKOUT_CLOSED'});
     if(rejectNext){rejectNext=false;unavailable=true;return reply(409,{error:'ITEM_UNAVAILABLE'});}
@@ -44,7 +44,7 @@ const server=await createServer({server:{host:'127.0.0.1',port:5183,strictPort:t
     const order=intents.get(body.orderId);if(!order||order.receipt!==body.receiptToken)return reply(404,{error:'ORDER_NOT_FOUND'});
     return reply(200,{state:order.state,orderId:body.orderId});
    }
-   if(route==='/api/qclub-checkout-recovery-rehearsal'){
+   if(route==='/api/qclub-checkout-rehearsal'&&req.url?.includes('action=recover')){
     const id=`qcr_${body.checkoutId}`;if(!intents.has(id))closed.add(id);
     return reply(200,{state:intents.has(id)?'existing':'closed',orderId:id});
    }
