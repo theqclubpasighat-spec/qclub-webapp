@@ -88,6 +88,7 @@ export async function dispatchWhatsappEffect(db,env,fetcher=fetch){
   const job=await claim(db,'whatsapp_success',workerId);
   if(!job)return {ok:true,job:null};
 
+  let settled=false;
   try{
     const message=whatsappEffectMessage(job);
     if(!/^[6-9][0-9]{9}$/.test(message.phone)){
