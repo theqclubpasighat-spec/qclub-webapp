@@ -207,3 +207,16 @@ The action shares the existing rehearsal payment serverless function, so it does
 Validation covers mixed fulfilled/released/pending/error batches, service-role-only stale discovery, qcr-food scoping, exclusion of future and already-terminal intents, a hard 20-row database cap, and the disabled-by-default HTTP gate. After correcting an SQL literal editing error found by CI, the complete application/database suite passes 64/64 checks. Build isolation also passes on the corrected head.
 
 No cron/scheduler has been enabled and no reconciliation secret has been installed in a hosted environment. Scheduling remains a release-time operational decision after isolated rehearsal infrastructure and real Cashfree sandbox acceptance are available. No production database migration, stock movement, Cashfree order, MSG91 send, Android change or production deployment is part of Package 11.
+
+
+## Package 12 progress — atomic booking slot reservations
+
+The rehearsal booking checkout now creates server-priced, one-hour Cashfree intents under the `qcb_` namespace and atomically reserves a physical table/time window before payment. The browser supplies only table ID, booking date, start time, duration, member/non-member type, customer identity and an optional note. Price is resolved from the server-side booking catalogue in `qclub_state`; member pricing is accepted only after an active member-registry name/mobile match that remains valid on the booking date.
+
+A private `booking_slot_reservations` table prevents overlap across concurrent rehearsal checkouts. Reservation checks include: existing rehearsal holds, admin-blocked windows, active legacy booking requests and already persisted booking operational records. Adjacent non-overlapping windows remain available. The booking helper used for minute conversion is not executable by `anon` or `authenticated`; only `service_role` has execute permission.
+
+Cashfree terminal states use the same server-side reconciliation path as tracked food orders. A verified EXPIRED or TERMINATED order releases the booking hold; a verified PAID order marks the hold fulfilled and creates the booking operational record atomically. Fulfilled slots remain unavailable. Booking intents are also included in the bounded stale-order discovery used by the trusted reconciler.
+
+CI exposed two implementation/test defects while this package was being completed. First, the private time-parser helper had been revoked from public roles without a compensating service-role grant, causing every booking checkout to fail closed with `BOOKING_UNAVAILABLE`. That privilege boundary is now explicit: browser roles remain denied and `service_role` is allowed. Second, the stale-discovery test attempted to mutate frozen `expires_at`; the test now advances the trusted reconciliation cutoff instead, preserving immutable commercial terms.
+
+Final validation on commit `fe1a149e55e9da7e86cb0c3ed80bdb6bdef3c534`: 71/71 application/database tests pass, production/preview/production build isolation passes, synthetic mobile checkout passes, mobile CMS against disposable Postgres passes, and the Vercel preview is READY. No production migration, live booking, Cashfree transaction, MSG91 send or Android change was made.
