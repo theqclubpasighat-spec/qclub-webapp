@@ -70,6 +70,31 @@ async function complete(db,id,workerId,success,error=null){
 
 export async function effectWorkerCommand(db,body){
   if(!body||typeof body!=='object'||Array.isArray(body))fail(400,'INVALID_EFFECT_COMMAND');
+  if(body.command==='summary'){
+    if(Object.keys(body).some(k=>!['command'].includes(k)))fail(400,'INVALID_EFFECT_COMMAND');
+    const result=await db.rpc('qclub_payment_effect_summary',{});
+    if(result.error)fail(503,'EFFECT_QUEUE_UNAVAILABLE');
+    const data=result.data||{};
+    return {
+      ok:true,
+      summary:{
+        pending:Number(data.pending||0),
+        processing:Number(data.processing||0),
+        sent:Number(data.sent||0),
+        failed:Number(data.failed||0),
+        staleProcessing:Number(data.stale_processing||0),
+        oldestPendingAt:data.oldest_pending_at||null,
+        oldestFailedAt:data.oldest_failed_at||null,
+      },
+    };
+  }
+  if(body.command==='retry'){
+    if(Object.keys(body).some(k=>!['command','id'].includes(k))||typeof body.id!=='string'||!/^[0-9a-f-]{36}$/i.test(body.id))fail(400,'INVALID_EFFECT_COMMAND');
+    const result=await db.rpc('qclub_payment_effect_retry_failed',{p_id:body.id});
+    if(result.error)fail(503,'EFFECT_QUEUE_UNAVAILABLE');
+    if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'EFFECT_QUEUE_CONFLICT':'EFFECT_NOT_FOUND');
+    return {ok:true,status:result.data.status,id:result.data.id,orderId:result.data.orderId,effectType:result.data.effectType};
+  }
   if(body.command==='claim'){
     if(!['print_food','whatsapp_success'].includes(body.effectType)||typeof body.workerId!=='string'||body.workerId.trim().length<1||body.workerId.length>120)fail(400,'INVALID_EFFECT_COMMAND');
     return {ok:true,job:await claim(db,body.effectType,body.workerId.trim())};
