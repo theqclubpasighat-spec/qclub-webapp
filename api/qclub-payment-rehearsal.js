@@ -29,10 +29,10 @@ function actionOf(req){
   try{return new URL(req.url||'/', 'https://rehearsal.invalid').searchParams.get('action')||'';}catch{return '';}
 }
 function reconcileAuthorized(req,env){
-  const configured=String(env.QCLUB_REHEARSAL_RECONCILE_SECRET||'');
-  const supplied=String(req.headers?.['x-qclub-reconcile-secret']||'');
+  const configured=Buffer.from(String(env.QCLUB_REHEARSAL_RECONCILE_SECRET||''),'utf8');
+  const supplied=Buffer.from(String(req.headers?.['x-qclub-reconcile-secret']||''),'utf8');
   if(configured.length<32||supplied.length!==configured.length)return false;
-  return timingSafeEqual(Buffer.from(supplied),Buffer.from(configured));
+  return timingSafeEqual(supplied,configured);
 }
 
 export default async function handler(req,res) {
