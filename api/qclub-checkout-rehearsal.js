@@ -3,6 +3,7 @@ import { rehearsalConfig,SecurityError,requestAddress,tokenHash } from '../src/s
 import { createFoodCheckout } from '../src/server/payments/checkout.js';
 import { closeUnusedCheckout } from '../src/server/payments/checkout-recovery.js';
 import { sandboxCheckout } from '../src/server/payments/sandbox-checkout.js';
+import { createSecurityHandler } from '../src/server/security/handler.js';
 
 function actionOf(req){
   const direct=String(req.query?.action||'').trim();
@@ -33,6 +34,17 @@ export default async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
   let action='';
   try {
+    const scope=String(req.query?.scope||(()=>{try{return new URL(req.url||'/', 'https://rehearsal.invalid').searchParams.get('scope')||'';}catch{return '';}})()).trim();
+    if(scope==='security'){
+      const parsed=new URL(req.url||'/', 'https://rehearsal.invalid');
+      req.query={...(req.query||{}),action:req.query?.action||parsed.searchParams.get('action')||''};
+      const securityHandler=createSecurityHandler({
+        env:process.env,
+        createDatabase:({url,key})=>createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}),
+      });
+      return securityHandler(req,res);
+    }
+    if(scope)throw new SecurityError(404,'NOT_FOUND');
     const config=rehearsalConfig(process.env);
     action=actionOf(req);
     const db=createClient(config.url,config.key,{auth:{persistSession:false,autoRefreshToken:false}});
