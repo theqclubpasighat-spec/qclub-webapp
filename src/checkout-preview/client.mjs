@@ -18,7 +18,7 @@ export function createCheckoutClient({storage,crypto,fetcher=fetch,now=()=>Date.
   if(!attempt)throw new CheckoutError('NO_CHECKOUT');
   if(expired())throw new CheckoutError('RECOVERY_EXPIRED');
   const result=await request('/api/qclub-payment-rehearsal',{orderId:`qcr_${attempt.body.checkoutId}`,receiptToken:attempt.body.receiptToken});
-  if(result.orderId!==`qcr_${attempt.body.checkoutId}`||!['pending','fulfilled'].includes(result.state))throw new CheckoutError('INVALID_RESPONSE');
+  if(result.orderId!==`qcr_${attempt.body.checkoutId}`||!['pending','fulfilled','expired'].includes(result.state))throw new CheckoutError('INVALID_RESPONSE');
   return result;
  }
  return {
@@ -52,6 +52,15 @@ export function createCheckoutClient({storage,crypto,fetcher=fetch,now=()=>Date.
    try{storage.removeItem(KEY);}catch{throw new CheckoutError('RECOVERY_UNAVAILABLE');}
    attempt=null;return saved;
   }),
+  retryExpired:()=>exclusive(async()=>{
+   if(!attempt)throw new CheckoutError('NO_CHECKOUT');
+   const saved=structuredClone(attempt);
+   const result=await verifyCurrent();
+   if(result.state!=='expired')throw new CheckoutError('ORDER_NOT_EXPIRED');
+   try{storage.setItem(COMPLETED_KEY,JSON.stringify({orderId:result.orderId}));storage.removeItem(KEY);}catch{throw new CheckoutError('RECOVERY_UNAVAILABLE');}
+   lastReference=result.orderId;attempt=null;
+   return saved;
+  }),
   newOrder:()=>exclusive(async()=>{
    // Recheck the server; a cached UI status or popup callback cannot unlock a new order.
    const result=await verifyCurrent();
@@ -65,6 +74,6 @@ export function createCheckoutClient({storage,crypto,fetcher=fetch,now=()=>Date.
  };
 }
 export function checkoutMessage(error){
- const messages={RETURN_ORDER_MISMATCH:'The payment return does not match this saved order. Keep this order reference and contact the club.',ORDER_ALREADY_CREATED:'This order has already been created. Resume it or check payment status; its cart cannot be replaced.',CHECKOUT_CLOSED:'This unused checkout was closed. Use Fix a rejected cart to continue.',INVALID_CUSTOMER:'Check your name and 10-digit mobile number using Fix a rejected cart.',INVALID_CART:'Review your items and quantities using Fix a rejected cart.',ORDER_NOT_COMPLETE:'This order is not confirmed yet. Keep checking its status before starting another order.',RECOVERY_UNAVAILABLE:'This browser cannot safely keep your order for retries. No new payment has been started.',RECOVERY_EXPIRED:'This order needs help from the club. Keep the order reference and do not pay again.',CONNECTION_INTERRUPTED:'Connection interrupted. Retry this same order; do not start another payment.',STOCK_RESERVATION_REQUIRED:'This item is available at the counter only in this preview.',ITEM_UNAVAILABLE:'An item is no longer available. Use Fix a rejected cart to review available items.',CHECKOUT_RATE_LIMITED:'Please wait 15 minutes before retrying.',CHECKOUT_CONFLICT:'This order differs from its saved details. Contact the club; do not pay again.',SECURITY_REHEARSAL_DISABLED:'Checkout rehearsal is not enabled on this deployment.'};
+ const messages={ORDER_NOT_EXPIRED:'This order is still active. Keep checking payment status before replacing it.',INSUFFICIENT_STOCK:'There is not enough stock for that quantity. Refresh the cart and choose the available quantity.',RETURN_ORDER_MISMATCH:'The payment return does not match this saved order. Keep this order reference and contact the club.',ORDER_ALREADY_CREATED:'This order has already been created. Resume it or check payment status; its cart cannot be replaced.',CHECKOUT_CLOSED:'This unused checkout was closed. Use Fix a rejected cart to continue.',INVALID_CUSTOMER:'Check your name and 10-digit mobile number using Fix a rejected cart.',INVALID_CART:'Review your items and quantities using Fix a rejected cart.',ORDER_NOT_COMPLETE:'This order is not confirmed yet. Keep checking its status before starting another order.',RECOVERY_UNAVAILABLE:'This browser cannot safely keep your order for retries. No new payment has been started.',RECOVERY_EXPIRED:'This saved order is too old for automatic browser recovery. Keep the order reference and contact the club before paying again.',CONNECTION_INTERRUPTED:'Connection interrupted. Retry this same order; do not start another payment.',STOCK_RESERVATION_REQUIRED:'This item is available at the counter only in this preview.',ITEM_UNAVAILABLE:'An item is no longer available. Use Fix a rejected cart to review available items.',CHECKOUT_RATE_LIMITED:'Please wait 15 minutes before retrying.',CHECKOUT_CONFLICT:'This order differs from its saved details. Contact the club; do not pay again.',SECURITY_REHEARSAL_DISABLED:'Checkout rehearsal is not enabled on this deployment.'};
  return messages[error?.code]||'We could not confirm the order. Keep your reference and retry the same order.';
 }
