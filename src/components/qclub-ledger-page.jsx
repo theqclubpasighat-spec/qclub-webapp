@@ -856,8 +856,8 @@ export default function QclubLedgerPage() {
         frameRate: "",
         isMember: false,
         players: [
-          { name: "", phone: "", teamNo: null },
-          { name: "", phone: "", teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null },
         ],
       };
     }
@@ -881,8 +881,8 @@ export default function QclubLedgerPage() {
       frameRate: "",
       isMember: false,
       players: [
-        { name: "", phone: "", teamNo: null },
-        { name: "", phone: "", teamNo: null },
+        { name: "", phone: "", customerId: null, teamNo: null },
+        { name: "", phone: "", customerId: null, teamNo: null },
       ],
     };
   }
@@ -939,8 +939,8 @@ export default function QclubLedgerPage() {
 
     const players = (startForm.players || []).map(function(player, i) {
       if (i !== index) return player;
-      if (matched) return { ...player, name: matched.name || player.name, phone: matched.phone || value };
-      return { ...player, [field]: nextValue };
+      if (matched) return { ...player, customerId: matched.customer_id || matched.id || null, name: matched.name || player.name, phone: matched.phone || value };
+      return { ...player, [field]: nextValue, ...(field === "name" ? { customerId: null } : {}) };
     });
     setMemberCheck(null);
     setStartForm({
