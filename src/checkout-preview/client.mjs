@@ -24,7 +24,7 @@ export function createCheckoutClient({storage,crypto,fetcher=fetch,now=()=>Date.
  return {
   current:()=>attempt?structuredClone(attempt):null,
   lastReference:()=>lastReference,
-  menu:()=>request('/api/qclub-menu-rehearsal'),
+  menu:()=>request('/api/qclub-checkout-rehearsal?action=menu'),
   prepare(items,customer){
    if(attempt)return structuredClone(attempt);
    const bytes=crypto.getRandomValues(new Uint8Array(32));
@@ -45,7 +45,7 @@ export function createCheckoutClient({storage,crypto,fetcher=fetch,now=()=>Date.
   editCart:()=>exclusive(async()=>{
    if(!attempt)throw new CheckoutError('NO_CHECKOUT');
    const saved=structuredClone(attempt);
-   const result=await request('/api/qclub-checkout-recovery-rehearsal',{checkoutId:attempt.body.checkoutId,receiptToken:attempt.body.receiptToken});
+   const result=await request('/api/qclub-checkout-rehearsal?action=recover',{checkoutId:attempt.body.checkoutId,receiptToken:attempt.body.receiptToken});
    if(result.orderId!==`qcr_${attempt.body.checkoutId}`||!['closed','existing'].includes(result.state))throw new CheckoutError('INVALID_RESPONSE');
    if(result.state!=='closed')throw new CheckoutError('ORDER_ALREADY_CREATED');
    // Only a durable server closure can release this identity, never a 404/error.
