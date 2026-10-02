@@ -40,6 +40,7 @@ async function fixture(){
     '20261002_tournament_registration_rehearsal.sql',
     '20261002_membership_activation_rehearsal.sql',
     '20261002_payment_effect_outbox_rehearsal.sql',
+    '20261002_payment_effect_recovery_rehearsal.sql',
   ]) await pg.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
 
   const state={
@@ -58,6 +59,8 @@ async function fixture(){
     qclub_payment_close_terminal_service:['p_order_id','p_reason'],
     qclub_payment_effect_claim:['p_effect_type','p_worker_id'],
     qclub_payment_effect_complete:['p_id','p_worker_id','p_success','p_error'],
+    qclub_payment_effect_summary:[],
+    qclub_payment_effect_retry_failed:['p_id'],
   };
   const db={async rpc(name,args){try{
     if(!Object.hasOwn(specs,name))throw Error('Unknown RPC');
@@ -160,5 +163,69 @@ test('terminal unpaid order never creates post-payment effects',{skip:!process.e
     const expired={verify:async id=>({order_id:id,order_currency:'INR',order_amount:160,order_status:'EXPIRED',payments:[]})};
     assert.equal((await fulfillPayment(db,expired,{orderId:ready.orderId,receiptToken:foodToken})).state,'expired');
     assert.equal((await pg.query("select count(*)::int as n from qclub_private.payment_effect_outbox where order_id=$1",[ready.orderId])).rows[0].n,0);
+  }finally{await f.close();}
+});
+
+
+test('aggregate queue health and manual dead-letter retry recover a failed effect without touching payment fulfilment',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+  const f=await fixture(),{pg,db}=f;
+  try{
+    const ready=await createFoodCheckout(db,checkoutGateway,foodCommand('5'));
+    await fulfillPayment(db,paidGateway(160,'effect_payment_5'),{orderId:ready.orderId,receiptToken:foodToken});
+    const claimed=(await db.rpc('qclub_payment_effect_claim',{p_effect_type:'print_food',p_worker_id:'printer-dead'})).data.job;
+    assert.ok(claimed?.id);
+
+    // Drive the same job to the dead-letter state without changing the paid order.
+    for(let attempt=1;attempt<=10;attempt++){
+      const result=(await db.rpc('qclub_payment_effect_complete',{
+        p_id:claimed.id,p_worker_id:'printer-dead',p_success:false,p_error:'printer offline'
+      })).data;
+      if(attempt<10){
+        assert.equal(result.status,'pending');
+        const next=(await db.rpc('qclub_payment_effect_claim',{p_effect_type:'print_food',p_worker_id:'printer-dead'})).data.job;
+        assert.equal(next.id,claimed.id);
+      }else assert.equal(result.status,'failed');
+    }
+
+    let summary=(await db.rpc('qclub_payment_effect_summary',{})).data;
+    assert.equal(Number(summary.failed),1);
+    assert.equal(Number(summary.pending),1); // food WhatsApp remains untouched
+    assert.equal(summary.oldest_failed_at!=null,true);
+
+    const paidBefore=(await pg.query("select status,gateway_payment_id from qclub_private.payment_intents where order_id=$1",[ready.orderId])).rows[0];
+    const operationalBefore=(await pg.query("select count(*)::int as n from public.qclub_operational_records where record_key=$1",[ready.orderId])).rows[0].n;
+
+    const retried=(await db.rpc('qclub_payment_effect_retry_failed',{p_id:claimed.id})).data;
+    assert.equal(retried.ok,true);assert.equal(retried.status,'pending');assert.equal(retried.effectType,'print_food');
+
+    summary=(await db.rpc('qclub_payment_effect_summary',{})).data;
+    assert.equal(Number(summary.failed),0);assert.equal(Number(summary.pending),2);
+    const row=(await pg.query("select status,attempts,worker_id,claimed_at,last_error from qclub_private.payment_effect_outbox where id=$1",[claimed.id])).rows[0];
+    assert.equal(row.status,'pending');assert.equal(row.attempts,0);assert.equal(row.worker_id,null);assert.equal(row.claimed_at,null);assert.equal(row.last_error,null);
+
+    const paidAfter=(await pg.query("select status,gateway_payment_id from qclub_private.payment_intents where order_id=$1",[ready.orderId])).rows[0];
+    const operationalAfter=(await pg.query("select count(*)::int as n from public.qclub_operational_records where record_key=$1",[ready.orderId])).rows[0].n;
+    assert.deepEqual(paidAfter,paidBefore);assert.equal(operationalAfter,operationalBefore);
+
+    const next=(await db.rpc('qclub_payment_effect_claim',{p_effect_type:'print_food',p_worker_id:'printer-recovered'})).data.job;
+    assert.equal(next.id,claimed.id);assert.equal(next.attempts,1);
+  }finally{await f.close();}
+});
+
+test('effect recovery RPCs are service-only and refuse retry of sent or active jobs',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+  const f=await fixture(),{pg,db}=f;
+  try{
+    for(const role of ['anon','authenticated']){
+      assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_payment_effect_summary()','EXECUTE') as allowed`)).rows[0].allowed,false);
+      assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_payment_effect_retry_failed(uuid)','EXECUTE') as allowed`)).rows[0].allowed,false);
+    }
+    const ready=await createFoodCheckout(db,checkoutGateway,foodCommand('6'));
+    await fulfillPayment(db,paidGateway(160,'effect_payment_6'),{orderId:ready.orderId,receiptToken:foodToken});
+    const job=(await db.rpc('qclub_payment_effect_claim',{p_effect_type:'print_food',p_worker_id:'printer-active'})).data.job;
+    let retry=(await db.rpc('qclub_payment_effect_retry_failed',{p_id:job.id})).data;
+    assert.equal(retry.ok,false);assert.equal(retry.conflict,true);assert.equal(retry.status,'processing');
+    await db.rpc('qclub_payment_effect_complete',{p_id:job.id,p_worker_id:'printer-active',p_success:true,p_error:null});
+    retry=(await db.rpc('qclub_payment_effect_retry_failed',{p_id:job.id})).data;
+    assert.equal(retry.ok,false);assert.equal(retry.conflict,true);assert.equal(retry.status,'sent');
   }finally{await f.close();}
 });
