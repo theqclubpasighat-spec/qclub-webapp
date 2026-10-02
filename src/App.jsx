@@ -7930,9 +7930,9 @@ function getWhatsappTemplateForLabel(label = "", settings = getWhatsappSettings(
   }
 
   if (cleanLabel === "food_success") {
-  // Food success must always use the approved ITEMS template.
-  // Do not depend on Admin Panel/localStorage setting here.
-  return "food_success_items";
+  // Q Lounge paid-order confirmations use the Meta-approved v2 template.
+  // Keep this server/client mapping fixed so stale Admin settings cannot revert it.
+  return "qlounge_order_success_v2";
 }
 
 
@@ -7975,6 +7975,10 @@ function buildMsg91WhatsappPayload(draft, settings = getWhatsappSettings()) {
       String(draft?.orderNo || draft?.orderNumber || "—").trim() || "—",
       String(draft?.itemListText || "Food items").trim() || "Food items",
       String(draft?.total || draft?.amount || "0").trim() || "0",
+      String(
+        draft?.serviceNote ||
+          "Ready-to-serve items will be handed over immediately. Prepared items may take up to 15 minutes."
+      ).trim(),
     ]
   : [];
 
@@ -16277,25 +16281,31 @@ function deductShopStockForReceipt(items = [], cartEntries = []) {
         });
 
         const foodItemsForWhatsapp = items
-          .map((item, index) => {
+          .map((item) => {
             const itemName = String(item?.name || "").trim();
             const qty = Number(item?.qty || 0);
-            if (!itemName) return "";
-            return `${index + 1}. ${itemName}${qty > 0 ? ` x ${qty}` : ""}`;
+            const unitPrice = Number(item?.price || 0);
+            const lineTotal = Number(item?.lineTotal ?? unitPrice * qty);
+            if (!itemName || qty <= 0) return "";
+            return `${itemName} x ${qty} = ₹${Number.isFinite(lineTotal) ? lineTotal : 0}`;
           })
           .filter(Boolean)
-          .join("\n");
+          .join(" • ");
 
         foodWhatsappDraft.name = customerName;
         foodWhatsappDraft.customerName = customerName;
         foodWhatsappDraft.orderNo = qcOrderNo;
         foodWhatsappDraft.itemListText = foodItemsForWhatsapp || "Food items";
         foodWhatsappDraft.total = amount;
+        foodWhatsappDraft.serviceNote =
+          "Ready-to-serve items will be handed over immediately. Prepared items may take up to 15 minutes.";
+        foodWhatsappDraft.templateName = "qlounge_order_success_v2";
         foodWhatsappDraft.templateParams = [
           foodWhatsappDraft.customerName,
           foodWhatsappDraft.orderNo,
           foodWhatsappDraft.itemListText,
           foodWhatsappDraft.total,
+          foodWhatsappDraft.serviceNote,
         ];
 
         commit({
