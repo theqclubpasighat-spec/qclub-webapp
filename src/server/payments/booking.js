@@ -25,6 +25,11 @@ export function bookingCheckoutRequest(body){
     || String(body.note||'').length>1000
   ) fail(400,'INVALID_BOOKING');
 
+  const [hour,minute]=body.startTime.split(':').map(Number);
+  const startMinutes=hour*60+minute;
+  const endMinutes=startMinutes+body.durationHours*60;
+  if(startMinutes<11*60||startMinutes>22*60||minute%15!==0||endMinutes>23*60)fail(400,'INVALID_BOOKING');
+
   const normalized={
     itemId:body.itemId,
     bookingDate:body.bookingDate,
