@@ -112,8 +112,10 @@ test('server-priced booking hold blocks overlapping checkouts but permits an adj
     for(const role of ['anon','authenticated']){
       assert.equal((await pg.query(`select has_table_privilege('${role}','qclub_private.booking_slot_reservations','SELECT,INSERT,UPDATE,DELETE') as allowed`)).rows[0].allowed,false);
       assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_booking_checkout(text,text,text,text,date,text,integer,text,text,text,text)','EXECUTE') as allowed`)).rows[0].allowed,false);
+      assert.equal((await pg.query(`select has_function_privilege('${role}','qclub_private.booking_time_minutes(text)','EXECUTE') as allowed`)).rows[0].allowed,false);
     }
-    const first=await createBookingCheckout(db,activeGateway,command('1'));
+    assert.equal((await pg.query("select has_function_privilege('service_role','qclub_private.booking_time_minutes(text)','EXECUTE') as allowed")).rows[0].allowed,true);
+        const first=await createBookingCheckout(db,activeGateway,command('1'));
     assert.equal(first.state,'ready');assert.equal(first.amountPaise,80000);
     const hold=(await pg.query("select * from qclub_private.booking_slot_reservations where order_id=$1",[first.orderId])).rows[0];
     assert.equal(hold.start_minutes,720);assert.equal(hold.end_minutes,840);assert.equal(hold.status,'reserved');
@@ -186,8 +188,10 @@ test('stale discovery includes expired qcb booking holds for the same trusted re
   const fixture=await bookingFixture(),{pg,db}=fixture;
   try{
     const ready=await createBookingCheckout(db,activeGateway,command('c'));
-    await pg.query("update qclub_private.payment_intents set expires_at=clock_timestamp()-interval '1 minute' where order_id=$1",[ready.orderId]);
-    const rows=(await db.rpc('qclub_payment_stale_intents',{p_before:new Date().toISOString(),p_limit:10})).data;
+    // Payment terms are immutable by design. Move the trusted reconciliation cutoff
+    // beyond the frozen one-hour expiry rather than mutating expires_at in the fixture.
+    const cutoff=new Date(Date.now()+2*60*60*1000).toISOString();
+    const rows=(await db.rpc('qclub_payment_stale_intents',{p_before:cutoff,p_limit:10})).data;
     assert.equal(rows.some(row=>row.order_id===ready.orderId),true);
   }finally{await fixture.close();}
 });
