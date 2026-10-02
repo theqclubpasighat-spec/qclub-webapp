@@ -107,3 +107,24 @@ test('HTTP effect actions remain disabled without rehearsal configuration',async
   assert.equal(response.code,503);
   assert.equal(response.body.error,'SECURITY_REHEARSAL_DISABLED');
 });
+
+test('Indian mobile beginning with 91 is still prefixed with country code exactly once',async()=>{
+  const calls=[];
+  const job={
+    id:'00000000-0000-4000-8000-000000000004',
+    orderId:'qct_22345678-1234-4123-8123-123456789abc',
+    effectType:'whatsapp_success',
+    payload:{label:'tournament_success',phone:'9123456789',amount:500,data:{customerName:'Player',tournamentName:'Current Cup',tournamentFee:500}},
+    attempts:1,
+  };
+  const db={async rpc(name,args){calls.push({name,args});if(name==='qclub_payment_effect_claim')return {data:{ok:true,job}};return {data:{ok:true,status:'sent'}};}};
+  let sent;
+  const env={
+    QCLUB_REHEARSAL_MSG91_MODE:'live',
+    MSG91_AUTH_KEY:'fixture-auth',
+    MSG91_SENDER_NUMBER:'919999999999',
+    MSG91_TOURNAMENT_SUCCESS_TEMPLATE:'tournament_success_fixture',
+  };
+  await dispatchWhatsappEffect(db,env,async(_url,options)=>{sent=JSON.parse(options.body);return {ok:true,status:200,text:async()=>''};});
+  assert.equal(sent.payload.to,'919123456789');
+});
