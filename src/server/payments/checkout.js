@@ -22,9 +22,11 @@ export async function createFoodCheckout(db,gateway,body) {
   if(error)fail(503,'CHECKOUT_UNAVAILABLE');
   if(!data?.ok)fail(409,data?.reason || 'CHECKOUT_CONFLICT');
   if(data.status==='fulfilled')return {ok:true,state:'fulfilled',orderId:request.orderId};
-  const order=await gateway.create({orderId:request.orderId,checkoutId:request.checkoutId,amountPaise:Number(data.amount_paise),customer:request.customer});
+  const expiresAt=String(data.expires_at||'');
+  if(!expiresAt||!Number.isFinite(Date.parse(expiresAt)))fail(503,'CHECKOUT_UNAVAILABLE');
+  const order=await gateway.create({orderId:request.orderId,checkoutId:request.checkoutId,amountPaise:Number(data.amount_paise),customer:request.customer,expiresAt});
   if(order.order_id!==request.orderId || order.order_currency!=='INR' || amountInPaise(order.order_amount)!==Number(data.amount_paise))fail(422,'PAYMENT_MISMATCH');
   if(order.order_status==='PAID')return {ok:true,state:'verify_payment',orderId:request.orderId};
   if(order.order_status!=='ACTIVE' || typeof order.payment_session_id!=='string' || !order.payment_session_id || order.payment_session_id.length>4096)fail(503,'CHECKOUT_UNAVAILABLE');
-  return {ok:true,state:'ready',orderId:request.orderId,amountPaise:Number(data.amount_paise),paymentSessionId:order.payment_session_id};
+  return {ok:true,state:'ready',orderId:request.orderId,amountPaise:Number(data.amount_paise),paymentSessionId:order.payment_session_id,expiresAt};
 }
