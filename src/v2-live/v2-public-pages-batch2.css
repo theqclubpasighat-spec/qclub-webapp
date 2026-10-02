@@ -1,0 +1,341 @@
+/* V2 public pages — Batch 2.
+   Presentation-only styling for remaining public content and the existing live food-order flow. */
+
+/* Existing live Q Lounge order flow (/offer) */
+body.qclub-v2-live .foodPageContainer {
+  padding-bottom: 98px;
+}
+body.qclub-v2-live .foodCategoryDock {
+  position: sticky;
+  top: 66px;
+  z-index: 80;
+  margin: 10px 0 16px;
+  padding: 14px;
+  border: 1px solid var(--qv2-border);
+  border-radius: 15px;
+  background: rgba(9,23,17,.94);
+  box-shadow: 0 12px 28px rgba(0,0,0,.28);
+  backdrop-filter: blur(14px);
+}
+body.qclub-v2-live .foodCategoryTop {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+body.qclub-v2-live .foodSectionKicker {
+  color: var(--qv2-brass);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-size: .68rem;
+  font-weight: 850;
+}
+body.qclub-v2-live .foodSectionTitle {
+  color: var(--qv2-ivory);
+  font: 800 1.35rem/1.1 Georgia,"Times New Roman",serif;
+}
+body.qclub-v2-live .foodSwipeHint {
+  color: var(--qv2-muted) !important;
+  font-size: .72rem;
+}
+body.qclub-v2-live .foodCategoryRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: none;
+}
+body.qclub-v2-live .foodCategoryRow::-webkit-scrollbar { display:none; }
+body.qclub-v2-live .foodCatChip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  border: 1px solid #4f6554 !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,.025) !important;
+  color: var(--qv2-ivory) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px !important;
+}
+body.qclub-v2-live .foodCatChip.active {
+  background: var(--qv2-brass) !important;
+  border-color: var(--qv2-brass) !important;
+  color: #142218 !important;
+}
+body.qclub-v2-live .foodCatThumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #173024;
+}
+body.qclub-v2-live .foodCatThumb img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+body.qclub-v2-live .foodMenuGrid {
+  display:grid !important;
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  gap:12px !important;
+}
+body.qclub-v2-live .foodItemCard {
+  padding:0 !important;
+  overflow:hidden;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+body.qclub-v2-live .foodCardImageBtn {
+  padding:0 !important;
+  border:0 !important;
+  background:#102219 !important;
+  width:100%;
+  display:block;
+  cursor:pointer;
+}
+body.qclub-v2-live .foodItemImageWrap {
+  position:relative;
+  width:100%;
+  aspect-ratio:1.45;
+  overflow:hidden;
+  background:linear-gradient(135deg,#214530,#12271d);
+}
+body.qclub-v2-live .foodItemImageWrap img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+body.qclub-v2-live .foodImageOverlay {
+  position:absolute;
+  inset:auto 8px 8px auto;
+  padding:5px 8px;
+  border-radius:999px;
+  background:rgba(9,23,17,.78);
+  color:var(--qv2-brass-soft);
+  font-size:.68rem;
+  border:1px solid rgba(219,186,113,.38);
+}
+body.qclub-v2-live .foodItemBody {
+  padding:12px;
+  display:grid;
+  gap:8px;
+}
+body.qclub-v2-live .foodItemTopline {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+body.qclub-v2-live .foodItemEyebrow {
+  color:var(--qv2-brass);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:.64rem;
+  font-weight:800;
+}
+body.qclub-v2-live .foodItemPrice {
+  color:var(--qv2-brass-soft) !important;
+  font-weight:900;
+}
+body.qclub-v2-live .foodItemTitle {
+  color:var(--qv2-ivory) !important;
+  font:800 1rem/1.15 Georgia,"Times New Roman",serif;
+}
+body.qclub-v2-live .foodItemDesc {
+  font-size:.78rem;
+  line-height:1.35;
+}
+body.qclub-v2-live .foodQuickActions {
+  display:flex;
+  gap:7px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+body.qclub-v2-live .foodQtyPill {
+  min-width:34px;
+  min-height:34px;
+  display:inline-grid;
+  place-items:center;
+  border:1px solid var(--qv2-border);
+  border-radius:999px;
+  color:var(--qv2-ivory);
+  font-weight:850;
+}
+body.qclub-v2-live .foodAddBtn {
+  flex:1;
+  min-width:96px;
+}
+body.qclub-v2-live .foodCartCard {
+  border-color:rgba(219,186,113,.48) !important;
+}
+body.qclub-v2-live .foodFloatingCart {
+  position:fixed !important;
+  left:12px;
+  right:12px;
+  bottom:max(12px,env(safe-area-inset-bottom));
+  z-index:860;
+  max-width:720px;
+  margin:0 auto;
+  border:1px solid rgba(219,186,113,.58) !important;
+  border-radius:15px !important;
+  background:rgba(12,30,22,.96) !important;
+  box-shadow:0 18px 52px rgba(0,0,0,.46);
+  backdrop-filter:blur(16px);
+}
+body.qclub-v2-live .foodFloatingCartCount {
+  color:var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .foodFloatingCartTotal {
+  color:var(--qv2-ivory) !important;
+  font-weight:900;
+}
+
+/* Public members */
+body.qclub-v2-live .v2-members-page {
+  padding-top:22px;
+  padding-bottom:36px;
+}
+body.qclub-v2-live .v2-members-page > h1 {
+  font:800 clamp(2rem,7vw,3.5rem)/1.05 Georgia,"Times New Roman",serif;
+  margin:8px 0 12px !important;
+}
+body.qclub-v2-live .v2-member-card {
+  overflow:hidden;
+  border-color:rgba(219,186,113,.28) !important;
+  position:relative;
+}
+body.qclub-v2-live .v2-member-card::before {
+  content:"";
+  position:absolute;
+  inset:0 0 auto 0;
+  height:2px;
+  background:linear-gradient(90deg,transparent,var(--qv2-brass),transparent);
+  opacity:.7;
+}
+body.qclub-v2-live .v2-member-card h3 {
+  font-size:1.25rem;
+}
+
+/* Live matches */
+body.qclub-v2-live .card[style*="255,80,80"] {
+  border-color:rgba(210,83,74,.62) !important;
+  background:
+    radial-gradient(360px 130px at 100% 0,rgba(210,83,74,.10),transparent 70%),
+    linear-gradient(160deg,rgba(20,38,30,.98),rgba(13,29,22,.98)) !important;
+}
+body.qclub-v2-live .dot.red {
+  background:#dd655c !important;
+  box-shadow:0 0 0 4px rgba(221,101,92,.12);
+}
+body.qclub-v2-live .dot.warn {
+  background:#e2bd62 !important;
+}
+body.qclub-v2-live .pageHeadRight .btn {
+  min-width:68px;
+}
+
+/* Game showcase cards */
+body.qclub-v2-live .v2-game-card {
+  width:min(720px,calc(100% - 24px));
+  margin:22px auto 40px;
+  padding:0 !important;
+  overflow:hidden;
+  border-color:rgba(219,186,113,.34) !important;
+}
+body.qclub-v2-live .v2-game-card > img {
+  width:100% !important;
+  margin:0 !important;
+  border-radius:0 !important;
+  aspect-ratio:16/9;
+  object-fit:cover;
+  background:#102219;
+}
+body.qclub-v2-live .v2-game-card > h2,
+body.qclub-v2-live .v2-game-card > div,
+body.qclub-v2-live .v2-game-card > button {
+  margin-left:18px;
+  margin-right:18px;
+}
+body.qclub-v2-live .v2-game-card > button:first-child {
+  margin-top:16px;
+}
+body.qclub-v2-live .v2-game-card > h2 {
+  margin-top:18px;
+  font-size:clamp(1.8rem,7vw,2.8rem);
+}
+body.qclub-v2-live .v2-game-card > button:last-child {
+  width:calc(100% - 36px) !important;
+  margin-bottom:18px;
+}
+
+/* Static/legal/info pages */
+body.qclub-v2-live .legalWrap {
+  padding-bottom:40px;
+}
+body.qclub-v2-live .legalCard {
+  padding:clamp(18px,4vw,34px) !important;
+  line-height:1.65;
+}
+body.qclub-v2-live .legalCard h2,
+body.qclub-v2-live .legalCard h3 {
+  margin-top:1.5em;
+  color:var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .legalCard h2:first-child,
+body.qclub-v2-live .legalCard h3:first-child {
+  margin-top:0;
+}
+body.qclub-v2-live .legalCard li::marker {
+  color:var(--qv2-brass);
+}
+
+/* Public offer/live/admin controls stay usable on phones */
+@media (max-width:640px) {
+  body.qclub-v2-live .foodCategoryDock {
+    top:64px;
+    margin-left:-1px;
+    margin-right:-1px;
+    padding:11px;
+  }
+  body.qclub-v2-live .foodCategoryTop {
+    align-items:flex-start;
+  }
+  body.qclub-v2-live .foodMenuGrid {
+    gap:10px !important;
+  }
+  body.qclub-v2-live .pageHeadRight {
+    overflow-x:auto;
+    flex-wrap:nowrap;
+    padding-bottom:2px;
+    scrollbar-width:none;
+  }
+  body.qclub-v2-live .pageHeadRight::-webkit-scrollbar { display:none; }
+  body.qclub-v2-live .pageHeadRight .btn {
+    flex:0 0 auto;
+  }
+}
+
+@media (min-width:720px) {
+  body.qclub-v2-live .foodMenuGrid {
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+  }
+}
+@media (min-width:1040px) {
+  body.qclub-v2-live .foodMenuGrid {
+    grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+  }
+  body.qclub-v2-live .foodFloatingCart {
+    left:auto;
+    right:24px;
+    width:min(520px,calc(100vw - 48px)) !important;
+  }
+}
+@media (max-width:390px) {
+  body.qclub-v2-live .foodMenuGrid {
+    grid-template-columns:1fr !important;
+  }
+}
