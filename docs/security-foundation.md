@@ -278,3 +278,16 @@ MSG91 payload parameters are reconstructed on the server from the trusted paid p
 Membership notification data is enriched only after the membership lifecycle trigger has calculated the server-side validity date, so the WhatsApp effect receives the authoritative `validUntil`. Food print effects contain the frozen paid order lines and total rather than re-reading mutable catalogue prices.
 
 No scheduler, live MSG91 send, physical PrintBridge claim, production API replacement, production database migration or production environment change is enabled by Package 16.
+
+
+## Package 17 — effect queue recovery and health
+
+The durable post-payment outbox now has an explicit operational recovery path for effects that exhaust the automatic retry budget. This does not retry, reverse or modify the underlying payment. A service-only queue summary reports aggregate counts for pending, processing, sent, failed and stale-processing jobs plus the oldest pending/failed timestamps; it never returns customer payloads, phone numbers, order contents or template parameters.
+
+A failed effect can be explicitly requeued by its UUID through the already secret-protected rehearsal effect-worker endpoint. Only jobs in the terminal `failed` effect state can be retried. Pending, processing and sent jobs return a conflict instead of being reset. Requeueing clears the worker claim and previous delivery error and resets the effect attempt counter, but leaves the fulfilled payment intent, gateway payment identity, operational record, inventory/booking/tournament/membership state and outbox payload unchanged.
+
+The recovery RPCs are executable only by `service_role`; `anon` and `authenticated` are denied. The command surface remains behind `QCLUB_REHEARSAL_EFFECT_SECRET` and the deployment-level rehearsal gate. No new Vercel function is added.
+
+Postgres validation drives a print effect through all ten failed delivery attempts into the dead-letter state, verifies the aggregate health counters, explicitly requeues it, confirms the paid order and operational record are byte-for-byte unaffected, and successfully claims the recovered job again. Additional command-layer tests confirm that summary output is aggregate-only and malformed retry commands or sent/active jobs fail closed.
+
+No effect worker is scheduled, no live MSG91 send is enabled, no PrintBridge is connected, and no production database/API/environment change is part of Package 17.
