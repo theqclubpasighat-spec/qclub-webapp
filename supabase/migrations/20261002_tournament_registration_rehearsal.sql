@@ -35,7 +35,7 @@ create function qclub_private.sync_tournament_registration_lifecycle()
 returns trigger language plpgsql security invoker set search_path=pg_catalog as $$
 declare
   reservation qclub_private.tournament_registration_reservations%rowtype;
-  state jsonb;
+  v_state jsonb;
   tournaments jsonb;
   tournament jsonb;
   index_no integer;
@@ -48,11 +48,11 @@ begin
   if not found then return new; end if;
 
   if new.status='fulfilled' and old.status is distinct from 'fulfilled' then
-    select q.state into state from public.qclub_state q where q.key='main' for update;
-    if state is null or jsonb_typeof(state->'tournaments')<>'array' then
+    select q.state into v_state from public.qclub_state q where q.key='main' for update;
+    if v_state is null or jsonb_typeof(state->'tournaments')<>'array' then
       raise exception 'TOURNAMENT_STATE_UNAVAILABLE';
     end if;
-    tournaments:=state->'tournaments';
+    tournaments:=v_state->'tournaments';
     select (ordinality-1)::integer,value into index_no,tournament
     from jsonb_array_elements(tournaments) with ordinality
     where value->>'id'=reservation.tournament_id
@@ -68,8 +68,8 @@ begin
       participants:=participants||jsonb_build_array(reservation.player_id);
       tournament:=jsonb_set(tournament,'{participantIds}',participants,true);
       tournaments:=jsonb_set(tournaments,array[index_no::text],tournament,true);
-      state:=jsonb_set(state,'{tournaments}',tournaments,true);
-      update public.qclub_state set state=state,updated_at=clock_timestamp() where key='main';
+      v_state:=jsonb_set(v_state,'{tournaments}',tournaments,true);
+      update public.qclub_state q set state=v_state,updated_at=clock_timestamp() where q.key='main';
     end if;
 
     update qclub_private.tournament_registration_reservations
