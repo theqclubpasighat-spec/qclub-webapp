@@ -30,7 +30,7 @@ function Checkout(){
     const result=await client.resumeReturn(returnOrderId);
     setOrder(result);
     history.replaceState({},'',window.location.pathname);
-    setNotice(result.state==='fulfilled'?'Payment confirmed by the server. Do not pay again.':'Returned from Cashfree. Payment is not confirmed yet; check status before retrying.');
+    setNotice(result.state==='fulfilled'?'Payment confirmed by the server. Do not pay again.':result.state==='expired'?'This Cashfree order is closed and reserved stock has been released. Refresh the cart before trying again.':'Returned from Cashfree. Payment is not confirmed yet; check status before retrying.');
    });
    return;
   }
@@ -50,6 +50,14 @@ function Checkout(){
   setName(saved.body.customer.name);setPhone(saved.body.customer.phone);setOrder(null);setAttempt(null);
   setNotice('The unused checkout is closed. Review your details and available items before creating a new order. Unavailable items have been removed.');
  });}
+ async function retryExpired(){await run(async()=>{
+  const data=await client.menu();if(!Array.isArray(data.items))throw Error();
+  const saved=await client.retryExpired();
+  setLastReference(`qcr_${saved.body.checkoutId}`);setMenu(data.items);setItem(data.items[0]?.id||'');
+  setCart(saved.body.items.flatMap(line=>{const row=data.items.find(x=>x.id===line.itemId);if(!row)return[];const allowed=row.trackInventory?Math.min(line.quantity,Math.floor(row.available||0)):line.quantity;return allowed>0?[{...row,quantity:allowed}]:[];}));
+  setName(saved.body.customer.name);setPhone(saved.body.customer.phone);setAttempt(null);setOrder(null);
+  setNotice('The expired order is closed. Stock has been rechecked; review the cart before creating a new order.');
+ });}
  async function newOrder(){await run(async()=>{
   const completed=await client.newOrder();
   setLastReference(completed.orderId);setAttempt(null);setOrder(null);setCart([]);setMenu([]);setItem('');setName('');setPhone('');
@@ -61,22 +69,22 @@ function Checkout(){
   try { await cf.checkout({paymentSessionId:order.paymentSessionId,redirectTarget:'_modal'}); }
   finally { setOrder(await client.verify()); }
  });}
- function add(){const selected=menu.find(x=>x.id===item);if(!selected)return;setCart(rows=>{const old=rows.find(x=>x.id===item);return old?rows.map(x=>x.id===item?{...x,quantity:Math.min(20,x.quantity+qty)}:x):[...rows,{...selected,quantity:qty}];});}
+ function add(){const selected=menu.find(x=>x.id===item);if(!selected)return;const limit=selected.trackInventory?Math.max(0,Math.min(20,Math.floor(selected.available||0))):20;if(limit<1)return;setCart(rows=>{const old=rows.find(x=>x.id===item);return old?rows.map(x=>x.id===item?{...x,quantity:Math.min(limit,x.quantity+qty)}:x):[...rows,{...selected,quantity:Math.min(limit,qty)}];});}
  const total=cart.reduce((n,x)=>n+x.price*x.quantity,0);
  return <main className="checkout-shell"><div className="test-banner">SANDBOX PREVIEW · No live orders</div><header><span>Q CLUB</span><small>Q Lounge</small></header>
  <h1>{attempt?'Your order':'A break between frames.'}</h1><p className="muted">{attempt?'Keep this tab open until your payment is confirmed.':'Food checkout rehearsal. Use test details only.'}</p>
  {notice&&<div className="message" role="status">{notice}</div>}
  {!attempt&&lastReference&&<p className="reference">Previous order reference: {lastReference}</p>}
- {initialError?null:attempt?<section className="panel"><h2>{order?.state==='fulfilled'?'Payment confirmed':order?.state==='pending'?'Payment not confirmed yet':'Check your order'}</h2>
+ {initialError?null:attempt?<section className="panel"><h2>{order?.state==='fulfilled'?'Payment confirmed':order?.state==='expired'?'Order expired':order?.state==='pending'?'Payment not confirmed yet':'Check your order'}</h2>
  <p className="reference">Reference: qcr_{attempt.body.checkoutId}</p>
- {order?.state==='fulfilled'?<><p>Your test order is recorded. Do not pay again for this order.</p><button disabled={busy} onClick={newOrder}>Start a new order</button></>:<>
+ {order?.state==='fulfilled'?<><p>Your test order is recorded. Do not pay again for this order.</p><button disabled={busy} onClick={newOrder}>Start a new order</button></>:order?.state==='expired'?<><p>Cashfree has closed this order. Any reserved stock has been released.</p><button className="primary" disabled={busy} onClick={retryExpired}>Refresh cart and try again</button></>:<>
  {order?.state==='ready'&&<><p className="amount">₹{(order.amountPaise/100).toFixed(2)}</p><button className="primary" disabled={busy} onClick={pay}>Pay in sandbox</button></>}
  <button disabled={busy} onClick={check}>Check payment status</button><button disabled={busy} onClick={start}>Resume this order</button>
  <button disabled={busy} onClick={editCart}>Fix a rejected cart</button>
  <p className="muted">If money was debited, check the status before attempting payment again. Refreshing this tab keeps the same order.</p></>}
  </section>:<form onSubmit={start}>
  <section className="panel"><h2>Choose your food</h2>{menu.length===0?<><p>No eligible items are available in this rehearsal.</p><button type="button" disabled={busy} onClick={loadMenu}>Reload menu</button></>:<>
- <label htmlFor="food">Item</label><select id="food" value={item} onChange={e=>setItem(e.target.value)}>{menu.map(x=><option key={x.id} value={x.id}>{x.name} · ₹{x.price}</option>)}</select>
+ <label htmlFor="food">Item</label><select id="food" value={item} onChange={e=>setItem(e.target.value)}>{menu.map(x=><option key={x.id} value={x.id}>{x.name} · ₹{x.price}{x.trackInventory?` · ${Math.floor(x.available)} available`:''}</option>)}</select>
  <div className="add-row"><div><label htmlFor="quantity">Quantity</label><input id="quantity" type="number" min="1" max="20" value={qty} onChange={e=>setQty(Math.max(1,Math.min(20,Math.trunc(Number(e.target.value))||1)))}/></div><button type="button" disabled={busy} onClick={add}>Add to order</button></div></>}
  {cart.map(x=><div className="cart-row" key={x.id}><span>{x.quantity} × {x.name}</span><button type="button" aria-label={`Remove ${x.name}`} onClick={()=>setCart(rows=>rows.filter(y=>y.id!==x.id))}>Remove</button></div>)}
  <p className="estimate">Estimated total <strong>₹{total.toFixed(2)}</strong></p><small>The server confirms the final amount before payment.</small></section>
