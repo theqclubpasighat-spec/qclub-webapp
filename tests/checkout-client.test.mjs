@@ -92,3 +92,15 @@ test('failed local removal after server closure can retry the same correction sa
  await assert.rejects(client.editCart(),e=>e.code==='RECOVERY_UNAVAILABLE');assert.deepEqual(client.current(),original);
  disk.removeItem=remove;assert.deepEqual(await client.editCart(),original);assert.equal(client.current(),null);
 });
+
+test('Cashfree return reconciles only the exact saved order',async()=>{
+ const disk=storage(),requests=[];
+ const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(path,options)=>{
+  const body=JSON.parse(options.body);requests.push({path,body});return {ok:true,json:async()=>({state:'fulfilled',orderId:body.orderId})};
+ }});
+ const saved=client.prepare(items,customer),orderId=`qcr_${saved.body.checkoutId}`;
+ assert.equal((await client.resumeReturn(orderId)).state,'fulfilled');
+ assert.equal(requests[0].path,'/api/qclub-payment-rehearsal');
+ await assert.rejects(client.resumeReturn('qcr_00000000-0000-4000-8000-000000000000'),e=>e.code==='RETURN_ORDER_MISMATCH');
+ assert.deepEqual(client.current(),saved);
+});
