@@ -23,7 +23,7 @@ const server=await createServer({server:{host:'127.0.0.1',port:5184,strictPort:t
   return html.replace(external,`<script>window.__qclubErrors=[];addEventListener('error',e=>window.__qclubErrors.push(e.message));addEventListener('unhandledrejection',e=>window.__qclubErrors.push(String(e.reason)));</script>`);
  },
  configureServer(vite){vite.middlewares.use(async(req,res,next)=>{
-  if(req.url?.split('?')[0]!=='/api/qclub-security')return next();
+  if(req.url?.split('?')[0]!=='/api/qclub-checkout-rehearsal'||!req.url?.includes('scope=security'))return next();
   try{
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>150000){res.statusCode=413;res.end();return;}}
    req.body=raw?JSON.parse(raw):undefined;req.query=Object.fromEntries(new URL(req.url,'http://127.0.0.1').searchParams);
