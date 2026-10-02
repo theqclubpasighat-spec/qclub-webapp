@@ -46,6 +46,8 @@ export function changesBetween(before, after) {
     if (value !== (before?.[section.id]?.[key] ?? '')) (changes[section.id] ||= {})[key] = value;
   }
   if (JSON.stringify(before?.announcements || []) !== JSON.stringify(after?.announcements || [])) changes.notices = after?.announcements || [];
+  if (JSON.stringify(before?.memberships || []) !== JSON.stringify(after?.memberships || [])) changes.memberships = after?.memberships || [];
+  if (JSON.stringify(before?.bookingTables || []) !== JSON.stringify(after?.bookingTables || [])) changes.bookingTables = after?.bookingTables || [];
   return changes;
 }
 export function messageFor(error) {
