@@ -73,7 +73,7 @@ async function fixture(){
       : values.map((_,i)=>'$'+(i+1));
     const result=await pg.query(`select public.${name}(${params.join(',')}) as result`,values);
     return {data:result.rows[0].result};
-  }catch(error){return {error};}}};
+  }catch(error){if(name==='qclub_shop_checkout')console.error('QSHOP_SQL_DIAG',error);return {error};}}};
   return {...base,db};
 }
 
