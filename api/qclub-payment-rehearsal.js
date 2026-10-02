@@ -4,6 +4,7 @@ import { fulfillPayment, sandboxGateway } from '../src/server/payments/fulfillme
 import { processCashfreeWebhook } from '../src/server/payments/webhook.js';
 import { reconcileStalePayments } from '../src/server/payments/reconcile.js';
 import { timingSafeEqual } from 'node:crypto';
+import { authorizeEffectWorker,effectWorkerCommand,dispatchWhatsappEffect } from '../src/server/payments/effects.js';
 
 export const config={api:{bodyParser:false}};
 
@@ -58,11 +59,20 @@ export default async function handler(req,res) {
       if(raw && raw!=='{}')throw new SecurityError(400,'INVALID_RECONCILE_COMMAND');
       return res.status(200).json(await reconcileStalePayments(db,sandboxGateway(process.env),{limit:10}));
     }
+    if(action==='effects'){
+      if(!authorizeEffectWorker(req,process.env))throw new SecurityError(401,'EFFECT_AUTH_REQUIRED');
+      return res.status(200).json(await effectWorkerCommand(db,parseJson(raw)));
+    }
+    if(action==='effects-whatsapp'){
+      if(!authorizeEffectWorker(req,process.env))throw new SecurityError(401,'EFFECT_AUTH_REQUIRED');
+      if(raw && raw!=='{}')throw new SecurityError(400,'INVALID_EFFECT_COMMAND');
+      return res.status(200).json(await dispatchWhatsappEffect(db,process.env));
+    }
     if(action)throw new SecurityError(404,'ACTION_NOT_FOUND');
     if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
     return res.status(200).json(await fulfillPayment(db,sandboxGateway(process.env),parseJson(raw)));
   }catch(error){
-    const fallback=action==='webhook'?'WEBHOOK_UNAVAILABLE':action==='reconcile'?'RECONCILE_UNAVAILABLE':'PAYMENT_UNAVAILABLE';
+    const fallback=action==='webhook'?'WEBHOOK_UNAVAILABLE':action==='reconcile'?'RECONCILE_UNAVAILABLE':action==='effects'||action==='effects-whatsapp'?'EFFECT_WORKER_UNAVAILABLE':'PAYMENT_UNAVAILABLE';
     return res.status(error instanceof SecurityError?error.status:503).json({ok:false,error:error instanceof SecurityError?error.code:fallback});
   }
 }
