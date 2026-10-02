@@ -237,9 +237,9 @@ During validation, CI exposed an ambiguous PL/pgSQL variable in the private stoc
 
 ## Package 14 — tournament registration rehearsal
 
-Tournament registration now has a dedicated rehearsal-only, server-priced checkout path under `?action=tournament` and the `qct_` payment namespace. The browser may send only the checkout identity, receipt capability, tournament ID, existing player ID and customer name/mobile. Registration fee, tournament name/game, current/open state and roster membership are taken from the server-side `qclub_state`.
+Tournament registration now has a dedicated rehearsal-only, server-priced checkout path under `?action=tournament` and the `qct_` payment namespace. The browser may send only the checkout identity, receipt capability, tournament ID and customer name/mobile. Registration fee, tournament name/game, current/open state and roster membership are taken from the server-side `qclub_state`.
 
-Online tournament registration is deliberately limited to an existing player whose stored mobile normalizes to the submitted 10-digit mobile. This preserves the production tournament model, where `participantIds` reference existing player IDs, and avoids silently creating incomplete player profiles. A current tournament with no positive server-side registration fee is not purchasable.
+Online tournament registration is deliberately limited to exactly one existing player whose stored mobile normalizes to the submitted 10-digit mobile; the player ID is resolved server-side and is never accepted from the browser. This preserves the production tournament model, where `participantIds` reference existing player IDs, and avoids silently creating incomplete player profiles. A current tournament with no positive server-side registration fee is not purchasable.
 
 A private tournament-registration reservation prevents simultaneous duplicate payment attempts for the same tournament/player. Existing roster membership is rejected before Cashfree. Successful authoritative Cashfree fulfilment marks the reservation fulfilled and appends the verified player ID to the tournament's `participantIds` exactly once. Server-verified terminal Cashfree state releases the reservation without touching the roster, allowing a fresh checkout identity later. The qct namespace is included in bounded stale-payment reconciliation.
 
