@@ -67,9 +67,9 @@ async function fixture(){
   };
   const db={async rpc(name,args){try{
     const values=specs[name].map(k=>k==='p_items'?JSON.stringify(args[k]):args[k]);
-    const result=await pg.query(`select public.${name}(${values.map((_,i)=>`$${i+1}`).join(',')}) as result`,values);
+    const result=await pg.query(`select public.${name}(${values.map((_,i)=>`${i+1}`).join(',')}) as result`,values);
     return {data:result.rows[0].result};
-  }catch(error){return {error};}}};
+  }catch(error){if(name==='qclub_shop_checkout')console.error('QSHOP_FIXTURE_SQL_ERROR',error);return {error};}}};
   return {...base,db};
 }
 
