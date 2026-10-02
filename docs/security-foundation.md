@@ -233,3 +233,18 @@ A private `shop_stock_reservations` table records reserved quantities. Stock is 
 The QShop operational payload is created through the existing atomic payment fulfilment path as a `qshop_receipt`, preserving item identity, quantities, selected option labels, server prices, total, customer identity and pickup status. No production QShop state, receipt, stock or payment handler is changed by this package.
 
 During validation, CI exposed an ambiguous PL/pgSQL variable in the private stock helper (`state` versus the `qclub_state.state` column). The helper variable is now named `v_state`; no permission or immutability rule was weakened. Validation on commit `7bd3260f287be8d68a9ecfa1440b587a7056fafe` passes all 76 application/database tests and all production/preview/production build-isolation checks. The associated Vercel preview is READY. Standard synthetic mobile checkout/CMS verification is run by the same PR workflow; no real Cashfree transaction, production migration, live QShop stock change, MSG91 send or Android change is part of this package.
+
+
+## Package 14 — tournament registration rehearsal
+
+Tournament registration now has a dedicated rehearsal-only, server-priced checkout path under `?action=tournament` and the `qct_` payment namespace. The browser may send only the checkout identity, receipt capability, tournament ID, existing player ID and customer name/mobile. Registration fee, tournament name/game, current/open state and roster membership are taken from the server-side `qclub_state`.
+
+Online tournament registration is deliberately limited to an existing player whose stored mobile normalizes to the submitted 10-digit mobile. This preserves the production tournament model, where `participantIds` reference existing player IDs, and avoids silently creating incomplete player profiles. A current tournament with no positive server-side registration fee is not purchasable.
+
+A private tournament-registration reservation prevents simultaneous duplicate payment attempts for the same tournament/player. Existing roster membership is rejected before Cashfree. Successful authoritative Cashfree fulfilment marks the reservation fulfilled and appends the verified player ID to the tournament's `participantIds` exactly once. Server-verified terminal Cashfree state releases the reservation without touching the roster, allowing a fresh checkout identity later. The qct namespace is included in bounded stale-payment reconciliation.
+
+The paid audit record is written through the existing atomic payment fulfilment path as `tournament_registration`; no browser-provided paid flag, fee, tournament name or roster mutation is accepted. Anon/authenticated roles have no access to the reservation table or checkout RPC.
+
+Membership checkout is intentionally not implemented in this package. Current production membership catalogue prices are server data, but the production membership objects contain no validity-duration field from which a trustworthy `validUntil` can be derived. Older project pricing also differs from the current catalogue. A membership purchase must not activate with an invented expiry or stale amount; commercial terms need explicit reconciliation first.
+
+No production database migration, production tournament registration, live Cashfree transaction, membership activation, MSG91 send or Android change is part of Package 14.
