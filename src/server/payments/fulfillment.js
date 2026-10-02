@@ -25,9 +25,13 @@ async function verifiedEvidence(gateway,orderId,intent) {
   const success=payments.find(p=>p?.payment_status==='SUCCESS'&&p?.order_id===orderId);
   if(success){
     if(!sameAmount(success,scoped)||!/^[A-Za-z0-9_-]{1,100}$/.test(String(success.cf_payment_id||'')))fail(422,'PAYMENT_MISMATCH');
+    // Cashfree defines PAID as the order state with a successful transaction.
+    // A contradictory ACTIVE/EXPIRED + SUCCESS snapshot is treated as unsettled;
+    // hold stock and recheck rather than fulfilling or releasing on inconsistent evidence.
+    if(String(evidence.order_status||'').toUpperCase()!=='PAID')return {evidence,payment:null,terminal:false,pending:true};
     return {evidence,payment:success,terminal:false,pending:false};
   }
-  if(evidence.order_status==='PAID')fail(422,'PAYMENT_MISMATCH');
+  if(String(evidence.order_status||'').toUpperCase()==='PAID')fail(422,'PAYMENT_MISMATCH');
   const pending=payments.some(p=>p?.payment_status==='PENDING'&&p?.order_id===orderId);
   const terminal=!pending&&['EXPIRED','TERMINATED'].includes(String(evidence.order_status||'').toUpperCase());
   return {evidence,payment:null,terminal,pending:pending||['ACTIVE','TERMINATION_REQUESTED'].includes(String(evidence.order_status||'').toUpperCase())};
