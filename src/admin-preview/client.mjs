@@ -45,6 +45,8 @@ export function changesBetween(before, after) {
     const value = after?.[section.id]?.[key] ?? '';
     if (value !== (before?.[section.id]?.[key] ?? '')) (changes[section.id] ||= {})[key] = value;
   }
+  if (JSON.stringify(before?.memberships || []) !== JSON.stringify(after?.memberships || [])) changes.memberships = after?.memberships || [];
+  if (JSON.stringify(before?.bookingRates || []) !== JSON.stringify(after?.bookingRates || [])) changes.bookingRates = after?.bookingRates || [];
   if (JSON.stringify(before?.announcements || []) !== JSON.stringify(after?.announcements || [])) changes.notices = after?.announcements || [];
   return changes;
 }
