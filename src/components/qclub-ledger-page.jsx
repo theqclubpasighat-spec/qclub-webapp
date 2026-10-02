@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, supabaseReady } from "../supabase";
+import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -183,6 +184,7 @@ const CSS = [
   ".ql-input,.ql-select{width:100%;border:1px solid #294638;background:#08150f;color:#f7fbf8;border-radius:11px;padding:11px 12px;outline:none}.ql-label{display:block;font-size:12px;color:#abc0b3;margin:0 0 5px;font-weight:700}.ql-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ql-form-grid .full{grid-column:1/-1}",
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
   ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;bottom:12px;z-index:70;margin-top:14px;border:1px solid #3b6b50;background:rgba(7,20,13,.96);backdrop-filter:blur(16px);box-shadow:0 18px 46px rgba(0,0,0,.4);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
+  ".ql-autocomplete{position:relative}.ql-autocomplete-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:135;max-height:360px;overflow:auto;border:1px solid #315242;background:#07150f;border-radius:12px;box-shadow:0 18px 42px rgba(0,0,0,.48);padding:5px}.ql-autocomplete-option{width:100%;display:block;border:0;border-radius:9px;background:transparent;color:#f7fbf8;padding:9px 10px;text-align:left;cursor:pointer}.ql-autocomplete-option:hover,.ql-autocomplete-option.active{background:#163526;outline:1px solid #4a8b68}.ql-autocomplete-name{display:block;font-weight:900;font-size:14px}.ql-autocomplete-meta{display:flex;justify-content:space-between;gap:12px;margin-top:3px;color:#9eb2a5;font-size:12px}.ql-autocomplete-price{color:#f0d06f;font-weight:900}.ql-autocomplete-empty{padding:10px;color:#809488;font-size:12px}",
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
@@ -227,8 +229,12 @@ export default function QclubLedgerPage() {
   const [cashfreeQrError, setCashfreeQrError] = useState("");
   const cashfreeQrComponentRef = useRef(null);
   const cashfreeQrStartedRef = useRef("");
+  const fnbSearchInputRef = useRef(null);
+  const fnbAutocompleteRef = useRef(null);
   const [quantities, setQuantities] = useState({});
   const [fnbSearch, setFnbSearch] = useState("");
+  const [fnbAutocompleteOpen, setFnbAutocompleteOpen] = useState(false);
+  const [fnbAutocompleteIndex, setFnbAutocompleteIndex] = useState(-1);
   const [fnbCategory, setFnbCategory] = useState("ALL");
   const [fnbDestination, setFnbDestination] = useState("TABLE");
   const [fnbTabs, setFnbTabs] = useState([]);
@@ -509,6 +515,18 @@ export default function QclubLedgerPage() {
   }, []);
 
   useEffect(function() {
+    function closeAutocompleteOnOutsidePointer(event) {
+      const root = fnbAutocompleteRef.current;
+      if (root && !root.contains(event.target)) {
+        setFnbAutocompleteOpen(false);
+        setFnbAutocompleteIndex(-1);
+      }
+    }
+    document.addEventListener("pointerdown", closeAutocompleteOnOutsidePointer);
+    return function() { document.removeEventListener("pointerdown", closeAutocompleteOnOutsidePointer); };
+  }, []);
+
+  useEffect(function() {
     if (token) refreshAll();
   }, [token, refreshAll]);
 
@@ -736,6 +754,12 @@ export default function QclubLedgerPage() {
       return [item.name, category].filter(Boolean).join(" ").toLowerCase().includes(query);
     });
   }, [sellableCatalogue, fnbCategory, fnbSearch]);
+
+  const fnbAutocompleteResults = useMemo(function() {
+    return rankFnbAutocomplete(sellableCatalogue, fnbSearch, 10);
+  }, [sellableCatalogue, fnbSearch]);
+
+  const showFnbAutocomplete = Boolean(fnbAutocompleteOpen && fnbSearch.trim() && fnbAutocompleteResults.length);
 
   const selectedFnbCount = Object.values(quantities).reduce(function(sum, q) { return sum + Number(q || 0); }, 0);
   const selectedFnbTotal = sellableCatalogue.reduce(function(sum, item) {
@@ -1431,6 +1455,37 @@ export default function QclubLedgerPage() {
       flash(error.message || "Unable to cancel tab.", true);
     } finally {
       setBusy(false);
+    }
+  }
+
+  function selectFnbAutocompleteItem(item) {
+    if (!item) return;
+    setQuantities(function(current) { return incrementItemQuantity(current, item.id); });
+    setFnbSearch("");
+    setFnbAutocompleteOpen(false);
+    setFnbAutocompleteIndex(-1);
+    window.requestAnimationFrame(function() {
+      if (fnbSearchInputRef.current) fnbSearchInputRef.current.focus();
+    });
+  }
+
+  function handleFnbSearchKeyDown(event) {
+    const action = autocompleteKeyAction(event.key, fnbAutocompleteIndex, fnbAutocompleteResults.length);
+    if (!action) return;
+
+    event.preventDefault();
+    if (action.type === "CLOSE") {
+      setFnbAutocompleteOpen(false);
+      setFnbAutocompleteIndex(-1);
+      return;
+    }
+    if (action.type === "MOVE") {
+      setFnbAutocompleteOpen(true);
+      setFnbAutocompleteIndex(action.index);
+      return;
+    }
+    if (action.type === "SELECT") {
+      selectFnbAutocompleteItem(fnbAutocompleteResults[action.index]);
     }
   }
 
@@ -2537,9 +2592,56 @@ export default function QclubLedgerPage() {
             ) : null}
             <div className="ql-section">Live catalogue</div>
             <div className="ql-fnb-tools">
-              <div>
-                <label className="ql-label">Search food / drinks</label>
-                <input className="ql-input" value={fnbSearch} onChange={function(e) { setFnbSearch(e.target.value); }} placeholder="Type item name..." />
+              <div className="ql-autocomplete" ref={fnbAutocompleteRef}>
+                <label className="ql-label" htmlFor="qclub-fnb-search">Search food / drinks</label>
+                <input
+                  id="qclub-fnb-search"
+                  ref={fnbSearchInputRef}
+                  className="ql-input"
+                  value={fnbSearch}
+                  onChange={function(e) {
+                    const value = e.target.value;
+                    setFnbSearch(value);
+                    setFnbAutocompleteOpen(Boolean(value.trim()));
+                    setFnbAutocompleteIndex(value.trim() ? 0 : -1);
+                  }}
+                  onFocus={function() {
+                    if (fnbSearch.trim() && fnbAutocompleteResults.length) setFnbAutocompleteOpen(true);
+                  }}
+                  onKeyDown={handleFnbSearchKeyDown}
+                  placeholder="Type item name..."
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showFnbAutocomplete}
+                  aria-controls="qclub-fnb-autocomplete"
+                  aria-activedescendant={showFnbAutocomplete && fnbAutocompleteIndex >= 0 ? "qclub-fnb-option-" + fnbAutocompleteIndex : undefined}
+                />
+                {showFnbAutocomplete ? (
+                  <div id="qclub-fnb-autocomplete" className="ql-autocomplete-menu" role="listbox">
+                    {fnbAutocompleteResults.map(function(item, index) {
+                      const active = index === fnbAutocompleteIndex;
+                      return (
+                        <button
+                          id={"qclub-fnb-option-" + index}
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          className={"ql-autocomplete-option " + (active ? "active" : "")}
+                          key={item.id}
+                          onMouseDown={function(e) { e.preventDefault(); }}
+                          onClick={function() { selectFnbAutocompleteItem(item); }}
+                        >
+                          <span className="ql-autocomplete-name">{item.name}</span>
+                          <span className="ql-autocomplete-meta">
+                            <span>{item.category || "Other"}</span>
+                            <span className="ql-autocomplete-price">{money(item.selling_price_inr)}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
               <div>
                 <label className="ql-label">Category</label>
