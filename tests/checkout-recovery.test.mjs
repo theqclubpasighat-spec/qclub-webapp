@@ -73,8 +73,8 @@ test('Postgres recovery closes only unused IDs and blocks delayed creation witho
 });
 
 test('recovery HTTP endpoint remains disabled without the rehearsal gate',async()=>{
- const {default:handler}=await import('../api/qclub-checkout-recovery-rehearsal.js');
+ const {default:handler}=await import('../api/qclub-checkout-rehearsal.js');
  const res={setHeader(){},status(code){this.code=code;return this;},json(body){this.body=body;}};
- await handler({method:'POST',body:command()},res);
+ await handler({method:'POST',url:'/api/qclub-checkout-rehearsal?action=recover',query:{action:'recover'},headers:{},body:command()},res);
  assert.equal(res.code,503);assert.equal(res.body.error,'SECURITY_REHEARSAL_DISABLED');
 });
