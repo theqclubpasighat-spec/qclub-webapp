@@ -11,6 +11,7 @@ begin
   return h*60+m;
 end $$;
 revoke all on function qclub_private.booking_time_minutes(text) from public,anon,authenticated;
+grant execute on function qclub_private.booking_time_minutes(text) to service_role;
 
 create table qclub_private.booking_slot_reservations (
   order_id text primary key references qclub_private.payment_intents(order_id) on delete restrict,
