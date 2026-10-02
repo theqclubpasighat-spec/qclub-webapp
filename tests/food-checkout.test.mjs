@@ -12,13 +12,13 @@ test('checkout accepts IDs/quantities only and rejects browser pricing, options 
 });
 test('sandbox creation reuses order/idempotency identity and recovers duplicate-order responses',async()=>{
   const calls=[];const req=checkoutRequest(body());
-  const gateway=sandboxCheckout({QCLUB_REHEARSAL_CASHFREE_ID:'fixture',QCLUB_REHEARSAL_CASHFREE_SECRET:'fixture'},async(url,options)=>{calls.push({url,options});return options.method==='POST'?{ok:false,status:409}:{ok:true,json:async()=>({order_id:req.orderId})};});
+  const gateway=sandboxCheckout({QCLUB_REHEARSAL_CASHFREE_ID:'fixture',QCLUB_REHEARSAL_CASHFREE_SECRET:'fixture',QCLUB_REHEARSAL_PUBLIC_URL:'https://preview.example.test'},async(url,options)=>{calls.push({url,options});return options.method==='POST'?{ok:false,status:409}:{ok:true,json:async()=>({order_id:req.orderId})};});
   await gateway.create({...req,amountPaise:16000});
   assert.equal(calls[0].url,'https://sandbox.cashfree.com/pg/orders');assert.equal(calls[0].options.headers['x-idempotency-key'],body().checkoutId);
-  assert.equal(JSON.parse(calls[0].options.body).order_amount,160);
+  const created=JSON.parse(calls[0].options.body);assert.equal(created.order_amount,160);assert.equal(created.order_meta.return_url,'https://preview.example.test/__checkout-preview?order_id={order_id}');assert.equal(created.order_meta.notify_url,'https://preview.example.test/api/qclub-payment-webhook-rehearsal');
   assert.equal(calls[1].options.method,'GET');assert.ok(calls[1].url.endsWith(req.orderId));
   assert.equal(calls[0].options.redirect,'error');
-  assert.throws(()=>sandboxCheckout({CASHFREE_APP_ID:'production',CASHFREE_SECRET_KEY:'production'}));
+  assert.throws(()=>sandboxCheckout({CASHFREE_APP_ID:'production',CASHFREE_SECRET_KEY:'production'}));assert.throws(()=>sandboxCheckout({QCLUB_REHEARSAL_CASHFREE_ID:'fixture',QCLUB_REHEARSAL_CASHFREE_SECRET:'fixture',QCLUB_REHEARSAL_PUBLIC_URL:'https://www.theqclubpasighat.com'}),e=>e.code==='REHEARSAL_PUBLIC_URL_FORBIDDEN');
 });
 test('real Postgres food checkout freezes server price and joins payment finalization',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
  const fixture=await createFixtureDatabase(),pg=fixture.pg;
