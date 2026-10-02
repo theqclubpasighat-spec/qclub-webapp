@@ -1,5 +1,9 @@
 const MSG91_WHATSAPP_URL =
   "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/";
+const MSG91_WHATSAPP_BULK_URL =
+  "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
+const QLOUNGE_SUCCESS_TEMPLATE = "qlounge_order_success_v2";
+const QLOUNGE_TEMPLATE_NAMESPACE = "81882be1_5490_4998_98fb_29f89d47fdb4";
 
 function env(name = "") {
   return String(process.env[name] || "").trim();
@@ -66,8 +70,7 @@ function readTemplateParams(body) {
 
 const MSG91_TEMPLATE_PARAM_SPECS = {
   food_success: {
-    params: ["customer_name", "food_order_no", "amount"],
-    fromInputIndexes: [0, 1, 3],
+    params: ["customer_name", "food_order_no", "food_items", "amount", "service_note"],
   },
   food_failed: {
     params: ["customer_name", "food_order_no", "amount"],
@@ -169,7 +172,7 @@ function templateAllowlist() {
     membership_failed: env("MSG91_MEMBERSHIP_FAILED_TEMPLATE"),
     tournament_success: env("MSG91_TOURNAMENT_SUCCESS_TEMPLATE"),
     tournament_failed: env("MSG91_TOURNAMENT_FAILED_TEMPLATE"),
-    food_success: env("MSG91_FOOD_SUCCESS_TEMPLATE") || "food_success_items",
+    food_success: QLOUNGE_SUCCESS_TEMPLATE,
     food_failed: env("MSG91_FOOD_FAILED_TEMPLATE"),
     booking_success: env("MSG91_BOOKING_SUCCESS_TEMPLATE"),
     booking_failed: env("MSG91_BOOKING_FAILED_TEMPLATE"),
@@ -242,6 +245,36 @@ function resolveTemplateName(body) {
 }
 
 function buildMsg91RequestBody({ phone, templateName, templateParams }) {
+  if (templateName === QLOUNGE_SUCCESS_TEMPLATE) {
+    return {
+      integrated_number: env("MSG91_SENDER_NUMBER"),
+      content_type: "template",
+      payload: {
+        messaging_product: "whatsapp",
+        type: "template",
+        template: {
+          name: QLOUNGE_SUCCESS_TEMPLATE,
+          language: {
+            code: "en",
+            policy: "deterministic",
+          },
+          namespace: QLOUNGE_TEMPLATE_NAMESPACE,
+          to_and_components: [
+            {
+              to: [phone],
+              components: Object.fromEntries(
+                templateParams.map((value, index) => [
+                  `body_${index + 1}`,
+                  { type: "text", value: cleanText(value) },
+                ])
+              ),
+            },
+          ],
+        },
+      },
+    };
+  }
+
   return {
     integrated_number: env("MSG91_SENDER_NUMBER"),
     content_type: "template",
@@ -354,7 +387,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const upstream = await fetch(MSG91_WHATSAPP_URL, {
+    const upstream = await fetch(templateResolution.templateName === QLOUNGE_SUCCESS_TEMPLATE ? MSG91_WHATSAPP_BULK_URL : MSG91_WHATSAPP_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
