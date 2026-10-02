@@ -56,8 +56,8 @@ test('non-success webhook never triggers gateway verification',async()=>{
 });
 
 test('webhook endpoint remains disabled unless rehearsal mode is explicitly enabled',async()=>{
- const {default:handler}=await import('../api/qclub-payment-webhook-rehearsal.js');
+ const {default:handler}=await import('../api/qclub-payment-rehearsal.js');
  const response={setHeader(){},status(code){this.code=code;return this;},json(value){this.body=value;}};
- await handler({method:'POST',headers:{},async *[Symbol.asyncIterator](){}},response);
+ await handler({method:'POST',url:'/api/qclub-payment-rehearsal?action=webhook',query:{action:'webhook'},headers:{},async *[Symbol.asyncIterator](){}},response);
  assert.equal(response.code,503);assert.equal(response.body.error,'SECURITY_REHEARSAL_DISABLED');
 });
