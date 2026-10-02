@@ -49,7 +49,7 @@ begin
 
   if new.status='fulfilled' and old.status is distinct from 'fulfilled' then
     select q.state into v_state from public.qclub_state q where q.key='main' for update;
-    if v_state is null or jsonb_typeof(state->'tournaments')<>'array' then
+    if v_state is null or jsonb_typeof(v_state->'tournaments')<>'array' then
       raise exception 'TOURNAMENT_STATE_UNAVAILABLE';
     end if;
     tournaments:=v_state->'tournaments';
