@@ -67,9 +67,105 @@ async function fixture(){
   };
   const db={async rpc(name,args){try{
     const values=specs[name].map(k=>k==='p_items'?JSON.stringify(args[k]):args[k]);
-    const result=await pg.query(`select public.${name}(${values.map((_,i)=>`${i+1}`).join(',')}) as result`,values);
+    const params=name==='qclub_shop_checkout'
+      ? ['$1::text','$2::text','$3::text','$4::jsonb','$5::text','$6::text']
+      : values.map((_,i)=>'
+  return {...base,db};
+}
+
+const gateway={async create(order){return {
+  order_id:order.orderId,order_currency:'INR',order_amount:order.amountPaise/100,
+  order_status:'ACTIVE',payment_session_id:'shop_fixture'
+};}};
+
+async function shopStock(pg,itemId,optionId=''){
+  const state=(await pg.query("select state from public.qclub_state where key='main'")).rows[0].state;
+  const item=state.shopCatalog.items.find(row=>row.id===itemId);
+  if(optionId)return item.options.find(row=>row.id===optionId).stock;
+  return item.stock;
+}
+
+test('QShop command accepts only item identity, option identity and quantity',()=>{
+  const parsed=shopCheckoutRequest(command());
+  assert.match(parsed.orderId,/^qcs_/);
+  assert.deepEqual(parsed.items.map(x=>Object.keys(x).sort()),[
+    ['itemId','optionId','quantity'],['itemId','optionId','quantity']
+  ]);
+  for(const body of [
+    {...command(),amount:1},
+    {...command(),items:[{itemId:'cue',quantity:1,price:1}]},
+    {...command(),items:[{itemId:'cue',quantity:1},{itemId:'cue',quantity:1}]},
+    {...command(),items:[{itemId:'cue',quantity:0}]},
+    {...command(),customer:{name:'X',phone:'123'}},
+  ]) assert.throws(()=>shopCheckoutRequest(body),e=>['INVALID_SHOP_CHECKOUT','INVALID_SHOP_CART'].includes(e.code));
+});
+
+test('QShop reservation freezes server price and atomically reserves base and option stock',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+  const f=await fixture(),{pg,db}=f;
+  try{
+    for(const role of ['anon','authenticated']){
+      assert.equal((await pg.query(`select has_table_privilege('${role}','qclub_private.shop_stock_reservations','SELECT,INSERT,UPDATE,DELETE') as allowed`)).rows[0].allowed,false);
+      assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_shop_checkout(text,text,text,jsonb,text,text)','EXECUTE') as allowed`)).rows[0].allowed,false);
+      assert.equal((await pg.query(`select has_function_privilege('${role}','qclub_private.adjust_shop_stock(text,text,integer)','EXECUTE') as allowed`)).rows[0].allowed,false);
+    }
+    assert.equal((await pg.query("select has_function_privilege('service_role','qclub_private.adjust_shop_stock(text,text,integer)','EXECUTE') as allowed")).rows[0].allowed,true);
+
+    const ready=await createShopCheckout(db,gateway,command('1'));
+    assert.equal(ready.state,'ready');assert.equal(ready.amountPaise,20000);
+    assert.equal(await shopStock(pg,'cue'),1);
+    assert.equal(await shopStock(pg,'holder','purple'),1);
+    assert.equal((await pg.query("select count(*)::int as n from qclub_private.shop_stock_reservations where order_id=$1",[ready.orderId])).rows[0].n,2);
+
+    let calls=0;
+    await assert.rejects(createShopCheckout(db,{create(){calls++;}},command('2',{items:[{itemId:'cue',quantity:2}]})),e=>e.code==='INSUFFICIENT_STOCK');
+    assert.equal(calls,0);assert.equal(await shopStock(pg,'cue'),1);
+
+    await assert.rejects(createShopCheckout(db,{create(){calls++;}},command('3',{items:[{itemId:'holder',quantity:1}]})),e=>e.code==='OPTION_REQUIRED');
+    assert.equal(calls,0);assert.equal(await shopStock(pg,'holder','purple'),1);
+  }finally{await f.close();}
+});
+
+test('terminal QShop payment restores reservation once; paid order consumes it without another decrement',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+  const f=await fixture(),{pg,db}=f;
+  try{
+    const first=await createShopCheckout(db,gateway,command('4'));
+    const expired={verify:async id=>({order_id:id,order_currency:'INR',order_amount:200,order_status:'EXPIRED',payments:[]})};
+    assert.equal((await fulfillPayment(db,expired,{orderId:first.orderId,receiptToken:token})).state,'expired');
+    assert.equal(await shopStock(pg,'cue'),2);assert.equal(await shopStock(pg,'holder','purple'),3);
+    assert.equal((await pg.query("select count(*)::int as n from qclub_private.shop_stock_reservations where order_id=$1 and status='released'",[first.orderId])).rows[0].n,2);
+    assert.equal((await fulfillPayment(db,{verify(){throw Error('must not recheck terminal');}},{orderId:first.orderId,receiptToken:token})).state,'expired');
+    assert.equal(await shopStock(pg,'cue'),2);
+
+    const second=await createShopCheckout(db,gateway,command('5'));
+    const paid={verify:async id=>({order_id:id,order_currency:'INR',order_amount:200,order_status:'PAID',payments:[{order_id:id,payment_currency:'INR',payment_amount:200,payment_status:'SUCCESS',cf_payment_id:'shop_payment_1'}]})};
+    assert.equal((await fulfillPayment(db,paid,{orderId:second.orderId,receiptToken:token})).state,'fulfilled');
+    assert.equal(await shopStock(pg,'cue'),1);assert.equal(await shopStock(pg,'holder','purple'),1);
+    assert.equal((await pg.query("select count(*)::int as n from qclub_private.shop_stock_reservations where order_id=$1 and status='fulfilled'",[second.orderId])).rows[0].n,2);
+    const receipt=(await pg.query("select payload,status from public.qclub_operational_records where record_type='qshop_receipt' and record_key=$1",[second.orderId])).rows[0];
+    assert.equal(receipt.status,'paid');assert.equal(receipt.payload.paymentStatus,'Paid');assert.equal(receipt.payload.stockAdjusted,true);
+  }finally{await f.close();}
+});
+
+test('stale reconciliation discovery includes expired QShop namespace without mutating frozen expiry',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+  const f=await fixture(),{db}=f;
+  try{
+    const ready=await createShopCheckout(db,gateway,command('6',{items:[{itemId:'cue',quantity:1}]}));
+    const cutoff=new Date(Date.now()+2*60*60*1000).toISOString();
+    const rows=(await db.rpc('qclub_payment_stale_intents',{p_before:cutoff,p_limit:10})).data;
+    assert.equal(rows.some(row=>row.order_id===ready.orderId),true);
+  }finally{await f.close();}
+});
+
+test('QShop HTTP action remains disabled without rehearsal configuration',async()=>{
+  const {default:handler}=await import('../api/qclub-checkout-rehearsal.js');
+  const response={setHeader(){},status(code){this.code=code;return this;},json(value){this.body=value;}};
+  await handler({method:'POST',url:'/api/qclub-checkout-rehearsal?action=shop',query:{action:'shop'},headers:{},body:command(),socket:{remoteAddress:'127.0.0.1'}},response);
+  assert.equal(response.code,503);assert.equal(response.body.error,'SECURITY_REHEARSAL_DISABLED');
+});
++(i+1));
+    const result=await pg.query(`select public.${name}(${params.join(',')}) as result`,values);
     return {data:result.rows[0].result};
-  }catch(error){if(name==='qclub_shop_checkout')console.error('QSHOP_FIXTURE_SQL_ERROR',error);return {error};}}};
+  }catch(error){return {error};}}};
   return {...base,db};
 }
 
