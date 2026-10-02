@@ -261,3 +261,20 @@ Only one membership payment may be pending per mobile number at a time. Existing
 Successful authoritative Cashfree fulfilment updates or creates exactly one `memberRegistry` row, preserves unrelated member fields, marks the private reservation fulfilled and creates a `membership_activation` operational audit record. Server-verified EXPIRED/TERMINATED payment state releases the pending reservation and leaves membership data unchanged. The qcm namespace participates in bounded stale-payment reconciliation.
 
 No production database migration, live membership change, live Cashfree transaction, MSG91 send, RFID change or Android change is part of Package 15.
+
+
+## Package 16 — durable post-payment effects
+
+Verified payment fulfilment is now separated from delivery side effects. The rehearsal database creates a private outbox entry only after a payment intent makes its first committed transition to `fulfilled`. Cashfree verification, stock consumption, booking/tournament holds and membership activation therefore complete independently of printer or WhatsApp availability.
+
+A paid Q Lounge order enqueues two unique effects: `whatsapp_success` and `print_food`. QShop, booking, membership and tournament payments enqueue only the appropriate MSG91 success effect. The outbox has a unique `(order_id,effect_type)` key, so duplicate Cashfree verification or webhook replay cannot enqueue duplicate sends or prints. Unpaid terminal orders enqueue nothing.
+
+The outbox is private with RLS and no anon/authenticated privileges. Service-only claim and completion RPCs use `FOR UPDATE SKIP LOCKED`, a two-minute stale-claim recovery window and a maximum of ten failed attempts before an item becomes `failed`. Failed workers release the job back to `pending` until that limit. Successful completion is idempotent.
+
+The existing `/api/qclub-payment-rehearsal` function now multiplexes secret-protected effect actions instead of creating another Vercel function. `?action=effects` exposes only claim/complete operations for a rehearsal worker such as the Android PrintBridge. `?action=effects-whatsapp` can dispatch one queued MSG91 effect, but it remains fail-closed unless all of the following are explicitly configured: rehearsal security gate, a >=32-character `QCLUB_REHEARSAL_EFFECT_SECRET`, `QCLUB_REHEARSAL_MSG91_MODE=live`, server-held MSG91 credentials and an approved template for the specific message type.
+
+MSG91 payload parameters are reconstructed on the server from the trusted paid payload. Arbitrary browser template names or parameter arrays are not accepted. Recipient mobile is required to be a valid Indian 10-digit mobile and is then prefixed with country code 91 exactly once. Any post-claim formatting, template, network or upstream failure explicitly returns the job to the retry queue; it cannot alter the already fulfilled payment.
+
+Membership notification data is enriched only after the membership lifecycle trigger has calculated the server-side validity date, so the WhatsApp effect receives the authoritative `validUntil`. Food print effects contain the frozen paid order lines and total rather than re-reading mutable catalogue prices.
+
+No scheduler, live MSG91 send, physical PrintBridge claim, production API replacement, production database migration or production environment change is enabled by Package 16.
