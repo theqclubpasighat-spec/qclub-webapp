@@ -24,6 +24,6 @@
     "supabase/migrations/20260926_consolidate_qclub_fnb_master_catalogue.sql": "aca28fc00daa2ea5e825ce5ec38a89e2308e7ccb",
     "supabase/migrations/20260926_individual_player_ledger.sql": "53d364d2e11b1d0b2a025e23cbfbff9b6703c2f5",
     "supabase/migrations/20260927_admin_test_payment_cleanup.sql": "eeef3104ade8c43ab26ccab91acd0991a9d8334b",
-    "vercel.json": "dd58dc83d827f5c64678b2d4af29253c1ea5fa47"
+    "vercel.json": "d43847f5207eb37386cd83e8b05b4f3000c8ace4"
   }
 }
