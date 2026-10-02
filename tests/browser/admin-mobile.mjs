@@ -65,8 +65,12 @@ try{
  await button('Food page');await browser('wait','#title');await browser('fill','#subtitle','A mobile-friendly kitchen break.');await save();await layout('food-360');
  await button('Notices');await browser('wait','--text','No public notices yet.');await button('Add notice');await browser('wait','textarea');await snapshot('new-notice');
  await browser('fill','textarea','Practice night starts at 6 pm.');await browser('fill','input','/fixtures');await save();await layout('notices-360');
- const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);
+ await button('Membership tiers');await browser('wait','--text','Membership tiers');await browser('fill','input[type="number"]','599');await save();await layout('memberships-360');
+ await button('Table rates');await browser('wait','--text','Table rates');await browser('fill','input[type="number"]','450');await save();await layout('rates-360');
+ const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);assert.equal(after.memberships[0].price,599);assert.equal(after.booking.tables[0].pricePerHour,450);
  for(const key of ['admin','paymentOrders','players'])assert.deepEqual(after[key],original[key],`${key} changed`);
+ assert.deepEqual(after.booking.requests,original.booking.requests,'booking requests changed');
+ assert.deepEqual(after.booking.blockedSlots,original.booking.blockedSlots,'booking blocks changed');
  assert.deepEqual(after.announcements.filter(x=>x.type!=='notice'),original.announcements,'Operational announcements changed');
  await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await snapshot('signed-out');
  assert.equal((await fixture.pg.query('select count(*)::int as n from public.snooker_auth_sessions where revoked_at is not null')).rows[0].n,1);
@@ -81,7 +85,7 @@ try{
  assert.equal(await evaluate('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="Save changes").disabled'),true);
  await button('Load latest for comparison');await browser('wait','--text','Another admin saved this');await layout('conflict-360');
  assert.equal(await evaluate('document.querySelector("#tagline").value'),'My unsaved mobile draft');assert.equal((await state()).club.tagline,'Another admin saved this');
- await writeFile(path.join(artifacts,'admin-result.json'),JSON.stringify({passed:true,widths:[360,390,430],disposablePostgres:true,checks:['layout','touch targets','content save','notice save','private data preservation','server logout revocation','staff restriction','memory-only session','conflict draft retention','latest comparison']},null,2));
+ await writeFile(path.join(artifacts,'admin-result.json'),JSON.stringify({passed:true,widths:[360,390,430],disposablePostgres:true,checks:['layout','touch targets','content save','notice save','membership tier save','table rate save','private data preservation','server logout revocation','staff restriction','memory-only session','conflict draft retention','latest comparison']},null,2));
  console.log('Mobile CMS browser verification passed against disposable Postgres. No production database used.');
 }catch(error){await writeFile(path.join(artifacts,'admin-requests.json'),JSON.stringify(requests,null,2));try{await browser('screenshot',path.join(artifacts,'admin-failure.png'),'--full');await snapshot('failure');await writeFile(path.join(artifacts,'admin-console.json'),JSON.stringify(await browser('console')));}catch{}throw error;}
 finally{try{await browser('close');}finally{await server.close();await fixture.close();}}
