@@ -65,7 +65,7 @@ begin
       select 1 from jsonb_array_elements_text(participants) p(value)
       where p.value=reservation.player_id
     ) then
-      participants:=participants||to_jsonb(reservation.player_id);
+      participants:=participants||jsonb_build_array(reservation.player_id);
       tournament:=jsonb_set(tournament,'{participantIds}',participants,true);
       tournaments:=jsonb_set(tournaments,array[index_no::text],tournament,true);
       state:=jsonb_set(state,'{tournaments}',tournaments,true);
