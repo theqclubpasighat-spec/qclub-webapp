@@ -20,7 +20,7 @@ export function sandboxCheckout(env,fetcher=fetch) {
   const publicOrigin=rehearsalPublicOrigin(env);
   return {async create({orderId,checkoutId,amountPaise,customer,expiresAt}) {
     const expiryMs=Date.parse(String(expiresAt||''));
-    if(!/^qcr_[0-9a-f-]{36}$/.test(orderId) || !/^[0-9a-f-]{36}$/.test(checkoutId) || !Number.isSafeInteger(amountPaise) || amountPaise<=0 || !Number.isFinite(expiryMs) || expiryMs<=Date.now())fail(400,'INVALID_CHECKOUT');
+    if(!/^qc[rb]_[0-9a-f-]{36}$/.test(orderId) || !/^[0-9a-f-]{36}$/.test(checkoutId) || !Number.isSafeInteger(amountPaise) || amountPaise<=0 || !Number.isFinite(expiryMs) || expiryMs<=Date.now())fail(400,'INVALID_CHECKOUT');
     const headers={'x-client-id':env.QCLUB_REHEARSAL_CASHFREE_ID,'x-client-secret':env.QCLUB_REHEARSAL_CASHFREE_SECRET,'x-api-version':'2025-01-01',Accept:'application/json','Content-Type':'application/json'};
     async function request(method,url,body) {
       try {return await fetcher(url,{method,headers:{...headers,...(method==='POST'?{'x-idempotency-key':checkoutId}:{})},redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),...(body?{body:JSON.stringify(body)}:{})});}
