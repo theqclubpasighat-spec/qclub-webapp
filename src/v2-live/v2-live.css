@@ -541,3 +541,247 @@ body.qclub-v2-live .pageHead {
   .qclub-v2-home *,
   .v2-live-food * { scroll-behavior: auto !important; transition: none !important; }
 }
+
+
+/* V2 public-page body pass.
+   These selectors only activate on routes explicitly allowlisted by layout-shell.
+   Existing React components keep their event handlers, data sources and payment flows. */
+body.qclub-v2-live .pageHead {
+  background:
+    radial-gradient(700px 220px at 10% 0%, rgba(219,186,113,.12), transparent 70%),
+    linear-gradient(180deg, rgba(13,29,22,.96), rgba(9,23,17,.72)) !important;
+  border-bottom: 1px solid var(--qv2-border) !important;
+}
+body.qclub-v2-live .pageHead .container {
+  padding-top: 28px;
+  padding-bottom: 24px;
+}
+body.qclub-v2-live .pageTitle,
+body.qclub-v2-live .pageHead h1 {
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-size: clamp(2rem, 7vw, 3.4rem) !important;
+  line-height: 1.08 !important;
+  letter-spacing: -.02em;
+}
+body.qclub-v2-live .pageHead .muted {
+  max-width: 760px;
+  font-size: .96rem;
+  line-height: 1.65;
+}
+
+body.qclub-v2-live .grid {
+  gap: 14px;
+}
+body.qclub-v2-live .card {
+  border-radius: 14px !important;
+  padding: 18px !important;
+}
+body.qclub-v2-live .card:hover {
+  border-color: rgba(219,186,113,.42) !important;
+}
+body.qclub-v2-live .card h2,
+body.qclub-v2-live .card h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -.01em;
+}
+body.qclub-v2-live .badge {
+  border-color: #4d6755 !important;
+  background: rgba(219,186,113,.07) !important;
+  color: var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .dot {
+  background: var(--qv2-brass) !important;
+}
+
+body.qclub-v2-live .btn {
+  min-height: 44px;
+  border-radius: 9px !important;
+  font-weight: 700;
+}
+body.qclub-v2-live .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+body.qclub-v2-live .btn.danger {
+  background: rgba(155,74,61,.14) !important;
+  border-color: rgba(209,101,85,.55) !important;
+  color: #ffd8d1 !important;
+}
+body.qclub-v2-live .lbl {
+  color: var(--qv2-brass-soft) !important;
+  font-size: .76rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+body.qclub-v2-live input,
+body.qclub-v2-live select,
+body.qclub-v2-live textarea {
+  min-height: 46px;
+  border-radius: 9px !important;
+}
+body.qclub-v2-live textarea {
+  min-height: 92px;
+}
+body.qclub-v2-live input:focus,
+body.qclub-v2-live select:focus,
+body.qclub-v2-live textarea:focus,
+body.qclub-v2-live button:focus-visible,
+body.qclub-v2-live a:focus-visible {
+  outline: 2px solid var(--qv2-brass) !important;
+  outline-offset: 2px;
+}
+
+body.qclub-v2-live table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+body.qclub-v2-live th {
+  color: var(--qv2-brass-soft) !important;
+  background: rgba(219,186,113,.055) !important;
+  font-size: .72rem;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+body.qclub-v2-live th,
+body.qclub-v2-live td {
+  border-color: var(--qv2-border) !important;
+}
+body.qclub-v2-live tbody tr:hover td {
+  background: rgba(219,186,113,.035);
+}
+
+/* Membership */
+body.qclub-v2-live .membershipNoteBar {
+  border: 1px solid var(--qv2-border) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(145deg, rgba(34,83,59,.22), rgba(13,29,22,.88)) !important;
+  padding: 18px !important;
+}
+body.qclub-v2-live .membershipNoteLabel {
+  color: var(--qv2-brass) !important;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+body.qclub-v2-live .membershipNoteText {
+  color: var(--qv2-muted) !important;
+  line-height: 1.7;
+}
+body.qclub-v2-live .membershipTierCard {
+  position: relative;
+  overflow: hidden;
+}
+body.qclub-v2-live .membershipTierCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(var(--qv2-brass-soft), var(--qv2-brass));
+}
+body.qclub-v2-live .membershipTierCard h2 {
+  color: var(--qv2-brass-soft) !important;
+}
+
+/* Booking */
+body.qclub-v2-live .cols-7.card,
+body.qclub-v2-live .cols-5.card {
+  background:
+    radial-gradient(500px 220px at 100% 0, rgba(34,83,59,.22), transparent 65%),
+    linear-gradient(160deg, rgba(20,38,30,.97), rgba(13,29,22,.96)) !important;
+}
+body.qclub-v2-live .hr {
+  border-color: var(--qv2-border) !important;
+}
+
+/* Q Shop */
+body.qclub-v2-live .shopPageContainer {
+  padding-top: 24px;
+  padding-bottom: 90px;
+}
+body.qclub-v2-live .shopHeroCard {
+  background:
+    radial-gradient(650px 260px at 10% 0%, rgba(219,186,113,.14), transparent 68%),
+    linear-gradient(145deg, rgba(20,38,30,.97), rgba(9,23,17,.97)) !important;
+}
+body.qclub-v2-live .shopProductGrid {
+  gap: 14px !important;
+}
+body.qclub-v2-live .shopProductCard {
+  overflow: hidden;
+  padding: 14px !important;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+body.qclub-v2-live .shopProductCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(219,186,113,.48) !important;
+}
+body.qclub-v2-live .shopProductMainImage {
+  border-radius: 10px !important;
+  background: #0d1d16;
+}
+body.qclub-v2-live .shopGalleryThumbBtn {
+  border-color: var(--qv2-border) !important;
+  background: #102219 !important;
+  border-radius: 8px !important;
+}
+body.qclub-v2-live .shopCartCard {
+  position: sticky;
+  top: 82px;
+}
+body.qclub-v2-live .shopFloatingCart {
+  border: 1px solid rgba(219,186,113,.42) !important;
+  background: rgba(13,29,22,.97) !important;
+  color: var(--qv2-ivory) !important;
+  box-shadow: 0 18px 44px rgba(0,0,0,.42) !important;
+  backdrop-filter: blur(12px);
+}
+body.qclub-v2-live .shopFloatingCartTotal {
+  color: var(--qv2-brass-soft) !important;
+}
+
+/* Public modals */
+body.qclub-v2-live .modalBackdrop {
+  background: rgba(0,0,0,.72) !important;
+  backdrop-filter: blur(4px);
+}
+body.qclub-v2-live .modalCard {
+  background: linear-gradient(160deg, #14261e, #0d1d16) !important;
+  border: 1px solid var(--qv2-border) !important;
+  color: var(--qv2-ivory) !important;
+  border-radius: 16px !important;
+}
+
+/* Tables and player/tournament links */
+body.qclub-v2-live .player-link,
+body.qclub-v2-live a:not(.v2-live-brand):not(.btn) {
+  text-underline-offset: 3px;
+}
+body.qclub-v2-live .player-link {
+  color: var(--qv2-brass-soft) !important;
+}
+
+/* Compact mobile behaviour: cards become single-column before controls feel cramped. */
+@media (max-width: 720px) {
+  body.qclub-v2-live .cols-3,
+  body.qclub-v2-live .cols-4,
+  body.qclub-v2-live .cols-5,
+  body.qclub-v2-live .cols-6,
+  body.qclub-v2-live .cols-7,
+  body.qclub-v2-live .cols-8,
+  body.qclub-v2-live .cols-9 {
+    grid-column: 1 / -1 !important;
+  }
+  body.qclub-v2-live .card {
+    padding: 15px !important;
+  }
+  body.qclub-v2-live .shopCartCard {
+    position: static;
+  }
+  body.qclub-v2-live .row {
+    row-gap: 8px;
+  }
+  body.qclub-v2-live table {
+    font-size: .84rem;
+  }
+}
