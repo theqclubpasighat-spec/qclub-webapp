@@ -4530,7 +4530,7 @@ function playersForTournament(tournament, allPlayers = []) {
 function AirHockeyPage() {
     const navigate = useNavigate();
   return (
-        <div className="card">
+        <div className="card v2-game-card">
       <button
         className="btn"
         style={{ marginBottom: "12px" }}
@@ -4575,7 +4575,7 @@ function FoosballPage() {
   const navigate = useNavigate();
 
   return (
-        <div className="card">
+        <div className="card v2-game-card">
       <button
         className="btn"
         style={{ marginBottom: "12px" }}
@@ -4619,7 +4619,7 @@ function MassageChairPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="card">
+    <div className="card v2-game-card">
       <button
         className="btn"
         style={{ marginBottom: "12px" }}
@@ -5440,7 +5440,7 @@ async function uploadMemberPhoto(memberId, file) {
           }}
         >
           {members.map((member) => (
-            <div key={member.id} className="card">
+            <div key={member.id} className="card v2-member-card">
               <div
   style={{
     width: "100%",
