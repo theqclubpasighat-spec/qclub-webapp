@@ -72,7 +72,7 @@ async function fixture(){
     const values=specs[name].map(k=>args[k]);
     const result=await pg.query(`select public.${name}(${values.map((_,i)=>'$'+(i+1)).join(',')}) as result`,values);
     return {data:result.rows[0].result};
-  }catch(error){return {error};}}};
+  }catch(error){console.error('TOURNAMENT_RPC_DIAGNOSTIC',name,error?.message||String(error));return {error};}}};
   return {...base,db};
 }
 
