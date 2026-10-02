@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club' }, foodPage: { title: 'Food' }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club' }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
@@ -96,4 +96,49 @@ test('network limit does not trust spoofed client headers outside Vercel', () =>
   assert.equal(requestAddress(req, { VERCEL: '1' }), '192.0.2.9');
   assert.throws(() => requestAddress({ headers: req.headers }, {}));
   assert.throws(() => requestAddress({ headers: { 'x-forwarded-for': '192.0.2.9, 192.0.2.10' } }, { VERCEL: '1' }));
+});
+
+
+test('membership and table-rate CMS patches are validated and preserve booking operations',()=>{
+  const before={
+    memberships:[{id:'membership_bronze',tier:'Bronze',price:799,perks:['Member pricing'],note:'Non-transferable'}],
+    booking:{tables:[{id:'tbl_1',label:'T1 Liberwin',pricePerHour:400,memberPricePerHour:300,private:'keep'}],requests:[{id:'booking-private',mobile:'9999999999'}],blockedSlots:[{id:'block-1'}]},
+    paymentOrders:[{id:'paid-private'}],
+  };
+  const next=contentPatch(before,{
+    memberships:[
+      {id:'membership_bronze',tier:'Bronze',price:499,perks:['Member pricing','Daily perk'],note:'Non-transferable'},
+      {id:'membership_gold',tier:'Gold',price:1499,perks:['Member pricing'],note:'Non-transferable'},
+    ],
+    bookingTables:[{id:'tbl_1',label:'T1 Liberwin',pricePerHour:450,memberPricePerHour:300}],
+  });
+  assert.equal(next.memberships[0].price,499);
+  assert.equal(next.booking.tables[0].pricePerHour,450);
+  assert.deepEqual(next.booking.requests,before.booking.requests);
+  assert.deepEqual(next.booking.blockedSlots,before.booking.blockedSlots);
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  assert.equal(before.memberships[0].price,799);
+
+  for(const changes of [
+    {memberships:[]},
+    {memberships:[{id:'bad id',tier:'Bronze',price:499,perks:[],note:''}]},
+    {memberships:[{id:'m1',tier:'',price:499,perks:[],note:''}]},
+    {memberships:[{id:'m1',tier:'Bronze',price:-1,perks:[],note:''}]},
+    {memberships:[{id:'m1',tier:'Bronze',price:499,perks:[''],note:''}]},
+    {bookingTables:[]},
+    {bookingTables:[{id:'t1',label:'',pricePerHour:400,memberPricePerHour:300}]},
+    {bookingTables:[{id:'t1',label:'T1',pricePerHour:-1,memberPricePerHour:300}]},
+    {bookingTables:[{id:'t1',label:'T1',pricePerHour:400,memberPricePerHour:300,requests:[]}]},
+  ]) assert.throws(()=>contentPatch(before,changes),expectCode('INVALID_CONTENT_PATCH'));
+});
+
+test('public CMS projection exposes only public membership and rate fields',()=>{
+  const state={
+    memberships:[{id:'m1',tier:'Gold',price:1499,perks:['A'],note:'N',secret:'PRIVATE'}],
+    booking:{tables:[{id:'t1',label:'T1',pricePerHour:400,memberPricePerHour:300,secret:'PRIVATE'}],requests:[{mobile:'PRIVATE'}]},
+  };
+  const projected=publicContent(state);
+  assert.deepEqual(projected.memberships,[{id:'m1',tier:'Gold',price:1499,perks:['A'],note:'N'}]);
+  assert.deepEqual(projected.bookingTables,[{id:'t1',label:'T1',pricePerHour:400,memberPricePerHour:300}]);
+  assert.ok(!JSON.stringify(projected).includes('PRIVATE'));
 });
