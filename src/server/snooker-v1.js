@@ -2757,6 +2757,11 @@ async function closeFnbTab(req, res, tabId) {
     return json(res, 200, response);
   }
   if (current.status !== "OPEN") return json(res, 409, { ok: false, error: "FNB_TAB_NOT_OPEN" });
+  if (current.customer_id) {
+    // A customer-linked F&B tab is part of the same Club Tab as game/table charges.
+    // Finalizing from the F&B screen must therefore reconcile all unbilled activity together.
+    return await finalizePlayerTab(req, res, current.customer_id);
+  }
 
   const { data: claimed, error: claimError } = await supabase
     .from("snooker_fnb_tabs")
