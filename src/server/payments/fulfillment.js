@@ -1,6 +1,7 @@
 import { SecurityError } from '../security/errors.js';
 import { tokenHash } from '../security/foundation.js';
 const fail=(status,code)=>{throw new SecurityError(status,code);};
+
 export function amountInPaise(value) {
   const text=String(value);
   if(!/^\d{1,7}(\.\d{1,2})?$/.test(text)) fail(422,'PAYMENT_MISMATCH');
@@ -9,7 +10,17 @@ export function amountInPaise(value) {
   if(!Number.isSafeInteger(result)||result<=0)fail(422,'PAYMENT_MISMATCH');
   return result;
 }
-// This is the only accepted browser command. Prices, payloads and paid flags are forbidden.
+
+async function verifiedEvidence(gateway,orderId,intent) {
+  const evidence=await gateway.verify(orderId);
+  if(evidence.order_id!==orderId || evidence.order_currency!=='INR' || amountInPaise(evidence.order_amount)!==Number(intent.amount_paise))fail(422,'PAYMENT_MISMATCH');
+  if(evidence.order_status!=='PAID')return {evidence,payment:null};
+  const payment=evidence.payments?.find(p=>p.payment_status==='SUCCESS' && p.order_id===orderId && p.payment_currency==='INR' && amountInPaise(p.payment_amount)===Number(intent.amount_paise));
+  if(!payment || !/^[A-Za-z0-9_-]{1,100}$/.test(String(payment.cf_payment_id||'')))fail(422,'PAYMENT_MISMATCH');
+  return {evidence,payment};
+}
+
+// Browser verification requires the private receipt capability.
 export async function fulfillPayment(db,gateway,body) {
   if(!body || typeof body!=='object' || Array.isArray(body) || Object.keys(body).some(k=>!['orderId','receiptToken'].includes(k)) || typeof body.orderId!=='string' || typeof body.receiptToken!=='string' || !/^[A-Za-z0-9_-]{1,100}$/.test(body.orderId||'') || !/^[A-Za-z0-9_-]{43}$/.test(body.receiptToken||''))fail(400,'INVALID_PAYMENT_COMMAND');
   const args={p_order_id:body.orderId,p_receipt_hash:tokenHash(body.receiptToken)};
@@ -18,17 +29,31 @@ export async function fulfillPayment(db,gateway,body) {
   const intent=lookup.data;
   if(!intent)fail(404,'ORDER_NOT_FOUND');
   if(intent.status==='fulfilled')return {ok:true,state:'fulfilled',orderId:body.orderId};
-  // Only a server-held adapter supplies evidence. Request body never supplies status.
-  const evidence=await gateway.verify(body.orderId);
-  if(evidence.order_id!==body.orderId || evidence.order_currency!=='INR' || amountInPaise(evidence.order_amount)!==Number(intent.amount_paise))fail(422,'PAYMENT_MISMATCH');
-  if(evidence.order_status!=='PAID')return {ok:true,state:'pending',orderId:body.orderId};
-  const payment=evidence.payments?.find(p=>p.payment_status==='SUCCESS' && p.order_id===body.orderId && p.payment_currency==='INR' && amountInPaise(p.payment_amount)===Number(intent.amount_paise));
-  if(!payment || !/^[A-Za-z0-9_-]{1,100}$/.test(String(payment.cf_payment_id||'')))fail(422,'PAYMENT_MISMATCH');
+  const {payment}=await verifiedEvidence(gateway,body.orderId,intent);
+  if(!payment)return {ok:true,state:'pending',orderId:body.orderId};
   const result=await db.rpc('qclub_payment_fulfill',{...args,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(payment.cf_payment_id)});
   if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
   if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
   return {ok:true,state:'fulfilled',orderId:body.orderId};
 }
+
+// Webhooks have no browser receipt token. This path is service-role only and re-reads Cashfree
+// before finalizing, so webhook payload status/amount are never trusted as payment proof.
+export async function fulfillPaymentFromGateway(db,gateway,orderId) {
+  if(typeof orderId!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(orderId))fail(400,'INVALID_PAYMENT_COMMAND');
+  const lookup=await db.rpc('qclub_payment_intent_service',{p_order_id:orderId});
+  if(lookup.error)fail(503,'PAYMENT_UNAVAILABLE');
+  const intent=lookup.data;
+  if(!intent)fail(404,'ORDER_NOT_FOUND');
+  if(intent.status==='fulfilled')return {ok:true,state:'fulfilled',orderId};
+  const {payment}=await verifiedEvidence(gateway,orderId,intent);
+  if(!payment)return {ok:true,state:'pending',orderId};
+  const result=await db.rpc('qclub_payment_fulfill_service',{p_order_id:orderId,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(payment.cf_payment_id)});
+  if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
+  if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
+  return {ok:true,state:'fulfilled',orderId};
+}
+
 export function sandboxGateway(env,fetcher=fetch) {
   if(!env.QCLUB_REHEARSAL_CASHFREE_ID || !env.QCLUB_REHEARSAL_CASHFREE_SECRET)fail(503,'SANDBOX_GATEWAY_REQUIRED');
   return {async verify(id){
