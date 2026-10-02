@@ -61,22 +61,80 @@ function textFields(v, names) {
   if (!object(v)) return {};
   return Object.fromEntries(names.filter(k => typeof v[k] === 'string').map(k => [k, v[k]]));
 }
+function finiteMoney(v, max = 1000000) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= max ? n : null;
+}
+function projectMemberships(state) {
+  return (Array.isArray(state?.memberships) ? state.memberships : [])
+    .filter(x => object(x) && typeof x.id === 'string' && typeof x.tier === 'string')
+    .map(x => ({
+      id: x.id,
+      tier: x.tier,
+      price: finiteMoney(x.price) ?? 0,
+      perks: (Array.isArray(x.perks) ? x.perks : []).filter(v => typeof v === 'string').slice(0, 20),
+      note: typeof x.note === 'string' ? x.note : '',
+    }));
+}
+function projectBookingTables(state) {
+  return (Array.isArray(state?.booking?.tables) ? state.booking.tables : [])
+    .filter(x => object(x) && typeof x.id === 'string' && typeof x.label === 'string')
+    .map(x => ({
+      id: x.id,
+      label: x.label,
+      pricePerHour: finiteMoney(x.pricePerHour, 100000) ?? 0,
+      memberPricePerHour: finiteMoney(x.memberPricePerHour, 100000) ?? 0,
+    }));
+}
+function validId(v) { return typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v); }
+function normalizedMemberships(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 20) fail(400, 'INVALID_CONTENT_PATCH');
+  const ids = new Set();
+  return value.map(row => {
+    if (!object(row) || Object.keys(row).some(k => !['id','tier','price','perks','note'].includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
+    if (!validId(row.id) || ids.has(row.id) || typeof row.tier !== 'string' || !row.tier.trim() || row.tier.length > 80) fail(400, 'INVALID_CONTENT_PATCH');
+    ids.add(row.id);
+    const price = finiteMoney(row.price);
+    if (price === null || !Array.isArray(row.perks) || row.perks.length > 20 || row.perks.some(v => typeof v !== 'string' || !v.trim() || v.length > 300) || typeof row.note !== 'string' || row.note.length > 2000) fail(400, 'INVALID_CONTENT_PATCH');
+    return { id: row.id, tier: row.tier.trim(), price, perks: row.perks.map(v => v.trim()), note: row.note.trim() };
+  });
+}
+function normalizedBookingTables(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 20) fail(400, 'INVALID_CONTENT_PATCH');
+  const ids = new Set();
+  return value.map(row => {
+    if (!object(row) || Object.keys(row).some(k => !['id','label','pricePerHour','memberPricePerHour'].includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
+    if (!validId(row.id) || ids.has(row.id) || typeof row.label !== 'string' || !row.label.trim() || row.label.length > 100) fail(400, 'INVALID_CONTENT_PATCH');
+    ids.add(row.id);
+    const standard = finiteMoney(row.pricePerHour, 100000);
+    const member = finiteMoney(row.memberPricePerHour, 100000);
+    if (standard === null || member === null) fail(400, 'INVALID_CONTENT_PATCH');
+    return { id: row.id, label: row.label.trim(), pricePerHour: standard, memberPricePerHour: member };
+  });
+}
 // Explicit projection: an added private field never becomes public by default.
 // This is a new API contract, not a drop-in replacement for cloud.js yet.
 export function publicContent(state) {
   return {
     club: textFields(state?.club, ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent']),
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
+    memberships: projectMemberships(state),
+    bookingTables: projectBookingTables(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'notices'];
 const CLUB_KEYS = ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent'];
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
   const next = structuredClone(current);
   for (const [section, fields] of Object.entries(changes)) {
     if (section === 'notices') { next.announcements = applyNotices(current, fields); continue; }
+    if (section === 'memberships') { next.memberships = normalizedMemberships(fields); continue; }
+    if (section === 'bookingTables') {
+      next.booking = { ...(object(current.booking) ? current.booking : {}), tables: normalizedBookingTables(fields) };
+      continue;
+    }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
     if (!object(fields) || !Object.keys(fields).length || Object.keys(fields).some(k => !allowed.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
     for (const value of Object.values(fields)) if (typeof value !== 'string' || value.length > 30000) fail(400, 'INVALID_CONTENT_PATCH');
