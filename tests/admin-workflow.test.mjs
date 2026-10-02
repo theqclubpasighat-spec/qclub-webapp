@@ -63,3 +63,19 @@ test('logout failure still forgets the in-memory bearer',async()=>{
   await client.content();
   assert.equal(seen.at(-1).Authorization,undefined);
 });
+
+
+test('membership and rate draft changes are sent as explicit CMS sections',()=>{
+  const before={
+    club:{name:'Q Club'},
+    memberships:[{id:'m1',tier:'Bronze',price:499,perks:['A'],note:'N'}],
+    bookingTables:[{id:'t1',label:'T1',pricePerHour:400,memberPricePerHour:300}],
+  };
+  const after=structuredClone(before);
+  after.memberships[0].price=599;
+  after.bookingTables[0].memberPricePerHour=250;
+  const changes=changesBetween(before,after);
+  assert.deepEqual(changes.memberships,after.memberships);
+  assert.deepEqual(changes.bookingTables,after.bookingTables);
+  assert.equal(changes.club,undefined);
+});
