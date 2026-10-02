@@ -11,13 +11,33 @@ export function amountInPaise(value) {
   return result;
 }
 
+function sameAmount(payment,intent){
+  return payment?.order_id && payment.order_id===intent.orderId
+    && payment.payment_currency==='INR'
+    && amountInPaise(payment.payment_amount)===Number(intent.amount_paise);
+}
+
 async function verifiedEvidence(gateway,orderId,intent) {
   const evidence=await gateway.verify(orderId);
   if(evidence.order_id!==orderId || evidence.order_currency!=='INR' || amountInPaise(evidence.order_amount)!==Number(intent.amount_paise))fail(422,'PAYMENT_MISMATCH');
-  if(evidence.order_status!=='PAID')return {evidence,payment:null};
-  const payment=evidence.payments?.find(p=>p.payment_status==='SUCCESS' && p.order_id===orderId && p.payment_currency==='INR' && amountInPaise(p.payment_amount)===Number(intent.amount_paise));
-  if(!payment || !/^[A-Za-z0-9_-]{1,100}$/.test(String(payment.cf_payment_id||'')))fail(422,'PAYMENT_MISMATCH');
-  return {evidence,payment};
+  const payments=Array.isArray(evidence.payments)?evidence.payments:[];
+  const scoped={...intent,orderId};
+  const success=payments.find(p=>p?.payment_status==='SUCCESS'&&p?.order_id===orderId);
+  if(success){
+    if(!sameAmount(success,scoped)||!/^[A-Za-z0-9_-]{1,100}$/.test(String(success.cf_payment_id||'')))fail(422,'PAYMENT_MISMATCH');
+    return {evidence,payment:success,terminal:false,pending:false};
+  }
+  if(evidence.order_status==='PAID')fail(422,'PAYMENT_MISMATCH');
+  const pending=payments.some(p=>p?.payment_status==='PENDING'&&p?.order_id===orderId);
+  const terminal=!pending&&['EXPIRED','TERMINATED'].includes(String(evidence.order_status||'').toUpperCase());
+  return {evidence,payment:null,terminal,pending:pending||['ACTIVE','TERMINATION_REQUESTED'].includes(String(evidence.order_status||'').toUpperCase())};
+}
+
+async function closeTerminal(db,orderId,reason){
+  const result=await db.rpc('qclub_payment_close_terminal_service',{p_order_id:orderId,p_reason:reason});
+  if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
+  if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
+  return {ok:true,state:'expired',orderId,reason:result.data.terminal_reason||reason};
 }
 
 // Browser verification requires the private receipt capability.
@@ -29,12 +49,16 @@ export async function fulfillPayment(db,gateway,body) {
   const intent=lookup.data;
   if(!intent)fail(404,'ORDER_NOT_FOUND');
   if(intent.status==='fulfilled')return {ok:true,state:'fulfilled',orderId:body.orderId};
-  const {payment}=await verifiedEvidence(gateway,body.orderId,intent);
-  if(!payment)return {ok:true,state:'pending',orderId:body.orderId};
-  const result=await db.rpc('qclub_payment_fulfill',{...args,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(payment.cf_payment_id)});
-  if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
-  if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
-  return {ok:true,state:'fulfilled',orderId:body.orderId};
+  if(intent.terminal_at)return {ok:true,state:'expired',orderId:body.orderId,reason:intent.terminal_reason||'EXPIRED'};
+  const proof=await verifiedEvidence(gateway,body.orderId,intent);
+  if(proof.payment){
+    const result=await db.rpc('qclub_payment_fulfill',{...args,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(proof.payment.cf_payment_id)});
+    if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
+    if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
+    return {ok:true,state:'fulfilled',orderId:body.orderId};
+  }
+  if(proof.terminal)return closeTerminal(db,body.orderId,String(proof.evidence.order_status).toUpperCase());
+  return {ok:true,state:'pending',orderId:body.orderId};
 }
 
 // Webhooks have no browser receipt token. This path is service-role only and re-reads Cashfree
@@ -46,12 +70,16 @@ export async function fulfillPaymentFromGateway(db,gateway,orderId) {
   const intent=lookup.data;
   if(!intent)fail(404,'ORDER_NOT_FOUND');
   if(intent.status==='fulfilled')return {ok:true,state:'fulfilled',orderId};
-  const {payment}=await verifiedEvidence(gateway,orderId,intent);
-  if(!payment)return {ok:true,state:'pending',orderId};
-  const result=await db.rpc('qclub_payment_fulfill_service',{p_order_id:orderId,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(payment.cf_payment_id)});
-  if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
-  if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
-  return {ok:true,state:'fulfilled',orderId};
+  if(intent.terminal_at)return {ok:true,state:'expired',orderId,reason:intent.terminal_reason||'EXPIRED'};
+  const proof=await verifiedEvidence(gateway,orderId,intent);
+  if(proof.payment){
+    const result=await db.rpc('qclub_payment_fulfill_service',{p_order_id:orderId,p_amount_paise:Number(intent.amount_paise),p_currency:'INR',p_payment_id:String(proof.payment.cf_payment_id)});
+    if(result.error)fail(503,'FULFILLMENT_UNAVAILABLE');
+    if(!result.data?.ok)fail(result.data?.conflict?409:404,result.data?.conflict?'FULFILLMENT_CONFLICT':'ORDER_NOT_FOUND');
+    return {ok:true,state:'fulfilled',orderId};
+  }
+  if(proof.terminal)return closeTerminal(db,orderId,String(proof.evidence.order_status).toUpperCase());
+  return {ok:true,state:'pending',orderId};
 }
 
 export function sandboxGateway(env,fetcher=fetch) {
@@ -65,8 +93,8 @@ export function sandboxGateway(env,fetcher=fetch) {
       try{return await response.json();}catch{fail(503,'GATEWAY_UNAVAILABLE');}
     }
     const order=await read('');
-    if(!order || typeof order!=='object' || Array.isArray(order))fail(503,'GATEWAY_UNAVAILABLE');
-    const payments=order.order_status==='PAID'?await read('/payments'):[];
+    if(!order || typeof order!=='object'||Array.isArray(order))fail(503,'GATEWAY_UNAVAILABLE');
+    const payments=await read('/payments');
     if(!Array.isArray(payments))fail(503,'GATEWAY_UNAVAILABLE');
     return {...order,payments};
   }};
