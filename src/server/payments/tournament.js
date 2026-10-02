@@ -8,12 +8,11 @@ const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const only=(value,keys)=>object(value)&&Object.keys(value).every(key=>keys.includes(key));
 
 export function tournamentCheckoutRequest(body){
-  if(!only(body,['checkoutId','receiptToken','tournamentId','playerId','customer'])
+  if(!only(body,['checkoutId','receiptToken','tournamentId','customer'])
     || typeof body.checkoutId!=='string'
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(body.checkoutId)
     || typeof body.receiptToken!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(body.receiptToken)
     || typeof body.tournamentId!=='string'||!body.tournamentId||body.tournamentId.length>160
-    || typeof body.playerId!=='string'||!body.playerId||body.playerId.length>160
     || !only(body.customer,['name','phone'])
     || typeof body.customer.name!=='string'||!body.customer.name.trim()||body.customer.name.length>120
     || typeof body.customer.phone!=='string'||!/^[6-9][0-9]{9}$/.test(body.customer.phone)
@@ -21,7 +20,6 @@ export function tournamentCheckoutRequest(body){
 
   const normalized={
     tournamentId:body.tournamentId,
-    playerId:body.playerId,
     customer:{name:body.customer.name.trim(),phone:body.customer.phone},
   };
   return {
@@ -40,7 +38,6 @@ export async function createTournamentCheckout(db,gateway,body){
     p_receipt_hash:request.receiptHash,
     p_request_hash:request.requestHash,
     p_tournament_id:request.tournamentId,
-    p_player_id:request.playerId,
     p_customer_name:request.customer.name,
     p_customer_phone:request.customer.phone,
   });
