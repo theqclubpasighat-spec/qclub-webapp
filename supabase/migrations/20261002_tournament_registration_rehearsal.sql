@@ -90,7 +90,7 @@ for each row execute function qclub_private.sync_tournament_registration_lifecyc
 
 create function public.qclub_tournament_checkout(
   p_order_id text,p_receipt_hash text,p_request_hash text,p_tournament_id text,
-  p_player_id text,p_customer_name text,p_customer_phone text
+  p_customer_name text,p_customer_phone text
 )
 returns jsonb language plpgsql security invoker set search_path=pg_catalog as $$
 declare
@@ -102,13 +102,14 @@ declare
   fee numeric;
   amount_paise bigint;
   normalized_mobile text;
+  resolved_player_id text;
+  player_matches integer;
   expires timestamptz;
 begin
   if p_order_id is null or p_order_id !~ '^qct_[0-9a-f-]{36}$'
     or p_receipt_hash is null or p_receipt_hash !~ '^[a-f0-9]{64}$'
     or p_request_hash is null or p_request_hash !~ '^[a-f0-9]{64}$'
     or p_tournament_id is null or length(p_tournament_id) not between 1 and 160
-    or p_player_id is null or length(p_player_id) not between 1 and 160
     or p_customer_name is null or length(trim(p_customer_name)) not between 1 and 120
     or p_customer_phone is null or p_customer_phone !~ '^[6-9][0-9]{9}$' then
     return jsonb_build_object('ok',false,'reason','INVALID_TOURNAMENT_CHECKOUT');
@@ -153,26 +154,36 @@ begin
   end if;
   amount_paise:=(fee*100)::bigint;
 
+  select count(*) into player_matches
+  from jsonb_array_elements(state->'players') p(value)
+  where right(regexp_replace(coalesce(p.value->>'mobile',''),'[^0-9]','','g'),10)=p_customer_phone;
+  if player_matches<>1 then
+    return jsonb_build_object('ok',false,'reason','PLAYER_IDENTITY_REQUIRED');
+  end if;
+
   select value into player
   from jsonb_array_elements(state->'players')
-  where value->>'id'=p_player_id
+  where right(regexp_replace(coalesce(value->>'mobile',''),'[^0-9]','','g'),10)=p_customer_phone
   limit 1;
-  if player is null then return jsonb_build_object('ok',false,'reason','PLAYER_NOT_FOUND'); end if;
+  resolved_player_id:=coalesce(player->>'id','');
+  if resolved_player_id='' or length(resolved_player_id)>160 then
+    return jsonb_build_object('ok',false,'reason','PLAYER_IDENTITY_REQUIRED');
+  end if;
   normalized_mobile:=right(regexp_replace(coalesce(player->>'mobile',''),'[^0-9]','','g'),10);
   if normalized_mobile<>p_customer_phone then
-    return jsonb_build_object('ok',false,'reason','PLAYER_IDENTITY_MISMATCH');
+    return jsonb_build_object('ok',false,'reason','PLAYER_IDENTITY_REQUIRED');
   end if;
 
   participants:=case when jsonb_typeof(tournament->'participantIds')='array'
     then tournament->'participantIds' else '[]'::jsonb end;
   if exists(
     select 1 from jsonb_array_elements_text(participants) p(value)
-    where p.value=p_player_id
+    where p.value=resolved_player_id
   ) then return jsonb_build_object('ok',false,'reason','ALREADY_REGISTERED'); end if;
 
   if exists(
     select 1 from qclub_private.tournament_registration_reservations r
-    where r.tournament_id=p_tournament_id and r.player_id=p_player_id
+    where r.tournament_id=p_tournament_id and r.player_id=resolved_player_id
       and r.status in ('reserved','fulfilled')
   ) then return jsonb_build_object('ok',false,'reason','REGISTRATION_ALREADY_RESERVED'); end if;
 
@@ -188,7 +199,7 @@ begin
       'tournamentName',coalesce(tournament->>'name','Tournament'),
       'tournamentGame',coalesce(tournament->>'game',''),
       'tournamentFee',fee,
-      'playerId',p_player_id,
+      'playerId',resolved_player_id,
       'customerName',trim(p_customer_name),
       'customerMobile',p_customer_phone,
       'paymentStatus','Pending',
@@ -200,16 +211,16 @@ begin
 
   insert into qclub_private.tournament_registration_reservations(
     order_id,tournament_id,player_id,customer_phone
-  ) values(p_order_id,p_tournament_id,p_player_id,p_customer_phone);
+  ) values(p_order_id,p_tournament_id,resolved_player_id,p_customer_phone);
 
   return jsonb_build_object(
     'ok',true,'amount_paise',amount_paise,'status','pending',
     'expires_at',expires,'tournament_name',coalesce(tournament->>'name','Tournament')
   );
 end $$;
-revoke all on function public.qclub_tournament_checkout(text,text,text,text,text,text,text)
+revoke all on function public.qclub_tournament_checkout(text,text,text,text,text,text)
   from public,anon,authenticated;
-grant execute on function public.qclub_tournament_checkout(text,text,text,text,text,text,text)
+grant execute on function public.qclub_tournament_checkout(text,text,text,text,text,text)
   to service_role;
 
 -- Include tournament registration in bounded abandoned-payment reconciliation.
