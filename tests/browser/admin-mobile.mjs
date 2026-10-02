@@ -71,7 +71,7 @@ try{
  await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await snapshot('signed-out');
  assert.equal((await fixture.pg.query('select count(*)::int as n from public.snooker_auth_sessions where revoked_at is not null')).rows[0].n,1);
  await login('852147');await browser('wait','--text','Staff account');await layout('staff-360');assert.equal(await evaluate('!!document.querySelector("#name")'),false);
- await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await login('761239');await browser('wait','#name');await snapshot('reauthenticated');
+ await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await login('761239');await browser('wait','--text','Club information');await button('Club information');await browser('wait','#name');await snapshot('reauthenticated');
  await browser('reload');await browser('wait','#pin');await snapshot('reload-signed-out');
  assert.equal(await evaluate('localStorage.length'),0);assert.equal(await evaluate('sessionStorage.length'),0);
  await login('761239');await browser('wait','#name');await browser('fill','#tagline','My unsaved mobile draft');
