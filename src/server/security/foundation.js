@@ -130,9 +130,16 @@ export function contentPatch(current, changes) {
   const next = structuredClone(current);
   for (const [section, fields] of Object.entries(changes)) {
     if (section === 'notices') { next.announcements = applyNotices(current, fields); continue; }
-    if (section === 'memberships') { next.memberships = normalizedMemberships(fields); continue; }
+    if (section === 'memberships') {
+      const rows = normalizedMemberships(fields);
+      const existing = new Map((Array.isArray(current.memberships) ? current.memberships : []).filter(object).map(row => [row.id, row]));
+      next.memberships = rows.map(row => ({ ...(existing.get(row.id) || {}), ...row }));
+      continue;
+    }
     if (section === 'bookingTables') {
-      next.booking = { ...(object(current.booking) ? current.booking : {}), tables: normalizedBookingTables(fields) };
+      const rows = normalizedBookingTables(fields);
+      const existing = new Map((Array.isArray(current?.booking?.tables) ? current.booking.tables : []).filter(object).map(row => [row.id, row]));
+      next.booking = { ...(object(current.booking) ? current.booking : {}), tables: rows.map(row => ({ ...(existing.get(row.id) || {}), ...row })) };
       continue;
     }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
