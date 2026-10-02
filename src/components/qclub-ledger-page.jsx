@@ -237,6 +237,7 @@ export default function QclubLedgerPage() {
   const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
   const [newTabName, setNewTabName] = useState("");
   const [newTabPhone, setNewTabPhone] = useState("");
+  const [newTabCustomerId, setNewTabCustomerId] = useState("");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
@@ -368,11 +369,13 @@ export default function QclubLedgerPage() {
       protectedCall("catalogue"),
       protectedCall("inventory"),
       protectedCall("fnb-tabs"),
+      protectedCall("player-tabs"),
     ]);
     setCatalogue((values[0] && (values[0].items || values[0].catalogue)) || []);
     setInventory((values[1] && (values[1].items || values[1].inventory)) || []);
     const openFnbTabs = (values[2] && values[2].tabs) || [];
     setFnbTabs(openFnbTabs);
+    setPlayerTabs((values[3] && values[3].tabs) || []);
     setSelectedFnbTabId(function(current) {
       return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
     });
@@ -834,6 +837,7 @@ export default function QclubLedgerPage() {
   }
 
   function applyCustomerToNewTab(customer) {
+    setNewTabCustomerId(customer.customer_id || customer.id || "");
     setNewTabName(String(customer.name || "").toUpperCase());
     setNewTabPhone(customer.phone || "");
   }
@@ -1331,6 +1335,7 @@ export default function QclubLedgerPage() {
       const opened = await protectedCall("fnb-tabs", {
         method: "POST",
         body: {
+          customer_id: newTabCustomerId || null,
           customer_name: name,
           customer_phone: phone || null,
           idempotency_key: makeKey("fnb-tab"),
@@ -1338,12 +1343,13 @@ export default function QclubLedgerPage() {
       });
       setNewTabName("");
       setNewTabPhone("");
+      setNewTabCustomerId("");
       setFnbDestination("RUNNING_TAB");
       setFnbTabs(function(current) {
         return [opened, ...current.filter(function(row) { return row.tab_id !== opened.tab_id; })];
       });
       setSelectedFnbTabId(opened.tab_id);
-      flash("Running tab opened for " + opened.customer_name + ".");
+      flash(opened.reused ? "Existing Club Tab reopened for " + opened.customer_name + "." : "Club Tab opened for " + opened.customer_name + ".");
       runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to open running tab.", true);
@@ -1355,24 +1361,36 @@ export default function QclubLedgerPage() {
   async function closeRunningFnbTab(tabRow) {
     const activeTab = tabRow || selectedFnbTab;
     if (!activeTab) {
-      flash("Select a running tab first.", true);
+      flash("Select an open Club Tab first.", true);
       return;
     }
     if (!(Number(activeTab.total_inr || 0) > 0)) {
-      flash("This tab has no items to bill.", true);
+      flash("This Club Tab has no items to bill.", true);
       return;
     }
+
+    const linkedClubTab = activeTab.customer_id
+      ? playerTabs.find(function(row) { return row.customer_id === activeTab.customer_id; })
+      : null;
+    const amountToFinalize = Number(linkedClubTab?.unbilled_inr || activeTab.total_inr || 0);
     const ok = window.confirm(
-      "Close " + activeTab.customer_name + "'s tab and create the bill for " + money(activeTab.total_inr) + "?"
+      "Finalize " + activeTab.customer_name + "'s Club Tab for " + money(amountToFinalize) +
+      (linkedClubTab && Number(linkedClubTab.player_unbilled_inr || 0) > 0 ? "? This includes F&B plus game/table charges." : "?")
     );
     if (!ok) return;
 
     setBusy(true);
     try {
-      const bill = await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
-        method: "POST",
-        body: { idempotency_key: makeKey("close-fnb-tab") },
-      });
+      const bill = activeTab.customer_id
+        ? await protectedCall("player-tabs/" + activeTab.customer_id + "/finalize", {
+            method: "POST",
+            body: { idempotency_key: makeKey("club-tab") },
+          })
+        : await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
+            method: "POST",
+            body: { idempotency_key: makeKey("close-fnb-tab") },
+          });
+
       setBillDetail(bill);
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
@@ -1382,11 +1400,12 @@ export default function QclubLedgerPage() {
       setQuantities({});
       setTab("ledger");
       setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== activeTab.tab_id; }); });
-      flash(activeTab.customer_name + "'s tab closed. Bill " + (bill.bill_no || "") + " is ready for payment.");
+      flash(activeTab.customer_name + "'s Club Tab finalized. Bill " + (bill.bill_no || "") + " includes all unbilled activity.");
       runInBackground(refreshBillingOverview());
       runInBackground(refreshFnbFastState());
+      runInBackground(refreshLiveState());
     } catch (error) {
-      flash(error.message || "Unable to close running tab.", true);
+      flash(error.message || "Unable to finalize Club Tab.", true);
     } finally {
       setBusy(false);
     }
@@ -2206,9 +2225,9 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Running F&B tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
-            <div className="ql-section">Open Player Tabs</div>
+            <div className="ql-section">Open Club Tabs</div>
             {playerTabs.length ? (
               <div className="ql-grid" style={{ marginBottom: 14 }}>
                 {playerTabs.map(function(playerTab) {
@@ -2216,7 +2235,7 @@ export default function QclubLedgerPage() {
                   return (
                     <div className="ql-card" key={playerTab.customer_id}>
                       <div className="ql-space"><div><h3>{playerTab.name}</h3><div className="ql-muted">{locations || "In club • not currently playing"}</div></div><strong>{money(playerTab.current_due_inr)}</strong></div>
-                      <div className="ql-muted" style={{ marginTop:8 }}>Unbilled {money(playerTab.unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
+                      <div className="ql-muted" style={{ marginTop:8 }}>F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
                       <div className="ql-row" style={{ marginTop:10 }}>
                         {Number(playerTab.unbilled_inr || 0) > 0 ? <button className="ql-btn primary" onClick={function(){ finalizeClubTab(playerTab); }}>Pay / Close Tab</button> : <span className="ql-badge gold">Existing bill due</span>}
                       </div>
@@ -2224,7 +2243,7 @@ export default function QclubLedgerPage() {
                   );
                 })}
               </div>
-            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open player tabs.</div>}
+            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open Club Tabs.</div>}
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
@@ -2406,8 +2425,9 @@ export default function QclubLedgerPage() {
                         onChange={function(e) {
                           const value = e.target.value.toUpperCase();
                           setNewTabName(value);
+                          setNewTabCustomerId("");
                           const exact = customerMatches(value, 2);
-                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setNewTabPhone(exact[0].phone);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value)) { setNewTabCustomerId(exact[0].customer_id || exact[0].id || ""); if (exact[0].phone) setNewTabPhone(exact[0].phone); }
                         }}
                         placeholder="Type a regular customer's name"
                         autoComplete="off"
@@ -2422,11 +2442,11 @@ export default function QclubLedgerPage() {
                           const value = e.target.value.replace(/\D/g, "").slice(0, 10);
                           setNewTabPhone(value);
                           const match = customerByPhone(value);
-                          if (match) setNewTabName(String(match.name || newTabName).toUpperCase());
+                          if (match) { setNewTabCustomerId(match.customer_id || match.id || ""); setNewTabName(String(match.name || newTabName).toUpperCase()); }
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
-                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Running Tab</button>
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Club Tab</button>
                     </>
                   ) : (
                     <>
@@ -2457,7 +2477,7 @@ export default function QclubLedgerPage() {
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
-                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Running Tab when the customer will order again.</div>
+                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Club Tab when the customer may order again or later join a table.</div>
                     </>
                   )}
                 </div>
@@ -2466,7 +2486,7 @@ export default function QclubLedgerPage() {
 
             {fnbDestination === "RUNNING_TAB" ? (
               <>
-                <div className="ql-section">Open running tabs — {fnbTabs.length}</div>
+                <div className="ql-section">Open customer Club Tabs — {fnbTabs.length}</div>
                 <div className="ql-grid">
                   {fnbTabs.length ? fnbTabs.map(function(row) {
                     const selected = row.tab_id === selectedFnbTabId;
@@ -2485,7 +2505,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-muted" style={{ marginTop: 7 }}>Last order {row.last_order_at ? new Date(row.last_order_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
                         <div className="ql-row" style={{ marginTop: 10 }}>
                           <button className={"ql-btn " + (selected ? "primary" : "")} onClick={function() { setSelectedFnbTabId(row.tab_id); }}>+ Add Order</button>
-                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Bill & Close</button>
+                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Pay / Close Club Tab</button>
                           {Number(row.item_count || 0) === 0 ? <button className="ql-btn danger" disabled={busy} onClick={function() { cancelEmptyRunningFnbTab(row); }}>Cancel</button> : null}
                         </div>
 
