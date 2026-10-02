@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, supabaseReady } from "../supabase";
+import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -183,6 +184,7 @@ const CSS = [
   ".ql-input,.ql-select{width:100%;border:1px solid #294638;background:#08150f;color:#f7fbf8;border-radius:11px;padding:11px 12px;outline:none}.ql-label{display:block;font-size:12px;color:#abc0b3;margin:0 0 5px;font-weight:700}.ql-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ql-form-grid .full{grid-column:1/-1}",
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
   ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;bottom:12px;z-index:70;margin-top:14px;border:1px solid #3b6b50;background:rgba(7,20,13,.96);backdrop-filter:blur(16px);box-shadow:0 18px 46px rgba(0,0,0,.4);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
+  ".ql-autocomplete{position:relative}.ql-autocomplete-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:135;max-height:360px;overflow:auto;border:1px solid #315242;background:#07150f;border-radius:12px;box-shadow:0 18px 42px rgba(0,0,0,.48);padding:5px}.ql-autocomplete-option{width:100%;display:block;border:0;border-radius:9px;background:transparent;color:#f7fbf8;padding:9px 10px;text-align:left;cursor:pointer}.ql-autocomplete-option:hover,.ql-autocomplete-option.active{background:#163526;outline:1px solid #4a8b68}.ql-autocomplete-name{display:block;font-weight:900;font-size:14px}.ql-autocomplete-meta{display:flex;justify-content:space-between;gap:12px;margin-top:3px;color:#9eb2a5;font-size:12px}.ql-autocomplete-price{color:#f0d06f;font-weight:900}.ql-autocomplete-empty{padding:10px;color:#809488;font-size:12px}",
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
@@ -227,8 +229,12 @@ export default function QclubLedgerPage() {
   const [cashfreeQrError, setCashfreeQrError] = useState("");
   const cashfreeQrComponentRef = useRef(null);
   const cashfreeQrStartedRef = useRef("");
+  const fnbSearchInputRef = useRef(null);
+  const fnbAutocompleteRef = useRef(null);
   const [quantities, setQuantities] = useState({});
   const [fnbSearch, setFnbSearch] = useState("");
+  const [fnbAutocompleteOpen, setFnbAutocompleteOpen] = useState(false);
+  const [fnbAutocompleteIndex, setFnbAutocompleteIndex] = useState(-1);
   const [fnbCategory, setFnbCategory] = useState("ALL");
   const [fnbDestination, setFnbDestination] = useState("TABLE");
   const [fnbTabs, setFnbTabs] = useState([]);
@@ -237,6 +243,7 @@ export default function QclubLedgerPage() {
   const [selectedFnbTabId, setSelectedFnbTabId] = useState("");
   const [newTabName, setNewTabName] = useState("");
   const [newTabPhone, setNewTabPhone] = useState("");
+  const [newTabCustomerId, setNewTabCustomerId] = useState("");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
@@ -368,11 +375,13 @@ export default function QclubLedgerPage() {
       protectedCall("catalogue"),
       protectedCall("inventory"),
       protectedCall("fnb-tabs"),
+      protectedCall("player-tabs"),
     ]);
     setCatalogue((values[0] && (values[0].items || values[0].catalogue)) || []);
     setInventory((values[1] && (values[1].items || values[1].inventory)) || []);
     const openFnbTabs = (values[2] && values[2].tabs) || [];
     setFnbTabs(openFnbTabs);
+    setPlayerTabs((values[3] && values[3].tabs) || []);
     setSelectedFnbTabId(function(current) {
       return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
     });
@@ -503,6 +512,18 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     apiRequest("health").then(setHealth).catch(function() { setHealth(null); });
+  }, []);
+
+  useEffect(function() {
+    function closeAutocompleteOnOutsidePointer(event) {
+      const root = fnbAutocompleteRef.current;
+      if (root && !root.contains(event.target)) {
+        setFnbAutocompleteOpen(false);
+        setFnbAutocompleteIndex(-1);
+      }
+    }
+    document.addEventListener("pointerdown", closeAutocompleteOnOutsidePointer);
+    return function() { document.removeEventListener("pointerdown", closeAutocompleteOnOutsidePointer); };
   }, []);
 
   useEffect(function() {
@@ -734,6 +755,12 @@ export default function QclubLedgerPage() {
     });
   }, [sellableCatalogue, fnbCategory, fnbSearch]);
 
+  const fnbAutocompleteResults = useMemo(function() {
+    return rankFnbAutocomplete(sellableCatalogue, fnbSearch, 10);
+  }, [sellableCatalogue, fnbSearch]);
+
+  const showFnbAutocomplete = Boolean(fnbAutocompleteOpen && fnbSearch.trim() && fnbAutocompleteResults.length);
+
   const selectedFnbCount = Object.values(quantities).reduce(function(sum, q) { return sum + Number(q || 0); }, 0);
   const selectedFnbTotal = sellableCatalogue.reduce(function(sum, item) {
     const qty = Number(quantities[item.id] || 0);
@@ -834,6 +861,7 @@ export default function QclubLedgerPage() {
   }
 
   function applyCustomerToNewTab(customer) {
+    setNewTabCustomerId(customer.customer_id || customer.id || "");
     setNewTabName(String(customer.name || "").toUpperCase());
     setNewTabPhone(customer.phone || "");
   }
@@ -852,8 +880,8 @@ export default function QclubLedgerPage() {
         frameRate: "",
         isMember: false,
         players: [
-          { name: "", phone: "", teamNo: null },
-          { name: "", phone: "", teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null },
         ],
       };
     }
@@ -877,8 +905,8 @@ export default function QclubLedgerPage() {
       frameRate: "",
       isMember: false,
       players: [
-        { name: "", phone: "", teamNo: null },
-        { name: "", phone: "", teamNo: null },
+        { name: "", phone: "", customerId: null, teamNo: null },
+        { name: "", phone: "", customerId: null, teamNo: null },
       ],
     };
   }
@@ -935,8 +963,8 @@ export default function QclubLedgerPage() {
 
     const players = (startForm.players || []).map(function(player, i) {
       if (i !== index) return player;
-      if (matched) return { ...player, name: matched.name || player.name, phone: matched.phone || value };
-      return { ...player, [field]: nextValue };
+      if (matched) return { ...player, customerId: matched.customer_id || matched.id || null, name: matched.name || player.name, phone: matched.phone || value };
+      return { ...player, [field]: nextValue, ...(field === "name" ? { customerId: null } : {}) };
     });
     setMemberCheck(null);
     setStartForm({
@@ -1331,6 +1359,7 @@ export default function QclubLedgerPage() {
       const opened = await protectedCall("fnb-tabs", {
         method: "POST",
         body: {
+          customer_id: newTabCustomerId || null,
           customer_name: name,
           customer_phone: phone || null,
           idempotency_key: makeKey("fnb-tab"),
@@ -1338,12 +1367,13 @@ export default function QclubLedgerPage() {
       });
       setNewTabName("");
       setNewTabPhone("");
+      setNewTabCustomerId("");
       setFnbDestination("RUNNING_TAB");
       setFnbTabs(function(current) {
         return [opened, ...current.filter(function(row) { return row.tab_id !== opened.tab_id; })];
       });
       setSelectedFnbTabId(opened.tab_id);
-      flash("Running tab opened for " + opened.customer_name + ".");
+      flash(opened.reused ? "Existing Club Tab reopened for " + opened.customer_name + "." : "Club Tab opened for " + opened.customer_name + ".");
       runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to open running tab.", true);
@@ -1355,24 +1385,36 @@ export default function QclubLedgerPage() {
   async function closeRunningFnbTab(tabRow) {
     const activeTab = tabRow || selectedFnbTab;
     if (!activeTab) {
-      flash("Select a running tab first.", true);
+      flash("Select an open Club Tab first.", true);
       return;
     }
     if (!(Number(activeTab.total_inr || 0) > 0)) {
-      flash("This tab has no items to bill.", true);
+      flash("This Club Tab has no items to bill.", true);
       return;
     }
+
+    const linkedClubTab = activeTab.customer_id
+      ? playerTabs.find(function(row) { return row.customer_id === activeTab.customer_id; })
+      : null;
+    const amountToFinalize = Number(linkedClubTab?.unbilled_inr || activeTab.total_inr || 0);
     const ok = window.confirm(
-      "Close " + activeTab.customer_name + "'s tab and create the bill for " + money(activeTab.total_inr) + "?"
+      "Finalize " + activeTab.customer_name + "'s Club Tab for " + money(amountToFinalize) +
+      (linkedClubTab && Number(linkedClubTab.player_unbilled_inr || 0) > 0 ? "? This includes F&B plus game/table charges." : "?")
     );
     if (!ok) return;
 
     setBusy(true);
     try {
-      const bill = await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
-        method: "POST",
-        body: { idempotency_key: makeKey("close-fnb-tab") },
-      });
+      const bill = activeTab.customer_id
+        ? await protectedCall("player-tabs/" + activeTab.customer_id + "/finalize", {
+            method: "POST",
+            body: { idempotency_key: makeKey("club-tab") },
+          })
+        : await protectedCall("fnb-tabs/" + activeTab.tab_id + "/close", {
+            method: "POST",
+            body: { idempotency_key: makeKey("close-fnb-tab") },
+          });
+
       setBillDetail(bill);
       setCashAmount(Number(bill.due_inr || 0).toFixed(2));
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
@@ -1382,11 +1424,12 @@ export default function QclubLedgerPage() {
       setQuantities({});
       setTab("ledger");
       setFnbTabs(function(current) { return current.filter(function(row) { return row.tab_id !== activeTab.tab_id; }); });
-      flash(activeTab.customer_name + "'s tab closed. Bill " + (bill.bill_no || "") + " is ready for payment.");
+      flash(activeTab.customer_name + "'s Club Tab finalized. Bill " + (bill.bill_no || "") + " includes all unbilled activity.");
       runInBackground(refreshBillingOverview());
       runInBackground(refreshFnbFastState());
+      runInBackground(refreshLiveState());
     } catch (error) {
-      flash(error.message || "Unable to close running tab.", true);
+      flash(error.message || "Unable to finalize Club Tab.", true);
     } finally {
       setBusy(false);
     }
@@ -1412,6 +1455,37 @@ export default function QclubLedgerPage() {
       flash(error.message || "Unable to cancel tab.", true);
     } finally {
       setBusy(false);
+    }
+  }
+
+  function selectFnbAutocompleteItem(item) {
+    if (!item) return;
+    setQuantities(function(current) { return incrementItemQuantity(current, item.id); });
+    setFnbSearch("");
+    setFnbAutocompleteOpen(false);
+    setFnbAutocompleteIndex(-1);
+    window.requestAnimationFrame(function() {
+      if (fnbSearchInputRef.current) fnbSearchInputRef.current.focus();
+    });
+  }
+
+  function handleFnbSearchKeyDown(event) {
+    const action = autocompleteKeyAction(event.key, fnbAutocompleteIndex, fnbAutocompleteResults.length);
+    if (!action) return;
+
+    event.preventDefault();
+    if (action.type === "CLOSE") {
+      setFnbAutocompleteOpen(false);
+      setFnbAutocompleteIndex(-1);
+      return;
+    }
+    if (action.type === "MOVE") {
+      setFnbAutocompleteOpen(true);
+      setFnbAutocompleteIndex(action.index);
+      return;
+    }
+    if (action.type === "SELECT") {
+      selectFnbAutocompleteItem(fnbAutocompleteResults[action.index]);
     }
   }
 
@@ -2206,9 +2280,9 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Running F&B tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
-            <div className="ql-section">Open Player Tabs</div>
+            <div className="ql-section">Open Club Tabs</div>
             {playerTabs.length ? (
               <div className="ql-grid" style={{ marginBottom: 14 }}>
                 {playerTabs.map(function(playerTab) {
@@ -2216,7 +2290,7 @@ export default function QclubLedgerPage() {
                   return (
                     <div className="ql-card" key={playerTab.customer_id}>
                       <div className="ql-space"><div><h3>{playerTab.name}</h3><div className="ql-muted">{locations || "In club • not currently playing"}</div></div><strong>{money(playerTab.current_due_inr)}</strong></div>
-                      <div className="ql-muted" style={{ marginTop:8 }}>Unbilled {money(playerTab.unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
+                      <div className="ql-muted" style={{ marginTop:8 }}>F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
                       <div className="ql-row" style={{ marginTop:10 }}>
                         {Number(playerTab.unbilled_inr || 0) > 0 ? <button className="ql-btn primary" onClick={function(){ finalizeClubTab(playerTab); }}>Pay / Close Tab</button> : <span className="ql-badge gold">Existing bill due</span>}
                       </div>
@@ -2224,7 +2298,7 @@ export default function QclubLedgerPage() {
                   );
                 })}
               </div>
-            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open player tabs.</div>}
+            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open Club Tabs.</div>}
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
@@ -2406,8 +2480,9 @@ export default function QclubLedgerPage() {
                         onChange={function(e) {
                           const value = e.target.value.toUpperCase();
                           setNewTabName(value);
+                          setNewTabCustomerId("");
                           const exact = customerMatches(value, 2);
-                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value) && exact[0].phone) setNewTabPhone(exact[0].phone);
+                          if (exact.length === 1 && normalizeCustomerLookup(exact[0].name) === normalizeCustomerLookup(value)) { setNewTabCustomerId(exact[0].customer_id || exact[0].id || ""); if (exact[0].phone) setNewTabPhone(exact[0].phone); }
                         }}
                         placeholder="Type a regular customer's name"
                         autoComplete="off"
@@ -2422,11 +2497,11 @@ export default function QclubLedgerPage() {
                           const value = e.target.value.replace(/\D/g, "").slice(0, 10);
                           setNewTabPhone(value);
                           const match = customerByPhone(value);
-                          if (match) setNewTabName(String(match.name || newTabName).toUpperCase());
+                          if (match) { setNewTabCustomerId(match.customer_id || match.id || ""); setNewTabName(String(match.name || newTabName).toUpperCase()); }
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
-                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Running Tab</button>
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || !newTabName.trim()} onClick={createRunningFnbTab}>+ Open Club Tab</button>
                     </>
                   ) : (
                     <>
@@ -2457,7 +2532,7 @@ export default function QclubLedgerPage() {
                         }}
                         placeholder="Auto-fills for known regulars"
                       />
-                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Running Tab when the customer will order again.</div>
+                      <div className="ql-muted" style={{ marginTop: 7 }}>Quick Bill creates a payable bill immediately. Use Club Tab when the customer may order again or later join a table.</div>
                     </>
                   )}
                 </div>
@@ -2466,7 +2541,7 @@ export default function QclubLedgerPage() {
 
             {fnbDestination === "RUNNING_TAB" ? (
               <>
-                <div className="ql-section">Open running tabs — {fnbTabs.length}</div>
+                <div className="ql-section">Open customer Club Tabs — {fnbTabs.length}</div>
                 <div className="ql-grid">
                   {fnbTabs.length ? fnbTabs.map(function(row) {
                     const selected = row.tab_id === selectedFnbTabId;
@@ -2485,7 +2560,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-muted" style={{ marginTop: 7 }}>Last order {row.last_order_at ? new Date(row.last_order_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
                         <div className="ql-row" style={{ marginTop: 10 }}>
                           <button className={"ql-btn " + (selected ? "primary" : "")} onClick={function() { setSelectedFnbTabId(row.tab_id); }}>+ Add Order</button>
-                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Bill & Close</button>
+                          <button className="ql-btn gold" disabled={busy || !(Number(row.total_inr) > 0)} onClick={function() { closeRunningFnbTab(row); }}>Pay / Close Club Tab</button>
                           {Number(row.item_count || 0) === 0 ? <button className="ql-btn danger" disabled={busy} onClick={function() { cancelEmptyRunningFnbTab(row); }}>Cancel</button> : null}
                         </div>
 
@@ -2517,9 +2592,56 @@ export default function QclubLedgerPage() {
             ) : null}
             <div className="ql-section">Live catalogue</div>
             <div className="ql-fnb-tools">
-              <div>
-                <label className="ql-label">Search food / drinks</label>
-                <input className="ql-input" value={fnbSearch} onChange={function(e) { setFnbSearch(e.target.value); }} placeholder="Type item name..." />
+              <div className="ql-autocomplete" ref={fnbAutocompleteRef}>
+                <label className="ql-label" htmlFor="qclub-fnb-search">Search food / drinks</label>
+                <input
+                  id="qclub-fnb-search"
+                  ref={fnbSearchInputRef}
+                  className="ql-input"
+                  value={fnbSearch}
+                  onChange={function(e) {
+                    const value = e.target.value;
+                    setFnbSearch(value);
+                    setFnbAutocompleteOpen(Boolean(value.trim()));
+                    setFnbAutocompleteIndex(value.trim() ? 0 : -1);
+                  }}
+                  onFocus={function() {
+                    if (fnbSearch.trim() && fnbAutocompleteResults.length) setFnbAutocompleteOpen(true);
+                  }}
+                  onKeyDown={handleFnbSearchKeyDown}
+                  placeholder="Type item name..."
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showFnbAutocomplete}
+                  aria-controls="qclub-fnb-autocomplete"
+                  aria-activedescendant={showFnbAutocomplete && fnbAutocompleteIndex >= 0 ? "qclub-fnb-option-" + fnbAutocompleteIndex : undefined}
+                />
+                {showFnbAutocomplete ? (
+                  <div id="qclub-fnb-autocomplete" className="ql-autocomplete-menu" role="listbox">
+                    {fnbAutocompleteResults.map(function(item, index) {
+                      const active = index === fnbAutocompleteIndex;
+                      return (
+                        <button
+                          id={"qclub-fnb-option-" + index}
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          className={"ql-autocomplete-option " + (active ? "active" : "")}
+                          key={item.id}
+                          onMouseDown={function(e) { e.preventDefault(); }}
+                          onClick={function() { selectFnbAutocompleteItem(item); }}
+                        >
+                          <span className="ql-autocomplete-name">{item.name}</span>
+                          <span className="ql-autocomplete-meta">
+                            <span>{item.category || "Other"}</span>
+                            <span className="ql-autocomplete-price">{money(item.selling_price_inr)}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
               <div>
                 <label className="ql-label">Category</label>
