@@ -7,6 +7,7 @@ const entry = readFileSync(new URL("../src/production-entry.jsx", import.meta.ur
 const shell = readFileSync(new URL("../src/components/layout-shell.jsx", import.meta.url), "utf8");
 const home = readFileSync(new URL("../src/v2-live/V2Home.jsx", import.meta.url), "utf8");
 const food = readFileSync(new URL("../src/v2-live/V2Food.jsx", import.meta.url), "utf8");
+const css = readFileSync(new URL("../src/v2-live/v2-live.css", import.meta.url), "utf8");
 
 test("public root uses V2 Home while preserving classic admin Home controls", () => {
   assert.match(app, /path="\/" element=\{admin \? <Home[\s\S]*: <V2Home/);
@@ -59,5 +60,22 @@ test("critical production workflows remain routed through their existing compone
   ];
   for (const marker of required) {
     assert.ok(app.includes(marker), `missing production route/component marker: ${marker}`);
+  }
+});
+
+
+test("V2 body skin is scoped to allowlisted public pages only", () => {
+  assert.match(css, /body\.qclub-v2-live \.shopProductCard/);
+  assert.match(css, /body\.qclub-v2-live \.membershipTierCard/);
+  assert.match(css, /body\.qclub-v2-live \.pageHead/);
+  assert.doesNotMatch(css, /body:not\(\.qclub-v2-live\)/);
+  for (const protectedPath of ["/QclubLedger", "/QclubPay", "/QclubQr", "/admin/orders", "/food-print-bridge", "/T1", "/T2", "/T3", "/T4"]) {
+    assert.ok(!shell.toLowerCase().includes(`"${protectedPath.toLowerCase()}"`), `protected route leaked into public V2 theme: ${protectedPath}`);
+  }
+});
+
+test("existing public commerce engines remain mounted while receiving V2 presentation", () => {
+  for (const marker of ["<BookTable", "<Membership", "<QShopPage", "<Tournaments", "<Players"]) {
+    assert.ok(app.includes(marker), `existing public engine replaced unexpectedly: ${marker}`);
   }
 });
