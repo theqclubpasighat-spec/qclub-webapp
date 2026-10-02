@@ -90,13 +90,20 @@ export async function dispatchWhatsappEffect(db,env,fetcher=fetch){
 
   try{
     const message=whatsappEffectMessage(job);
+    if(!/^[6-9][0-9]{9}$/.test(message.phone)){
+      await complete(db,job.id,workerId,false,'Invalid recipient phone');settled=true;
+      fail(422,'INVALID_EFFECT_RECIPIENT');
+    }
     const template=templateName(message.label,env);
-    if(!template)fail(503,'REHEARSAL_MSG91_TEMPLATE_REQUIRED');
+    if(!template){
+      await complete(db,job.id,workerId,false,'Missing approved rehearsal MSG91 template');settled=true;
+      fail(503,'REHEARSAL_MSG91_TEMPLATE_REQUIRED');
+    }
     const request={
       integrated_number:env.MSG91_SENDER_NUMBER,
       content_type:'template',
       payload:{
-        to:message.phone.startsWith('91')?message.phone:'91'+message.phone,
+        to:'91'+message.phone,
         messaging_product:'whatsapp',
         type:'template',
         template:{
@@ -112,14 +119,14 @@ export async function dispatchWhatsappEffect(db,env,fetcher=fetch){
     });
     if(!response.ok){
       const problem=clean(await response.text().catch(()=>''),500)||('MSG91 HTTP '+response.status);
-      await complete(db,job.id,workerId,false,problem);
+      await complete(db,job.id,workerId,false,problem);settled=true;
       fail(503,'MSG91_SEND_FAILED');
     }
-    await complete(db,job.id,workerId,true,null);
+    await complete(db,job.id,workerId,true,null);settled=true;
     return {ok:true,job:{id:job.id,orderId:job.orderId,effectType:job.effectType}};
   }catch(error){
+    if(!settled)await complete(db,job.id,workerId,false,clean(error?.message,500)||'MSG91 request failed').catch(()=>{});
     if(error instanceof SecurityError)throw error;
-    await complete(db,job.id,workerId,false,clean(error?.message,500)||'MSG91 request failed').catch(()=>{});
     fail(503,'MSG91_SEND_FAILED');
   }
 }
