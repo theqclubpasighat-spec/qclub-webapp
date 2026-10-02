@@ -61,22 +61,81 @@ function textFields(v, names) {
   if (!object(v)) return {};
   return Object.fromEntries(names.filter(k => typeof v[k] === 'string').map(k => [k, v[k]]));
 }
+function publicMemberships(state) {
+  const rows=Array.isArray(state?.memberships)?state.memberships:[];
+  return rows.filter(object).map(row=>({
+    id:typeof row.id==='string'?row.id:'',
+    tier:typeof row.tier==='string'?row.tier:'',
+    price:Number.isFinite(Number(row.price))?Number(row.price):0,
+    perks:Array.isArray(row.perks)?row.perks.filter(v=>typeof v==='string').slice(0,30):[],
+    note:typeof row.note==='string'?row.note:'',
+  }));
+}
+function publicBookingRates(state) {
+  const rows=Array.isArray(state?.booking?.tables)?state.booking.tables:[];
+  return rows.filter(object).map(row=>({
+    id:typeof row.id==='string'?row.id:'',
+    label:typeof row.label==='string'?row.label:'',
+    pricePerHour:Number.isFinite(Number(row.pricePerHour))?Number(row.pricePerHour):0,
+    memberPricePerHour:Number.isFinite(Number(row.memberPricePerHour))?Number(row.memberPricePerHour):0,
+  }));
+}
 // Explicit projection: an added private field never becomes public by default.
 // This is a new API contract, not a drop-in replacement for cloud.js yet.
 export function publicContent(state) {
   return {
     club: textFields(state?.club, ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent']),
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
+    memberships: publicMemberships(state),
+    bookingRates: publicBookingRates(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'notices', 'memberships', 'bookingRates'];
 const CLUB_KEYS = ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent'];
+const safeId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(value);
+function safeText(value,max=1000){return typeof value==='string'&&value.length<=max;}
+function safeMoney(value){return Number.isSafeInteger(value)&&value>=0&&value<=1000000;}
+function patchMemberships(current,rows){
+  const existing=Array.isArray(current?.memberships)?current.memberships:[];
+  if(!Array.isArray(rows)||rows.length!==existing.length||rows.length>20)fail(400,'INVALID_CONTENT_PATCH');
+  const byId=new Map();
+  for(const row of rows){
+    if(!object(row)||Object.keys(row).some(k=>!['id','tier','price','perks','note'].includes(k))||!safeId(row.id)||byId.has(row.id)
+      ||!safeText(row.tier,100)||!safeMoney(row.price)||!Array.isArray(row.perks)||row.perks.length>30
+      ||row.perks.some(v=>!safeText(v,500))||!safeText(row.note,1000))fail(400,'INVALID_CONTENT_PATCH');
+    byId.set(row.id,row);
+  }
+  return existing.map(old=>{
+    if(!object(old)||!safeId(old.id)||!byId.has(old.id))fail(400,'INVALID_CONTENT_PATCH');
+    const row=byId.get(old.id);
+    return {...old,tier:row.tier,price:row.price,perks:[...row.perks],note:row.note};
+  });
+}
+function patchBookingRates(current,rows){
+  const existing=Array.isArray(current?.booking?.tables)?current.booking.tables:[];
+  if(!Array.isArray(rows)||rows.length!==existing.length||rows.length>20)fail(400,'INVALID_CONTENT_PATCH');
+  const byId=new Map();
+  for(const row of rows){
+    if(!object(row)||Object.keys(row).some(k=>!['id','label','pricePerHour','memberPricePerHour'].includes(k))||!safeId(row.id)||byId.has(row.id)
+      ||!safeText(row.label,120)||!safeMoney(row.pricePerHour)||!safeMoney(row.memberPricePerHour)
+      ||row.memberPricePerHour>row.pricePerHour)fail(400,'INVALID_CONTENT_PATCH');
+    byId.set(row.id,row);
+  }
+  const tables=existing.map(old=>{
+    if(!object(old)||!safeId(old.id)||!byId.has(old.id))fail(400,'INVALID_CONTENT_PATCH');
+    const row=byId.get(old.id);
+    return {...old,label:row.label,pricePerHour:row.pricePerHour,memberPricePerHour:row.memberPricePerHour};
+  });
+  return {...(object(current?.booking)?current.booking:{}),tables};
+}
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
   const next = structuredClone(current);
   for (const [section, fields] of Object.entries(changes)) {
     if (section === 'notices') { next.announcements = applyNotices(current, fields); continue; }
+    if (section === 'memberships') { next.memberships = patchMemberships(current, fields); continue; }
+    if (section === 'bookingRates') { next.booking = patchBookingRates(current, fields); continue; }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
     if (!object(fields) || !Object.keys(fields).length || Object.keys(fields).some(k => !allowed.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
     for (const value of Object.values(fields)) if (typeof value !== 'string' || value.length > 30000) fail(400, 'INVALID_CONTENT_PATCH');
