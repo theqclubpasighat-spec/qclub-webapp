@@ -245,6 +245,19 @@ A private tournament-registration reservation prevents simultaneous duplicate pa
 
 The paid audit record is written through the existing atomic payment fulfilment path as `tournament_registration`; no browser-provided paid flag, fee, tournament name or roster mutation is accepted. Anon/authenticated roles have no access to the reservation table or checkout RPC.
 
-Membership checkout is intentionally not implemented in this package. Current production membership catalogue prices are server data, but the production membership objects contain no validity-duration field from which a trustworthy `validUntil` can be derived. Older project pricing also differs from the current catalogue. A membership purchase must not activate with an invented expiry or stale amount; commercial terms need explicit reconciliation first.
+Membership was initially held back in this package while its commercial terms were reconciled against production data. The current cloud catalogue remains authoritative for price, and the existing member registry confirms the operating one-calendar-month validity model. Package 15 implements that rule without accepting browser-supplied price or expiry.
 
 No production database migration, production tournament registration, live Cashfree transaction, membership activation, MSG91 send or Android change is part of Package 14.
+
+
+## Package 15 — monthly membership activation rehearsal
+
+Membership checkout is now rehearsal-only under `?action=membership` and the `qcm_` payment namespace. The browser supplies only a membership catalogue ID plus customer name/mobile. Tier, price and duration are server-controlled. The current `qclub_state.memberships` catalogue is authoritative for price, so older poster amounts cannot override the cloud value.
+
+The validity rule is one calendar month, matching the existing production member-registry pattern. A new or expired member receives one month from the India-local activation date. An active renewal extends one calendar month from the current `validUntil`, preserving already-paid remaining days. A tier change on renewal takes effect with the paid renewal while retaining the extended expiry.
+
+Only one membership payment may be pending per mobile number at a time. Existing registry identity is matched by normalized mobile; if that mobile maps to more than one member, checkout fails closed, and if the submitted name conflicts with the existing member name, checkout is rejected rather than silently transferring a non-transferable membership.
+
+Successful authoritative Cashfree fulfilment updates or creates exactly one `memberRegistry` row, preserves unrelated member fields, marks the private reservation fulfilled and creates a `membership_activation` operational audit record. Server-verified EXPIRED/TERMINATED payment state releases the pending reservation and leaves membership data unchanged. The qcm namespace participates in bounded stale-payment reconciliation.
+
+No production database migration, live membership change, live Cashfree transaction, MSG91 send, RFID change or Android change is part of Package 15.
