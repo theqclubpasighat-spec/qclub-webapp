@@ -94,7 +94,8 @@ begin
     or p_duration_hours not between 1 and 5
     or p_booking_type not in ('member','nonmember')
     or p_customer_name is null or length(trim(p_customer_name)) not between 1 and 120
-    or p_customer_phone is null or p_customer_phone !~ '^[6-9][0-9]{9}
+    or p_customer_phone is null or p_customer_phone !~ '^[6-9][0-9]{9}$'
+    or p_note is null or length(p_note)>1000 then
     return jsonb_build_object('ok',false,'reason','INVALID_BOOKING');
   end if;
 
