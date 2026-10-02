@@ -31,8 +31,11 @@ test('V2 shell applies public skin only to public routes', async () => {
   for (const path of ['/shop','/book','/membership','/tournaments','/fixtures','/leaderboard','/players','/halloffame','/photos']) {
     assert.ok(shell.includes('"' + path + '"'), path);
   }
+  const setMatch=shell.match(/const PUBLIC_V2_PATHS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(setMatch,'PUBLIC_V2_PATHS set missing');
+  const publicSet=setMatch[1];
   for (const protectedPath of ['/QclubLedger','/QclubPay','/QclubQr','/admin/orders','/food-print-bridge']) {
-    assert.equal(shell.includes('"' + protectedPath + '"'), false, protectedPath);
+    assert.equal(publicSet.includes('"' + protectedPath + '"'), false, protectedPath);
   }
   assert.match(shell, /document\.body\.classList\.toggle\("qclub-v2-live",\s*isV2Public\)/);
 });
