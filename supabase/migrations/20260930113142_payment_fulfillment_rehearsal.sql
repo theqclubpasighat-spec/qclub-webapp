@@ -78,3 +78,43 @@ end $$;
 revoke all on function qclub_private.freeze_payment_terms() from public,anon,authenticated;
 create trigger freeze_payment_terms before update on qclub_private.payment_intents
 for each row execute function qclub_private.freeze_payment_terms();
+
+
+-- Webhook/return recovery support. Service role can verify an order without possessing
+-- the browser receipt token; browser roles have no EXECUTE privilege.
+create function public.qclub_payment_intent_service(p_order_id text)
+returns jsonb language sql security invoker set search_path=pg_catalog as $$
+  select jsonb_build_object('amount_paise',i.amount_paise,'status',i.status)
+  from qclub_private.payment_intents i where i.order_id=p_order_id
+$$;
+revoke all on function public.qclub_payment_intent_service(text) from public,anon,authenticated;
+grant execute on function public.qclub_payment_intent_service(text) to service_role;
+
+create function public.qclub_payment_fulfill_service(p_order_id text,p_amount_paise bigint,p_currency text,p_payment_id text)
+returns jsonb language plpgsql security invoker set search_path=pg_catalog as $$
+declare intent qclub_private.payment_intents%rowtype; target_status text; written integer;
+begin
+  select * into intent from qclub_private.payment_intents where order_id=p_order_id for update;
+  if not found then return jsonb_build_object('ok',false); end if;
+  if intent.amount_paise is distinct from p_amount_paise or intent.currency is distinct from p_currency
+    or p_payment_id is null or p_payment_id !~ '^[A-Za-z0-9_-]{1,100}$' then
+    return jsonb_build_object('ok',false,'conflict',true);
+  end if;
+  if intent.status='fulfilled' then
+    return jsonb_build_object('ok',intent.gateway_payment_id=p_payment_id,'conflict',intent.gateway_payment_id<>p_payment_id);
+  end if;
+  target_status:=case when intent.record_type='booking_request' then 'paid_verified' else 'paid' end;
+  insert into public.qclub_operational_records(record_type,record_key,payload,source,status,updated_at)
+    values(intent.record_type,intent.record_key,
+      intent.payload || jsonb_build_object('gatewayOrderId',intent.order_id,'paymentStatus','Paid','source','cashfree_verified_server','updatedAt',clock_timestamp(),'status',case when intent.record_type='booking_request' then 'paid_verified' else 'Paid' end)
+      || case when intent.record_type='booking_request' then jsonb_build_object('amount',intent.amount_paise/100.0) else jsonb_build_object('total',intent.amount_paise/100.0) end,
+      'cashfree_verified_server',target_status,clock_timestamp())
+    on conflict (record_type,record_key) do nothing;
+  get diagnostics written=row_count;
+  if written<>1 then return jsonb_build_object('ok',false,'conflict',true); end if;
+  update qclub_private.payment_intents set status='fulfilled',gateway_payment_id=p_payment_id,fulfilled_at=clock_timestamp()
+    where order_id=p_order_id;
+  return jsonb_build_object('ok',true);
+end $$;
+revoke all on function public.qclub_payment_fulfill_service(text,bigint,text,text) from public,anon,authenticated;
+grant execute on function public.qclub_payment_fulfill_service(text,bigint,text,text) to service_role;
