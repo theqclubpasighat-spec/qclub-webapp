@@ -71,7 +71,7 @@ test('cart correction requires durable server closure and preserves the saved de
   const body=JSON.parse(options.body);requests.push({path,body});return {ok:true,json:async()=>({state:'closed',orderId:`qcr_${body.checkoutId}`})};
  }});const original=client.prepare(items,customer);
  assert.deepEqual(await client.editCart(),original);assert.equal(client.current(),null);
- assert.deepEqual(requests[0],{path:'/api/qclub-checkout-recovery-rehearsal',body:{checkoutId:original.body.checkoutId,receiptToken:original.body.receiptToken}});
+ assert.deepEqual(requests[0],{path:'/api/qclub-checkout-rehearsal?action=recover',body:{checkoutId:original.body.checkoutId,receiptToken:original.body.receiptToken}});
  const restored=createCheckoutClient({storage:disk,crypto:webcrypto});assert.equal(restored.current(),null);
  assert.notEqual(restored.prepare(items,customer).body.checkoutId,original.body.checkoutId);
 });
