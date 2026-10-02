@@ -28,7 +28,7 @@ export function sandboxCheckout(env,fetcher=fetch) {
     const base='https://sandbox.cashfree.com/pg/orders';
     const orderMeta={
       return_url:`${publicOrigin}/__checkout-preview?order_id={order_id}`,
-      notify_url:`${publicOrigin}/api/qclub-payment-webhook-rehearsal`,
+      notify_url:`${publicOrigin}/api/qclub-payment-rehearsal?action=webhook`,
     };
     let response=await request('POST',base,{order_id:orderId,order_amount:amountPaise/100,order_currency:'INR',customer_details:{customer_id:orderId,customer_name:customer.name,customer_phone:customer.phone},order_meta:orderMeta});
     if(response.status===409)response=await request('GET',`${base}/${orderId}`);
