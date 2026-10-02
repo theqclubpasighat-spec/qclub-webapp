@@ -1,0 +1,257 @@
+{
+  "source_project": "qclub-staging",
+  "source_project_ref": "pqoaexwjyknzalhmnapc",
+  "captured_at": "2026-10-02",
+  "note": "Non-sensitive configuration only. No customer, player, receipt, payment, audit-log, auth or personal data is included.",
+  "club_settings": [
+    {
+      "is_open_now": true,
+      "opens_at": "11:00:00",
+      "closes_at": "23:00:00",
+      "status_note": "Members only from 6 pm",
+      "hero_speed_ms": 3500,
+      "tv_showcase_mode": "mixed",
+      "notification_toggles": {},
+      "status": "published"
+    }
+  ],
+  "membership_tiers": [
+    {
+      "name": "Bronze",
+      "price_inr": 799,
+      "featured": false,
+      "sort_order": 1,
+      "active": true,
+      "status": "published"
+    },
+    {
+      "name": "Silver",
+      "price_inr": 1399,
+      "featured": false,
+      "sort_order": 2,
+      "active": true,
+      "status": "published"
+    },
+    {
+      "name": "Gold",
+      "price_inr": 2199,
+      "featured": true,
+      "sort_order": 3,
+      "active": true,
+      "status": "published"
+    },
+    {
+      "name": "Platinum",
+      "price_inr": 3299,
+      "featured": false,
+      "sort_order": 4,
+      "active": true,
+      "status": "published"
+    }
+  ],
+  "theme_settings": [
+    {
+      "name": "The Billiards Room",
+      "is_default": true,
+      "status": "published",
+      "tokens": {
+        "ivory": "44 38% 91%",
+        "charcoal": "160 7% 11%",
+        "felt-850": "154 24% 8%",
+        "felt-900": "155 30% 6%",
+        "felt-950": "156 38% 4%",
+        "baize-400": "150 48% 42%",
+        "baize-500": "151 52% 33%",
+        "baize-600": "152 55% 26%",
+        "baize-700": "152 58% 20%",
+        "brass-300": "45 66% 76%",
+        "brass-400": "43 58% 66%",
+        "brass-500": "41 48% 55%",
+        "brass-600": "40 38% 42%",
+        "ivory-dim": "44 18% 68%",
+        "charcoal-raised": "158 8% 14%"
+      }
+    }
+  ],
+  "static_pages": [
+    {
+      "slug": "about",
+      "title": "About The Q Club",
+      "status": "draft"
+    },
+    {
+      "slug": "privacy",
+      "title": "Privacy Policy",
+      "status": "draft"
+    },
+    {
+      "slug": "refund",
+      "title": "Refund Policy",
+      "status": "draft"
+    },
+    {
+      "slug": "terms",
+      "title": "Terms of Use",
+      "status": "draft"
+    },
+    {
+      "slug": "tournament-rules",
+      "title": "Tournament Rules & Terms",
+      "status": "draft"
+    }
+  ],
+  "feature_flags": [
+    {
+      "flag_key": "careers_applications",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "cms",
+      "scope": "club",
+      "enabled": true
+    },
+    {
+      "flag_key": "email_channel",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "food_ordering",
+      "scope": "club",
+      "enabled": true
+    },
+    {
+      "flag_key": "kitty_scoring",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "live_displays",
+      "scope": "club",
+      "enabled": true
+    },
+    {
+      "flag_key": "membership_signup",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "online_booking",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "online_payments",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "public_member_directory",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "push_channel",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "qchase_scoring",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "qshop",
+      "scope": "club",
+      "enabled": true
+    },
+    {
+      "flag_key": "sms_channel",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "tournament_engine",
+      "scope": "club",
+      "enabled": false
+    },
+    {
+      "flag_key": "whatsapp_channel",
+      "scope": "club",
+      "enabled": false
+    }
+  ],
+  "notification_templates": [
+    {
+      "event_type": "booking.confirmed",
+      "channel": "whatsapp",
+      "provider_template": "booking_success"
+    },
+    {
+      "event_type": "booking.requested",
+      "channel": "push",
+      "provider_template": ""
+    },
+    {
+      "event_type": "food_order.paid",
+      "channel": "printer",
+      "provider_template": "food_receipt_80mm"
+    },
+    {
+      "event_type": "food_order.paid",
+      "channel": "push",
+      "provider_template": ""
+    },
+    {
+      "event_type": "food_order.paid",
+      "channel": "tv",
+      "provider_template": ""
+    },
+    {
+      "event_type": "food_order.paid",
+      "channel": "whatsapp",
+      "provider_template": "food_success_items"
+    },
+    {
+      "event_type": "job_application.received",
+      "channel": "whatsapp",
+      "provider_template": "job_application_received"
+    },
+    {
+      "event_type": "kitty.settled",
+      "channel": "whatsapp",
+      "provider_template": "kitty_result_settlement"
+    },
+    {
+      "event_type": "membership.activated",
+      "channel": "whatsapp",
+      "provider_template": "membership_success"
+    },
+    {
+      "event_type": "payment.failed",
+      "channel": "whatsapp",
+      "provider_template": "payment_failed"
+    },
+    {
+      "event_type": "payment.verified",
+      "channel": "whatsapp",
+      "provider_template": "payment_success_items"
+    },
+    {
+      "event_type": "qchase.final_locked",
+      "channel": "whatsapp",
+      "provider_template": "qchase_result_final"
+    },
+    {
+      "event_type": "shop_order.paid",
+      "channel": "whatsapp",
+      "provider_template": "qshop_success_items"
+    },
+    {
+      "event_type": "tournament.entry_confirmed",
+      "channel": "whatsapp",
+      "provider_template": "tournament_success"
+    }
+  ]
+}
