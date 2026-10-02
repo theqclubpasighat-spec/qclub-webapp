@@ -219,6 +219,7 @@ function getTemplateSpec(kind = "", context = "") {
 }
 
 function getSuccessTemplateName(context = "") {
+  if (contextKey(context) === "food") return QLOUNGE_SUCCESS_TEMPLATE;
   const spec = getTemplateSpec("success", context);
   return spec ? env(spec.envName) || spec.fallbackTemplate || "" : "";
 }
