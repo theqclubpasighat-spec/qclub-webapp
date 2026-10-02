@@ -104,3 +104,24 @@ test('Cashfree return reconciles only the exact saved order',async()=>{
  await assert.rejects(client.resumeReturn('qcr_00000000-0000-4000-8000-000000000000'),e=>e.code==='RETURN_ORDER_MISMATCH');
  assert.deepEqual(client.current(),saved);
 });
+
+test('terminal Cashfree order can safely release the saved attempt for a refreshed cart',async()=>{
+ const disk=storage(),seen=[];
+ const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(path,options)=>{
+  const body=JSON.parse(options.body);seen.push({path,body});
+  return {ok:true,json:async()=>({state:'expired',orderId:body.orderId,reason:'EXPIRED'})};
+ }});
+ const saved=client.prepare(items,customer);
+ const released=await client.retryExpired();
+ assert.deepEqual(released,saved);assert.equal(client.current(),null);
+ assert.equal(client.lastReference(),`qcr_${saved.body.checkoutId}`);
+ assert.equal(seen.length,1);assert.equal(seen[0].path,'/api/qclub-payment-rehearsal');
+});
+test('active payment cannot be replaced through terminal-order recovery',async()=>{
+ const disk=storage();const client=createCheckoutClient({storage:disk,crypto:webcrypto,fetcher:async(_path,options)=>{
+  const body=JSON.parse(options.body);return {ok:true,json:async()=>({state:'pending',orderId:body.orderId})};
+ }});
+ const saved=client.prepare(items,customer);
+ await assert.rejects(client.retryExpired(),e=>e.code==='ORDER_NOT_EXPIRED');
+ assert.deepEqual(client.current(),saved);
+});
