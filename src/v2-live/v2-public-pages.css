@@ -1,0 +1,405 @@
+/* V2 public-page body skin.
+   This file is presentation-only: no data, payment, booking, scoring or admin behaviour lives here. */
+
+body.qclub-v2-live .pageHead {
+  width: 100%;
+  margin: 18px 0 8px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--qv2-border);
+  border-radius: 16px;
+  background:
+    radial-gradient(520px 180px at 100% 0, rgba(219,186,113,.10), transparent 68%),
+    linear-gradient(145deg, rgba(20,38,30,.98), rgba(13,29,22,.98));
+  box-shadow: 0 14px 34px rgba(0,0,0,.22);
+}
+body.qclub-v2-live .pageHeadLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+body.qclub-v2-live .pageTitle {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.85rem, 7vw, 3rem);
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+body.qclub-v2-live .pageHead .muted {
+  margin-top: 6px;
+  font-size: .92rem;
+}
+body.qclub-v2-live .pageHeadRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+body.qclub-v2-live .iconBtn {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #5c705f !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.025) !important;
+  color: var(--qv2-ivory) !important;
+}
+
+body.qclub-v2-live .grid {
+  gap: 14px !important;
+}
+body.qclub-v2-live .card {
+  border-radius: 16px !important;
+  padding: 18px !important;
+}
+body.qclub-v2-live .card > h2:first-child,
+body.qclub-v2-live .card > h3:first-child {
+  font-family: Georgia, "Times New Roman", serif;
+}
+body.qclub-v2-live .badge {
+  border-color: #4e6a56 !important;
+  background: rgba(219,186,113,.08) !important;
+  color: var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .hr {
+  border-color: var(--qv2-border) !important;
+}
+body.qclub-v2-live .lbl,
+body.qclub-v2-live .infoLabel {
+  color: var(--qv2-brass) !important;
+  font-weight: 750;
+  letter-spacing: .035em;
+}
+body.qclub-v2-live .infoValue {
+  color: var(--qv2-ivory) !important;
+}
+
+body.qclub-v2-live table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--qv2-border);
+  border-radius: 12px;
+  background: rgba(9,23,17,.42);
+}
+body.qclub-v2-live th {
+  color: var(--qv2-brass-soft) !important;
+  background: rgba(219,186,113,.07) !important;
+  font-size: .77rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+body.qclub-v2-live th,
+body.qclub-v2-live td {
+  border-bottom-color: var(--qv2-border) !important;
+}
+body.qclub-v2-live tr:last-child td {
+  border-bottom: 0 !important;
+}
+body.qclub-v2-live .player-link {
+  color: var(--qv2-brass-soft) !important;
+}
+
+/* Q Shop */
+body.qclub-v2-live .shopPageContainer {
+  padding-bottom: 96px;
+}
+body.qclub-v2-live .shopHeroCard {
+  padding: 22px !important;
+  overflow: hidden;
+  position: relative;
+}
+body.qclub-v2-live .shopHeroCard::after {
+  content: "Q";
+  position: absolute;
+  right: -16px;
+  top: -30px;
+  font: 900 150px/1 Georgia, serif;
+  color: rgba(219,186,113,.055);
+  pointer-events: none;
+}
+body.qclub-v2-live .shopCartCard {
+  position: relative;
+  border-color: rgba(219,186,113,.42) !important;
+}
+body.qclub-v2-live .shopProductGrid {
+  display: grid !important;
+  grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+  gap: 12px !important;
+}
+body.qclub-v2-live .shopProductCard {
+  padding: 0 !important;
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.qclub-v2-live .shopProductMainImage {
+  width: 100% !important;
+  aspect-ratio: 1.35;
+  object-fit: cover !important;
+  border-radius: 0 !important;
+  background: #102219;
+}
+body.qclub-v2-live .shopProductCard > div:not(.shopGalleryThumbRow):not(.row) {
+  min-width: 0;
+}
+body.qclub-v2-live .shopGalleryThumbRow {
+  padding: 8px 10px 0;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+}
+body.qclub-v2-live .shopGalleryThumbBtn {
+  flex: 0 0 48px;
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 9px !important;
+  border-color: #4e6a56 !important;
+  overflow: hidden;
+}
+body.qclub-v2-live .shopOptionRow {
+  gap: 7px !important;
+  flex-wrap: wrap;
+}
+body.qclub-v2-live .shopFloatingCart {
+  position: fixed !important;
+  z-index: 850;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px,env(safe-area-inset-bottom));
+  width: auto !important;
+  max-width: 720px;
+  margin: 0 auto;
+  border: 1px solid rgba(219,186,113,.55) !important;
+  border-radius: 15px !important;
+  background: rgba(12,30,22,.96) !important;
+  box-shadow: 0 18px 52px rgba(0,0,0,.45);
+  backdrop-filter: blur(16px);
+}
+body.qclub-v2-live .shopFloatingCartCount {
+  color: var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .shopFloatingCartTotal {
+  color: var(--qv2-ivory) !important;
+  font-weight: 850;
+}
+
+/* Booking */
+body.qclub-v2-live .card.cols-7 {
+  border-color: rgba(219,186,113,.36) !important;
+}
+body.qclub-v2-live .card.cols-7 .btn.secondary,
+body.qclub-v2-live .card.cols-7 .btn.warn {
+  min-height: 44px;
+}
+body.qclub-v2-live .card.cols-7 input,
+body.qclub-v2-live .card.cols-7 select,
+body.qclub-v2-live .card.cols-7 textarea {
+  min-height: 46px;
+  border-radius: 10px !important;
+}
+body.qclub-v2-live .card.cols-7 textarea {
+  min-height: 92px;
+}
+body.qclub-v2-live .card.cols-12 .badge {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Membership */
+body.qclub-v2-live .membershipNoteBar {
+  margin: 8px auto 14px !important;
+  border: 1px solid rgba(219,186,113,.38) !important;
+  border-radius: 14px !important;
+  background: rgba(219,186,113,.07) !important;
+}
+body.qclub-v2-live .membershipNoteLabel {
+  color: var(--qv2-brass-soft) !important;
+}
+body.qclub-v2-live .membershipTierCard {
+  position: relative;
+  overflow: hidden;
+  transition: transform .16s ease,border-color .16s ease;
+}
+body.qclub-v2-live .membershipTierCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(219,186,113,.65) !important;
+}
+body.qclub-v2-live .membershipTierCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(var(--qv2-brass-soft),#6c8f72);
+}
+body.qclub-v2-live .membershipTierCard h2 {
+  font-size: 1.45rem;
+}
+body.qclub-v2-live .membershipTierCard .btn.neonGreen {
+  width: 100%;
+  min-height: 48px;
+}
+
+/* Photos */
+body.qclub-v2-live .photoGrid {
+  display: grid !important;
+  grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+  gap: 12px !important;
+}
+body.qclub-v2-live .photoCard {
+  border: 1px solid var(--qv2-border) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  background: var(--qv2-surface) !important;
+}
+body.qclub-v2-live .photoCard img {
+  background: #0d1d16 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  aspect-ratio: 1.15;
+  height: auto !important;
+}
+body.qclub-v2-live .photoCardFooter {
+  padding: 12px !important;
+  gap: 10px;
+}
+body.qclub-v2-live .photoCaption {
+  color: var(--qv2-ivory) !important;
+  font-weight: 700;
+}
+
+/* Players, tournaments, fixtures, leaderboards and Hall of Fame */
+body.qclub-v2-live .avatarLarge {
+  background: linear-gradient(145deg,#28553b,#193325) !important;
+  color: var(--qv2-brass-soft) !important;
+  border: 1px solid #4e6a56;
+}
+body.qclub-v2-live .sectionTitle {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--qv2-ivory) !important;
+}
+body.qclub-v2-live .grid > .card.cols-6,
+body.qclub-v2-live .grid > .card.cols-4,
+body.qclub-v2-live .grid > .card.cols-5 {
+  min-width: 0;
+}
+body.qclub-v2-live .grid > .card.cols-6:hover,
+body.qclub-v2-live .grid > .card.cols-4:hover,
+body.qclub-v2-live .grid > .card.cols-5:hover {
+  border-color: rgba(219,186,113,.50) !important;
+}
+body.qclub-v2-live .modalBackdrop {
+  background: rgba(0,0,0,.72) !important;
+  backdrop-filter: blur(8px);
+}
+body.qclub-v2-live .modalCard {
+  background: #12251c !important;
+  color: var(--qv2-ivory) !important;
+  border: 1px solid #5d705f !important;
+  border-radius: 17px !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.55) !important;
+}
+body.qclub-v2-live .playerModal {
+  width: min(680px,calc(100vw - 24px)) !important;
+}
+
+/* Forms and controls shared across public legacy bodies */
+body.qclub-v2-live input:focus,
+body.qclub-v2-live select:focus,
+body.qclub-v2-live textarea:focus,
+body.qclub-v2-live button:focus-visible,
+body.qclub-v2-live a:focus-visible {
+  outline: 2px solid var(--qv2-brass) !important;
+  outline-offset: 2px;
+}
+body.qclub-v2-live input,
+body.qclub-v2-live select,
+body.qclub-v2-live textarea {
+  min-height: 44px;
+  border-radius: 9px !important;
+}
+body.qclub-v2-live .btn {
+  min-height: 44px;
+  border-radius: 9px !important;
+  font-weight: 750;
+}
+body.qclub-v2-live .btn.danger {
+  background: rgba(155,74,61,.14) !important;
+  border-color: #8e5148 !important;
+  color: #ffd9d4 !important;
+}
+
+@media (min-width:720px) {
+  body.qclub-v2-live .pageHead {
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  body.qclub-v2-live .shopProductGrid {
+    grid-template-columns: repeat(3,minmax(0,1fr)) !important;
+  }
+  body.qclub-v2-live .photoGrid {
+    grid-template-columns: repeat(3,minmax(0,1fr)) !important;
+  }
+}
+
+@media (min-width:1040px) {
+  body.qclub-v2-live .shopProductGrid {
+    grid-template-columns: repeat(4,minmax(0,1fr)) !important;
+  }
+  body.qclub-v2-live .photoGrid {
+    grid-template-columns: repeat(4,minmax(0,1fr)) !important;
+  }
+  body.qclub-v2-live .shopFloatingCart {
+    left: auto;
+    right: 24px;
+    width: min(520px,calc(100vw - 48px)) !important;
+  }
+}
+
+@media (max-width:640px) {
+  body.qclub-v2-live .container {
+    width: min(100% - 20px,1160px) !important;
+  }
+  body.qclub-v2-live .pageHead {
+    margin-top: 10px;
+  }
+  body.qclub-v2-live .pageHeadRight {
+    width: 100%;
+    margin-top: 12px;
+  }
+  body.qclub-v2-live .pageHeadRight > * {
+    max-width: 100%;
+  }
+  body.qclub-v2-live .card {
+    padding: 15px !important;
+  }
+  body.qclub-v2-live .shopProductCard {
+    padding: 0 !important;
+  }
+  body.qclub-v2-live .shopProductGrid,
+  body.qclub-v2-live .photoGrid {
+    gap: 10px !important;
+  }
+  body.qclub-v2-live table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width:390px) {
+  body.qclub-v2-live .shopProductGrid,
+  body.qclub-v2-live .photoGrid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  body.qclub-v2-live .membershipTierCard {
+    transition: none;
+  }
+}
