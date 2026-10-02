@@ -169,3 +169,24 @@ No production database migration, production environment variable change, live C
 ### Rehearsal API consolidation
 
 The Vercel Hobby function-count limit is satisfied by consolidating the rehearsal menu and unused-checkout recovery actions into the existing `/api/qclub-checkout-rehearsal` function. Menu uses `?action=menu`; recovery uses `?action=recover`; normal checkout creation keeps the original route without an action. The signed Cashfree webhook remains an action on the existing payment rehearsal function. No production API route was removed or merged.
+
+
+## Package 10 progress — tracked inventory reservation
+
+Tracked Q Lounge items are no longer rejected by the rehearsal checkout. The server now validates the complete cart first, locks catalogue rows in deterministic item-ID order, and reserves tracked stock only after every line has passed validation. Reservation and private payment-intent creation occur in one database transaction. A mixed cart that later fails validation therefore leaves all previously inspected stock unchanged.
+
+A private `checkout_stock_reservations` ledger records the order, item, quantity and lifecycle state. It is RLS-protected and inaccessible to `anon` and `authenticated`. Reservation immediately reduces `snooker_catalogue_items.current_stock` in the isolated rehearsal database, so another checkout cannot sell the same units. Replaying the same checkout identity does not decrement stock again. A second checkout that would exceed remaining stock fails before a Cashfree order is created.
+
+Food checkout intents now use a one-hour server expiry and pass that exact expiry to Cashfree as `order_expiry_time`. Payment verification always retrieves the order and its payment attempts. Stock remains reserved while Cashfree reports an ACTIVE order, TERMINATION_REQUESTED, any PENDING transaction, or contradictory evidence such as an ACTIVE order accompanied by a SUCCESS payment. Contradictory gateway snapshots fail closed and are rechecked instead of either fulfilling or releasing stock.
+
+A reservation is consumed only after a Cashfree order is PAID and a matching SUCCESS payment has the same order ID, INR currency and server-frozen amount. Fulfilment marks the reservation fulfilled without decrementing stock a second time. The operational record and reservation/payment lifecycle still commit atomically.
+
+Reserved stock is restored only after the server independently reads Cashfree and receives a final EXPIRED or TERMINATED order with no successful or pending transaction. The service-role-only terminal-close RPC restores each reserved quantity under row locks, marks reservation rows released and permanently marks the payment intent terminal so a later browser replay cannot fulfil it. Repeated terminal checks are idempotent. Cashfree documents EXPIRED as no longer accepting new transactions; TERMINATION_REQUESTED is deliberately not treated as final.
+
+The customer preview can recover a server-confirmed terminal order. It preserves the previous order reference, clears the active recovery identity only after the server reports the terminal state, reloads the authoritative menu, removes unavailable items, caps tracked quantities to currently available stock and requires a fresh checkout identity for another attempt.
+
+Validation now includes oversell prevention, idempotent reservation reuse, exact stock restoration after terminal Cashfree state, no second decrement on successful payment, mixed-cart rollback, pending-payment reservation retention, browser terminal recovery and the previous checkout/recovery suite. The full application/database suite reached 61/61 passing checks after the compatibility fixes.
+
+Remaining release gate: there is not yet a scheduled reconciliation sweep for a customer who abandons a reserved order, never returns to the checkout and produces no useful webhook after Cashfree expiry. Such stock remains safely unavailable rather than being released speculatively. A server-side reconciler must query Cashfree for stale pending intents and invoke the same terminal-close path before production use. Real Cashfree sandbox acceptance and physical Android/iPhone testing are also still required.
+
+No production database migration, live stock movement, production Cashfree order, production environment-variable change, MSG91 send or Android change is part of Package 10.
