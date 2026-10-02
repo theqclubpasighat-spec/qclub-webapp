@@ -6,7 +6,7 @@ Base: `qclub-webapp` main `b8653b0d8df44248b3edcad0e6b1fae3a44cd838`.
 
 ## Included
 
-- A new, disabled-by-default `/api/qclub-security?action=...` endpoint.
+- A disabled-by-default rehearsal security/CMS action multiplexed through `/api/qclub-checkout-rehearsal?scope=security&action=...`, avoiding an extra Vercel function.
 - Salted scrypt PIN hashes in a private schema; no browser grants to hashes or service RPCs.
 - Server validation of existing Ledger-format bearer sessions, role checks, expiry and revocation.
 - Fail-closed login throttling and credential-version checks that prevent a login finishing with a rotated PIN.
