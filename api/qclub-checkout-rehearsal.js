@@ -20,13 +20,13 @@ async function reserveCheckoutAttempt(db,req){
 async function menu(db){
   const [cats,items]=await Promise.all([
     db.from('qclub_fnb_categories').select('category_key,title').eq('active',true),
-    db.from('snooker_catalogue_items').select('id,name,selling_price_inr,qlounge_category_key').eq('active',true).eq('show_on_qlounge',true).eq('online_order_enabled',true).eq('track_inventory',false),
+    db.from('snooker_catalogue_items').select('id,name,selling_price_inr,qlounge_category_key,track_inventory,current_stock').eq('active',true).eq('show_on_qlounge',true).eq('online_order_enabled',true),
   ]);
   if(cats.error||items.error)throw new SecurityError(503,'MENU_UNAVAILABLE');
   const categories=new Map((cats.data||[]).map(c=>[c.category_key,c.title]));
   const rows=(items.data||[])
-    .filter(i=>categories.has(i.qlounge_category_key)&&Number.isFinite(Number(i.selling_price_inr))&&Number(i.selling_price_inr)>0)
-    .map(i=>({id:i.id,name:i.name,price:Number(i.selling_price_inr),category:categories.get(i.qlounge_category_key)}));
+    .filter(i=>categories.has(i.qlounge_category_key)&&Number.isFinite(Number(i.selling_price_inr))&&Number(i.selling_price_inr)>0&&(!i.track_inventory||Number(i.current_stock)>0))
+    .map(i=>({id:i.id,name:i.name,price:Number(i.selling_price_inr),category:categories.get(i.qlounge_category_key),trackInventory:Boolean(i.track_inventory),available:i.track_inventory?Math.max(0,Number(i.current_stock)||0):null}));
   return {items:rows};
 }
 
