@@ -14,6 +14,7 @@ const fixture=await createFixtureDatabase();
 const handler=createSecurityHandler({env:{QCLUB_SECURITY_REHEARSAL:'enabled',QCLUB_SECURITY_SUPABASE_URL:'http://127.0.0.1:54321',QCLUB_SECURITY_SERVICE_ROLE_KEY:'synthetic-local-only'},createDatabase:()=>fixture.db});
 const state=async()=>(await fixture.pg.query("select state from public.qclub_state where key='main'")).rows[0].state;
 const original=await state();
+const requests=[];
 const server=await createServer({server:{host:'127.0.0.1',port:5184,strictPort:true},plugins:[{
  name:'ci-only-admin-database',
  transformIndexHtml(html){
@@ -26,6 +27,7 @@ const server=await createServer({server:{host:'127.0.0.1',port:5184,strictPort:t
   try{
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>150000){res.statusCode=413;res.end();return;}}
    req.body=raw?JSON.parse(raw):undefined;req.query=Object.fromEntries(new URL(req.url,'http://127.0.0.1').searchParams);
+   res.on('finish',()=>requests.push({action:req.query.action,method:req.method,status:res.statusCode}));
    res.status=code=>{res.statusCode=code;return res;};res.json=value=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
    await handler(req,res);
   }catch(error){console.error(error);res.statusCode=500;res.end('{}');}
@@ -34,7 +36,12 @@ const server=await createServer({server:{host:'127.0.0.1',port:5184,strictPort:t
 const run=promisify(execFile),session=`qclub-admin-${process.pid}`;
 async function browser(...args){const {stdout}=await run(process.env.QCLUB_AGENT_BROWSER,['--session',session,'--allowed-domains','127.0.0.1','--json',...args],{timeout:45000,maxBuffer:2*1024*1024});const result=JSON.parse(stdout);if(!result.success)throw Error(JSON.stringify(result));return result.data;}
 const evaluate=async source=>(await browser('eval',source)).result;
-const button=name=>browser('find','role','button','click','--name',name);
+async function button(name){
+ const data=await browser('snapshot','-i');
+ const ref=Object.entries(data.refs).find(([,value])=>value.role==='button'&&value.name===name)?.[0];
+ if(!ref)throw Error(`Button not found: ${name}`);
+ return browser('click',`@${ref}`);
+}
 async function snapshot(name){await writeFile(path.join(artifacts,`admin-${name}.json`),JSON.stringify(await browser('snapshot','-i'),null,2));}
 async function layout(name){
  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true,'Horizontal overflow');
@@ -61,10 +68,10 @@ try{
  const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);
  for(const key of ['admin','paymentOrders','players'])assert.deepEqual(after[key],original[key],`${key} changed`);
  assert.deepEqual(after.announcements.filter(x=>x.type!=='notice'),original.announcements,'Operational announcements changed');
- await button('Sign out');await browser('wait','#pin');await snapshot('signed-out');
+ await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await snapshot('signed-out');
  assert.equal((await fixture.pg.query('select count(*)::int as n from public.snooker_auth_sessions where revoked_at is not null')).rows[0].n,1);
  await login('852147');await browser('wait','--text','Staff account');await layout('staff-360');assert.equal(await evaluate('!!document.querySelector("#name")'),false);
- await button('Sign out');await browser('wait','#pin');await login('761239');await browser('wait','#name');await snapshot('reauthenticated');
+ await browser('scroll','up','10000');await button('Sign out');await snapshot('after-sign-out-click');await browser('wait','#pin');await login('761239');await browser('wait','#name');await snapshot('reauthenticated');
  await browser('reload');await browser('wait','#pin');await snapshot('reload-signed-out');
  assert.equal(await evaluate('localStorage.length'),0);assert.equal(await evaluate('sessionStorage.length'),0);
  await login('761239');await browser('wait','#name');await browser('fill','#tagline','My unsaved mobile draft');
@@ -76,5 +83,5 @@ try{
  assert.equal(await evaluate('document.querySelector("#tagline").value'),'My unsaved mobile draft');assert.equal((await state()).club.tagline,'Another admin saved this');
  await writeFile(path.join(artifacts,'admin-result.json'),JSON.stringify({passed:true,widths:[360,390,430],disposablePostgres:true,checks:['layout','touch targets','content save','notice save','private data preservation','server logout revocation','staff restriction','memory-only session','conflict draft retention','latest comparison']},null,2));
  console.log('Mobile CMS browser verification passed against disposable Postgres. No production database used.');
-}catch(error){try{await browser('screenshot',path.join(artifacts,'admin-failure.png'),'--full');await snapshot('failure');await writeFile(path.join(artifacts,'admin-console.json'),JSON.stringify(await browser('console')));}catch{}throw error;}
+}catch(error){await writeFile(path.join(artifacts,'admin-requests.json'),JSON.stringify(requests,null,2));try{await browser('screenshot',path.join(artifacts,'admin-failure.png'),'--full');await snapshot('failure');await writeFile(path.join(artifacts,'admin-console.json'),JSON.stringify(await browser('console')));}catch{}throw error;}
 finally{try{await browser('close');}finally{await server.close();await fixture.close();}}
