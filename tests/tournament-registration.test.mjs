@@ -10,7 +10,6 @@ const command=(prefix='1',overrides={})=>({
   checkoutId:`${prefix}2345678-1234-4123-8123-123456789abc`,
   receiptToken:token,
   tournamentId:'tour-current',
-  playerId:'player-1',
   customer:{name:'Tournament Fixture',phone:'9876543210'},
   ...overrides,
 });
@@ -62,7 +61,7 @@ async function fixture(){
   await pg.exec('set role service_role');
 
   const specs={
-    qclub_tournament_checkout:['p_order_id','p_receipt_hash','p_request_hash','p_tournament_id','p_player_id','p_customer_name','p_customer_phone'],
+    qclub_tournament_checkout:['p_order_id','p_receipt_hash','p_request_hash','p_tournament_id','p_customer_name','p_customer_phone'],
     qclub_payment_intent:['p_order_id','p_receipt_hash'],
     qclub_payment_fulfill:['p_order_id','p_receipt_hash','p_amount_paise','p_currency','p_payment_id'],
     qclub_payment_close_terminal_service:['p_order_id','p_reason'],
@@ -91,10 +90,10 @@ test('tournament command accepts only checkout identity, tournament, existing pl
   const parsed=tournamentCheckoutRequest(command());
   assert.match(parsed.orderId,/^qct_/);
   assert.equal(parsed.tournamentId,'tour-current');
+  assert.equal(Object.hasOwn(parsed,'playerId'),false);
   for(const body of [
     {...command(),amount:1},
     {...command(),registrationFee:1},
-    {...command(),playerId:''},
     {...command(),tournamentId:''},
     {...command(),customer:{name:'X',phone:'123'}},
   ]) assert.throws(()=>tournamentCheckoutRequest(body),e=>e.code==='INVALID_TOURNAMENT_CHECKOUT');
@@ -105,7 +104,7 @@ test('tournament fee and player identity are server authoritative and duplicate 
   try{
     for(const role of ['anon','authenticated']){
       assert.equal((await pg.query(`select has_table_privilege('${role}','qclub_private.tournament_registration_reservations','SELECT,INSERT,UPDATE,DELETE') as allowed`)).rows[0].allowed,false);
-      assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_tournament_checkout(text,text,text,text,text,text,text)','EXECUTE') as allowed`)).rows[0].allowed,false);
+      assert.equal((await pg.query(`select has_function_privilege('${role}','public.qclub_tournament_checkout(text,text,text,text,text,text)','EXECUTE') as allowed`)).rows[0].allowed,false);
     }
     const ready=await createTournamentCheckout(db,gateway,command('1'));
     assert.equal(ready.state,'ready');assert.equal(ready.amountPaise,50000);assert.equal(ready.tournamentName,'Current Cup');
@@ -114,7 +113,7 @@ test('tournament fee and player identity are server authoritative and duplicate 
 
     let calls=0;
     await assert.rejects(createTournamentCheckout(db,{create(){calls++;}},command('2')),e=>e.code==='REGISTRATION_ALREADY_RESERVED');
-    await assert.rejects(createTournamentCheckout(db,{create(){calls++;}},command('3',{customer:{name:'Wrong',phone:'9988776655'}})),e=>e.code==='PLAYER_IDENTITY_MISMATCH');
+    await assert.rejects(createTournamentCheckout(db,{create(){calls++;}},command('3',{customer:{name:'Wrong',phone:'9988776655'}})),e=>e.code==='PLAYER_IDENTITY_REQUIRED');
     await assert.rejects(createTournamentCheckout(db,{create(){calls++;}},command('4',{tournamentId:'tour-closed'})),e=>e.code==='TOURNAMENT_NOT_OPEN');
     await assert.rejects(createTournamentCheckout(db,{create(){calls++;}},command('5',{tournamentId:'tour-existing'})),e=>e.code==='ALREADY_REGISTERED');
     assert.equal(calls,0);
