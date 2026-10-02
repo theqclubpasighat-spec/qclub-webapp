@@ -4,6 +4,7 @@ import { createFoodCheckout } from '../src/server/payments/checkout.js';
 import { closeUnusedCheckout } from '../src/server/payments/checkout-recovery.js';
 import { sandboxCheckout } from '../src/server/payments/sandbox-checkout.js';
 import { createSecurityHandler } from '../src/server/security/handler.js';
+import { createBookingCheckout } from '../src/server/payments/booking.js';
 
 function actionOf(req){
   const direct=String(req.query?.action||'').trim();
@@ -58,13 +59,19 @@ export default async function handler(req,res) {
       await reserveCheckoutAttempt(db,req);
       return res.status(200).json(await closeUnusedCheckout(db,req.body));
     }
+    if(action==='booking'){
+      if(req.method!=='POST')throw new SecurityError(405,'METHOD_NOT_ALLOWED');
+      if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
+      await reserveCheckoutAttempt(db,req);
+      return res.status(200).json(await createBookingCheckout(db,sandboxCheckout(process.env),req.body));
+    }
     if(action)throw new SecurityError(404,'ACTION_NOT_FOUND');
     if(req.method!=='POST')throw new SecurityError(405,'METHOD_NOT_ALLOWED');
     if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
     await reserveCheckoutAttempt(db,req);
     return res.status(200).json(await createFoodCheckout(db,sandboxCheckout(process.env),req.body));
   }catch(error){
-    const fallback=action==='menu'?'MENU_UNAVAILABLE':'CHECKOUT_UNAVAILABLE';
+    const fallback=action==='menu'?'MENU_UNAVAILABLE':action==='booking'?'BOOKING_UNAVAILABLE':'CHECKOUT_UNAVAILABLE';
     return res.status(error instanceof SecurityError?error.status:503).json({ok:false,error:error instanceof SecurityError?error.code:fallback});
   }
 }
