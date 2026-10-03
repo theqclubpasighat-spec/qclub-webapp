@@ -28,6 +28,12 @@ export function createAdminClient(fetcher = globalThis.fetch) {
     },
     content: () => request('content'),
     save: (baseUpdatedAt, changes) => request('content', 'PATCH', { baseUpdatedAt, changes }),
+    staffOps: () => request('staff-ops'),
+    createShift: values => request('staff-shift', 'POST', { command:'CREATE', ...values }),
+    cancelShift: (shiftId, reason) => request('staff-shift', 'POST', { command:'CANCEL', shiftId, reason }),
+    clockAttendance: (command, note='') => request('staff-attendance', 'POST', { command, note }),
+    createExpense: values => request('staff-expense', 'POST', { command:'CREATE', ...values }),
+    voidExpense: (expenseId, reason) => request('staff-expense', 'POST', { command:'VOID', expenseId, reason }),
     async logout() {
       try { await request('logout', 'POST'); } finally { token = null; }
     },
@@ -91,6 +97,11 @@ export function changesBetween(before, after) {
 }
 export function messageFor(error) {
   if (error?.code === 'INVALID_NOTICES') return 'Check your notices: use a message and a valid website path or HTTPS link.';
+  if (error?.code === 'ALREADY_CLOCKED_IN') return 'You are already clocked in.';
+  if (error?.code === 'NOT_CLOCKED_IN') return 'There is no open attendance session to clock out.';
+  if (error?.code === 'INVALID_SHIFT') return 'Check the staff member and shift start/end time.';
+  if (error?.code === 'INVALID_EXPENSE') return 'Check the expense date, category, amount and payment method.';
+  if (error?.code === 'SHIFT_NOT_FOUND' || error?.code === 'EXPENSE_NOT_FOUND') return 'That record is no longer available to change.';
   if (error?.code === 'INVALID_PIN') return 'That PIN was not recognised.';
   if (error?.status === 401) return 'Your session has ended. Sign in again.';
   if (error?.code === 'SIGN_OUT_FAILED') return 'Signed out on this screen, but the server could not revoke the session. It may remain valid until it expires.';
