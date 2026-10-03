@@ -67,33 +67,33 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/admin/orders-archive` | Orders Archive | admin | Yes | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/login` | Admin Sign In | public | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/reset-password` | Reset Password | public | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin` | CMS Dashboard | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/club-details` | Club Profile | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/membership-tiers` | Membership Content | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/rates` | Rates & Happy Hours | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/documents` | Pages & Policies | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/notices` | Notices | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/food-menu` | Food Menu | admin | No | Use Ledger catalogue/stock API; no duplicate inventory |
-| `/admin/shop` | Q Shop Catalogue | admin | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
-| `/admin/media` | Media Library | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/theme` | Theme | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/templates` | Notification Templates | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/feature-flags` | Feature Flags | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/settings` | Settings Hierarchy | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
+| `/admin` | CMS Dashboard | admin | No | Reconciled into protected rehearsal CMS; production alias remains pending final promotion review |
+| `/admin/club-details` | Club Profile | admin | No | Reconciled into protected CMS content sections; no duplicate state |
+| `/admin/membership-tiers` | Membership Content | admin | No | Reconciled into protected Membership tiers editor |
+| `/admin/rates` | Rates & Happy Hours | admin | No | Standard/member table-rate editing reconciled; happy-hours donor behavior not activated |
+| `/admin/documents` | Pages & Policies | admin | No | Reconciled into protected About & policies/content editors |
+| `/admin/notices` | Notices | admin | No | Reconciled into protected public Notices editor; operational entries preserved |
+| `/admin/food-menu` | Food Menu | admin | No | Reconciled by bridge to authoritative `/QclubLedger` catalogue; no duplicate menu/inventory state |
+| `/admin/shop` | Q Shop Catalogue | admin | No | Reconciled into protected QShop catalogue CMS while preserving stock/checkout identity |
+| `/admin/media` | Media Library | admin | No | Hero/media presentation fields reconciled; destructive storage management not activated |
+| `/admin/theme` | Theme | admin | No | Reconciled into protected presentation-token editor; not consumed by live UI yet |
+| `/admin/templates` | Notification Templates | admin | No | Reconciled as non-secret template-name CMS; live MSG91 credentials/dispatch remain separate |
+| `/admin/feature-flags` | Feature Flags | admin | No | Reconciled as configuration-only flags; live route activation remains pending |
+| `/admin/settings` | Settings Hierarchy | admin | No | Reconciled into protected Settings hub over existing editors and canonical operational masters |
 | `/admin/data-tools` | Data Tools | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/storage-migrate` | Storage Migration | admin | No | Retire obsolete staging migration action; keep production media paths |
-| `/admin/audit-log` | Audit Log | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/members` | Members | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/bookings` | Bookings | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/players` | Players | committee | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/tournaments` | Tournaments | committee | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/standings` | Standings | committee | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/hall-of-fame` | Hall of Fame Admin | committee | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/live-games` | Live Games | committee | No | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
-| `/admin/food-orders` | Food Orders | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/shop-orders` | Q Shop Admin | staff | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
-| `/admin/payments` | Payments | staff | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
-| `/admin/reports` | Reports | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
+| `/admin/audit-log` | Audit Log | admin | No | Reconciled as read-only Reports & audit directory over existing Ledger/game/order/committee records |
+| `/admin/members` | Members | staff | No | Canonical destination mapped to `/member-registry`; new STAFF write-role grant not activated |
+| `/admin/bookings` | Bookings | staff | No | Canonical operational destination mapped through `/QclubLedger` website-operations inbox; alias pending |
+| `/admin/players` | Players | committee | No | Canonical destinations mapped to `/players` and `/review-panel`; COMMITTEE write-role grant pending |
+| `/admin/tournaments` | Tournaments | committee | No | Canonical destination mapped to `/tournaments`; COMMITTEE write-role grant pending |
+| `/admin/standings` | Standings | committee | No | Canonical destination mapped to `/leaderboard`; alias/write-role reconciliation pending |
+| `/admin/hall-of-fame` | Hall of Fame Admin | committee | No | Canonical destination mapped to `/halloffame`; COMMITTEE write-role grant pending |
+| `/admin/live-games` | Live Games | committee | No | Canonical destination mapped to `/live`; scorer/game-engine permissions remain unchanged |
+| `/admin/food-orders` | Food Orders | staff | No | Canonical destination mapped to existing `/admin/orders`; no duplicate order store |
+| `/admin/shop-orders` | Q Shop Admin | staff | No | Canonical destination mapped to `/shop/successful-order-receipts`; payment/receipt contracts unchanged |
+| `/admin/payments` | Payments | staff | No | Canonical billing/payment destination mapped to `/QclubLedger`; no alternate payment admin path |
+| `/admin/reports` | Reports | staff | No | Reconciled via Reports & audit directory over existing Ledger, Kitty, Q Chase and review records |
 | `/receipt` | Receipt | public | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
 | `/payment-status` | Payment Status | public | Yes | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
 | `/Craxam` | Craxam Auth Bridge | public | No | Verify auth callback/deep-link contract separately; preserve legal routes |
