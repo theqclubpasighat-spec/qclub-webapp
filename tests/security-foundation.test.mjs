@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, theme: {}, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, theme: {}, notificationTemplates: { qshopSuccess: '', qshopFailed: '', bookingSuccess: '', bookingFailed: '', membershipSuccess: '', membershipFailed: '', otp: '', tournamentSuccess: '', tournamentFailed: '', foodSuccess: '', foodFailed: '', jobApplicationReceived: '', jobInterviewCall: '' }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
@@ -270,4 +270,45 @@ test('theme CMS validates presentation tokens and preserves operational/private 
     {accent:'red',background:'#000000',surface:'#111111',text:'#FFFFFF',mutedText:'#AAAAAA',border:'#222222'},
     {accent:'#FFFFFF',background:'#000000',surface:'#111111',text:'#FFFFFF',mutedText:'#AAAAAA',border:'#222222',secret:'#123456'},
   ]) assert.throws(()=>contentPatch(before,{theme}),expectCode('INVALID_CONTENT_PATCH'));
+});
+
+
+test('notification template CMS exposes names only and cannot alter delivery credentials or operations',()=>{
+  const before={
+    notificationTemplates:{
+      qshopSuccess:'qshop_success',qshopFailed:'',bookingSuccess:'booking_success',bookingFailed:'',
+      membershipSuccess:'membership_success',membershipFailed:'',otp:'qclub_otp',
+      tournamentSuccess:'tournament_success',tournamentFailed:'',foodSuccess:'qlounge_order_success_v2',foodFailed:'',
+      jobApplicationReceived:'job_application_received',jobInterviewCall:'job_interview_call',
+      privateSender:'KEEP-PRIVATE',
+    },
+    whatsappPersistence:{authKey:'KEEP-AUTH',senderNumber:'KEEP-SENDER'},
+    club:{tvShowcaseMode:'KEEP-TV'},
+    paymentOrders:[{id:'keep-payment'}],
+    booking:{requests:[{id:'keep-booking'}]},
+  };
+  const edited={
+    qshopSuccess:'qshop_success_v2',qshopFailed:'qshop_failed',
+    bookingSuccess:'booking_success_v2',bookingFailed:'booking_failed',
+    membershipSuccess:'membership_success_v2',membershipFailed:'membership_failed',
+    otp:'qclub_otp_v2',tournamentSuccess:'tournament_success_v2',tournamentFailed:'tournament_failed',
+    foodSuccess:'qlounge_order_success_v2',foodFailed:'qlounge_order_failed',
+    jobApplicationReceived:'job_application_received_v2',jobInterviewCall:'job_interview_call_v2',
+  };
+  const next=contentPatch(before,{notificationTemplates:edited});
+  assert.deepEqual(publicContent(next).notificationTemplates,edited);
+  assert.equal(next.notificationTemplates.privateSender,'KEEP-PRIVATE');
+  assert.equal(next.whatsappPersistence.authKey,'KEEP-AUTH');
+  assert.equal(next.whatsappPersistence.senderNumber,'KEEP-SENDER');
+  assert.equal(next.club.tvShowcaseMode,'KEEP-TV');
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  assert.deepEqual(next.booking.requests,before.booking.requests);
+  assert.ok(!JSON.stringify(publicContent(next)).includes('KEEP-'));
+  for(const notificationTemplates of [
+    {},
+    {...edited,foodSuccess:'bad template name'},
+    {...edited,foodSuccess:'a'.repeat(121)},
+    {...edited,authKey:'secret'},
+    {...edited,foodSuccess:'qlounge/success'},
+  ]) assert.throws(()=>contentPatch(before,{notificationTemplates}),expectCode('INVALID_CONTENT_PATCH'));
 });
