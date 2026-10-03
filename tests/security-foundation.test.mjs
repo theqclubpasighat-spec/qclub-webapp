@@ -181,3 +181,36 @@ test('QShop CMS edits public catalogue fields while preserving stock, identity a
     {...patch,items:[{...patch.items[0],options:[{...patch.items[0].options[0],stock:9}]}]},
   ]) assert.throws(()=>contentPatch(before,{shopCatalog}),expectCode('INVALID_CONTENT_PATCH'));
 });
+
+
+test('expanded club CMS exposes only approved presentation text and preserves operational fields',()=>{
+  const before={
+    club:{
+      name:'Q Club',bookPageTitle:'Book a Table',membershipPageSubtitle:'Join the room',
+      heroBookBtnLabel:'Book now',footerDescription:'Play. Chill. Compete.',
+      upiId:'PRIVATE-UPI',musicUrl:'PRIVATE-MEDIA',isOpenNow:true,privateSetting:'PRIVATE',
+    },
+    paymentOrders:[{id:'keep-payment'}],
+  };
+  const next=contentPatch(before,{club:{
+    bookPageTitle:'Reserve your table',
+    membershipPageSubtitle:'Membership made simple',
+    heroBookBtnLabel:'Reserve',
+    footerDescription:'The coolest place in the oldest town.',
+  }});
+  assert.equal(next.club.bookPageTitle,'Reserve your table');
+  assert.equal(next.club.upiId,'PRIVATE-UPI');
+  assert.equal(next.club.musicUrl,'PRIVATE-MEDIA');
+  assert.equal(next.club.isOpenNow,true);
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  const projected=publicContent(next).club;
+  assert.equal(projected.bookPageTitle,'Reserve your table');
+  assert.equal(projected.heroBookBtnLabel,'Reserve');
+  assert.equal(projected.upiId,undefined);
+  assert.equal(projected.musicUrl,undefined);
+  assert.ok(!JSON.stringify(projected).includes('PRIVATE'));
+  for(const changes of [
+    {club:{upiId:'x@y'}},{club:{musicUrl:'https://example.com/x'}},{club:{isOpenNow:'false'}},
+    {club:{bookPageTitle:4}},{club:{contactContent:'x'.repeat(30001)}},
+  ]) assert.throws(()=>contentPatch(before,changes),expectCode('INVALID_CONTENT_PATCH'));
+});
