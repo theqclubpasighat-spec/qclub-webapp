@@ -87,6 +87,22 @@ function projectBookingTables(state) {
     }));
 }
 
+const THEME_KEYS = ['accent','background','surface','text','mutedText','border'];
+function projectTheme(state) {
+  const theme = object(state?.theme) ? state.theme : {};
+  return Object.fromEntries(THEME_KEYS.filter(key => typeof theme[key] === 'string' && /^#[0-9A-Fa-f]{6}$/.test(theme[key])).map(key => [key, theme[key].toUpperCase()]));
+}
+function normalizedTheme(value) {
+  if (!object(value) || Object.keys(value).some(key => !THEME_KEYS.includes(key)) || Object.keys(value).length !== THEME_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');
+  const next = {};
+  for (const key of THEME_KEYS) {
+    const token = value[key];
+    if (typeof token !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(token)) fail(400, 'INVALID_CONTENT_PATCH');
+    next[key] = token.toUpperCase();
+  }
+  return next;
+}
+
 function projectShopCatalog(state) {
   const catalog = object(state?.shopCatalog) ? state.shopCatalog : {};
   const items = (Array.isArray(catalog.items) ? catalog.items : [])
@@ -216,10 +232,11 @@ export function publicContent(state) {
     memberships: projectMemberships(state),
     bookingTables: projectBookingTables(state),
     shopCatalog: projectShopCatalog(state),
+    theme: projectTheme(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'heroSlides', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'theme', 'heroSlides', 'notices'];
 const CLUB_KEYS = [
   'name','location','tagline','tagline2','hoursNote',
   'aboutTitle','aboutContent','contactTitle','contactContent',
@@ -251,6 +268,10 @@ export function contentPatch(current, changes) {
       const rows = normalizedBookingTables(fields);
       const existing = new Map((Array.isArray(current?.booking?.tables) ? current.booking.tables : []).filter(object).map(row => [row.id, row]));
       next.booking = { ...(object(current.booking) ? current.booking : {}), tables: rows.map(row => ({ ...(existing.get(row.id) || {}), ...row })) };
+      continue;
+    }
+    if (section === 'theme') {
+      next.theme = { ...(object(current.theme) ? current.theme : {}), ...normalizedTheme(fields) };
       continue;
     }
     if (section === 'shopCatalog') {
