@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, theme: {}, notificationTemplates: { qshopSuccess: '', qshopFailed: '', bookingSuccess: '', bookingFailed: '', membershipSuccess: '', membershipFailed: '', otp: '', tournamentSuccess: '', tournamentFailed: '', foodSuccess: '', foodFailed: '', jobApplicationReceived: '', jobInterviewCall: '' }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, theme: {}, notificationTemplates: { qshopSuccess: '', qshopFailed: '', bookingSuccess: '', bookingFailed: '', membershipSuccess: '', membershipFailed: '', otp: '', tournamentSuccess: '', tournamentFailed: '', foodSuccess: '', foodFailed: '', jobApplicationReceived: '', jobInterviewCall: '' }, featureFlags: { showQLounge: false, showQShop: false, showBooking: false, showMembership: false, showTournaments: false, showPlayers: false, showLiveMatches: false, showClubMedia: false, showOffers: false, showFeedback: false }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
@@ -311,4 +311,32 @@ test('notification template CMS exposes names only and cannot alter delivery cre
     {...edited,authKey:'secret'},
     {...edited,foodSuccess:'qlounge/success'},
   ]) assert.throws(()=>contentPatch(before,{notificationTemplates}),expectCode('INVALID_CONTENT_PATCH'));
+});
+
+
+test('feature flag CMS stores booleans only and cannot change live routing or operations',()=>{
+  const before={
+    featureFlags:{showQLounge:true,showQShop:true,showBooking:true,showMembership:true,showTournaments:true,showPlayers:true,showLiveMatches:true,showClubMedia:true,showOffers:true,showFeedback:false,privateRollout:'KEEP'},
+    club:{name:'Q Club',tvShowcaseMode:'KEEP-TV'},
+    paymentOrders:[{id:'keep-payment'}],
+    booking:{requests:[{id:'keep-booking'}]},
+    players:[{id:'keep-player'}],
+    shopCatalog:{items:[{id:'keep-stock',stock:7}]},
+  };
+  const edited={showQLounge:true,showQShop:true,showBooking:true,showMembership:true,showTournaments:true,showPlayers:true,showLiveMatches:true,showClubMedia:true,showOffers:false,showFeedback:true};
+  const next=contentPatch(before,{featureFlags:edited});
+  assert.deepEqual(publicContent(next).featureFlags,edited);
+  assert.equal(next.featureFlags.privateRollout,'KEEP');
+  assert.equal(next.club.tvShowcaseMode,'KEEP-TV');
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  assert.deepEqual(next.booking.requests,before.booking.requests);
+  assert.deepEqual(next.players,before.players);
+  assert.equal(next.shopCatalog.items[0].stock,7);
+  assert.ok(!JSON.stringify(publicContent(next)).includes('KEEP'));
+  for(const featureFlags of [
+    {},
+    {...edited,showOffers:'false'},
+    {...edited,unknownFlag:true},
+    Object.fromEntries(Object.entries(edited).filter(([key])=>key!=='showFeedback')),
+  ]) assert.throws(()=>contentPatch(before,{featureFlags}),expectCode('INVALID_CONTENT_PATCH'));
 });
