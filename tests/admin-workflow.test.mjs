@@ -14,7 +14,7 @@ test('CMS patch sends only changed allowed fields and never operational state',(
   assert.deepEqual(changesBetween({club:{name:'Old',location:'Keep'}},{club:{name:'New',location:'Keep',mainPin:'bad'},paymentOrders:[]}),{club:{name:'New'}});
   assert.deepEqual(changesBetween({club:{name:'Old'}},{club:{name:''}}),{club:{name:''}});
 });
-test('real Postgres admin workflow: login, edit, conflict, staff denial and sign-out', {skip:!process.env.QCLUB_PGLITE_MODULE}, async()=>{
+test('real Postgres admin workflow: login, edit, conflict, staff/committee denial and sign-out', {skip:!process.env.QCLUB_PGLITE_MODULE}, async()=>{
   const fixture=await createFixtureDatabase();
   try{
     const handler=createSecurityHandler({env:{QCLUB_SECURITY_REHEARSAL:'enabled',QCLUB_SECURITY_SUPABASE_URL:'http://127.0.0.1:54321',QCLUB_SECURITY_SERVICE_ROLE_KEY:'test'},createDatabase:()=>fixture.db});
@@ -26,7 +26,7 @@ test('real Postgres admin workflow: login, edit, conflict, staff denial and sign
       await handler(req,{setHeader(){},status(value){status=value;return this;},json(value){body=value;}});
       return {ok:status<400,status,json:async()=>body};
     };
-    const admin=createAdminClient(fetcher),staff=createAdminClient(fetcher);
+    const admin=createAdminClient(fetcher),staff=createAdminClient(fetcher),committee=createAdminClient(fetcher);
     assert.equal((await admin.login('761239')).staff_id,'admin-main');
     const initial=await admin.content();assert.ok(!JSON.stringify(initial).includes('PRIVATE-FIXTURE'));
     const saved=await admin.save(initial.updatedAt,{club:{name:'Rehearsal club'}});assert.ok(saved.updatedAt);
@@ -34,6 +34,8 @@ test('real Postgres admin workflow: login, edit, conflict, staff denial and sign
     await assert.rejects(admin.save(initial.updatedAt,{club:{name:'Stale overwrite'}}),e=>e.status===409);
     assert.equal((await staff.login('852147')).role,'STAFF');
     await assert.rejects(staff.save(saved.updatedAt,{club:{name:'Forged'}}),e=>e.status===403);
+    assert.equal((await committee.login('963258')).role,'COMMITTEE');
+    await assert.rejects(committee.save(saved.updatedAt,{club:{name:'Committee overwrite'}}),e=>e.status===403);
     const untouched=await fixture.pg.query("select state from public.qclub_state where key='main'");
     assert.equal(untouched.rows[0].state.paymentOrders[0].amount,490);
     assert.equal(untouched.rows[0].state.admin.mainPin,'PRIVATE-FIXTURE');
