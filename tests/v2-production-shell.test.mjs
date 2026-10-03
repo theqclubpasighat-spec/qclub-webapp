@@ -111,3 +111,12 @@ test("rules and anti-gambling donor routes reuse existing authoritative policy c
   assert.match(publicInfo, /to="\/legal"/);
   assert.doesNotMatch(publicInfo, /No smoking|No alcohol|Spitting is strictly prohibited/i);
 });
+
+
+test("obsolete generic receipt and CraXam web bridge routes stay retired", () => {
+  assert.doesNotMatch(app, /path="\/receipt"/);
+  assert.doesNotMatch(app, /path="\/Craxam"/);
+  assert.doesNotMatch(app, /path="\/craxam"\s/);
+  assert.match(app, /path="\/craxam\/privacy"/);
+  assert.match(app, /path="\/craxam\/delete-account"/);
+});
