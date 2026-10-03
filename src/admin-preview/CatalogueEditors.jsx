@@ -100,3 +100,19 @@ export function ShopEditor({catalog,onChange,busy}) {
     {!rows.length ? <p>No QShop products are present in this rehearsal copy.</p> : null}
   </section>;
 }
+
+
+export function HeroSlidesEditor({slides,onChange,busy}) {
+  const rows = Array.isArray(slides) ? slides : [];
+  return <section className="card">
+    <h2>Hero slides</h2>
+    <p>One image URL or site path per line, in display order. Removing a line only removes it from the homepage rotation; it does not delete the Storage object.</p>
+    <div className="field">
+      <label htmlFor="heroSlides">Hero images</label>
+      <textarea id="heroSlides" rows={12} maxLength={60000} disabled={busy}
+        value={rows.join('\n')}
+        onChange={e=>onChange(e.target.value.split('\n').map(v=>v.trim()).filter(Boolean).slice(0,30))}/>
+    </div>
+    <p>Keep at least one slide. HTTPS URLs and site paths beginning with / are accepted.</p>
+  </section>;
+}
