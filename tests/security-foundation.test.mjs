@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club' }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club' }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { items: [] }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
@@ -143,4 +143,40 @@ test('public CMS projection exposes only public membership and rate fields',()=>
   assert.deepEqual(projected.memberships,[{id:'m1',tier:'Gold',price:1499,perks:['A'],note:'N'}]);
   assert.deepEqual(projected.bookingTables,[{id:'t1',label:'T1',pricePerHour:400,memberPricePerHour:300}]);
   assert.ok(!JSON.stringify(projected).includes('PRIVATE'));
+});
+
+
+test('QShop CMS edits public catalogue fields while preserving stock, identity and private fields',()=>{
+  const before={
+    shopCatalog:{
+      heading:'The Q Shop',topLabel:'Club essentials',description:'Old',badge1:'New',badge2:'Members',updatedAt:'keep-catalog',
+      items:[{id:'shop_1',name:'Cue Tip',desc:'Old',price:99,badge:'Popular',amazonUrl:'https://example.com/old',img:'/old.jpg',images:['/old.jpg'],optionGroupLabel:'Colour',stock:7,private:'keep-item',options:[{id:'opt_1',label:'Red',img:'/red.jpg',stock:3,private:'keep-option'}]}],
+    },
+    paymentOrders:[{id:'paid-private'}],
+  };
+  const patch={heading:'Q Shop',topLabel:'Essentials',description:'Updated',badge1:'New',badge2:'Club',items:[{id:'shop_1',name:'Premium Cue Tip',desc:'Updated product',price:129.5,badge:'Best seller',amazonUrl:'https://example.com/new',img:'/new.jpg',images:['/new.jpg','https://example.com/gallery.jpg'],optionGroupLabel:'Colour',options:[{id:'opt_1',label:'Crimson',img:'/crimson.jpg'}]}]};
+  const next=contentPatch(before,{shopCatalog:patch});
+  assert.equal(next.shopCatalog.items[0].price,129.5);
+  assert.equal(next.shopCatalog.items[0].stock,7);
+  assert.equal(next.shopCatalog.items[0].private,'keep-item');
+  assert.equal(next.shopCatalog.items[0].options[0].stock,3);
+  assert.equal(next.shopCatalog.items[0].options[0].private,'keep-option');
+  assert.equal(next.shopCatalog.updatedAt,'keep-catalog');
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  const projected=publicContent(next).shopCatalog;
+  assert.equal(projected.items[0].name,'Premium Cue Tip');
+  assert.equal(projected.items[0].options[0].label,'Crimson');
+  assert.ok(!JSON.stringify(projected).includes('stock'));
+  assert.ok(!JSON.stringify(projected).includes('keep-item'));
+
+  for(const shopCatalog of [
+    {...patch,items:[]},
+    {...patch,items:[{...patch.items[0],id:'different'}]},
+    {...patch,items:[{...patch.items[0],stock:999}]},
+    {...patch,items:[{...patch.items[0],price:0}]},
+    {...patch,items:[{...patch.items[0],amazonUrl:'javascript:alert(1)'}]},
+    {...patch,items:[{...patch.items[0],images:['//evil.example/x']}]},
+    {...patch,items:[{...patch.items[0],options:[]}]},
+    {...patch,items:[{...patch.items[0],options:[{...patch.items[0].options[0],stock:9}]}]},
+  ]) assert.throws(()=>contentPatch(before,{shopCatalog}),expectCode('INVALID_CONTENT_PATCH'));
 });
