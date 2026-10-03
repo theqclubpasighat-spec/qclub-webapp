@@ -56,9 +56,9 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/kitty-monthly` | Kitty Monthly | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/staff-walkins` | Walk-ins | staff | Yes | Implement authenticated persistence; reject sample-state donor behaviour |
 | `/inventory` | Inventory | staff | Yes | Use Ledger catalogue/stock API; no duplicate inventory |
-| `/staff-shifts` | Staff Shifts | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
-| `/expense` | Expenses | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
-| `/staff-attendance` | Staff Attendance | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
+| `/staff-shifts` | Staff Shifts | staff | No | Reconciled into persistent `/QclubLedger?tab=staffops`: Admin assigns append-only shifts; donor hard-coded sample roster is not imported |
+| `/expense` | Expenses | staff | No | Reconciled into persistent `/QclubLedger?tab=staffops`: authenticated append-only operational expense ledger; donor sample expenses rejected |
+| `/staff-attendance` | Staff Attendance | staff | No | Reconciled into persistent `/QclubLedger?tab=staffops`: authenticated attendance records with server-only storage; donor sample attendance rejected |
 | `/review-panel` | Review Panel | committee | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/match-ledger` | Match Ledger | staff | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/food-print-bridge` | Food Print Bridge | staff | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
