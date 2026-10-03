@@ -2495,6 +2495,7 @@ export default function QclubLedgerPage() {
             ["desk", "🎱 Desk Ledger"],
             ["fnb", "🍽 Add F&B"],
             ["activity", "🌐 Website Activity"],
+            ["staffops", "👥 Staff Ops"],
             ["ledger", "🧾 Ledger History"],
             ...(isAdmin ? [["finance", "💰 Finance Reserve"]] : []),
             ["admin", isAdmin ? "⚙ Admin & Inventory" : "📦 Inventory"],
@@ -2972,6 +2973,10 @@ export default function QclubLedgerPage() {
               </div>
             </div>
           </>
+        ) : null}
+
+        {tab === "staffops" ? (
+          <StaffOperationsPanel protectedCall={protectedCall} isAdmin={isAdmin} auth={auth} flash={flash} />
         ) : null}
 
         {tab === "finance" && isAdmin ? (
