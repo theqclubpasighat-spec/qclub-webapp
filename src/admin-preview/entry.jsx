@@ -127,6 +127,15 @@ function Admin() {
     { title:'Shared operations', description:'Reuse the existing production masters instead of creating duplicate CMS data.', items:[
       {label:'Q Lounge / F&B catalogue in QclubLedger',href:'/QclubLedger'},
     ]},
+    { title:'Audit & reports', description:'Open the existing production record and reporting views instead of copying their data into CMS.', items:[
+      {label:'QclubLedger dashboard & operations',href:'/QclubLedger'},
+      {label:'Q Chase records',href:'/qchase-records'},
+      {label:'Q Chase monthly reports',href:'/qchase-monthly'},
+      {label:'Kitty records',href:'/kitty-records'},
+      {label:'Kitty monthly report',href:'/kitty-monthly'},
+      {label:'Tournament / player review panel',href:'/review-panel'},
+      {label:'Match ledger',href:'/match-ledger'},
+    ]},
   ];
   const current = sections[tab] || sections[0];
   return <main className="admin-shell">
