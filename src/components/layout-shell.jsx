@@ -36,7 +36,10 @@ const PUBLIC_V2_PATHS = new Set([
   "/about",
   "/terms",
   "/refund",
+  "/refund-policy",
   "/privacy",
+  "/legal",
+  "/pricing",
   "/tournament-legal",
 ]);
 
