@@ -116,10 +116,10 @@ test("rules and anti-gambling donor routes reuse existing authoritative policy c
 });
 
 
-test("obsolete generic receipt and CraXam web bridge routes stay retired", () => {
+test("generic receipt stays retired while CraXam auth bridge remains active", () => {
   assert.doesNotMatch(app, /path="\/receipt"/);
-  assert.doesNotMatch(app, /path="\/Craxam"/);
-  assert.doesNotMatch(app, /path="\/craxam"\s/);
+  assert.match(app, /path="\/Craxam"/);
+  assert.match(app, /path="\/craxam"\s/);
   assert.match(app, /path="\/craxam\/privacy"/);
   assert.match(app, /path="\/craxam\/delete-account"/);
 });

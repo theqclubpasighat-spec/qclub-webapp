@@ -16,9 +16,9 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 
 ## Current totals
 
-- Named/recognized routes: **109**
-- Canonical: **89**
-- Aliases: **14**
+- Named/recognized routes: **111**
+- Canonical: **90**
+- Aliases: **15**
 - Bridges: **4**
 - Legacy: **1**
 - Route handlers: **1**
@@ -123,6 +123,8 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 | `/anti-gambling` | Legal | Public | Hidden | Canonical | Anti-gambling/tournament notice |
 | `/rules` | Legal | Public | Hidden | Canonical | Rules hub |
 | `/feedback` | Public | Public | Hidden | Canonical | Feedback/contact bridge |
+| `/Craxam` | CraXam | Public | Hidden | Canonical | OAuth web-to-app bridge → `craxam://callback`; preserves query/hash payload |
+| `/craxam` | CraXam | Public | Hidden | Alias | → /Craxam |
 | `/craxam/privacy` | CraXam | Public | Hidden | Canonical | CraXam privacy |
 | `/craxam/delete-account` | CraXam | Public | Hidden | Canonical | CraXam deletion request |
 | `/payment-status` | Payment | Public | Hidden | Canonical | Cashfree return/status |
@@ -144,13 +146,23 @@ These are **not production pages** and should not be reintroduced merely because
 | Retired route | Decision |
 |---|---|
 | `/receipt` | Retired duplicate generic resolver; use context-specific Q Lounge/QShop/payment receipt flows. |
-| `/Craxam` | Retired web OAuth bridge; CraXam uses direct app callback. |
-| `/craxam` | Retired web OAuth bridge; CraXam uses direct app callback. |
 | `/admin/login` | Retired donor email/password login; production uses Q Club PIN/session authority. |
 | `/reset-password` | Retired with donor email/password auth. |
 | `/admin/storage-migrate` | One-time staging-era storage migration; staging project was deleted. |
 | `/bylaws` | Not published because no formally approved bylaws copy has been supplied. |
 | `/disclaimer` | Not published because donor text contained unverified claims; existing legal pages remain authoritative. |
+
+## Reserved external-app namespaces
+
+The Q Club domain is also the shared gateway domain for separate app projects. These namespaces must **not** be repurposed, deleted as "unused", or folded into Q Club CMS routes merely because their apps live in separate repositories/backends.
+
+| Namespace | Project | Current rule |
+|---|---|---|
+| `/Craxam` | CraXam | ACTIVE authentication bridge. Preserve until CraXam auth is deliberately migrated and verified end-to-end. |
+| `/AiAdi` | AiAdi | RESERVED for the AiAdi app gateway/integration. No callback behavior should be invented until the AiAdi auth/deep-link contract is defined. |
+| `/SiangRide` | SiangRide | RESERVED for the separate SiangRide app. |
+| `/GOAT` | GOAT Button | RESERVED for the separate GOAT app. |
+| `/WisdomTax` | WisdomTax / tax software | RESERVED for the separate tax application. |
 
 ## Navigation cleanup policy
 

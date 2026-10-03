@@ -17,18 +17,21 @@ const cmsDeepLinks = [...new Set(
 const actual = [...new Set([...explicit, ...cmsDeepLinks])].sort();
 
 const retired = new Set([
-  "/receipt", "/Craxam", "/craxam", "/admin/login", "/reset-password",
+  "/receipt", "/admin/login", "/reset-password",
   "/admin/storage-migrate", "/bylaws", "/disclaimer",
 ]);
 
+const masterSection = registry
+  .split("## Master route map")[1]
+  .split("## Intentionally retired donor routes")[0];
+
 const documented = [...new Set(
-  [...registry.matchAll(/^\| `([^`]+)` \|/gm)]
+  [...masterSection.matchAll(/^\| `([^`]+)` \|/gm)]
     .map(match => match[1])
-    .filter(path => !retired.has(path))
 )].sort();
 
 test("production route registry covers every named client route and CMS deep link", () => {
-  assert.equal(actual.length, 109);
+  assert.equal(actual.length, 111);
   assert.deepEqual(documented, actual);
 });
 
@@ -44,10 +47,17 @@ test("compatibility aliases point at the documented canonical routes", () => {
     ["/qclubpay", "/QclubPay"],
     ["/qclubqr", "/QclubQr"],
     ["/refund-policy", "/refund"],
+    ["/craxam", "/Craxam"],
   ]) {
     const line = registry.split("\n").find(row => row.startsWith("| `" + alias + "` |"));
     assert.ok(line, "missing alias row: " + alias);
     assert.ok(line.includes("| Alias |"), "route is not marked Alias: " + alias);
     assert.ok(line.includes(canonical), "alias target mismatch for " + alias);
+  }
+});
+
+test("external app gateway namespaces remain protected from route cleanup", () => {
+  for (const namespace of ["/Craxam", "/AiAdi", "/SiangRide", "/GOAT", "/WisdomTax"]) {
+    assert.ok(registry.includes("`" + namespace + "`"), "missing reserved app namespace: " + namespace);
   }
 });
