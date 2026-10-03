@@ -92,3 +92,13 @@ test('QShop draft changes are isolated to the explicit catalogue section',()=>{
   assert.deepEqual(changes.shopCatalog,after.shopCatalog);
   assert.equal(changes.club,undefined);
 });
+
+
+test('theme draft changes are isolated to the explicit presentation section',()=>{
+  const before={club:{name:'Q Club'},theme:{accent:'#D9C683',background:'#0D1715',surface:'#15241E',text:'#E8EEE9',mutedText:'#A9BCB3',border:'#304038'}};
+  const after=structuredClone(before);
+  after.theme.accent='#C8A95A';
+  const changes=changesBetween(before,after);
+  assert.deepEqual(changes.theme,after.theme);
+  assert.equal(changes.club,undefined);
+});
