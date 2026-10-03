@@ -263,3 +263,35 @@ export function RoleToolsOverview({groups}) {
     <p><strong>Security boundary:</strong> this directory is navigation only. Any broader STAFF/COMMITTEE write access must be separately reviewed and tested before activation.</p>
   </section>;
 }
+
+
+export function DataToolsOverview({content,updatedAt}) {
+  function downloadBackup() {
+    const backup = {
+      format:'qclub-projected-cms-backup',
+      version:1,
+      exportedAt:new Date().toISOString(),
+      sourceUpdatedAt:updatedAt || null,
+      content:content && typeof content === 'object' ? content : {},
+    };
+    const blob = new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href=url;
+    anchor.download='qclub-cms-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+  return <section className="card settings-overview">
+    <h2>Data tools</h2>
+    <p>Export a read-only snapshot of the content currently exposed by the protected CMS projection.</p>
+    <div className="settings-group">
+      <h3>CMS content backup</h3>
+      <p>The file contains website content only: public copy, notices, membership presentation, table-rate presentation, QShop presentation, media links, theme tokens, notification template names and feature-flag configuration.</p>
+      <button type="button" className="primary" onClick={downloadBackup}>Download CMS backup</button>
+    </div>
+    <p><strong>Restore and import are intentionally unavailable.</strong> The old V2 restore/CSV tools targeted staging-era tables and could recreate duplicate sources of truth. Operational data remains protected by its existing production systems and backups.</p>
+  </section>;
+}
