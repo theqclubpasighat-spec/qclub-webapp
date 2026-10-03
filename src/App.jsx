@@ -9,6 +9,7 @@ import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
 import V2Food from "./v2-live/V2Food.jsx";
+import { V2FeedbackHub, V2LegalHub, V2Pricing, V2RulesHub } from "./v2-live/V2PublicInfo.jsx";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
@@ -3931,6 +3932,14 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
+        <Route path="/refund-policy" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/legal" element={<V2LegalHub />} />
+        <Route path="/pricing" element={<V2Pricing data={data} />} />
         <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent
   data={data}
   admin={admin}
@@ -3963,6 +3972,14 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
+        <Route path="/anti-gambling" element={<StaticPage title="Anti-Gambling & Tournament Notice"><TournamentLegalContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/rules" element={<V2RulesHub />} />
+        <Route path="/feedback" element={<V2FeedbackHub />} />
                 <Route
   path="/admin/orders"
   element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
@@ -3984,7 +4001,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table1"
-      tableLabel="Snooker Table 1"
+      tableLabel="T1 Liberwin"
     />
   }
 />
@@ -4012,7 +4029,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table2"
-      tableLabel="Snooker Table 2"
+      tableLabel="T2 Wiraka 777"
     />
   }
 />
@@ -4026,7 +4043,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table3"
-      tableLabel="Mini / Table 3"
+      tableLabel="T3 Mini Snooker"
     />
   }
 />
@@ -4131,17 +4148,34 @@ latestDataRef.current = fresh;
 
 <Route
   path="/kitty-table-1-display"
-  element={<KittyDisplayPage tableKey="table1" tableLabel="Snooker Table 1" />}
+  element={<KittyDisplayPage tableKey="table1" tableLabel="T1 Liberwin" />}
 />
 
 <Route
   path="/kitty-table-2-display"
-  element={<KittyDisplayPage tableKey="table2" tableLabel="Snooker Table 2" />}
+  element={<KittyDisplayPage tableKey="table2" tableLabel="T2 Wiraka 777" />}
 />
 
 <Route
   path="/kitty-table-3-display"
-  element={<KittyDisplayPage tableKey="table3" tableLabel="Mini / Table 3" />}
+  element={<KittyDisplayPage tableKey="table3" tableLabel="T3 Mini Snooker" />}
+/>
+<Route
+  path="/kitty-table-4"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table4"
+      tableLabel="T4 Pool"
+    />
+  }
+/>
+<Route
+  path="/kitty-table-4-display"
+  element={<KittyDisplayPage tableKey="table4" tableLabel="T4 Pool" />}
 />
 <Route
   path="/kitty-records"
