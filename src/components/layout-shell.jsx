@@ -40,6 +40,8 @@ const PUBLIC_V2_PATHS = new Set([
   "/privacy",
   "/legal",
   "/pricing",
+  "/rules",
+  "/anti-gambling",
   "/tournament-legal",
 ]);
 
