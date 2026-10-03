@@ -23,9 +23,11 @@ export function PageShell({ title, subtitle, right, noNav = false }) {
     "/kitty-table-1",
     "/kitty-table-2",
     "/kitty-table-3",
+    "/kitty-table-4",
     "/kitty-table-1-display",
     "/kitty-table-2-display",
     "/kitty-table-3-display",
+    "/kitty-table-4-display",
     "/kitty-records",
   ];
 
