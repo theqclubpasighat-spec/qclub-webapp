@@ -80,8 +80,8 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/admin/templates` | Notification Templates | admin | No | Reconciled as non-secret template-name CMS; live MSG91 credentials/dispatch remain separate |
 | `/admin/feature-flags` | Feature Flags | admin | No | Reconciled as configuration-only flags; live route activation remains pending |
 | `/admin/settings` | Settings Hierarchy | admin | No | Reconciled into protected Settings hub over existing editors and canonical operational masters |
-| `/admin/data-tools` | Data Tools | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/storage-migrate` | Storage Migration | admin | No | Retire obsolete staging migration action; keep production media paths |
+| `/admin/data-tools` | Data Tools | admin | No | Retire generic mutation-console behavior; use bounded canonical exports/tools only, with no direct state editor |
+| `/admin/storage-migrate` | Storage Migration | admin | No | RETIRED: staging project is deleted; do not recreate staging or expose migration controls. Preserve production media paths only |
 | `/admin/audit-log` | Audit Log | admin | No | Reconciled as read-only Reports & audit directory over existing Ledger/game/order/committee records |
 | `/admin/members` | Members | staff | No | Canonical destination mapped to `/member-registry`; new STAFF write-role grant not activated |
 | `/admin/bookings` | Bookings | staff | No | Canonical operational destination mapped through `/QclubLedger` website-operations inbox; alias pending |
