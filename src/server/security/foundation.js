@@ -106,7 +106,11 @@ function projectShopCatalog(state) {
         .map(opt => ({ id: opt.id, label: opt.label, img: typeof opt.img === 'string' ? opt.img : '' })),
     }));
   return {
-    ...textFields(catalog, ['heading', 'topLabel', 'description', 'badge1', 'badge2']),
+    heading: typeof catalog.heading === 'string' ? catalog.heading : '',
+    topLabel: typeof catalog.topLabel === 'string' ? catalog.topLabel : '',
+    description: typeof catalog.description === 'string' ? catalog.description : '',
+    badge1: typeof catalog.badge1 === 'string' ? catalog.badge1 : '',
+    badge2: typeof catalog.badge2 === 'string' ? catalog.badge2 : '',
     items,
   };
 }
@@ -148,7 +152,7 @@ function normalizedShopCatalog(value, current) {
       || !validExternalUrl(row.amazonUrl) || !validAsset(row.img)
       || !Array.isArray(row.images) || row.images.length > 12 || row.images.some(v => !validAsset(v))) fail(400, 'INVALID_CONTENT_PATCH');
     const price = finiteMoney(row.price, 999999.99);
-    if (price === null || price <= 0 || !Number.isInteger(Math.round(price * 100))) fail(400, 'INVALID_CONTENT_PATCH');
+    if (price === null || price <= 0 || Math.abs(price * 100 - Math.round(price * 100)) > 1e-7) fail(400, 'INVALID_CONTENT_PATCH');
     const previous = existingById.get(row.id);
     const existingOptions = Array.isArray(previous.options) ? previous.options : [];
     if (!Array.isArray(row.options) || row.options.length !== existingOptions.length) fail(400, 'INVALID_CONTENT_PATCH');
