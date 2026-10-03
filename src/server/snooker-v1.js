@@ -4121,6 +4121,216 @@ async function cashfreeWebhook(req, res) {
   return json(res, 200, { ok: true, received: true, auto_receipt: autoReceipt });
 }
 
+
+function staffOpsIndiaDate() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function staffOpsDate(value, fallbackToday = true) {
+  const raw = safeText(value || "", 10);
+  const candidate = raw || (fallbackToday ? staffOpsIndiaDate() : "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return "";
+  const parsed = new Date(candidate + "T00:00:00Z");
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate) return "";
+  return candidate;
+}
+
+function staffOpsTime(value) {
+  const raw = safeText(value || "", 5);
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : "";
+}
+
+function staffOpsLimit(req) {
+  return Math.min(300, Math.max(1, Math.floor(number(req.query?.limit, 100)) || 100));
+}
+
+function staffOpsActor(auth) {
+  return {
+    created_by_staff_id: safeText(auth?.staff_id || "", 160) || null,
+    created_by_display_name: safeText(auth?.display_name || "", 160) || null,
+  };
+}
+
+async function listStaffShifts(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  let query = getSupabaseAdmin()
+    .from("qclub_staff_shifts")
+    .select("id,staff_name,assigned_role,shift_name,duty_date,status,notes,created_by_staff_id,created_by_display_name,created_at")
+    .order("duty_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(staffOpsLimit(req));
+  if (req.query?.date != null) {
+    const dutyDate = staffOpsDate(req.query.date, false);
+    if (!dutyDate) return json(res, 400, { ok: false, error: "INVALID_DUTY_DATE" });
+    query = query.eq("duty_date", dutyDate);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return json(res, 200, { ok: true, shifts: data || [], items: data || [] });
+}
+
+async function createStaffShift(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const staffName = safeText(req.body?.staff_name || req.body?.staffName || "", 160);
+  const assignedRole = safeText(req.body?.assigned_role || req.body?.assignedRole || "", 120);
+  const shiftName = safeText(req.body?.shift_name || req.body?.shiftName || "", 160);
+  const dutyDate = staffOpsDate(req.body?.duty_date || req.body?.dutyDate);
+  const status = safeText(req.body?.status || "SCHEDULED", 30).toUpperCase();
+  const notes = safeText(req.body?.notes || "", 2000) || null;
+  if (!staffName) return json(res, 400, { ok: false, error: "STAFF_NAME_REQUIRED" });
+  if (!assignedRole) return json(res, 400, { ok: false, error: "ASSIGNED_ROLE_REQUIRED" });
+  if (!shiftName) return json(res, 400, { ok: false, error: "SHIFT_NAME_REQUIRED" });
+  if (!dutyDate) return json(res, 400, { ok: false, error: "INVALID_DUTY_DATE" });
+  if (!["SCHEDULED","ON_DUTY","COMPLETED","CANCELLED"].includes(status)) {
+    return json(res, 400, { ok: false, error: "INVALID_SHIFT_STATUS" });
+  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("qclub_staff_shifts")
+    .insert({
+      staff_name: staffName,
+      assigned_role: assignedRole,
+      shift_name: shiftName,
+      duty_date: dutyDate,
+      status,
+      notes,
+      ...staffOpsActor(auth),
+    })
+    .select("id,staff_name,assigned_role,shift_name,duty_date,status,notes,created_by_staff_id,created_by_display_name,created_at")
+    .single();
+  if (error) throw error;
+  return json(res, 201, { ok: true, shift: data });
+}
+
+async function listStaffAttendance(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  let query = getSupabaseAdmin()
+    .from("qclub_staff_attendance")
+    .select("id,staff_name,duty_date,status,in_time,out_time,overtime_hours,notes,created_by_staff_id,created_by_display_name,created_at")
+    .order("duty_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(staffOpsLimit(req));
+  if (req.query?.date != null) {
+    const dutyDate = staffOpsDate(req.query.date, false);
+    if (!dutyDate) return json(res, 400, { ok: false, error: "INVALID_DUTY_DATE" });
+    query = query.eq("duty_date", dutyDate);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return json(res, 200, { ok: true, attendance: data || [], items: data || [] });
+}
+
+async function createStaffAttendance(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const staffName = safeText(req.body?.staff_name || req.body?.staffName || auth.display_name || "", 160);
+  const dutyDate = staffOpsDate(req.body?.duty_date || req.body?.dutyDate);
+  const status = safeText(req.body?.status || "PRESENT", 30).toUpperCase();
+  const inRaw = safeText(req.body?.in_time || req.body?.inTime || "", 20);
+  const outRaw = safeText(req.body?.out_time || req.body?.outTime || "", 20);
+  const inTime = inRaw ? staffOpsTime(inRaw) : "";
+  const outTime = outRaw ? staffOpsTime(outRaw) : "";
+  const overtimeHours = number(req.body?.overtime_hours ?? req.body?.overtimeHours, 0);
+  const notes = safeText(req.body?.notes || "", 2000) || null;
+  if (!staffName) return json(res, 400, { ok: false, error: "STAFF_NAME_REQUIRED" });
+  if (!dutyDate) return json(res, 400, { ok: false, error: "INVALID_DUTY_DATE" });
+  if (!["PRESENT","LATE","HALF_DAY","LEAVE"].includes(status)) {
+    return json(res, 400, { ok: false, error: "INVALID_ATTENDANCE_STATUS" });
+  }
+  if (inRaw && !inTime) return json(res, 400, { ok: false, error: "INVALID_IN_TIME" });
+  if (outRaw && !outTime) return json(res, 400, { ok: false, error: "INVALID_OUT_TIME" });
+  if (status !== "LEAVE" && !inTime) return json(res, 400, { ok: false, error: "IN_TIME_REQUIRED" });
+  if (!Number.isFinite(overtimeHours) || overtimeHours < 0 || overtimeHours > 24) {
+    return json(res, 400, { ok: false, error: "INVALID_OVERTIME_HOURS" });
+  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("qclub_staff_attendance")
+    .insert({
+      staff_name: staffName,
+      duty_date: dutyDate,
+      status,
+      in_time: inTime || null,
+      out_time: outTime || null,
+      overtime_hours: Math.round(overtimeHours * 100) / 100,
+      notes,
+      ...staffOpsActor(auth),
+    })
+    .select("id,staff_name,duty_date,status,in_time,out_time,overtime_hours,notes,created_by_staff_id,created_by_display_name,created_at")
+    .single();
+  if (error) throw error;
+  return json(res, 201, { ok: true, attendance: data });
+}
+
+async function listOperationalExpenses(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  let query = getSupabaseAdmin()
+    .from("qclub_operational_expenses")
+    .select("id,category,title,amount_inr,paid_by,payment_mode,expense_date,notes,created_by_staff_id,created_by_display_name,created_at")
+    .order("expense_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(staffOpsLimit(req));
+  if (req.query?.date != null) {
+    const expenseDate = staffOpsDate(req.query.date, false);
+    if (!expenseDate) return json(res, 400, { ok: false, error: "INVALID_EXPENSE_DATE" });
+    query = query.eq("expense_date", expenseDate);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  const items = data || [];
+  const total = money(items.reduce((sum, row) => sum + number(row.amount_inr, 0), 0));
+  return json(res, 200, { ok: true, expenses: items, items, total_inr: total });
+}
+
+async function createOperationalExpense(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const category = safeText(req.body?.category || "MISC", 40).toUpperCase();
+  const title = safeText(req.body?.title || "", 240);
+  const amount = money(req.body?.amount_inr ?? req.body?.amountInr);
+  const paidBy = safeText(req.body?.paid_by || req.body?.paidBy || auth.display_name || "", 160);
+  const paymentMode = safeText(req.body?.payment_mode || req.body?.paymentMode || "CASH", 30).toUpperCase();
+  const expenseDate = staffOpsDate(req.body?.expense_date || req.body?.expenseDate);
+  const notes = safeText(req.body?.notes || "", 2000) || null;
+  if (!["MAINTENANCE","SUPPLIES","UTILITIES","REFRESHMENTS","MISC"].includes(category)) {
+    return json(res, 400, { ok: false, error: "INVALID_EXPENSE_CATEGORY" });
+  }
+  if (!title) return json(res, 400, { ok: false, error: "EXPENSE_TITLE_REQUIRED" });
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) {
+    return json(res, 400, { ok: false, error: "INVALID_EXPENSE_AMOUNT" });
+  }
+  if (!paidBy) return json(res, 400, { ok: false, error: "PAID_BY_REQUIRED" });
+  if (!["CASH","UPI","CARD","BANK"].includes(paymentMode)) {
+    return json(res, 400, { ok: false, error: "INVALID_EXPENSE_PAYMENT_MODE" });
+  }
+  if (!expenseDate) return json(res, 400, { ok: false, error: "INVALID_EXPENSE_DATE" });
+  const { data, error } = await getSupabaseAdmin()
+    .from("qclub_operational_expenses")
+    .insert({
+      category,
+      title,
+      amount_inr: amount,
+      paid_by: paidBy,
+      payment_mode: paymentMode,
+      expense_date: expenseDate,
+      notes,
+      ...staffOpsActor(auth),
+    })
+    .select("id,category,title,amount_inr,paid_by,payment_mode,expense_date,notes,created_by_staff_id,created_by_display_name,created_at")
+    .single();
+  if (error) throw error;
+  return json(res, 201, { ok: true, expense: data });
+}
+
 export async function handleSnookerV1(req, res, rawPath = "") {
   try {
     const method = safeText(req.method || "GET", 10).toUpperCase();
@@ -4149,6 +4359,13 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "PATCH" && path === "finance/reserve") return await updateFinanceReserve(req, res);
     if (method === "PATCH" && path === "finance/fnb-costs") return await updateFnbCostPrices(req, res);
     if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
+
+    if (method === "GET" && path === "staff/shifts") return await listStaffShifts(req, res);
+    if (method === "POST" && path === "staff/shifts") return await createStaffShift(req, res);
+    if (method === "GET" && path === "staff/attendance") return await listStaffAttendance(req, res);
+    if (method === "POST" && path === "staff/attendance") return await createStaffAttendance(req, res);
+    if (method === "GET" && path === "staff/expenses") return await listOperationalExpenses(req, res);
+    if (method === "POST" && path === "staff/expenses") return await createOperationalExpense(req, res);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
