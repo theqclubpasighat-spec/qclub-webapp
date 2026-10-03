@@ -9,3 +9,5 @@
 .settings-groups{display:grid;gap:14px}.settings-group{border:1px solid #42574c;border-radius:14px;padding:16px}.settings-group h3{margin:0 0 6px;font-size:16px}.settings-group>p{margin:0 0 14px;font-size:13px}.settings-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.settings-links button{text-align:left}@media(max-width:480px){.settings-links{grid-template-columns:1fr}}
 
 .settings-link{display:flex;align-items:center;min-height:46px;border-radius:12px;padding:10px 16px;border:1px solid #3c534b;background:#172a23;color:#e8eee9;text-decoration:none;font-size:13px}.settings-link:focus-visible{outline:3px solid #ddc682;outline-offset:3px}
+
+.role-tool-list{display:grid;gap:8px}.role-tool{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:54px;border:1px solid #3c534b;border-radius:12px;padding:10px 14px;background:#172a23;color:#e8eee9;text-decoration:none}.role-tool span:first-child{min-width:0}.role-tool strong{display:block;font-size:14px}.role-tool small{display:block;margin-top:4px;color:#a9bcb3;line-height:1.35}.role-tool:focus-visible{outline:3px solid #ddc682;outline-offset:3px}
