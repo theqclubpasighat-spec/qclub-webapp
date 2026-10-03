@@ -17,7 +17,7 @@ const cmsDeepLinks = [...new Set(
 const actual = [...new Set([...explicit, ...cmsDeepLinks])].sort();
 
 const retired = new Set([
-  "/receipt", "/Craxam", "/craxam", "/admin/login", "/reset-password",
+  "/receipt", "/admin/login", "/reset-password",
   "/admin/storage-migrate", "/bylaws", "/disclaimer",
 ]);
 
@@ -28,7 +28,7 @@ const documented = [...new Set(
 )].sort();
 
 test("production route registry covers every named client route and CMS deep link", () => {
-  assert.equal(actual.length, 109);
+  assert.equal(actual.length, 111);
   assert.deepEqual(documented, actual);
 });
 
@@ -44,6 +44,7 @@ test("compatibility aliases point at the documented canonical routes", () => {
     ["/qclubpay", "/QclubPay"],
     ["/qclubqr", "/QclubQr"],
     ["/refund-policy", "/refund"],
+    ["/craxam", "/Craxam"],
   ]) {
     const line = registry.split("\n").find(row => row.startsWith("| `" + alias + "` |"));
     assert.ok(line, "missing alias row: " + alias);
