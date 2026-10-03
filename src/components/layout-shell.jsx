@@ -238,12 +238,14 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
             {(admin || staffAdmin) ? <PublicLink to="/tv" onNavigate={closeMenu}>TV</PublicLink> : null}
             {(admin || staffAdmin) ? <PublicLink to="/staff-walkins" onNavigate={closeMenu}>Walk-ins</PublicLink> : null}
             {(admin || staffAdmin) ? <PublicLink to="/inventory" onNavigate={closeMenu}>Inventory</PublicLink> : null}
+            {(admin || staffAdmin) ? <PublicLink to="/staff-shifts" onNavigate={closeMenu}>Staff Operations</PublicLink> : null}
             {(admin || staffAdmin) ? <PublicLink to="/admin/orders" onNavigate={closeMenu}>Orders</PublicLink> : null}
             {(admin || staffAdmin) ? <PublicLink to="/shop/successful-order-receipts" onNavigate={closeMenu}>Shop Receipts</PublicLink> : null}
             {admin ? <PublicLink to="/member-registry" onNavigate={closeMenu}>Member Registry</PublicLink> : null}
             {(admin || committeeAdmin) ? <PublicLink to="/review-panel" onNavigate={closeMenu}>Review Panel</PublicLink> : null}
             {(admin || staffAdmin) ? <PublicLink to="/match-ledger" onNavigate={closeMenu}>Match Ledger</PublicLink> : null}
-            {admin ? <PublicLink to="/admin-panel" onNavigate={closeMenu}>Admin Panel</PublicLink> : null}
+            {admin ? <PublicLink to="/admin" onNavigate={closeMenu}>Website Manager</PublicLink> : null}
+            {admin ? <PublicLink to="/admin-panel" onNavigate={closeMenu}>Legacy Admin Panel</PublicLink> : null}
           </>
         ) : null}
 
