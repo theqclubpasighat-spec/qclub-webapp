@@ -207,7 +207,7 @@ function normalizedBookingTables(value) {
 // This is a new API contract, not a drop-in replacement for cloud.js yet.
 export function publicContent(state) {
   return {
-    club: textFields(state?.club, ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent']),
+    club: textFields(state?.club, CLUB_KEYS),
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
     memberships: projectMemberships(state),
     bookingTables: projectBookingTables(state),
@@ -216,7 +216,20 @@ export function publicContent(state) {
   };
 }
 const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'notices'];
-const CLUB_KEYS = ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent'];
+const CLUB_KEYS = [
+  'name','location','tagline','tagline2','hoursNote',
+  'aboutTitle','aboutContent','contactTitle','contactContent',
+  'bookPageTitle','bookPageSubtitle','membershipPageTitle','membershipPageSubtitle','membershipNote',
+  'shopPageTitle','shopPageSubtitle','handicapTitle','handicapContent',
+  'airHockeyInfoTitle','airHockeyInfoContent','foosballInfoTitle','foosballInfoContent',
+  'massageChairInfoTitle','massageChairInfoContent',
+  'termsTitle','termsContent','refundTitle','refundContent','privacyTitle','privacyContent',
+  'tournamentDisclaimerTitle','tournamentDisclaimerContent',
+  'balancedFormatTitle','balancedFormatSubtitle','balancedFormatDescription',
+  'heroBookBtnLabel','heroMembershipBtnLabel','heroShopBtnLabel',
+  'footerAboutLabel','footerAbout','footerDescription','footerContactLabel',
+  'footerTermsLabel','footerRefundLabel','footerPrivacyLabel',
+];
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
   const next = structuredClone(current);
