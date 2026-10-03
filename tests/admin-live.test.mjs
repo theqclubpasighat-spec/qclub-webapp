@@ -4,7 +4,7 @@ import test from "node:test";
 import { createAdminClient } from "../src/admin-live/client.mjs";
 
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const api = readFileSync(new URL("../api/qclub-cms.js", import.meta.url), "utf8");
+const api = readFileSync(new URL("../src/server/snooker-v1.js", import.meta.url), "utf8");
 const page = readFileSync(new URL("../src/admin-live/AdminLivePage.jsx", import.meta.url), "utf8");
 const clientSource = readFileSync(new URL("../src/admin-live/client.mjs", import.meta.url), "utf8");
 const isolation = readFileSync(new URL("../scripts/isolated-build-output.mjs", import.meta.url), "utf8");
@@ -17,15 +17,16 @@ test("live Website Manager is mounted at /admin", () => {
 
 test("live CMS uses canonical server auth and never calls rehearsal endpoints", () => {
   assert.match(clientSource, /\/api\/snooker\/v1\/auth\/login/);
-  assert.match(clientSource, /\/api\/qclub-cms\?action=content/);
+  assert.match(clientSource, /\/api\/snooker\/v1\/cms\/content/);
   assert.doesNotMatch(clientSource, /qclub-checkout-rehearsal|QCLUB_SECURITY_REHEARSAL/);
   assert.doesNotMatch(page, /rehearsal website|PREVIEW ·/);
 });
 
 test("CMS writes are main-admin only even though legacy committee sessions use ADMIN role", () => {
-  assert.match(api, /authenticate\(db, req, \["ADMIN"\]\)/);
-  assert.match(api, /actor\.staff_id !== "admin-main"/);
-  assert.match(api, /throw new SecurityError\(403, "FORBIDDEN"\)/);
+  assert.match(api, /path === "cms\/content"/);
+  assert.match(api, /requireAuth\(req, res, \["ADMIN"\]\)/);
+  assert.match(api, /auth\.staff_id !== "admin-main"/);
+  assert.match(api, /error: "FORBIDDEN"/);
 });
 
 test("committee login is normalized away from ADMIN in the live CMS client", async () => {
