@@ -102,3 +102,12 @@ test("unsupported donor public routes are not invented by the V2 shell", () => {
     assert.ok(!app.includes(`path="${path}"`), `placeholder route should not be activated: ${path}`);
   }
 });
+
+
+test("rules and anti-gambling donor routes reuse existing authoritative policy content", () => {
+  assert.match(app, /path="\/rules" element=\{<V2RulesHub \/>\}/);
+  assert.match(app, /path="\/anti-gambling"[\s\S]*<TournamentLegalContent/);
+  assert.match(publicInfo, /to="\/terms"/);
+  assert.match(publicInfo, /to="\/legal"/);
+  assert.doesNotMatch(publicInfo, /club rules are|No smoking|No alcohol/i);
+});
