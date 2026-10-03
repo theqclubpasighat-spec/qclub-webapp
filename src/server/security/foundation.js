@@ -207,7 +207,11 @@ function normalizedBookingTables(value) {
 // This is a new API contract, not a drop-in replacement for cloud.js yet.
 export function publicContent(state) {
   return {
-    club: textFields(state?.club, CLUB_KEYS),
+    club: {
+      ...textFields(state?.club, CLUB_KEYS),
+      heroSlides: (Array.isArray(state?.club?.heroSlides) ? state.club.heroSlides : [])
+        .filter(value => typeof value === 'string' && validAsset(value)).slice(0, 30),
+    },
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
     memberships: projectMemberships(state),
     bookingTables: projectBookingTables(state),
@@ -215,7 +219,7 @@ export function publicContent(state) {
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'heroSlides', 'notices'];
 const CLUB_KEYS = [
   'name','location','tagline','tagline2','hoursNote',
   'aboutTitle','aboutContent','contactTitle','contactContent',
@@ -229,7 +233,9 @@ const CLUB_KEYS = [
   'heroBookBtnLabel','heroMembershipBtnLabel','heroShopBtnLabel',
   'footerAboutLabel','footerAbout','footerDescription','footerContactLabel',
   'footerTermsLabel','footerRefundLabel','footerPrivacyLabel',
+  'videoUrl','musicUrl','liveStreamUrl',
 ];
+const MEDIA_URL_KEYS = ['videoUrl','musicUrl','liveStreamUrl'];
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
   const next = structuredClone(current);
@@ -262,9 +268,17 @@ export function contentPatch(current, changes) {
       };
       continue;
     }
+    if (section === 'heroSlides') {
+      if (!Array.isArray(fields) || fields.length < 1 || fields.length > 30
+        || fields.some(value => typeof value !== 'string' || !value || !validAsset(value))
+        || new Set(fields).size !== fields.length) fail(400, 'INVALID_CONTENT_PATCH');
+      next.club = { ...(object(current.club) ? current.club : {}), heroSlides: [...fields] };
+      continue;
+    }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
     if (!object(fields) || !Object.keys(fields).length || Object.keys(fields).some(k => !allowed.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
     for (const value of Object.values(fields)) if (typeof value !== 'string' || value.length > 30000) fail(400, 'INVALID_CONTENT_PATCH');
+    if (section === 'club' && Object.entries(fields).some(([key,value]) => MEDIA_URL_KEYS.includes(key) && !validAsset(value))) fail(400, 'INVALID_CONTENT_PATCH');
     next[section] = { ...(object(current[section]) ? current[section] : {}), ...fields };
   }
   return next;
