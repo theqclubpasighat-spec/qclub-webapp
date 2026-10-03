@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [integration/v2-mobile-preview-20260927]
+    branches: [integration/v2-mobile-preview-20260927, integration/v2-production-shell-current-20261002, integration/v2-combined-rehearsal-20261003]
 permissions:
   contents: read
 jobs:
