@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import "./styles.css";
+import "./v2-live/v2-live.css";
 
 // Preserve the existing production entry. Service-worker registration stays disabled.
 ReactDOM.createRoot(document.getElementById("root")).render(
