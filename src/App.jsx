@@ -6,6 +6,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, Navigate, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
+import CraXamAuthBridgePage from "./components/CraXamAuthBridgePage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
 import V2Food from "./v2-live/V2Food.jsx";
@@ -4020,6 +4021,8 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
+        <Route path="/Craxam" element={<CraXamAuthBridgePage />} />
+        <Route path="/craxam" element={<CraXamAuthBridgePage />} />
         <Route path="/craxam/privacy" element={<CraXamPrivacyPage />} />
         <Route path="/craxam/delete-account" element={<CraXamDeleteAccountPage />} />
                 <Route path="/air-hockey-info" element={<StaticPage title={data.club?.airHockeyInfoTitle || "Air Hockey at The Q Club"}><AirHockeyInfoContent
