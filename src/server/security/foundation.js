@@ -94,6 +94,10 @@ const NOTIFICATION_TEMPLATE_KEYS = [
   'tournamentSuccess','tournamentFailed','foodSuccess','foodFailed',
   'jobApplicationReceived','jobInterviewCall',
 ];
+const FEATURE_FLAG_KEYS = [
+  'showQLounge','showQShop','showBooking','showMembership','showTournaments',
+  'showPlayers','showLiveMatches','showClubMedia','showOffers','showFeedback',
+];
 function projectTheme(state) {
   const theme = object(state?.theme) ? state.theme : {};
   return Object.fromEntries(THEME_KEYS.filter(key => typeof theme[key] === 'string' && /^#[0-9A-Fa-f]{6}$/.test(theme[key])).map(key => [key, theme[key].toUpperCase()]));
@@ -101,6 +105,10 @@ function projectTheme(state) {
 function projectNotificationTemplates(state) {
   const templates = object(state?.notificationTemplates) ? state.notificationTemplates : {};
   return Object.fromEntries(NOTIFICATION_TEMPLATE_KEYS.map(key => [key, typeof templates[key] === 'string' ? templates[key] : '']));
+}
+function projectFeatureFlags(state) {
+  const flags = object(state?.featureFlags) ? state.featureFlags : {};
+  return Object.fromEntries(FEATURE_FLAG_KEYS.map(key => [key, flags[key] === true]));
 }
 function normalizedTheme(value) {
   if (!object(value) || Object.keys(value).some(key => !THEME_KEYS.includes(key)) || Object.keys(value).length !== THEME_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');
@@ -119,6 +127,15 @@ function normalizedNotificationTemplates(value) {
     const name = value[key];
     if (typeof name !== 'string' || name.length > 120 || (name && !/^[A-Za-z0-9_.-]+$/.test(name))) fail(400, 'INVALID_CONTENT_PATCH');
     next[key] = name;
+  }
+  return next;
+}
+function normalizedFeatureFlags(value) {
+  if (!object(value) || Object.keys(value).some(key => !FEATURE_FLAG_KEYS.includes(key)) || Object.keys(value).length !== FEATURE_FLAG_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');
+  const next = {};
+  for (const key of FEATURE_FLAG_KEYS) {
+    if (typeof value[key] !== 'boolean') fail(400, 'INVALID_CONTENT_PATCH');
+    next[key] = value[key];
   }
   return next;
 }
@@ -254,10 +271,11 @@ export function publicContent(state) {
     shopCatalog: projectShopCatalog(state),
     theme: projectTheme(state),
     notificationTemplates: projectNotificationTemplates(state),
+    featureFlags: projectFeatureFlags(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'theme', 'notificationTemplates', 'heroSlides', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'theme', 'notificationTemplates', 'featureFlags', 'heroSlides', 'notices'];
 const CLUB_KEYS = [
   'name','location','tagline','tagline2','hoursNote',
   'aboutTitle','aboutContent','contactTitle','contactContent',
@@ -297,6 +315,10 @@ export function contentPatch(current, changes) {
     }
     if (section === 'notificationTemplates') {
       next.notificationTemplates = { ...(object(current.notificationTemplates) ? current.notificationTemplates : {}), ...normalizedNotificationTemplates(fields) };
+      continue;
+    }
+    if (section === 'featureFlags') {
+      next.featureFlags = { ...(object(current.featureFlags) ? current.featureFlags : {}), ...normalizedFeatureFlags(fields) };
       continue;
     }
     if (section === 'shopCatalog') {
