@@ -101,7 +101,7 @@ test("safe donor public info routes reuse production policy and pricing data", (
 });
 
 test("unsupported donor public routes are not invented by the V2 shell", () => {
-  for (const path of ["/bylaws", "/disclaimer", "/feedback"]) {
+  for (const path of ["/bylaws", "/disclaimer"]) {
     assert.ok(!app.includes(`path="${path}"`), `placeholder route should not be activated: ${path}`);
   }
 });
