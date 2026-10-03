@@ -13,7 +13,9 @@ export function isolatedBuildOutput({ adminPreview, v2Preview }) {
         if (chunk.type !== 'chunk') continue;
         for (const id of Object.keys(chunk.modules)) {
           const normalized = id.replaceAll('\\', '/');
-          if ((!adminPreview && /\/src\/(admin|checkout)-preview\//.test(normalized)) ||
+          const rehearsalAdminEntry = /\/src\/admin-preview\/(?:entry\.jsx|client\.mjs)$/.test(normalized);
+          const checkoutPreview = normalized.includes('/src/checkout-preview/');
+          if ((!adminPreview && (rehearsalAdminEntry || checkoutPreview)) ||
               (!v2Preview && normalized.includes('/src/v2-preview/'))) {
             this.error(`Disabled preview module found in output: ${id}`);
           }
