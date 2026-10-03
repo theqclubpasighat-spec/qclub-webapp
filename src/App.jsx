@@ -9,7 +9,7 @@ import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
 import V2Food from "./v2-live/V2Food.jsx";
-import { V2LegalHub, V2Pricing } from "./v2-live/V2PublicInfo.jsx";
+import { V2LegalHub, V2Pricing, V2RulesHub } from "./v2-live/V2PublicInfo.jsx";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
@@ -3972,6 +3972,13 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
+        <Route path="/anti-gambling" element={<StaticPage title="Anti-Gambling & Tournament Notice"><TournamentLegalContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/rules" element={<V2RulesHub />} />
                 <Route
   path="/admin/orders"
   element={<FoodOrdersAdmin data={data} admin={admin} staffAdmin={staffAdmin} commit={commit} />}
