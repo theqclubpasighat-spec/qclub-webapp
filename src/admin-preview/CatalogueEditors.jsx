@@ -243,3 +243,23 @@ export function ReportsAuditOverview({groups}) {
     <p><strong>Source of truth remains unchanged.</strong> Ledger, game records, committee review and order archives continue to read their current production stores and authorization rules.</p>
   </section>;
 }
+
+
+export function RoleToolsOverview({groups}) {
+  return <section className="card settings-overview">
+    <h2>Role tools</h2>
+    <p>V2 grouped operational pages by role. These links reuse the existing production pages; they do not grant a role or bypass the authorization already enforced by each destination.</p>
+    <div className="settings-groups">
+      {groups.map(group=><section className="settings-group" key={group.title}>
+        <h3>{group.title}</h3>
+        <p>{group.description}</p>
+        <div className="role-tool-list">
+          {group.items.map(item=><a className="role-tool" key={item.label} href={item.href}>
+            <span><strong>{item.label}</strong><small>{item.note}</small></span><span aria-hidden="true">→</span>
+          </a>)}
+        </div>
+      </section>)}
+    </div>
+    <p><strong>Security boundary:</strong> this directory is navigation only. Any broader STAFF/COMMITTEE write access must be separately reviewed and tested before activation.</p>
+  </section>;
+}
