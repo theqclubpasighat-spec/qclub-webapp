@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, theme: {}, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
