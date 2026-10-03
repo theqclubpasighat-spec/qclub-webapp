@@ -37,6 +37,7 @@ const run=promisify(execFile),session=`qclub-admin-${process.pid}`;
 async function browser(...args){const {stdout}=await run(process.env.QCLUB_AGENT_BROWSER,['--session',session,'--allowed-domains','127.0.0.1','--json',...args],{timeout:45000,maxBuffer:2*1024*1024});const result=JSON.parse(stdout);if(!result.success)throw Error(JSON.stringify(result));return result.data;}
 const evaluate=async source=>(await browser('eval',source)).result;
 async function button(name){
+ await evaluate(`(()=>{const target=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(name)});if(target)target.scrollIntoView({block:'center',inline:'nearest'});return !!target;})()`);
  const data=await browser('snapshot','-i');
  const ref=Object.entries(data.refs).find(([,value])=>value.role==='button'&&value.name===name)?.[0];
  if(!ref)throw Error(`Button not found: ${name}`);
