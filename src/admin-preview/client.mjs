@@ -66,6 +66,9 @@ export const sections = [
     ['footerContactLabel','Footer contact label'],['footerTermsLabel','Footer terms label'],
     ['footerRefundLabel','Footer refund label'],['footerPrivacyLabel','Footer privacy label'],
   ] },
+  { id: 'club', title: 'Media links', fields: [
+    ['liveStreamUrl','Live stream URL'],['videoUrl','Video URL'],['musicUrl','Music URL'],
+  ] },
   { id: 'club', title: 'Contact', fields: [
     ['contactTitle','Contact title'],['contactContent','Contact content','textarea'],
   ] },
@@ -80,6 +83,7 @@ export function changesBetween(before, after) {
   if (JSON.stringify(before?.memberships || []) !== JSON.stringify(after?.memberships || [])) changes.memberships = after?.memberships || [];
   if (JSON.stringify(before?.bookingTables || []) !== JSON.stringify(after?.bookingTables || [])) changes.bookingTables = after?.bookingTables || [];
   if (JSON.stringify(before?.shopCatalog || {}) !== JSON.stringify(after?.shopCatalog || {})) changes.shopCatalog = after?.shopCatalog || { heading:'',topLabel:'',description:'',badge1:'',badge2:'',items:[] };
+  if (JSON.stringify(before?.club?.heroSlides || []) !== JSON.stringify(after?.club?.heroSlides || [])) changes.heroSlides = after?.club?.heroSlides || [];
   return changes;
 }
 export function messageFor(error) {
