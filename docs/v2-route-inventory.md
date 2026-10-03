@@ -65,8 +65,8 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/admin-panel` | Admin Panel | admin | Yes | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/orders` | Orders | admin | Yes | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/orders-archive` | Orders Archive | admin | Yes | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/login` | Admin Sign In | public | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/reset-password` | Reset Password | public | No | Map existing data and enforce server roles; review RLS and writes before enabling |
+| `/admin/login` | Admin Sign In | public | No | Retired: donor uses a separate Supabase email/password/magic-link auth stack; merged production admin remains PIN/session based |
+| `/reset-password` | Reset Password | public | No | Retired with donor email/password auth; no second credential system is introduced beside the production PIN/session model |
 | `/admin` | CMS Dashboard | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/club-details` | Club Profile | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/membership-tiers` | Membership Content | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
@@ -81,7 +81,7 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/admin/feature-flags` | Feature Flags | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/settings` | Settings Hierarchy | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/data-tools` | Data Tools | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/admin/storage-migrate` | Storage Migration | admin | No | Retire obsolete staging migration action; keep production media paths |
+| `/admin/storage-migrate` | Storage Migration | admin | No | Retired: one-off donor copier targeted the staging-era storage migration; staging is deleted and production media paths are retained |
 | `/admin/audit-log` | Audit Log | admin | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/members` | Members | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/bookings` | Bookings | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
@@ -104,13 +104,13 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/privacy` | Privacy Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/tournament-legal` | Tournament Rules & Terms | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/rules` | Club Rules | public | No | Reconciled as a V2 bridge to the authoritative Terms & Conditions rules section; no duplicate rules copy |
-| `/bylaws` | Bylaws | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
+| `/bylaws` | Bylaws | public | No | Not promoted: donor text is an unapproved governance document; publish only after formal club bylaws are approved |
 | `/refund-policy` | Refund Policy | public | No | Reconciled as an alias to the existing production Refund Policy content; no duplicate policy state |
 | `/pricing` | Pricing | public | No | Reconciled as a read-only V2 page using existing membership tiers and booking table rates |
 | `/legal` | Legal Notice | public | No | Reconciled as a policy hub linking existing Terms, Refund, Privacy and Tournament Legal pages; no new legal text invented |
-| `/disclaimer` | Disclaimer | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
+| `/disclaimer` | Disclaimer | public | No | Not promoted: donor copy includes unverified operational claims; existing Terms/Legal pages remain authoritative |
 | `/anti-gambling` | Anti-Gambling Notice | public | No | Reconciled by reusing the existing Tournament Legal Notice, which already contains the club's skill-based/no-wagering position |
-| `/feedback` | Feedback | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
+| `/feedback` | Feedback | public | No | Reconciled as a safe V2 bridge to the existing Contact page; donor placeholder phone/email and duplicate feedback storage are not used |
 
 ## Production-only routes to preserve
 
