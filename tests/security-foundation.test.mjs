@@ -340,3 +340,20 @@ test('feature flag CMS stores booleans only and cannot change live routing or op
     Object.fromEntries(Object.entries(edited).filter(([key])=>key!=='showFeedback')),
   ]) assert.throws(()=>contentPatch(before,{featureFlags}),expectCode('INVALID_CONTENT_PATCH'));
 });
+
+
+test('committee credential has a distinct non-admin authority', async () => {
+  const pin_hash = await hashPin('963258');
+  const db = queryDb({ error: null });
+  db.rpc = async (name) => name === 'qclub_security_reserve_attempt'
+    ? { data: { allowed: true } }
+    : name === 'qclub_security_create_session'
+      ? { data: true }
+      : { data: [{ credential_id: 'committee', pin_hash, version: 1 }] };
+  const login = await privateLogin(db, { socket: { remoteAddress: '127.0.0.1' }, headers: {}, body: { pin: '963258' } }, now);
+  assert.equal(login.role, 'COMMITTEE');
+  assert.equal(login.staff_id, 'admin-committee');
+  await assert.rejects(saveContent(queryDb({ data: { state:{club:{name:'Q'}}, updated_at: now.toISOString() } }), login, { baseUpdatedAt: now.toISOString(), changes:{club:{name:'X'}} }, now), expectCode('FORBIDDEN'));
+  const committeeSession = { ...actor, role:'COMMITTEE', staff_id:'admin-committee', expires_at:'2099-01-01T00:00:00Z' };
+  assert.equal((await authenticate(queryDb({ data: committeeSession }), request)).role, 'COMMITTEE');
+});
