@@ -47,11 +47,11 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/kitty-table-1` | Kitty — Table 1 Scorer | scorer | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/kitty-table-2` | Kitty — Table 2 Scorer | scorer | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/kitty-table-3` | Kitty — Table 3 Scorer | scorer | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
-| `/kitty-table-4` | Kitty — Table 4 Scorer | scorer | No | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
+| `/kitty-table-4` | Kitty — Table 4 Scorer | scorer | Yes | Reconciled to current T4 Pool mapping using the existing Kitty engine; legacy mismatched local snapshots are archived instead of restored |
 | `/kitty-table-1-display` | Kitty — Table 1 Display | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/kitty-table-2-display` | Kitty — Table 2 Display | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/kitty-table-3-display` | Kitty — Table 3 Display | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
-| `/kitty-table-4-display` | Kitty — Table 4 Display | public | No | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
+| `/kitty-table-4-display` | Kitty — Table 4 Display | public | Yes | Added T4 Pool display route using the existing Kitty display engine |
 | `/kitty-records` | Kitty Records | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/kitty-monthly` | Kitty Monthly | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/staff-walkins` | Walk-ins | staff | Yes | Implement authenticated persistence; reject sample-state donor behaviour |
