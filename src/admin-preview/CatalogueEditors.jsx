@@ -205,3 +205,21 @@ export function FeatureFlagsEditor({flags,onChange,busy}) {
     <p>Activation will require a separate reviewed package. This screen only preserves the V2 feature-flag configuration safely.</p>
   </section>;
 }
+
+
+export function SettingsOverview({groups,onOpen}) {
+  return <section className="card settings-overview">
+    <h2>Settings</h2>
+    <p>One place to find the V2 website settings that have been safely reconciled into the rehearsal CMS.</p>
+    <div className="settings-groups">
+      {groups.map(group=><section className="settings-group" key={group.title}>
+        <h3>{group.title}</h3>
+        <p>{group.description}</p>
+        <div className="settings-links">
+          {group.items.map(item=><button type="button" key={item.label} onClick={()=>onOpen(item.tab)}>Open {item.label}</button>)}
+        </div>
+      </section>)}
+    </div>
+    <p><strong>Operational systems stay separate.</strong> QclubLedger, QclubPay, QclubQr, table displays, Kitty/Q Chase, payment credentials and live inventory operations are not managed from this settings hub.</p>
+  </section>;
+}
