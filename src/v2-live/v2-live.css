@@ -785,3 +785,6 @@ body.qclub-v2-live .player-link {
     font-size: .84rem;
   }
 }
+
+
+.v2-live-rate-list{display:grid;gap:10px;margin-top:16px}.v2-live-rate-row{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(110px,.8fr));gap:12px;align-items:center;border:1px solid var(--qv2-border);border-radius:11px;padding:12px;background:rgba(255,255,255,.02)}.v2-live-rate-row>div:not(:first-child){display:grid;gap:2px}.v2-live-rate-row span{color:var(--qv2-muted);font-size:12px}.v2-live-rate-row strong{color:var(--qv2-ivory)}@media(max-width:620px){.v2-live-rate-row{grid-template-columns:1fr 1fr}.v2-live-rate-row>div:first-child{grid-column:1/-1}.v2-live-page-heading{display:grid}.v2-live-page-heading .v2-live-inline-actions{justify-content:flex-start}}
