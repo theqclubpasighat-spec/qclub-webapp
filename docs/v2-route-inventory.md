@@ -1,8 +1,8 @@
 # V2 route integration inventory
 
-Source snapshots: production baseline `1b94906c`; donor V2 `a07af1a`; final reconciliation candidate PR #48 (2026-10-03).
+Source snapshots: production baseline `1b94906c`; donor V2 `a07af1a`; final reconciliation PR #48 merged to `main` as `69e3708b` on 2026-10-03.
 
-This is a source-route inventory, not a claim that every route works or is deployed. V2 declares 105 routes. Production App declares 66 named routes plus its catch-all. 59 paths overlap, 46 V2 paths are absent from that production registry, and seven production paths are absent from V2. Aliases and alternate server routing need separate verification.
+This is a source-route inventory, not a claim that every route is live. The V2 public-shell reconciliation is now in `main`; the secure CMS remains production-disabled/rehearsal-only pending a separate coordinated cutover. V2 declares 105 routes. Production App declares 66 named routes plus its catch-all. 59 paths overlap, 46 V2 paths are absent from that production registry, and seven production paths are absent from V2. Aliases and alternate server routing need separate verification.
 
 | V2 route | Page | Declared role | Existing exact path | Integration decision |
 |---|---|---|---|---|
