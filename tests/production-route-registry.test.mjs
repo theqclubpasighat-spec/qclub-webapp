@@ -21,10 +21,13 @@ const retired = new Set([
   "/admin/storage-migrate", "/bylaws", "/disclaimer",
 ]);
 
+const masterSection = registry
+  .split("## Master route map")[1]
+  .split("## Intentionally retired donor routes")[0];
+
 const documented = [...new Set(
-  [...registry.matchAll(/^\| `([^`]+)` \|/gm)]
+  [...masterSection.matchAll(/^\| `([^`]+)` \|/gm)]
     .map(match => match[1])
-    .filter(path => !retired.has(path))
 )].sort();
 
 test("production route registry covers every named client route and CMS deep link", () => {
@@ -50,5 +53,11 @@ test("compatibility aliases point at the documented canonical routes", () => {
     assert.ok(line, "missing alias row: " + alias);
     assert.ok(line.includes("| Alias |"), "route is not marked Alias: " + alias);
     assert.ok(line.includes(canonical), "alias target mismatch for " + alias);
+  }
+});
+
+test("external app gateway namespaces remain protected from route cleanup", () => {
+  for (const namespace of ["/Craxam", "/AiAdi", "/SiangRide", "/GOAT", "/WisdomTax"]) {
+    assert.ok(registry.includes("`" + namespace + "`"), "missing reserved app namespace: " + namespace);
   }
 });
