@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createAdminClient, changesBetween, messageFor, sections } from "./client.mjs";
 import "../admin-preview/style.css";
 import Notices from "../admin-preview/Notices.jsx";
+import StaffOperationsPanel from "../admin-preview/StaffOperationsPanel.jsx";
 import {
   FeatureFlagsEditor,
   HeroSlidesEditor,
@@ -17,12 +18,49 @@ import {
 
 const client = createAdminClient();
 
+function initialTabForPath(pathname = "") {
+  const noticesTab = sections.length;
+  const membershipsTab = noticesTab + 1;
+  const ratesTab = noticesTab + 2;
+  const shopTab = noticesTab + 3;
+  const heroTab = noticesTab + 4;
+  const themeTab = noticesTab + 5;
+  const templatesTab = noticesTab + 6;
+  const flagsTab = noticesTab + 7;
+  const settingsTab = noticesTab + 8;
+  const reportsTab = noticesTab + 9;
+  const rolesTab = noticesTab + 10;
+  const staffOpsTab = noticesTab + 11;
+  const path = String(pathname || "").replace(/\/+$/, "") || "/admin";
+  const map = {
+    "/admin/club-details": 0,
+    "/admin/documents": 1,
+    "/admin/membership-tiers": membershipsTab,
+    "/admin/rates": ratesTab,
+    "/admin/notices": noticesTab,
+    "/admin/shop": shopTab,
+    "/admin/media": heroTab,
+    "/admin/theme": themeTab,
+    "/admin/templates": templatesTab,
+    "/admin/feature-flags": flagsTab,
+    "/admin/settings": settingsTab,
+    "/admin/data-tools": reportsTab,
+    "/admin/audit-log": reportsTab,
+    "/admin/reports": reportsTab,
+    "/admin/food-menu": rolesTab,
+    "/staff-shifts": staffOpsTab,
+    "/expense": staffOpsTab,
+    "/staff-attendance": staffOpsTab,
+  };
+  return map[path] ?? 0;
+}
+
 export default function AdminLivePage() {
   const [actor, setActor] = useState(null);
   const [pin, setPin] = useState("");
   const [saved, setSaved] = useState(null);
   const [draft, setDraft] = useState(null);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(() => initialTabForPath(globalThis.location?.pathname || ""));
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState("");
@@ -42,6 +80,7 @@ export default function AdminLivePage() {
   const settingsTab = noticesTab + 8;
   const reportsTab = noticesTab + 9;
   const rolesTab = noticesTab + 10;
+  const staffOpsTab = noticesTab + 11;
 
   const roleGroups = [
     { title:"Staff operations", description:"Daily counter, orders, members and stock tools already in production.", items:[
@@ -52,6 +91,7 @@ export default function AdminLivePage() {
       {label:"Member registry",href:"/member-registry",note:"Membership records and member maintenance"},
       {label:"Inventory",href:"/inventory",note:"Existing stock/item screen; F&B stock remains in Ledger catalogue"},
       {label:"Staff walk-ins",href:"/staff-walkins",note:"Counter walk-in booking/entry"},
+      {label:"Shifts, attendance & expenses",href:"/staff-shifts",note:"Staff scheduling, clock-in/out and operational expenses"},
     ]},
     { title:"Committee / competition", description:"Player review, match records, tournaments and displays.", items:[
       {label:"Review panel",href:"/review-panel",note:"Classification, review history and committee audit"},
@@ -250,6 +290,7 @@ export default function AdminLivePage() {
         <button aria-pressed={tab===settingsTab} onClick={()=>setTab(settingsTab)}>Settings</button>
         <button aria-pressed={tab===reportsTab} onClick={()=>setTab(reportsTab)}>Reports & audit</button>
         <button aria-pressed={tab===rolesTab} onClick={()=>setTab(rolesTab)}>Role tools</button>
+        <button aria-pressed={tab===staffOpsTab} onClick={()=>setTab(staffOpsTab)}>Staff operations</button>
       </nav>
 
       {conflict && <aside className="card conflict">
@@ -274,6 +315,7 @@ export default function AdminLivePage() {
           : tab===settingsTab ? <SettingsOverview groups={settingsGroups} onOpen={setTab}/>
           : tab===reportsTab ? <ReportsAuditOverview groups={reportGroups}/>
           : tab===rolesTab ? <RoleToolsOverview groups={roleGroups}/>
+          : tab===staffOpsTab ? <StaffOperationsPanel client={client} actor={actor}/>
           : <section className="card">
               <h2>{current.title}</h2>
               {current.fields.map(([key,label,kind])=><div className="field" key={key}>

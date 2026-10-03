@@ -84,6 +84,27 @@ export function createAdminClient(fetcher = globalThis.fetch, storage = globalTh
       method: "PATCH",
       body: JSON.stringify({ baseUpdatedAt, changes }),
     }),
+    staffOps: () => jsonRequest("/api/snooker/v1/cms/staff-ops"),
+    createShift: values => jsonRequest("/api/snooker/v1/cms/staff-shift", {
+      method: "POST",
+      body: JSON.stringify({ command: "CREATE", ...values }),
+    }),
+    cancelShift: (shiftId, reason) => jsonRequest("/api/snooker/v1/cms/staff-shift", {
+      method: "POST",
+      body: JSON.stringify({ command: "CANCEL", shiftId, reason }),
+    }),
+    clockAttendance: (command, note = "") => jsonRequest("/api/snooker/v1/cms/staff-attendance", {
+      method: "POST",
+      body: JSON.stringify({ command, note }),
+    }),
+    createExpense: values => jsonRequest("/api/snooker/v1/cms/staff-expense", {
+      method: "POST",
+      body: JSON.stringify({ command: "CREATE", ...values }),
+    }),
+    voidExpense: (expenseId, reason) => jsonRequest("/api/snooker/v1/cms/staff-expense", {
+      method: "POST",
+      body: JSON.stringify({ command: "VOID", expenseId, reason }),
+    }),
     async logout() {
       try {
         if (token) await jsonRequest("/api/snooker/v1/auth/logout", { method: "POST", body: JSON.stringify({}) });

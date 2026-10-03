@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { publicContent as cmsPublicContent, saveContent as saveCmsContent } from "./security/foundation.js";
+import { cancelStaffShift, clockStaffAttendance, createStaffExpense, createStaffShift, staffOpsSnapshot, voidStaffExpense } from "./security/staff-operations.js";
 
 const API_VERSION = "snooker-v1";
 const CURRENCY = "INR";
@@ -4163,6 +4164,53 @@ export async function handleSnookerV1(req, res, rawPath = "") {
           ok: false,
           error: String(error?.code || "CMS_UNAVAILABLE"),
         });
+      }
+    }
+    if (method === "GET" && path === "cms/staff-ops") {
+      const auth = await requireAuth(req, res, ["ADMIN", "STAFF"]);
+      if (!auth) return;
+      try {
+        return json(res, 200, await staffOpsSnapshot(getSupabaseAdmin(), hashToken(bearer(req))));
+      } catch (error) {
+        const status = Number(error?.status || 0);
+        return json(res, status >= 400 && status < 600 ? status : 503, { ok: false, error: String(error?.code || "STAFF_OPS_UNAVAILABLE") });
+      }
+    }
+    if (method === "POST" && path === "cms/staff-shift") {
+      const auth = await requireAuth(req, res, ["ADMIN"]);
+      if (!auth) return;
+      try {
+        const command = safeText(req.body?.command || "", 20).toUpperCase();
+        if (command === "CREATE") return json(res, 200, await createStaffShift(getSupabaseAdmin(), hashToken(bearer(req)), req.body));
+        if (command === "CANCEL") return json(res, 200, await cancelStaffShift(getSupabaseAdmin(), hashToken(bearer(req)), req.body));
+        return json(res, 400, { ok: false, error: "INVALID_SHIFT_COMMAND" });
+      } catch (error) {
+        const status = Number(error?.status || 0);
+        return json(res, status >= 400 && status < 600 ? status : 503, { ok: false, error: String(error?.code || "STAFF_OPS_UNAVAILABLE") });
+      }
+    }
+    if (method === "POST" && path === "cms/staff-attendance") {
+      const auth = await requireAuth(req, res, ["STAFF"]);
+      if (!auth) return;
+      try {
+        return json(res, 200, await clockStaffAttendance(getSupabaseAdmin(), hashToken(bearer(req)), req.body));
+      } catch (error) {
+        const status = Number(error?.status || 0);
+        return json(res, status >= 400 && status < 600 ? status : 503, { ok: false, error: String(error?.code || "STAFF_OPS_UNAVAILABLE") });
+      }
+    }
+    if (method === "POST" && path === "cms/staff-expense") {
+      const command = safeText(req.body?.command || "", 20).toUpperCase();
+      const roles = command === "VOID" ? ["ADMIN"] : ["ADMIN", "STAFF"];
+      const auth = await requireAuth(req, res, roles);
+      if (!auth) return;
+      try {
+        if (command === "CREATE") return json(res, 200, await createStaffExpense(getSupabaseAdmin(), hashToken(bearer(req)), req.body));
+        if (command === "VOID") return json(res, 200, await voidStaffExpense(getSupabaseAdmin(), hashToken(bearer(req)), req.body));
+        return json(res, 400, { ok: false, error: "INVALID_EXPENSE_COMMAND" });
+      } catch (error) {
+        const status = Number(error?.status || 0);
+        return json(res, status >= 400 && status < 600 ? status : 503, { ok: false, error: String(error?.code || "STAFF_OPS_UNAVAILABLE") });
       }
     }
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
