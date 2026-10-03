@@ -272,7 +272,7 @@ export function contentPatch(current, changes) {
       if (!Array.isArray(fields) || fields.length < 1 || fields.length > 30
         || fields.some(value => typeof value !== 'string' || !value || !validAsset(value))
         || new Set(fields).size !== fields.length) fail(400, 'INVALID_CONTENT_PATCH');
-      next.club = { ...(object(current.club) ? current.club : {}), heroSlides: [...fields] };
+      next.club = { ...(object(next.club) ? next.club : {}), heroSlides: [...fields] };
       continue;
     }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
