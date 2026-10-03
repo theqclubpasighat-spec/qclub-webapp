@@ -86,6 +86,93 @@ function projectBookingTables(state) {
       memberPricePerHour: finiteMoney(x.memberPricePerHour, 100000) ?? 0,
     }));
 }
+
+function projectShopCatalog(state) {
+  const catalog = object(state?.shopCatalog) ? state.shopCatalog : {};
+  const items = (Array.isArray(catalog.items) ? catalog.items : [])
+    .filter(row => object(row) && typeof row.id === 'string' && typeof row.name === 'string')
+    .map(row => ({
+      id: row.id,
+      name: row.name,
+      desc: typeof row.desc === 'string' ? row.desc : '',
+      price: finiteMoney(row.price) ?? 0,
+      badge: typeof row.badge === 'string' ? row.badge : '',
+      amazonUrl: typeof row.amazonUrl === 'string' ? row.amazonUrl : '',
+      img: typeof row.img === 'string' ? row.img : '',
+      images: (Array.isArray(row.images) ? row.images : []).filter(v => typeof v === 'string').slice(0, 12),
+      optionGroupLabel: typeof row.optionGroupLabel === 'string' ? row.optionGroupLabel : '',
+      options: (Array.isArray(row.options) ? row.options : [])
+        .filter(opt => object(opt) && typeof opt.id === 'string' && typeof opt.label === 'string')
+        .map(opt => ({ id: opt.id, label: opt.label, img: typeof opt.img === 'string' ? opt.img : '' })),
+    }));
+  return {
+    ...textFields(catalog, ['heading', 'topLabel', 'description', 'badge1', 'badge2']),
+    items,
+  };
+}
+function validAsset(v) {
+  if (typeof v !== 'string' || v.length > 2000) return false;
+  if (!v) return true;
+  if (v.startsWith('/') && !v.startsWith('//') && !v.includes('\\')) return true;
+  try {
+    const url = new URL(v);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch { return false; }
+}
+function validExternalUrl(v) {
+  if (typeof v !== 'string' || v.length > 2000) return false;
+  if (!v) return true;
+  try {
+    const url = new URL(v);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch { return false; }
+}
+function normalizedShopCatalog(value, current) {
+  const allowedTop = ['heading','topLabel','description','badge1','badge2','items'];
+  if (!object(value) || Object.keys(value).some(k => !allowedTop.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
+  for (const key of ['heading','topLabel','description','badge1','badge2']) {
+    if (typeof value[key] !== 'string' || value[key].length > (key === 'description' ? 5000 : 300)) fail(400, 'INVALID_CONTENT_PATCH');
+  }
+  const existingItems = Array.isArray(current?.shopCatalog?.items) ? current.shopCatalog.items : [];
+  if (!Array.isArray(value.items) || value.items.length !== existingItems.length || value.items.length > 100) fail(400, 'INVALID_CONTENT_PATCH');
+  const existingById = new Map(existingItems.filter(object).map(row => [row.id,row]));
+  const seen = new Set();
+  const items = value.items.map(row => {
+    const allowed = ['id','name','desc','price','badge','amazonUrl','img','images','optionGroupLabel','options'];
+    if (!object(row) || Object.keys(row).some(k => !allowed.includes(k)) || typeof row.id !== 'string' || !existingById.has(row.id) || seen.has(row.id)) fail(400, 'INVALID_CONTENT_PATCH');
+    seen.add(row.id);
+    if (typeof row.name !== 'string' || !row.name.trim() || row.name.length > 160
+      || typeof row.desc !== 'string' || row.desc.length > 5000
+      || typeof row.badge !== 'string' || row.badge.length > 120
+      || typeof row.optionGroupLabel !== 'string' || row.optionGroupLabel.length > 120
+      || !validExternalUrl(row.amazonUrl) || !validAsset(row.img)
+      || !Array.isArray(row.images) || row.images.length > 12 || row.images.some(v => !validAsset(v))) fail(400, 'INVALID_CONTENT_PATCH');
+    const price = finiteMoney(row.price, 999999.99);
+    if (price === null || price <= 0 || !Number.isInteger(Math.round(price * 100))) fail(400, 'INVALID_CONTENT_PATCH');
+    const previous = existingById.get(row.id);
+    const existingOptions = Array.isArray(previous.options) ? previous.options : [];
+    if (!Array.isArray(row.options) || row.options.length !== existingOptions.length) fail(400, 'INVALID_CONTENT_PATCH');
+    const optionsById = new Map(existingOptions.filter(object).map(opt => [opt.id,opt]));
+    const seenOptions = new Set();
+    const options = row.options.map(opt => {
+      if (!object(opt) || Object.keys(opt).some(k => !['id','label','img'].includes(k))
+        || typeof opt.id !== 'string' || !optionsById.has(opt.id) || seenOptions.has(opt.id)
+        || typeof opt.label !== 'string' || !opt.label.trim() || opt.label.length > 120
+        || !validAsset(opt.img)) fail(400, 'INVALID_CONTENT_PATCH');
+      seenOptions.add(opt.id);
+      return { id: opt.id, label: opt.label.trim(), img: opt.img };
+    });
+    return {
+      id: row.id, name: row.name.trim(), desc: row.desc.trim(), price,
+      badge: row.badge.trim(), amazonUrl: row.amazonUrl, img: row.img,
+      images: row.images, optionGroupLabel: row.optionGroupLabel.trim(), options,
+    };
+  });
+  return {
+    heading: value.heading.trim(), topLabel: value.topLabel.trim(), description: value.description.trim(),
+    badge1: value.badge1.trim(), badge2: value.badge2.trim(), items,
+  };
+}
 function validId(v) { return typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v); }
 function normalizedMemberships(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 20) fail(400, 'INVALID_CONTENT_PATCH');
@@ -120,10 +207,11 @@ export function publicContent(state) {
     foodPage: textFields(state?.foodPage, ['title', 'subtitle']),
     memberships: projectMemberships(state),
     bookingTables: projectBookingTables(state),
+    shopCatalog: projectShopCatalog(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'notices'];
 const CLUB_KEYS = ['name', 'location', 'tagline', 'tagline2', 'aboutContent', 'termsContent', 'refundContent', 'privacyContent'];
 export function contentPatch(current, changes) {
   if (!object(changes) || !Object.keys(changes).length || Object.keys(changes).some(k => !CONTENT_KEYS.includes(k))) fail(400, 'INVALID_CONTENT_PATCH');
@@ -140,6 +228,21 @@ export function contentPatch(current, changes) {
       const rows = normalizedBookingTables(fields);
       const existing = new Map((Array.isArray(current?.booking?.tables) ? current.booking.tables : []).filter(object).map(row => [row.id, row]));
       next.booking = { ...(object(current.booking) ? current.booking : {}), tables: rows.map(row => ({ ...(existing.get(row.id) || {}), ...row })) };
+      continue;
+    }
+    if (section === 'shopCatalog') {
+      const catalog = normalizedShopCatalog(fields, current);
+      const currentCatalog = object(current.shopCatalog) ? current.shopCatalog : {};
+      const existingItems = new Map((Array.isArray(currentCatalog.items) ? currentCatalog.items : []).filter(object).map(row => [row.id,row]));
+      next.shopCatalog = {
+        ...currentCatalog,
+        ...catalog,
+        items: catalog.items.map(row => {
+          const previous = existingItems.get(row.id) || {};
+          const existingOptions = new Map((Array.isArray(previous.options) ? previous.options : []).filter(object).map(opt => [opt.id,opt]));
+          return { ...previous, ...row, options: row.options.map(opt => ({ ...(existingOptions.get(opt.id) || {}), ...opt })) };
+        }),
+      };
       continue;
     }
     const allowed = section === 'club' ? CLUB_KEYS : ['title', 'subtitle'];
