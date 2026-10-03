@@ -35,9 +35,40 @@ export function createAdminClient(fetcher = globalThis.fetch) {
   };
 }
 export const sections = [
-  { id: 'club', title: 'Club information', fields: [['name','Club name'],['location','Location'],['tagline','Tagline'],['tagline2','Second tagline']] },
-  { id: 'club', title: 'About & policies', fields: [['aboutContent','About the club'],['termsContent','Terms'],['refundContent','Refund policy'],['privacyContent','Privacy policy']] },
+  { id: 'club', title: 'Club information', fields: [
+    ['name','Club name'],['location','Location'],['tagline','Tagline'],['tagline2','Second tagline'],['hoursNote','Opening hours note'],
+  ] },
+  { id: 'club', title: 'About & policies', fields: [
+    ['aboutTitle','About title'],['aboutContent','About the club','textarea'],
+    ['termsTitle','Terms title'],['termsContent','Terms','textarea'],
+    ['refundTitle','Refund title'],['refundContent','Refund policy','textarea'],
+    ['privacyTitle','Privacy title'],['privacyContent','Privacy policy','textarea'],
+    ['tournamentDisclaimerTitle','Tournament disclaimer title'],['tournamentDisclaimerContent','Tournament disclaimer','textarea'],
+  ] },
   { id: 'foodPage', title: 'Food page', fields: [['title','Page title'],['subtitle','Page subtitle']] },
+  { id: 'club', title: 'Booking & membership', fields: [
+    ['bookPageTitle','Booking page title'],['bookPageSubtitle','Booking page subtitle'],
+    ['membershipPageTitle','Membership page title'],['membershipPageSubtitle','Membership page subtitle'],
+    ['membershipNote','Membership note','textarea'],
+  ] },
+  { id: 'club', title: 'Shop & game pages', fields: [
+    ['shopPageTitle','QShop page title'],['shopPageSubtitle','QShop page subtitle'],
+    ['handicapTitle','Handicap title'],['handicapContent','Handicap content','textarea'],
+    ['airHockeyInfoTitle','Air hockey title'],['airHockeyInfoContent','Air hockey content','textarea'],
+    ['foosballInfoTitle','Foosball title'],['foosballInfoContent','Foosball content','textarea'],
+    ['massageChairInfoTitle','Massage chair title'],['massageChairInfoContent','Massage chair content','textarea'],
+  ] },
+  { id: 'club', title: 'Home & footer', fields: [
+    ['balancedFormatTitle','Home feature title'],['balancedFormatSubtitle','Home feature subtitle'],
+    ['balancedFormatDescription','Home feature description','textarea'],
+    ['heroBookBtnLabel','Book button label'],['heroMembershipBtnLabel','Membership button label'],['heroShopBtnLabel','QShop button label'],
+    ['footerAboutLabel','Footer about label'],['footerAbout','Footer about text','textarea'],['footerDescription','Footer description','textarea'],
+    ['footerContactLabel','Footer contact label'],['footerTermsLabel','Footer terms label'],
+    ['footerRefundLabel','Footer refund label'],['footerPrivacyLabel','Footer privacy label'],
+  ] },
+  { id: 'club', title: 'Contact', fields: [
+    ['contactTitle','Contact title'],['contactContent','Contact content','textarea'],
+  ] },
 ];
 export function changesBetween(before, after) {
   const changes = {};
