@@ -1,17 +1,23 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { allowAdminPreview } from './scripts/admin-preview-policy.mjs'
 import { allowV2Preview } from './scripts/v2-preview-policy.mjs'
+import { isolatedBuildOutput } from './scripts/isolated-build-output.mjs'
 
 export default defineConfig(({ command }) => ({
-  define: { __QCLUB_V2_PREVIEW__: JSON.stringify(allowV2Preview(process.env, command)) },
+  define: { __QCLUB_ADMIN_PREVIEW__: JSON.stringify(allowAdminPreview(process.env, command)), __QCLUB_V2_PREVIEW__: JSON.stringify(allowV2Preview(process.env, command)) },
   plugins: [
+    isolatedBuildOutput({ adminPreview: allowAdminPreview(process.env, command), v2Preview: allowV2Preview(process.env, command) }),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
         cleanupOutdatedCaches: true,
         navigateFallbackDenylist: [
+          /^\/__checkout-preview(?:\/|$)/,
+          /^\/__admin-preview(?:\/|$)/,
+          /^\/api\/qclub-security(?:\/|$)/,
           /^\/QclubLedger(?:\/|$)/i,
           /^\/QclubPay(?:\/|$)/i,
           /^\/QclubQr(?:\/|$)/i,
@@ -49,6 +55,8 @@ export default defineConfig(({ command }) => ({
     })
   ],
 
+  // Avoid retaining preview output in production/PWA bundles.
+  build: { emptyOutDir: true },
   server: {
     host: true,
     port: 5173

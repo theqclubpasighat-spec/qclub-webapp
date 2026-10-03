@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [integration/v2-mobile-preview-20260927]
+    branches: [integration/v2-mobile-preview-20260927, integration/v2-final-reconcile-20261003]
 permissions:
   contents: read
 jobs:
@@ -16,7 +16,10 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: node --test tests/v2-preview.test.mjs tests/fnb-autocomplete.test.mjs tests/qlounge-msg91.test.mjs
+      - name: Install isolated Postgres test engine
+        run: npm install --prefix "$RUNNER_TEMP/qclub-tests" --no-audit --no-fund @electric-sql/pglite@0.5.8
+      - name: Run full application and database regression suite
+        run: QCLUB_PGLITE_MODULE="$RUNNER_TEMP/qclub-tests/node_modules/@electric-sql/pglite/dist/index.js" node --test tests/*.test.mjs
       - name: Production build excludes V2 preview
         run: npm run build && node scripts/check-preview-bundle.mjs absent
         env:
@@ -26,3 +29,41 @@ jobs:
         run: npm run build && node scripts/check-preview-bundle.mjs present
         env:
           VERCEL_ENV: preview
+          QCLUB_SECURITY_REHEARSAL: enabled
+      - name: Production rebuild excludes all preview code after a preview build
+        run: npm run build && node scripts/check-preview-bundle.mjs absent
+        env:
+          VERCEL_ENV: production
+          QCLUB_SECURITY_REHEARSAL: enabled
+  mobile-browser:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Install pinned browser verifier outside app dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/qclub-browser" --no-audit --no-fund agent-browser@0.21.0
+          "$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" install --with-deps
+      - name: Install isolated Postgres engine for CMS browser verification
+        run: npm install --prefix "$RUNNER_TEMP/qclub-tests" --no-audit --no-fund @electric-sql/pglite@0.5.8
+      - name: Verify mobile checkout with synthetic APIs and payment popup
+        run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" node tests/browser/checkout-mobile.mjs
+        env:
+          QCLUB_BROWSER_FIXTURES: enabled
+      - name: Verify mobile CMS against disposable Postgres
+        run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" QCLUB_PGLITE_MODULE="$RUNNER_TEMP/qclub-tests/node_modules/@electric-sql/pglite/dist/index.js" node tests/browser/admin-mobile.mjs
+        env:
+          QCLUB_BROWSER_FIXTURES: enabled
+      - name: Save screenshots and browser results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-browser-fixtures
+          path: browser-artifacts/
+          retention-days: 7
