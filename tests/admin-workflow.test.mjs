@@ -112,3 +112,13 @@ test('notification template draft changes stay in the non-secret template sectio
   assert.deepEqual(changes.notificationTemplates,after.notificationTemplates);
   assert.equal(changes.club,undefined);
 });
+
+
+test('feature flag draft changes stay in their explicit configuration section',()=>{
+  const before={featureFlags:{showQLounge:true,showQShop:true,showBooking:true,showMembership:true,showTournaments:true,showPlayers:true,showLiveMatches:true,showClubMedia:true,showOffers:true,showFeedback:false}};
+  const after=structuredClone(before);
+  after.featureFlags.showOffers=false;
+  const changes=changesBetween(before,after);
+  assert.deepEqual(changes.featureFlags,after.featureFlags);
+  assert.equal(changes.club,undefined);
+});
