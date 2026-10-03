@@ -80,6 +80,7 @@ export default function AdminLivePage() {
   const settingsTab = noticesTab + 8;
   const reportsTab = noticesTab + 9;
   const rolesTab = noticesTab + 10;
+  const staffOpsTab = noticesTab + 11;
 
   const roleGroups = [
     { title:"Staff operations", description:"Daily counter, orders, members and stock tools already in production.", items:[
