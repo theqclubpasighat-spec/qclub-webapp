@@ -1,8 +1,8 @@
 # V2 route integration inventory
 
-Source snapshots: production baseline `1b94906c`; donor V2 `a07af1a`; final reconciliation PR #48 merged to `main` as `69e3708b` on 2026-10-03.
+Source snapshots: production baseline `1b94906c`; donor V2 `a07af1a`; public reconciliation PR #48; production Website Manager PR #52; final parity PR #53.
 
-This is a source-route inventory, not a claim that every route is live. The V2 public-shell reconciliation is now in `main`; the secure CMS remains production-disabled/rehearsal-only pending a separate coordinated cutover. V2 declares 105 routes. Production App declares 66 named routes plus its catch-all. 59 paths overlap, 46 V2 paths are absent from that production registry, and seven production paths are absent from V2. Aliases and alternate server routing need separate verification.
+This file records the original V2 integration decisions. The V2 public shell, production Website Manager and final staff-operations parity block are now merged and deployed to production. For the authoritative current route/access/alias map, use `docs/production-route-registry.md`. Do not use the older "Existing exact path" column below as a current production census; it reflects the earlier reconciliation baseline.
 
 | V2 route | Page | Declared role | Existing exact path | Integration decision |
 |---|---|---|---|---|
@@ -56,9 +56,9 @@ This is a source-route inventory, not a claim that every route is live. The V2 p
 | `/kitty-monthly` | Kitty Monthly | public | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/staff-walkins` | Walk-ins | staff | Yes | Implement authenticated persistence; reject sample-state donor behaviour |
 | `/inventory` | Inventory | staff | Yes | Use Ledger catalogue/stock API; no duplicate inventory |
-| `/staff-shifts` | Staff Shifts | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
-| `/expense` | Expenses | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
-| `/staff-attendance` | Staff Attendance | staff | No | Implement authenticated persistence; reject sample-state donor behaviour |
+| `/staff-shifts` | Staff Shifts | staff | No | **Promoted in PR #53:** authenticated production persistence via canonical Q Club session/API; sample-state donor behaviour rejected |
+| `/expense` | Expenses | staff | No | **Promoted in PR #53:** authenticated production expense persistence with admin void controls |
+| `/staff-attendance` | Staff Attendance | staff | No | **Promoted in PR #53:** authenticated clock-in/out persistence via canonical Q Club session/API |
 | `/review-panel` | Review Panel | committee | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/match-ledger` | Match Ledger | staff | Yes | Preserve current engines, rules, IDs and displays; migrate only after replay tests |
 | `/food-print-bridge` | Food Print Bridge | staff | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
@@ -67,7 +67,7 @@ This is a source-route inventory, not a claim that every route is live. The V2 p
 | `/admin/orders-archive` | Orders Archive | admin | Yes | Map existing data and enforce server roles; review RLS and writes before enabling |
 | `/admin/login` | Admin Sign In | public | No | Retired: donor uses a separate Supabase email/password/magic-link auth stack; merged production admin remains PIN/session based |
 | `/reset-password` | Reset Password | public | No | Retired with donor email/password auth; no second credential system is introduced beside the production PIN/session model |
-| `/admin` | CMS Dashboard | admin | No | Reconciled into protected rehearsal CMS; production alias remains pending final promotion review |
+| `/admin` | CMS Dashboard | admin | No | **Promoted in PR #52:** live Website Manager using canonical Q Club PIN/session authority |
 | `/admin/club-details` | Club Profile | admin | No | Reconciled into protected CMS content sections; no duplicate state |
 | `/admin/membership-tiers` | Membership Content | admin | No | Reconciled into protected Membership tiers editor |
 | `/admin/rates` | Rates & Happy Hours | admin | No | Standard/member table-rate editing reconciled; happy-hours donor behavior not activated |
@@ -76,7 +76,7 @@ This is a source-route inventory, not a claim that every route is live. The V2 p
 | `/admin/food-menu` | Food Menu | admin | No | Reconciled by bridge to authoritative `/QclubLedger` catalogue; no duplicate menu/inventory state |
 | `/admin/shop` | Q Shop Catalogue | admin | No | Reconciled into protected QShop catalogue CMS while preserving stock/checkout identity |
 | `/admin/media` | Media Library | admin | No | Hero/media presentation fields reconciled; destructive storage management not activated |
-| `/admin/theme` | Theme | admin | No | Reconciled into protected presentation-token editor; not consumed by live UI yet |
+| `/admin/theme` | Theme | admin | No | **Promoted in PR #52:** protected theme editor; saved tokens are consumed by the live V2 shell |
 | `/admin/templates` | Notification Templates | admin | No | Reconciled as non-secret template-name CMS; live MSG91 credentials/dispatch remain separate |
 | `/admin/feature-flags` | Feature Flags | admin | No | Reconciled as configuration-only flags; live route activation remains pending |
 | `/admin/settings` | Settings Hierarchy | admin | No | Reconciled into protected Settings hub over existing editors and canonical operational masters |
@@ -84,10 +84,10 @@ This is a source-route inventory, not a claim that every route is live. The V2 p
 | `/admin/storage-migrate` | Storage Migration | admin | No | Retired: one-off donor copier targeted the staging-era storage migration; staging is deleted and production media paths are retained |
 | `/admin/audit-log` | Audit Log | admin | No | Reconciled as read-only Reports & audit directory over existing Ledger/game/order/committee records |
 | `/admin/members` | Members | staff | No | Canonical destination mapped to `/member-registry`; new STAFF write-role grant not activated |
-| `/admin/bookings` | Bookings | staff | No | Canonical operational destination mapped through `/QclubLedger` website-operations inbox; alias pending |
+| `/admin/bookings` | Bookings | staff | No | **Promoted in PR #53:** alias routes to authoritative `/QclubLedger`; no duplicate booking store |
 | `/admin/players` | Players | committee | No | Canonical destinations mapped to `/players` and `/review-panel`; COMMITTEE write-role grant pending |
 | `/admin/tournaments` | Tournaments | committee | No | Canonical destination mapped to `/tournaments`; COMMITTEE write-role grant pending |
-| `/admin/standings` | Standings | committee | No | Canonical destination mapped to `/leaderboard`; alias/write-role reconciliation pending |
+| `/admin/standings` | Standings | committee | No | **Promoted in PR #53:** alias routes to authoritative `/leaderboard` |
 | `/admin/hall-of-fame` | Hall of Fame Admin | committee | No | Canonical destination mapped to `/halloffame`; COMMITTEE write-role grant pending |
 | `/admin/live-games` | Live Games | committee | No | Canonical destination mapped to `/live`; scorer/game-engine permissions remain unchanged |
 | `/admin/food-orders` | Food Orders | staff | No | Canonical destination mapped to existing `/admin/orders`; no duplicate order store |
