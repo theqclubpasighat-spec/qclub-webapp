@@ -1,4 +1,5 @@
-import { SecurityError, revokeSession, authenticate, privateLogin, publicContent, rehearsalConfig, requestAddress, rotateCredential, saveContent } from './foundation.js';
+import { SecurityError, bearer, revokeSession, authenticate, privateLogin, publicContent, rehearsalConfig, requestAddress, rotateCredential, saveContent, tokenHash } from './foundation.js';
+import { cancelStaffShift, clockStaffAttendance, createStaffExpense, createStaffShift, staffOpsSnapshot, voidStaffExpense } from './staff-operations.js';
 
 export function createSecurityHandler({ env, createDatabase }) {
   return async (req, res) => {
@@ -11,10 +12,41 @@ export function createSecurityHandler({ env, createDatabase }) {
       if (req.headers?.['sec-fetch-site'] === 'cross-site') throw new SecurityError(403, 'CROSS_SITE_REQUEST');
       const action = req.query?.action;
       const method = req.method;
-      const routes = { content: ['GET', 'PATCH'], session: ['GET'], login: ['POST'], logout: ['POST'], rotate: ['POST'] };
+      const routes = {
+        content: ['GET', 'PATCH'], session: ['GET'], login: ['POST'], logout: ['POST'], rotate: ['POST'],
+        'staff-ops': ['GET'], 'staff-shift': ['POST'], 'staff-attendance': ['POST'], 'staff-expense': ['POST'],
+      };
       if (!Object.hasOwn(routes, action)) throw new SecurityError(404, 'NOT_FOUND');
       if (!routes[action].includes(method)) throw new SecurityError(405, 'METHOD_NOT_ALLOWED');
       const db = createDatabase(config);
+      const actorTokenHash = () => tokenHash(bearer(req));
+      if (action === 'staff-ops') {
+        await authenticate(db, req, ['ADMIN','STAFF']);
+        return reply(200, await staffOpsSnapshot(db, actorTokenHash()));
+      }
+      if (action === 'staff-shift') {
+        await authenticate(db, req, ['ADMIN']);
+        const command = String(req.body?.command || '').toUpperCase();
+        if (command === 'CREATE') return reply(200, await createStaffShift(db, actorTokenHash(), req.body));
+        if (command === 'CANCEL') return reply(200, await cancelStaffShift(db, actorTokenHash(), req.body));
+        throw new SecurityError(400, 'INVALID_SHIFT_COMMAND');
+      }
+      if (action === 'staff-attendance') {
+        await authenticate(db, req, ['STAFF']);
+        return reply(200, await clockStaffAttendance(db, actorTokenHash(), req.body));
+      }
+      if (action === 'staff-expense') {
+        const command = String(req.body?.command || '').toUpperCase();
+        if (command === 'CREATE') {
+          await authenticate(db, req, ['ADMIN','STAFF']);
+          return reply(200, await createStaffExpense(db, actorTokenHash(), req.body));
+        }
+        if (command === 'VOID') {
+          await authenticate(db, req, ['ADMIN']);
+          return reply(200, await voidStaffExpense(db, actorTokenHash(), req.body));
+        }
+        throw new SecurityError(400, 'INVALID_EXPENSE_COMMAND');
+      }
       if (action === 'logout') return reply(200, await revokeSession(db, req));
       if (action === 'rotate') return reply(200, await rotateCredential(db, req));
       if (action === 'login') return reply(200, await privateLogin(db, req, new Date(), requestAddress(req, env)));
