@@ -81,6 +81,9 @@ function Admin() {
     { title:'Communication', description:'Approved notification template names only; no credentials or live-send switches.', items:[
       {label:'Notification templates',tab:templatesTab},
     ]},
+    { title:'Shared operations', description:'Reuse the existing production masters instead of creating duplicate CMS data.', items:[
+      {label:'Q Lounge / F&B catalogue in QclubLedger',href:'/QclubLedger'},
+    ]},
   ];
   const current = sections[tab] || sections[0];
   return <main className="admin-shell">
