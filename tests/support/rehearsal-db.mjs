@@ -6,7 +6,7 @@ export async function createFixtureDatabase() {
   const { PGlite } = await import(process.env.QCLUB_PGLITE_MODULE);
   const pg = new PGlite();
   await pg.exec(`create role anon; create role authenticated; create role service_role bypassrls;
-    create table public.snooker_auth_sessions(id text primary key default gen_random_uuid()::text, token_hash text unique,role text,staff_id text,display_name text,expires_at timestamptz,revoked_at timestamptz,device_id text,client_version text);
+    create table public.snooker_auth_sessions(id text primary key default gen_random_uuid()::text, token_hash text unique,role text constraint snooker_auth_sessions_role_check check (role in ('STAFF','ADMIN')),staff_id text,display_name text,expires_at timestamptz,revoked_at timestamptz,device_id text,client_version text);
     create table public.qclub_state(key text primary key,state jsonb,updated_at timestamptz);
     grant select,insert,update on public.snooker_auth_sessions,public.qclub_state to service_role;`);
   await pg.exec(await readFile(new URL('../../supabase/migrations/20260929113230_security_foundation.sql',import.meta.url),'utf8'));
