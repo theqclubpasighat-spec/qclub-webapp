@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { messageFor } from './client.mjs';
+
+function messageFor(error) {
+  if (error?.code === 'INVALID_SHIFT') return 'Check the staff member and shift start/end time.';
+  if (error?.code === 'INVALID_EXPENSE') return 'Check the expense date, category, amount and payment method.';
+  if (error?.code === 'SHIFT_NOT_FOUND' || error?.code === 'EXPENSE_NOT_FOUND') return 'That record is no longer available to change.';
+  if (error?.code === 'ALREADY_CLOCKED_IN') return 'You are already clocked in.';
+  if (error?.code === 'NOT_CLOCKED_IN') return 'There is no open attendance session to clock out.';
+  if (error?.status === 401) return 'Your session has ended. Sign in again.';
+  if (error?.status === 403) return 'This account cannot perform that staff operation.';
+  return 'Cannot reach staff operations. Please try again.';
+}
 
 const todayLocal=()=>{
   const d=new Date();
