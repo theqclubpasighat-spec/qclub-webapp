@@ -48,7 +48,7 @@ test('session validation checks expiry, revocation, stored role and database fai
 });
 test('public projection cannot leak credentials, customer records or nested unknown fields', () => {
   const state = { admin: { mainPin: 'SECRET' }, club: { name: 'Club', internal: 'SECRET', tagline: { secret: 'SECRET' } }, foodPage: { title: 'Food', private: 'SECRET' }, jobApplications: ['SECRET'], paymentOrders: ['SECRET'], whatsappPersistence: { authKey: 'SECRET' }, announcements: [{ id: 'notice', type: 'notice', text: 'Hello', recipientPhone: 'SECRET' }, { type: 'table_booking', text: 'SECRET' }] };
-  assert.deepEqual(publicContent(state), { club: { name: 'Club' }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
+  assert.deepEqual(publicContent(state), { club: { name: 'Club', heroSlides: [] }, foodPage: { title: 'Food' }, memberships: [], bookingTables: [], shopCatalog: { heading: '', topLabel: '', description: '', badge1: '', badge2: '', items: [] }, announcements: [{ id: 'notice', text: 'Hello', link: '' }] });
   assert.ok(!JSON.stringify(publicContent(state)).includes('SECRET'));
 });
 test('content patch cannot overwrite PINs, payments, catalogue prices or unknown properties', () => {
@@ -188,7 +188,7 @@ test('expanded club CMS exposes only approved presentation text and preserves op
     club:{
       name:'Q Club',bookPageTitle:'Book a Table',membershipPageSubtitle:'Join the room',
       heroBookBtnLabel:'Book now',footerDescription:'Play. Chill. Compete.',
-      upiId:'PRIVATE-UPI',musicUrl:'PRIVATE-MEDIA',isOpenNow:true,privateSetting:'PRIVATE',
+      upiId:'PRIVATE-UPI',tvShowcaseMode:'PRIVATE-MEDIA',isOpenNow:true,privateSetting:'PRIVATE',
     },
     paymentOrders:[{id:'keep-payment'}],
   };
@@ -200,17 +200,49 @@ test('expanded club CMS exposes only approved presentation text and preserves op
   }});
   assert.equal(next.club.bookPageTitle,'Reserve your table');
   assert.equal(next.club.upiId,'PRIVATE-UPI');
-  assert.equal(next.club.musicUrl,'PRIVATE-MEDIA');
+  assert.equal(next.club.tvShowcaseMode,'PRIVATE-MEDIA');
   assert.equal(next.club.isOpenNow,true);
   assert.deepEqual(next.paymentOrders,before.paymentOrders);
   const projected=publicContent(next).club;
   assert.equal(projected.bookPageTitle,'Reserve your table');
   assert.equal(projected.heroBookBtnLabel,'Reserve');
   assert.equal(projected.upiId,undefined);
-  assert.equal(projected.musicUrl,undefined);
+  assert.equal(projected.tvShowcaseMode,undefined);
   assert.ok(!JSON.stringify(projected).includes('PRIVATE'));
   for(const changes of [
-    {club:{upiId:'x@y'}},{club:{musicUrl:'https://example.com/x'}},{club:{isOpenNow:'false'}},
+    {club:{upiId:'x@y'}},{club:{musicUrl:'javascript:alert(1)'}},{club:{isOpenNow:'false'}},
     {club:{bookPageTitle:4}},{club:{contactContent:'x'.repeat(30001)}},
+  ]) assert.throws(()=>contentPatch(before,changes),expectCode('INVALID_CONTENT_PATCH'));
+});
+
+
+test('hero and media CMS validates URLs, preserves storage and excludes TV controls',()=>{
+  const before={
+    club:{
+      heroSlides:['/hero/a.jpg','https://example.com/b.jpg'],
+      liveStreamUrl:'https://example.com/live',videoUrl:'',musicUrl:'',
+      tvCustomSlides:['PRIVATE-TV'],tvShowcaseMode:'PRIVATE-TV-MODE',upiId:'PRIVATE-UPI',
+    },
+  };
+  const next=contentPatch(before,{
+    club:{liveStreamUrl:'https://example.com/new-live',videoUrl:'/media/intro.mp4',musicUrl:'https://example.com/music'},
+    heroSlides:['https://example.com/new-hero.jpg','/hero/local.jpg'],
+  });
+  assert.deepEqual(next.club.heroSlides,['https://example.com/new-hero.jpg','/hero/local.jpg']);
+  assert.equal(next.club.liveStreamUrl,'https://example.com/new-live');
+  assert.deepEqual(next.club.tvCustomSlides,['PRIVATE-TV']);
+  assert.equal(next.club.tvShowcaseMode,'PRIVATE-TV-MODE');
+  assert.equal(next.club.upiId,'PRIVATE-UPI');
+  const projected=publicContent(next).club;
+  assert.deepEqual(projected.heroSlides,next.club.heroSlides);
+  assert.equal(projected.videoUrl,'/media/intro.mp4');
+  assert.equal(projected.tvShowcaseMode,undefined);
+  for(const changes of [
+    {heroSlides:[]},
+    {heroSlides:['javascript:alert(1)']},
+    {heroSlides:['/same.jpg','/same.jpg']},
+    {heroSlides:Array.from({length:31},(_,i)=>`/hero/${i}.jpg`)},
+    {club:{liveStreamUrl:'http://insecure.example.com/live'}},
+    {club:{videoUrl:'//evil.example.com/video'}},
   ]) assert.throws(()=>contentPatch(before,changes),expectCode('INVALID_CONTENT_PATCH'));
 });
