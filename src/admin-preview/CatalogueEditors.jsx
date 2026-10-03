@@ -60,3 +60,43 @@ export function RateEditor({rows,onChange,busy}) {
     <button type="button" disabled={busy||rows.length>=20} onClick={add}>Add table</button>
   </section>;
 }
+
+
+export function ShopEditor({catalog,onChange,busy}) {
+  const value = catalog && typeof catalog === 'object' ? catalog : { heading:'',topLabel:'',description:'',badge1:'',badge2:'',items:[] };
+  const rows = Array.isArray(value.items) ? value.items : [];
+  function patchCatalog(field,next){ onChange({...value,[field]:next}); }
+  function patchItem(id,field,next){ onChange({...value,items:rows.map(row=>row.id===id?{...row,[field]:next}:row)}); }
+  function patchOption(itemId,optionId,field,next){
+    onChange({...value,items:rows.map(row=>row.id===itemId?{...row,options:(row.options||[]).map(opt=>opt.id===optionId?{...opt,[field]:next}:opt)}:row)});
+  }
+  return <section className="card">
+    <h2>QShop catalogue</h2>
+    <p>Edit the public shop copy and existing products. Product IDs, option IDs and stock are protected because checkout recovery depends on them.</p>
+    <div className="field"><label>Shop heading</label><input value={value.heading||''} maxLength={300} disabled={busy} onChange={e=>patchCatalog('heading',e.target.value)}/></div>
+    <div className="field"><label>Top label</label><input value={value.topLabel||''} maxLength={300} disabled={busy} onChange={e=>patchCatalog('topLabel',e.target.value)}/></div>
+    <div className="field"><label>Description</label><textarea rows={4} value={value.description||''} maxLength={5000} disabled={busy} onChange={e=>patchCatalog('description',e.target.value)}/></div>
+    <div className="field"><label>Badge 1</label><input value={value.badge1||''} maxLength={300} disabled={busy} onChange={e=>patchCatalog('badge1',e.target.value)}/></div>
+    <div className="field"><label>Badge 2</label><input value={value.badge2||''} maxLength={300} disabled={busy} onChange={e=>patchCatalog('badge2',e.target.value)}/></div>
+    <div className="cms-list">
+      {rows.map((row,index)=><fieldset className="notice-editor" key={row.id}>
+        <legend>Product {index+1}</legend>
+        <label>Name</label><input value={row.name||''} maxLength={160} disabled={busy} onChange={e=>patchItem(row.id,'name',e.target.value)}/>
+        <label>Price (₹)</label><input type="number" min="0.01" max="999999.99" step="0.01" value={money(row.price)} disabled={busy} onChange={e=>patchItem(row.id,'price',Number(e.target.value))}/>
+        <label>Description</label><textarea rows={4} value={row.desc||''} maxLength={5000} disabled={busy} onChange={e=>patchItem(row.id,'desc',e.target.value)}/>
+        <label>Badge</label><input value={row.badge||''} maxLength={120} disabled={busy} onChange={e=>patchItem(row.id,'badge',e.target.value)}/>
+        <label>Primary image</label><input value={row.img||''} maxLength={2000} disabled={busy} onChange={e=>patchItem(row.id,'img',e.target.value)}/>
+        <label>Gallery images — one URL/path per line</label><textarea rows={4} value={(row.images||[]).join('\n')} maxLength={12000} disabled={busy} onChange={e=>patchItem(row.id,'images',e.target.value.split('\n').map(v=>v.trim()).filter(Boolean).slice(0,12))}/>
+        <label>Amazon / external link</label><input value={row.amazonUrl||''} maxLength={2000} disabled={busy} onChange={e=>patchItem(row.id,'amazonUrl',e.target.value)}/>
+        <label>Option group label</label><input value={row.optionGroupLabel||''} maxLength={120} disabled={busy} onChange={e=>patchItem(row.id,'optionGroupLabel',e.target.value)}/>
+        {(row.options||[]).map((opt,optIndex)=><fieldset className="notice-editor" key={opt.id}>
+          <legend>Option {optIndex+1}</legend>
+          <label>Label</label><input value={opt.label||''} maxLength={120} disabled={busy} onChange={e=>patchOption(row.id,opt.id,'label',e.target.value)}/>
+          <label>Image</label><input value={opt.img||''} maxLength={2000} disabled={busy} onChange={e=>patchOption(row.id,opt.id,'img',e.target.value)}/>
+        </fieldset>)}
+        <p><strong>Stock is managed separately.</strong> It is intentionally read-only in this website editor.</p>
+      </fieldset>)}
+    </div>
+    {!rows.length ? <p>No QShop products are present in this rehearsal copy.</p> : null}
+  </section>;
+}
