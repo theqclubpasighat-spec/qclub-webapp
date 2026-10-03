@@ -17,13 +17,13 @@ test("public root uses V2 Home while preserving classic admin Home controls", ()
 test("Q Lounge is a real production route backed by the shared catalogue", () => {
   assert.match(app, /path="\/food" element=\{<V2Food \/>\}/);
   assert.match(food, /readCatalogue/);
-  assert.match(food, /..\/lib\/public-catalogue.mjs/);
+  assert.ok(food.includes("../lib/public-catalogue.mjs"));
   assert.match(food, /to="\/offer"/);
 });
 
 test("live Q Lounge never imports preview modules", () => {
   assert.doesNotMatch(food, /v2-preview/);
-  assert.match(food, /public-catalogue\\.mjs/);
+  assert.ok(food.includes("public-catalogue.mjs"));
 });
 
 test("production entry loads V2 shell after legacy styles", () => {
