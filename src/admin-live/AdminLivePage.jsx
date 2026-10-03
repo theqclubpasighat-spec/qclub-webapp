@@ -31,7 +31,6 @@ function initialTabForPath(pathname = "") {
   const reportsTab = noticesTab + 9;
   const rolesTab = noticesTab + 10;
   const staffOpsTab = noticesTab + 11;
-  const staffOpsTab = noticesTab + 11;
   const path = String(pathname || "").replace(/\/+$/, "") || "/admin";
   const map = {
     "/admin/club-details": 0,
