@@ -225,3 +225,21 @@ export function SettingsOverview({groups,onOpen}) {
     <p><strong>Operational systems stay separate.</strong> QclubLedger, QclubPay, QclubQr, table displays, Kitty/Q Chase, payment credentials and live inventory operations are not managed from this settings hub.</p>
   </section>;
 }
+
+
+export function ReportsAuditOverview({groups}) {
+  return <section className="card settings-overview">
+    <h2>Reports & audit</h2>
+    <p>Open the existing production records that already own billing, game, order and committee history. This page does not copy or summarize customer/payment data into the rehearsal CMS.</p>
+    <div className="settings-groups">
+      {groups.map(group=><section className="settings-group" key={group.title}>
+        <h3>{group.title}</h3>
+        <p>{group.description}</p>
+        <div className="settings-links">
+          {group.items.map(item=><a className="settings-link" key={item.label} href={item.href}>Open {item.label}</a>)}
+        </div>
+      </section>)}
+    </div>
+    <p><strong>Source of truth remains unchanged.</strong> Ledger, game records, committee review and order archives continue to read their current production stores and authorization rules.</p>
+  </section>;
+}
