@@ -199,7 +199,7 @@ export function FeatureFlagsEditor({flags,onChange,busy}) {
     <div className="flag-list">
       {fields.map(([key,label])=><div className="flag-row" key={key}>
         <div><strong>{label}</strong><p>{value[key]===true?'Intended to be shown':'Intended to be hidden'}</p></div>
-        <button type="button" aria-pressed={value[key]===true} disabled={busy} onClick={()=>toggle(key)}>{value[key]===true?'On':'Off'}</button>
+        <button id={`flag-${key}`} type="button" aria-pressed={value[key]===true} aria-label={`${label}: ${value[key]===true?'On':'Off'}`} disabled={busy} onClick={()=>toggle(key)}>{value[key]===true?'On':'Off'}</button>
       </div>)}
     </div>
     <p>Activation will require a separate reviewed package. This screen only preserves the V2 feature-flag configuration safely.</p>
