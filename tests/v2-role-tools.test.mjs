@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/admin-preview/entry.jsx', import.meta.url), 'utf8');
+const snooker = readFileSync(new URL('../src/server/snooker-v1.js', import.meta.url), 'utf8');
 
 test('role tools reuse canonical production destinations without duplicate admin routes', () => {
   for (const path of [
@@ -30,4 +31,10 @@ test('role tools reuse canonical production destinations without duplicate admin
     '/admin/members','/admin/bookings','/admin/players','/admin/tournaments','/admin/standings',
     '/admin/hall-of-fame','/admin/live-games','/admin/food-orders','/admin/shop-orders','/admin/payments','/admin/reports',
   ]) assert.ok(!source.includes("href:'" + path + "'") && !source.includes('href:"' + path + '"'), 'duplicate V2 route should not be wired: ' + path);
+});
+
+
+test('committee sessions do not inherit Snooker or Ledger staff authority', () => {
+  assert.ok(snooker.includes('async function requireAuth(req, res, roles = ["STAFF", "ADMIN"])'));
+  assert.ok(!snooker.includes('roles = ["STAFF", "ADMIN", "COMMITTEE"]'));
 });
