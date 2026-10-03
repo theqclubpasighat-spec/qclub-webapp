@@ -9,7 +9,7 @@ export { SecurityError } from './errors.js';
 const fail = (status, code) => { throw new SecurityError(status, code); };
 export const identities = Object.freeze({
   main: { role: 'ADMIN', staff_id: 'admin-main', display_name: 'Q Club Admin' },
-  committee: { role: 'ADMIN', staff_id: 'admin-committee', display_name: 'Committee Admin' },
+  committee: { role: 'COMMITTEE', staff_id: 'admin-committee', display_name: 'Committee Admin' },
   staff: { role: 'STAFF', staff_id: 'staff-game-marshall', display_name: 'Game Marshall' },
 });
 export function validPin(pin) {
@@ -34,7 +34,7 @@ export function bearer(req) {
   if (typeof h !== 'string' || !/^Bearer snk_[A-Za-z0-9_-]{43}$/i.test(h)) fail(401, 'AUTH_REQUIRED');
   return h.slice(7);
 }
-export async function authenticate(db, req, allowed = ['ADMIN', 'STAFF'], now = new Date()) {
+export async function authenticate(db, req, allowed = ['ADMIN', 'STAFF', 'COMMITTEE'], now = new Date()) {
   const token = bearer(req);
   const { data, error } = await db.from('snooker_auth_sessions').select('id,role,staff_id,display_name,expires_at,revoked_at')
     .eq('token_hash', tokenHash(token)).maybeSingle();
