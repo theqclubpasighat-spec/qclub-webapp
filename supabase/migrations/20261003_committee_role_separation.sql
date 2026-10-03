@@ -1,4 +1,12 @@
 -- Rehearsal-only role correction. Committee credentials must not inherit ADMIN authority.
+-- Production currently constrains snooker_auth_sessions.role to STAFF/ADMIN.
+-- Widen only that role check so COMMITTEE can exist as a distinct least-privilege session role.
+alter table public.snooker_auth_sessions
+  drop constraint if exists snooker_auth_sessions_role_check;
+alter table public.snooker_auth_sessions
+  add constraint snooker_auth_sessions_role_check
+  check (role in ('STAFF','ADMIN','COMMITTEE'));
+
 create or replace function public.qclub_security_create_session(
   p_credential_id text,
   p_version integer,
