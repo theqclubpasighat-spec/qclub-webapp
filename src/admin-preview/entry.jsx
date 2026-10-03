@@ -74,6 +74,7 @@ function Admin() {
   const roleGroups = [
     { title:'Staff operations', description:'Daily counter, orders, members and stock tools that already exist in production.', items:[
       {label:'QclubLedger',href:'/QclubLedger',note:'Billing, payments, F&B, website operations and daily closing'},
+      {label:'Staff Ops',href:'/QclubLedger?tab=staffops',note:'Persistent attendance, shift roster and append-only operational expenses'},
       {label:'Food orders',href:'/admin/orders',note:'Q Lounge orders, printing and delivery workflow'},
       {label:'Food order archive',href:'/admin/orders-archive',note:'Delivered/cancelled order history'},
       {label:'QShop receipts',href:'/shop/successful-order-receipts',note:'Successful QShop receipts and pickup proof'},
