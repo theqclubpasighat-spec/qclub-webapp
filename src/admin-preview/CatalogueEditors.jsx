@@ -216,7 +216,9 @@ export function SettingsOverview({groups,onOpen}) {
         <h3>{group.title}</h3>
         <p>{group.description}</p>
         <div className="settings-links">
-          {group.items.map(item=><button type="button" key={item.label} onClick={()=>onOpen(item.tab)}>Open {item.label}</button>)}
+          {group.items.map(item=>item.href
+            ? <a className="settings-link" key={item.label} href={item.href}>Open {item.label}</a>
+            : <button type="button" key={item.label} onClick={()=>onOpen(item.tab)}>Open {item.label}</button>)}
         </div>
       </section>)}
     </div>
