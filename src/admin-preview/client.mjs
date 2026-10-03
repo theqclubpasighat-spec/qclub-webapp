@@ -48,6 +48,7 @@ export function changesBetween(before, after) {
   if (JSON.stringify(before?.announcements || []) !== JSON.stringify(after?.announcements || [])) changes.notices = after?.announcements || [];
   if (JSON.stringify(before?.memberships || []) !== JSON.stringify(after?.memberships || [])) changes.memberships = after?.memberships || [];
   if (JSON.stringify(before?.bookingTables || []) !== JSON.stringify(after?.bookingTables || [])) changes.bookingTables = after?.bookingTables || [];
+  if (JSON.stringify(before?.shopCatalog || {}) !== JSON.stringify(after?.shopCatalog || {})) changes.shopCatalog = after?.shopCatalog || { heading:'',topLabel:'',description:'',badge1:'',badge2:'',items:[] };
   return changes;
 }
 export function messageFor(error) {
