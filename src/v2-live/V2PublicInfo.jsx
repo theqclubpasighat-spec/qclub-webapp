@@ -114,3 +114,27 @@ export function V2RulesHub() {
     </main>
   );
 }
+
+
+export function V2FeedbackHub() {
+  return (
+    <main className="v2-live-section" id="main-content">
+      <div className="v2-live-page-heading">
+        <div>
+          <p className="v2-live-eyebrow">Feedback</p>
+          <h1>Tell us what can be better</h1>
+          <p className="v2-live-muted">Use the existing Contact page or speak to the team at the club. This page deliberately does not publish the donor V2 sample phone number or create a second feedback database.</p>
+        </div>
+        <Link className="v2-live-button" to="/">Home</Link>
+      </div>
+      <section className="v2-live-panel">
+        <h2>Share a suggestion</h2>
+        <p className="v2-live-muted">For table maintenance, club facilities, tournaments, Q Lounge, QShop or general suggestions, use the club's current contact information.</p>
+        <div className="v2-live-inline-actions">
+          <Link className="v2-live-button v2-live-primary" to="/contact">Open Contact page</Link>
+          <Link className="v2-live-button" to="/legal">Policies & legal</Link>
+        </div>
+      </section>
+    </main>
+  );
+}
