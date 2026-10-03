@@ -85,6 +85,7 @@ export function changesBetween(before, after) {
   if (JSON.stringify(before?.shopCatalog || {}) !== JSON.stringify(after?.shopCatalog || {})) changes.shopCatalog = after?.shopCatalog || { heading:'',topLabel:'',description:'',badge1:'',badge2:'',items:[] };
   if (JSON.stringify(before?.theme || {}) !== JSON.stringify(after?.theme || {})) changes.theme = after?.theme || {};
   if (JSON.stringify(before?.notificationTemplates || {}) !== JSON.stringify(after?.notificationTemplates || {})) changes.notificationTemplates = after?.notificationTemplates || {};
+  if (JSON.stringify(before?.featureFlags || {}) !== JSON.stringify(after?.featureFlags || {})) changes.featureFlags = after?.featureFlags || {};
   if (JSON.stringify(before?.club?.heroSlides || []) !== JSON.stringify(after?.club?.heroSlides || [])) changes.heroSlides = after?.club?.heroSlides || [];
   return changes;
 }
