@@ -176,3 +176,32 @@ export function NotificationTemplatesEditor({templates,onChange,busy}) {
     <p>Saving here does not activate, send or change any live WhatsApp message. The rehearsal dispatcher continues to use server-held environment configuration.</p>
   </section>;
 }
+
+
+export function FeatureFlagsEditor({flags,onChange,busy}) {
+  const value = flags && typeof flags === 'object' ? flags : {};
+  const fields = [
+    ['showQLounge','Q Lounge'],
+    ['showQShop','QShop'],
+    ['showBooking','Booking'],
+    ['showMembership','Membership'],
+    ['showTournaments','Tournaments'],
+    ['showPlayers','Player profiles'],
+    ['showLiveMatches','Live matches'],
+    ['showClubMedia','Club media'],
+    ['showOffers','Offers'],
+    ['showFeedback','Feedback'],
+  ];
+  function toggle(key){ onChange({...value,[key]:value[key]!==true}); }
+  return <section className="card">
+    <h2>Feature flags</h2>
+    <p>Store visibility intentions for the V2 experience. These switches are configuration-only in this rehearsal and do not hide, enable or reroute any live production page.</p>
+    <div className="flag-list">
+      {fields.map(([key,label])=><div className="flag-row" key={key}>
+        <div><strong>{label}</strong><p>{value[key]===true?'Intended to be shown':'Intended to be hidden'}</p></div>
+        <button type="button" aria-pressed={value[key]===true} disabled={busy} onClick={()=>toggle(key)}>{value[key]===true?'On':'Off'}</button>
+      </div>)}
+    </div>
+    <p>Activation will require a separate reviewed package. This screen only preserves the V2 feature-flag configuration safely.</p>
+  </section>;
+}
