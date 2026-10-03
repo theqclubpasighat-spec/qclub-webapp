@@ -109,5 +109,5 @@ test("rules and anti-gambling donor routes reuse existing authoritative policy c
   assert.match(app, /path="\/anti-gambling"[\s\S]*<TournamentLegalContent/);
   assert.match(publicInfo, /to="\/terms"/);
   assert.match(publicInfo, /to="\/legal"/);
-  assert.doesNotMatch(publicInfo, /club rules are|No smoking|No alcohol/i);
+  assert.doesNotMatch(publicInfo, /No smoking|No alcohol|Spitting is strictly prohibited/i);
 });
