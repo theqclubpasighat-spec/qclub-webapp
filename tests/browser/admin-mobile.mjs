@@ -66,9 +66,9 @@ try{
  await button('Booking & membership');await browser('wait','#bookPageTitle');await browser('fill','#bookPageTitle','Book your table');await save();await layout('booking-copy-360');
  await button('Notices');await browser('wait','--text','No public notices yet.');await button('Add notice');await browser('wait','textarea');await snapshot('new-notice');
  await browser('fill','textarea','Practice night starts at 6 pm.');await browser('fill','input','/fixtures');await save();await layout('notices-360');
- await button('Membership tiers');await browser('wait','--text','Membership tiers');await browser('fill','input[type="number"]','599');await save();await layout('memberships-360');
- await button('Table rates');await browser('wait','--text','Table rates');await browser('fill','input[type="number"]','450');await save();await layout('rates-360');
- await button('QShop catalogue');await browser('wait','--text','QShop catalogue');await browser('fill','input[type="number"]','129');await save();await layout('qshop-360');
+ await button('Membership tiers');await browser('wait','input[type="number"]');await browser('fill','input[type="number"]','599');await save();await layout('memberships-360');
+ await button('Table rates');await browser('wait','input[type="number"]');await browser('fill','input[type="number"]','450');await save();await layout('rates-360');
+ await button('QShop catalogue');await browser('wait','input[type="number"]');await browser('fill','input[type="number"]','129');await save();await layout('qshop-360');
  const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.club.bookPageTitle,'Book your table');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);assert.equal(after.memberships[0].price,599);assert.equal(after.booking.tables[0].pricePerHour,450);assert.equal(after.shopCatalog.items[0].price,129);assert.equal(after.shopCatalog.items[0].stock,original.shopCatalog.items[0].stock);assert.equal(after.shopCatalog.items[0].options[0].stock,original.shopCatalog.items[0].options[0].stock);
  for(const key of ['admin','paymentOrders','players'])assert.deepEqual(after[key],original[key],`${key} changed`);
  assert.deepEqual(after.booking.requests,original.booking.requests,'booking requests changed');
