@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { readCatalogue } from "../lib/public-catalogue.mjs";
+import { readCatalogue } from "../v2-preview/catalogue.mjs";
 
 const money = (amount) =>
   new Intl.NumberFormat("en-IN", {
