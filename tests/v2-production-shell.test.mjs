@@ -17,11 +17,11 @@ test("public root uses V2 Home while preserving classic admin Home controls", ()
 test("Q Lounge is a real production route backed by the shared catalogue", () => {
   assert.match(app, /path="\/food" element=\{<V2Food \/>\}/);
   assert.match(food, /readCatalogue/);
-  assert.match(food, /\.\.\/v2-preview\/catalogue\.mjs/);
+  assert.match(food, /..\/lib\/public-catalogue.mjs/);
   assert.match(food, /to="\/offer"/);
 });
 
-test("production entry loads V2 shell after legacy styles", () => {
+test("live Q Lounge never imports preview modules", () => {\n  assert.doesNotMatch(food, /v2-preview/);\n  assert.match(food, /public-catalogue\\.mjs/);\n});\n\ntest("production entry loads V2 shell after legacy styles", () => {
   const legacyIndex = entry.indexOf('import "./styles.css";');
   const v2Index = entry.indexOf('import "./v2-live/v2-live.css";');
   assert.ok(legacyIndex >= 0);
