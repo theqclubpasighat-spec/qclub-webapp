@@ -148,6 +148,11 @@ const QclubQrPage = lazy(() =>
     default: module.default,
   }))
 );
+const AdminLivePage = lazy(() =>
+  import("./admin-live/AdminLivePage.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
@@ -3905,6 +3910,22 @@ latestDataRef.current = fresh;
         commit={commit}
         activeTournament={activeTournament}
       />
+    </Suspense>
+  }
+/>
+<Route
+  path="/admin"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading Website Manager...</div>
+          </div>
+        </div>
+      }
+    >
+      <AdminLivePage />
     </Suspense>
   }
 />
