@@ -246,3 +246,28 @@ test('hero and media CMS validates URLs, preserves storage and excludes TV contr
     {club:{videoUrl:'//evil.example.com/video'}},
   ]) assert.throws(()=>contentPatch(before,changes),expectCode('INVALID_CONTENT_PATCH'));
 });
+
+
+test('theme CMS validates presentation tokens and preserves operational/private state',()=>{
+  const before={
+    theme:{accent:'#D9C683',background:'#0D1715',surface:'#15241E',text:'#E8EEE9',mutedText:'#A9BCB3',border:'#304038',private:'KEEP'},
+    club:{tvShowcaseMode:'KEEP-TV'},
+    booking:{requests:[{id:'keep-booking'}]},
+    paymentOrders:[{id:'keep-payment'}],
+    players:[{id:'keep-player'}],
+  };
+  const next=contentPatch(before,{theme:{accent:'#C8A95A',background:'#101815',surface:'#192720',text:'#F3F2E8',mutedText:'#B1B8AE',border:'#3D4A42'}});
+  assert.deepEqual(publicContent(next).theme,{accent:'#C8A95A',background:'#101815',surface:'#192720',text:'#F3F2E8',mutedText:'#B1B8AE',border:'#3D4A42'});
+  assert.equal(next.theme.private,'KEEP');
+  assert.equal(next.club.tvShowcaseMode,'KEEP-TV');
+  assert.deepEqual(next.booking.requests,before.booking.requests);
+  assert.deepEqual(next.paymentOrders,before.paymentOrders);
+  assert.deepEqual(next.players,before.players);
+  assert.ok(!JSON.stringify(publicContent(next)).includes('KEEP'));
+  for(const theme of [
+    {},
+    {accent:'#fff',background:'#000000',surface:'#111111',text:'#FFFFFF',mutedText:'#AAAAAA',border:'#222222'},
+    {accent:'red',background:'#000000',surface:'#111111',text:'#FFFFFF',mutedText:'#AAAAAA',border:'#222222'},
+    {accent:'#FFFFFF',background:'#000000',surface:'#111111',text:'#FFFFFF',mutedText:'#AAAAAA',border:'#222222',secret:'#123456'},
+  ]) assert.throws(()=>contentPatch(before,{theme}),expectCode('INVALID_CONTENT_PATCH'));
+});
