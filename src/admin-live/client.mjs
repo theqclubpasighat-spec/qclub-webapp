@@ -57,7 +57,7 @@ export function createAdminClient(fetcher = globalThis.fetch, storage = globalTh
     async restore() {
       if (!token) return null;
       try {
-        return normalizedActor(await jsonRequest("/api/qclub-cms?action=session"));
+        return normalizedActor(await jsonRequest("/api/snooker/v1/cms/session"));
       } catch (error) {
         if (error?.status === 401) return null;
         throw error;
@@ -79,14 +79,14 @@ export function createAdminClient(fetcher = globalThis.fetch, storage = globalTh
       remember(result.access_token);
       return normalizedActor(result);
     },
-    content: () => jsonRequest("/api/qclub-cms?action=content"),
-    save: (baseUpdatedAt, changes) => jsonRequest("/api/qclub-cms?action=content", {
+    content: () => jsonRequest("/api/snooker/v1/cms/content"),
+    save: (baseUpdatedAt, changes) => jsonRequest("/api/snooker/v1/cms/content", {
       method: "PATCH",
       body: JSON.stringify({ baseUpdatedAt, changes }),
     }),
     async logout() {
       try {
-        if (token) await jsonRequest("/api/qclub-cms?action=logout", { method: "POST", body: JSON.stringify({}) });
+        if (token) await jsonRequest("/api/snooker/v1/auth/logout", { method: "POST", body: JSON.stringify({}) });
       } finally {
         remember("");
       }
