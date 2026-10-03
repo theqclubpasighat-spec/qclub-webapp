@@ -6,11 +6,12 @@ const KITTY_SCORESHEET_ARCHIVE_KEY = "qclub_kitty_saved_scoresheets";
 const QCLUB_PLAYER_PHONEBOOK_KEY = "qclub_qchase_player_phonebook";
 const KITTY_RESULT_TEMPLATE_NAME = "kitty_result_settlement";
 const KITTY_MONTHLY_TEMPLATE_NAME = "kitty_monthly_report";
+const KITTY_TABLE_MAPPING_VERSION = "2026-10-03-current-4-table";
 const KITTY_TABLES = {
   table1: {
     key: "table1",
-    label: "Snooker 1",
-    displayName: "Ronnie's Table 12x6",
+    label: "T1 Liberwin",
+    displayName: "T1 Liberwin 12x6",
     gameType: "snooker_ronnie_12x6",
     scorePath: "/kitty-table-1",
     displayPath: "/kitty-table-1-display",
@@ -19,33 +20,33 @@ const KITTY_TABLES = {
   },
   table2: {
     key: "table2",
-    label: "Snooker 2",
-    displayName: "Mini Snooker Table 10x5",
-    gameType: "snooker_mini_10x5",
+    label: "T2 Wiraka 777",
+    displayName: "T2 Wiraka 777 12x6",
+    gameType: "snooker_extra_12x6",
     scorePath: "/kitty-table-2",
     displayPath: "/kitty-table-2-display",
-    ratePerHour: 500,
+    ratePerHour: 600,
     needsPin: false,
   },
   table3: {
     key: "table3",
-    label: "Pool Table",
-    displayName: "American Pool Table",
-    gameType: "pool_american",
+    label: "T3 Mini Snooker",
+    displayName: "T3 Mini Snooker 10x5",
+    gameType: "snooker_mini_10x5",
     scorePath: "/kitty-table-3",
     displayPath: "/kitty-table-3-display",
-    ratePerHour: 400,
+    ratePerHour: 500,
     needsPin: false,
   },
   table4: {
     key: "table4",
-    label: "Snooker 3",
-    displayName: "Snooker Table 12x6",
-    gameType: "snooker_extra_12x6",
+    label: "T4 Pool",
+    displayName: "T4 American Pool 9x4.5",
+    gameType: "pool_american",
     scorePath: "/kitty-table-4",
     displayPath: "/kitty-table-4-display",
-    ratePerHour: 600,
-    needsPin: true,
+    ratePerHour: 400,
+    needsPin: false,
   },
 };
 
@@ -64,9 +65,21 @@ function activeKittyStorageKey(tableKey = "table1") {
 
 function loadActiveKittyGame(tableKey = "table1") {
   try {
-    const raw = localStorage.getItem(activeKittyStorageKey(tableKey));
+    const storageKey = activeKittyStorageKey(tableKey);
+    const raw = localStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : null;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const expectedGameType = getKittyTableConfig(tableKey).gameType;
+    const savedGameType = String(parsed?.state?.gameType || "").trim();
+    if (savedGameType && savedGameType !== expectedGameType) {
+      const legacyKey = `${storageKey}_legacy_${savedGameType.replace(/[^a-z0-9_-]/gi, "_")}`;
+      if (!localStorage.getItem(legacyKey)) localStorage.setItem(legacyKey, raw);
+      localStorage.removeItem(storageKey);
+      return { legacyMappingMismatch: true, legacyGameType: savedGameType, expectedGameType };
+    }
+
+    return parsed;
   } catch {
     return null;
   }
@@ -74,7 +87,10 @@ function loadActiveKittyGame(tableKey = "table1") {
 
 function saveActiveKittyGame(tableKey = "table1", snapshot) {
   try {
-    localStorage.setItem(activeKittyStorageKey(tableKey), JSON.stringify(snapshot));
+    localStorage.setItem(activeKittyStorageKey(tableKey), JSON.stringify({
+      ...snapshot,
+      mappingVersion: KITTY_TABLE_MAPPING_VERSION,
+    }));
   } catch {}
 }
 
@@ -2763,8 +2779,8 @@ tableRoundingMode: "round_up",
 
 extraRedsAllowed: 0,
     extraRedsPlaced: 0,
-    redsOnTable: 15,
-startingRedsOnTable: 15,
+    redsOnTable: kittyDefaultRedsOnTable(currentKittyTableConfig.gameType),
+startingRedsOnTable: kittyDefaultRedsOnTable(currentKittyTableConfig.gameType),
 tokenBallsLeft: 6,
 orderLocked: false,
     started: false,
@@ -2784,6 +2800,10 @@ const [kittyRestored, setKittyRestored] = useState(false);
 
 useEffect(() => {
   const saved = loadActiveKittyGame(tableKey);
+
+  if (saved?.legacyMappingMismatch) {
+    alert(`A Kitty game saved under the old table mapping (${saved.legacyGameType}) was archived and was not restored on this table. Start a fresh Kitty game for ${getKittyTableConfig(tableKey).label}.`);
+  }
 
   if (saved?.state) setState(saved.state);
   if (Array.isArray(saved?.order)) setOrder(saved.order);
@@ -4287,18 +4307,11 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                   }));
                 }}
               >
-                <option value="snooker_ronnie_12x6">
-                  Ronnie&apos;s Table 12x6 — Snooker 1 — 600/hr
-                </option>
-                <option value="snooker_mini_10x5">
-                  Mini Snooker Table 10x5 — Snooker 2 — 500/hr
-                </option>
-                <option value="pool_american">
-                  American Pool Table — Pool Table — 400/hr
-                </option>
-                <option value="snooker_extra_12x6">
-                  Snooker Table 12x6 — PIN Required — 600/hr
-                </option>
+                {Object.values(KITTY_TABLES).map((table) => (
+                  <option value={table.gameType} key={table.key}>
+                    {table.displayName} — {table.ratePerHour}/hr
+                  </option>
+                ))}
               </select>
             </label>
 
