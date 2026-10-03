@@ -174,6 +174,7 @@ test('QShop CMS edits public catalogue fields while preserving stock, identity a
     {...patch,items:[{...patch.items[0],id:'different'}]},
     {...patch,items:[{...patch.items[0],stock:999}]},
     {...patch,items:[{...patch.items[0],price:0}]},
+    {...patch,items:[{...patch.items[0],price:12.345}]},
     {...patch,items:[{...patch.items[0],amazonUrl:'javascript:alert(1)'}]},
     {...patch,items:[{...patch.items[0],images:['//evil.example/x']}]},
     {...patch,items:[{...patch.items[0],options:[]}]},
