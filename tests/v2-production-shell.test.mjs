@@ -151,3 +151,13 @@ test("Kitty routes and game types match the current four physical tables", () =>
   assert.match(adminPanel, /T4 Pool Kitty Scorer/);
   assert.match(adminPanel, /T4 Pool Kitty Display/);
 });
+
+
+test("unsafe or obsolete donor utility routes are retired while feedback uses current contact", () => {
+  assert.match(app, /path="\/feedback" element=\{<V2FeedbackHub \/>\}/);
+  assert.match(publicInfo, /to="\/contact"/);
+  assert.doesNotMatch(publicInfo, /98628 00000|contact@theqclubpasighat\.com|lockers are available/i);
+  for (const path of ["/bylaws", "/disclaimer", "/admin/login", "/reset-password", "/admin/storage-migrate"]) {
+    assert.ok(!app.includes(`path="${path}"`), `retired donor route should not be active: ${path}`);
+  }
+});
