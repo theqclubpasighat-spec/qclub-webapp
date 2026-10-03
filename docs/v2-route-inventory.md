@@ -103,13 +103,13 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/refund` | Refund Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/privacy` | Privacy Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/tournament-legal` | Tournament Rules & Terms | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
-| `/rules` | Club Rules | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
+| `/rules` | Club Rules | public | No | Reconciled as a V2 bridge to the authoritative Terms & Conditions rules section; no duplicate rules copy |
 | `/bylaws` | Bylaws | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
 | `/refund-policy` | Refund Policy | public | No | Reconciled as an alias to the existing production Refund Policy content; no duplicate policy state |
 | `/pricing` | Pricing | public | No | Reconciled as a read-only V2 page using existing membership tiers and booking table rates |
 | `/legal` | Legal Notice | public | No | Reconciled as a policy hub linking existing Terms, Refund, Privacy and Tournament Legal pages; no new legal text invented |
 | `/disclaimer` | Disclaimer | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
-| `/anti-gambling` | Anti-Gambling Notice | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
+| `/anti-gambling` | Anti-Gambling Notice | public | No | Reconciled by reusing the existing Tournament Legal Notice, which already contains the club's skill-based/no-wagering position |
 | `/feedback` | Feedback | public | No | Add after content/schema/access review; no placeholder feature counted as complete |
 
 ## Production-only routes to preserve
