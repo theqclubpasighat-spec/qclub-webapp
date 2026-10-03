@@ -94,11 +94,11 @@ This is a source-route inventory, not a claim that every route works or is deplo
 | `/admin/shop-orders` | Q Shop Admin | staff | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
 | `/admin/payments` | Payments | staff | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
 | `/admin/reports` | Reports | staff | No | Map existing data and enforce server roles; review RLS and writes before enabling |
-| `/receipt` | Receipt | public | No | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
+| `/receipt` | Receipt | public | No | Generic donor receipt route retired: production keeps context-specific food/shop/payment receipt flows so no second receipt resolver is introduced |
 | `/payment-status` | Payment Status | public | Yes | Keep production order/payment/receipt contracts; audit donor checkout and server prices |
-| `/Craxam` | Craxam Auth Bridge | public | No | Verify auth callback/deep-link contract separately; preserve legal routes |
-| `/craxam` | Craxam Auth Bridge | public | No | Verify auth callback/deep-link contract separately; preserve legal routes |
-| `/craxam/privacy` | CraXam Privacy Policy | public | Yes | Verify auth callback/deep-link contract separately; preserve legal routes |
+| `/Craxam` | Craxam Auth Bridge | public | No | Retired after CraXam verification: current Google OAuth redirects directly to `craxam://callback`; no web callback hop required |
+| `/craxam` | Craxam Auth Bridge | public | No | Retired after CraXam verification: Android manifest/auth configuration handles `craxam://callback` directly |
+| `/craxam/privacy` | CraXam Privacy Policy | public | Yes | Preserve production legal route; independent of the retired OAuth bridge |
 | `/terms` | Terms of Use | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/refund` | Refund Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/privacy` | Privacy Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
