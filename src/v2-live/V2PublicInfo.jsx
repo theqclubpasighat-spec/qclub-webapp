@@ -90,3 +90,27 @@ export function V2Pricing({ data }) {
     </main>
   );
 }
+
+
+export function V2RulesHub() {
+  return (
+    <main className="v2-live-section" id="main-content">
+      <div className="v2-live-page-heading">
+        <div>
+          <p className="v2-live-eyebrow">Club conduct</p>
+          <h1>Club rules</h1>
+          <p className="v2-live-muted">The current club rules are maintained inside the Terms & Conditions so there is one authoritative policy copy.</p>
+        </div>
+        <Link className="v2-live-button" to="/">Home</Link>
+      </div>
+      <section className="v2-live-panel">
+        <h2>Read the current rules</h2>
+        <p className="v2-live-muted">Open Terms & Conditions for the current Club Rules section and the related membership, booking, QShop and management terms.</p>
+        <div className="v2-live-inline-actions">
+          <Link className="v2-live-button v2-live-primary" to="/terms">Open Terms & Conditions</Link>
+          <Link className="v2-live-button" to="/legal">All legal information</Link>
+        </div>
+      </section>
+    </main>
+  );
+}
