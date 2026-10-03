@@ -88,9 +88,19 @@ function projectBookingTables(state) {
 }
 
 const THEME_KEYS = ['accent','background','surface','text','mutedText','border'];
+const NOTIFICATION_TEMPLATE_KEYS = [
+  'qshopSuccess','qshopFailed','bookingSuccess','bookingFailed',
+  'membershipSuccess','membershipFailed','otp',
+  'tournamentSuccess','tournamentFailed','foodSuccess','foodFailed',
+  'jobApplicationReceived','jobInterviewCall',
+];
 function projectTheme(state) {
   const theme = object(state?.theme) ? state.theme : {};
   return Object.fromEntries(THEME_KEYS.filter(key => typeof theme[key] === 'string' && /^#[0-9A-Fa-f]{6}$/.test(theme[key])).map(key => [key, theme[key].toUpperCase()]));
+}
+function projectNotificationTemplates(state) {
+  const templates = object(state?.notificationTemplates) ? state.notificationTemplates : {};
+  return Object.fromEntries(NOTIFICATION_TEMPLATE_KEYS.map(key => [key, typeof templates[key] === 'string' ? templates[key] : '']));
 }
 function normalizedTheme(value) {
   if (!object(value) || Object.keys(value).some(key => !THEME_KEYS.includes(key)) || Object.keys(value).length !== THEME_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');
@@ -99,6 +109,16 @@ function normalizedTheme(value) {
     const token = value[key];
     if (typeof token !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(token)) fail(400, 'INVALID_CONTENT_PATCH');
     next[key] = token.toUpperCase();
+  }
+  return next;
+}
+function normalizedNotificationTemplates(value) {
+  if (!object(value) || Object.keys(value).some(key => !NOTIFICATION_TEMPLATE_KEYS.includes(key)) || Object.keys(value).length !== NOTIFICATION_TEMPLATE_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');
+  const next = {};
+  for (const key of NOTIFICATION_TEMPLATE_KEYS) {
+    const name = value[key];
+    if (typeof name !== 'string' || name.length > 120 || (name && !/^[A-Za-z0-9_.-]+$/.test(name))) fail(400, 'INVALID_CONTENT_PATCH');
+    next[key] = name;
   }
   return next;
 }
@@ -233,10 +253,11 @@ export function publicContent(state) {
     bookingTables: projectBookingTables(state),
     shopCatalog: projectShopCatalog(state),
     theme: projectTheme(state),
+    notificationTemplates: projectNotificationTemplates(state),
     announcements: noticeProjection(state),
   };
 }
-const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'theme', 'heroSlides', 'notices'];
+const CONTENT_KEYS = ['club', 'foodPage', 'memberships', 'bookingTables', 'shopCatalog', 'theme', 'notificationTemplates', 'heroSlides', 'notices'];
 const CLUB_KEYS = [
   'name','location','tagline','tagline2','hoursNote',
   'aboutTitle','aboutContent','contactTitle','contactContent',
@@ -272,6 +293,10 @@ export function contentPatch(current, changes) {
     }
     if (section === 'theme') {
       next.theme = { ...(object(current.theme) ? current.theme : {}), ...normalizedTheme(fields) };
+      continue;
+    }
+    if (section === 'notificationTemplates') {
+      next.notificationTemplates = { ...(object(current.notificationTemplates) ? current.notificationTemplates : {}), ...normalizedNotificationTemplates(fields) };
       continue;
     }
     if (section === 'shopCatalog') {
