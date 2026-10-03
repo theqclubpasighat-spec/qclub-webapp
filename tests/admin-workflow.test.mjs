@@ -102,3 +102,13 @@ test('theme draft changes are isolated to the explicit presentation section',()=
   assert.deepEqual(changes.theme,after.theme);
   assert.equal(changes.club,undefined);
 });
+
+
+test('notification template draft changes stay in the non-secret template section',()=>{
+  const before={notificationTemplates:{qshopSuccess:'qshop_success',qshopFailed:'',bookingSuccess:'booking_success',bookingFailed:'',membershipSuccess:'membership_success',membershipFailed:'',otp:'qclub_otp',tournamentSuccess:'tournament_success',tournamentFailed:'',foodSuccess:'qlounge_order_success_v2',foodFailed:'',jobApplicationReceived:'job_application_received',jobInterviewCall:'job_interview_call'}};
+  const after=structuredClone(before);
+  after.notificationTemplates.bookingSuccess='booking_success_v2';
+  const changes=changesBetween(before,after);
+  assert.deepEqual(changes.notificationTemplates,after.notificationTemplates);
+  assert.equal(changes.club,undefined);
+});
