@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { publicContent as cmsPublicContent, saveContent as saveCmsContent } from "./security/foundation.js";
 
 const API_VERSION = "snooker-v1";
 const CURRENCY = "INR";
@@ -4132,6 +4133,38 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
+    if (method === "GET" && path === "cms/session") {
+      const auth = await requireAuth(req, res, ["ADMIN", "STAFF"]);
+      if (!auth) return;
+      return json(res, 200, {
+        role: auth.staff_id === "admin-committee" ? "COMMITTEE" : auth.role,
+        staff_id: auth.staff_id,
+        display_name: auth.display_name,
+        expires_at: auth.expires_at,
+      });
+    }
+    if (method === "GET" && path === "cms/content") {
+      const auth = await requireAuth(req, res, ["ADMIN"]);
+      if (!auth) return;
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.from("qclub_state").select("state,updated_at").eq("key", "main").single();
+      if (error || !data) return json(res, 503, { ok: false, error: "STATE_UNAVAILABLE" });
+      return json(res, 200, { content: cmsPublicContent(data.state), updatedAt: data.updated_at });
+    }
+    if (method === "PATCH" && path === "cms/content") {
+      const auth = await requireAuth(req, res, ["ADMIN"]);
+      if (!auth) return;
+      if (auth.staff_id !== "admin-main") return json(res, 403, { ok: false, error: "FORBIDDEN" });
+      try {
+        return json(res, 200, await saveCmsContent(getSupabaseAdmin(), auth, req.body));
+      } catch (error) {
+        const status = Number(error?.status || 0);
+        return json(res, status >= 400 && status < 600 ? status : 503, {
+          ok: false,
+          error: String(error?.code || "CMS_UNAVAILABLE"),
+        });
+      }
+    }
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
     if (parts[0] === "payments" && parts[1] === "public" && parts[2] && method === "GET") return await publicPaymentSession(req, res, parts[2]);
 

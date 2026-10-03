@@ -141,7 +141,7 @@ export function ThemeEditor({theme,onChange,busy}) {
         </div>
       </div>)}
     </div>
-    <p>Use six-digit hex colours such as #D9C683. Theme changes remain rehearsal-only until the public V2 shell is explicitly wired to them.</p>
+    <p>Use six-digit hex colours such as #D9C683. Saved colours are applied to the live V2 public shell.</p>
   </section>;
 }
 
@@ -173,7 +173,7 @@ export function NotificationTemplatesEditor({templates,onChange,busy}) {
         <input id={`template-${key}`} value={value[key]||''} maxLength={120} pattern="[A-Za-z0-9_.-]*" placeholder="approved_template_name" disabled={busy} onChange={e=>patch(key,e.target.value)}/>
       </div>)}
     </div>
-    <p>Saving here does not activate, send or change any live WhatsApp message. The rehearsal dispatcher continues to use server-held environment configuration.</p>
+    <p>Saving here changes approved template names only. Credentials and message dispatch remain on the server.</p>
   </section>;
 }
 
@@ -195,14 +195,14 @@ export function FeatureFlagsEditor({flags,onChange,busy}) {
   function toggle(key){ onChange({...value,[key]:value[key]!==true}); }
   return <section className="card">
     <h2>Feature flags</h2>
-    <p>Store visibility intentions for the V2 experience. These switches are configuration-only in this rehearsal and do not hide, enable or reroute any live production page.</p>
+    <p>Store visibility settings for the V2 experience. These switches remain separate from payments, billing, inventory and game engines.</p>
     <div className="flag-list">
       {fields.map(([key,label])=><div className="flag-row" key={key}>
         <div><strong>{label}</strong><p>{value[key]===true?'Intended to be shown':'Intended to be hidden'}</p></div>
         <button id={`flag-${key}`} type="button" aria-pressed={value[key]===true} aria-label={`${label}: ${value[key]===true?'On':'Off'}`} disabled={busy} onClick={()=>toggle(key)}>{value[key]===true?'On':'Off'}</button>
       </div>)}
     </div>
-    <p>Activation will require a separate reviewed package. This screen only preserves the V2 feature-flag configuration safely.</p>
+    <p>Visibility changes are saved safely without changing operational data.</p>
   </section>;
 }
 
@@ -210,7 +210,7 @@ export function FeatureFlagsEditor({flags,onChange,busy}) {
 export function SettingsOverview({groups,onOpen}) {
   return <section className="card settings-overview">
     <h2>Settings</h2>
-    <p>One place to find the V2 website settings that have been safely reconciled into the rehearsal CMS.</p>
+    <p>One place to manage the V2 website settings that have been safely reconciled into production.</p>
     <div className="settings-groups">
       {groups.map(group=><section className="settings-group" key={group.title}>
         <h3>{group.title}</h3>
@@ -230,7 +230,7 @@ export function SettingsOverview({groups,onOpen}) {
 export function ReportsAuditOverview({groups}) {
   return <section className="card settings-overview">
     <h2>Reports & audit</h2>
-    <p>Open the existing production records that already own billing, game, order and committee history. This page does not copy or summarize customer/payment data into the rehearsal CMS.</p>
+    <p>Open the existing production records that already own billing, game, order and committee history. This page does not copy customer or payment data into the Website Manager.</p>
     <div className="settings-groups">
       {groups.map(group=><section className="settings-group" key={group.title}>
         <h3>{group.title}</h3>

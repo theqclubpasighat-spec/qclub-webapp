@@ -98,9 +98,22 @@ const FEATURE_FLAG_KEYS = [
   'showQLounge','showQShop','showBooking','showMembership','showTournaments',
   'showPlayers','showLiveMatches','showClubMedia','showOffers','showFeedback',
 ];
+const DEFAULT_THEME = Object.freeze({
+  accent: '#DBBA71',
+  background: '#091711',
+  surface: '#14261E',
+  text: '#F6F1E5',
+  mutedText: '#BCC6BD',
+  border: '#34513C',
+});
 function projectTheme(state) {
   const theme = object(state?.theme) ? state.theme : {};
-  return Object.fromEntries(THEME_KEYS.filter(key => typeof theme[key] === 'string' && /^#[0-9A-Fa-f]{6}$/.test(theme[key])).map(key => [key, theme[key].toUpperCase()]));
+  return Object.fromEntries(THEME_KEYS.map(key => {
+    const value = typeof theme[key] === 'string' && /^#[0-9A-Fa-f]{6}$/.test(theme[key])
+      ? theme[key].toUpperCase()
+      : DEFAULT_THEME[key];
+    return [key, value];
+  }));
 }
 function projectNotificationTemplates(state) {
   const templates = object(state?.notificationTemplates) ? state.notificationTemplates : {};
@@ -108,7 +121,10 @@ function projectNotificationTemplates(state) {
 }
 function projectFeatureFlags(state) {
   const flags = object(state?.featureFlags) ? state.featureFlags : {};
-  return Object.fromEntries(FEATURE_FLAG_KEYS.map(key => [key, flags[key] === true]));
+  return Object.fromEntries(FEATURE_FLAG_KEYS.map(key => [
+    key,
+    typeof flags[key] === 'boolean' ? flags[key] : true,
+  ]));
 }
 function normalizedTheme(value) {
   if (!object(value) || Object.keys(value).some(key => !THEME_KEYS.includes(key)) || Object.keys(value).length !== THEME_KEYS.length) fail(400, 'INVALID_CONTENT_PATCH');

@@ -148,6 +148,11 @@ const QclubQrPage = lazy(() =>
     default: module.default,
   }))
 );
+const AdminLivePage = lazy(() =>
+  import("./admin-live/AdminLivePage.jsx").then((module) => ({
+    default: module.default,
+  }))
+);
 /* =========================================================
    Q CLUB – Single-file WebApp (Mobile-first)
    - LocalStorage database
@@ -2370,6 +2375,30 @@ useEffect(() => {
   latestDataRef.current = data;
 }, [data]);
 useEffect(() => {
+  if (typeof document === "undefined") return undefined;
+  const theme = data?.theme && typeof data.theme === "object" ? data.theme : {};
+  const root = document.documentElement;
+  const pairs = [
+    ["--qv2-brass", theme.accent],
+    ["--qv2-brass-soft", theme.accent],
+    ["--qv2-felt", theme.background],
+    ["--qv2-surface", theme.surface],
+    ["--qv2-surface-2", theme.surface],
+    ["--qv2-ivory", theme.text],
+    ["--qv2-muted", theme.mutedText],
+    ["--qv2-border", theme.border],
+  ];
+  const applied = [];
+  for (const [name, value] of pairs) {
+    if (typeof value !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(value)) continue;
+    root.style.setProperty(name, value.toUpperCase());
+    applied.push(name);
+  }
+  return () => {
+    for (const name of applied) root.style.removeProperty(name);
+  };
+}, [data?.theme]);
+useEffect(() => {
   if (isCloudEnabled() && (!hasHydratedFromCloud || cloudWriteLockedRef.current)) return;
 
   const policyClub = defaultData().club;
@@ -3905,6 +3934,22 @@ latestDataRef.current = fresh;
         commit={commit}
         activeTournament={activeTournament}
       />
+    </Suspense>
+  }
+/>
+<Route
+  path="/admin"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading Website Manager...</div>
+          </div>
+        </div>
+      }
+    >
+      <AdminLivePage />
     </Suspense>
   }
 />
