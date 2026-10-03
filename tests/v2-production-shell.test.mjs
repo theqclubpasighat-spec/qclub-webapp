@@ -9,6 +9,9 @@ const home = readFileSync(new URL("../src/v2-live/V2Home.jsx", import.meta.url),
 const food = readFileSync(new URL("../src/v2-live/V2Food.jsx", import.meta.url), "utf8");
 const publicInfo = readFileSync(new URL("../src/v2-live/V2PublicInfo.jsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/v2-live/v2-live.css", import.meta.url), "utf8");
+const kitty = readFileSync(new URL("../src/components/kitty-page.jsx", import.meta.url), "utf8");
+const pageHelpers = readFileSync(new URL("../src/components/page-helpers.jsx", import.meta.url), "utf8");
+const adminPanel = readFileSync(new URL("../src/components/admin-panel.jsx", import.meta.url), "utf8");
 
 test("public root uses V2 Home while preserving classic admin Home controls", () => {
   assert.match(app, /path="\/" element=\{admin \? <Home[\s\S]*: <V2Home/);
@@ -119,4 +122,32 @@ test("obsolete generic receipt and CraXam web bridge routes stay retired", () =>
   assert.doesNotMatch(app, /path="\/craxam"\s/);
   assert.match(app, /path="\/craxam\/privacy"/);
   assert.match(app, /path="\/craxam\/delete-account"/);
+});
+
+
+test("Kitty routes and game types match the current four physical tables", () => {
+  const expected = [
+    ['table1','T1 Liberwin','snooker_ronnie_12x6','/kitty-table-1','/kitty-table-1-display','600'],
+    ['table2','T2 Wiraka 777','snooker_extra_12x6','/kitty-table-2','/kitty-table-2-display','600'],
+    ['table3','T3 Mini Snooker','snooker_mini_10x5','/kitty-table-3','/kitty-table-3-display','500'],
+    ['table4','T4 Pool','pool_american','/kitty-table-4','/kitty-table-4-display','400'],
+  ];
+  for (const [key,label,type,scorePath,displayPath,rate] of expected) {
+    assert.ok(kitty.includes(`key: "${key}"`), `missing Kitty ${key}`);
+    assert.ok(kitty.includes(`label: "${label}"`), `wrong Kitty label for ${key}`);
+    assert.ok(kitty.includes(`gameType: "${type}"`), `wrong Kitty game type for ${key}`);
+    assert.ok(kitty.includes(`scorePath: "${scorePath}"`), `wrong score path for ${key}`);
+    assert.ok(kitty.includes(`displayPath: "${displayPath}"`), `wrong display path for ${key}`);
+    assert.ok(kitty.includes(`ratePerHour: ${rate}`), `wrong existing Kitty rate mapping for ${key}`);
+    assert.ok(app.includes(`path="${scorePath}"`), `missing app scorer route ${scorePath}`);
+    assert.ok(app.includes(`path="${displayPath}"`), `missing app display route ${displayPath}`);
+  }
+  assert.match(kitty, /KITTY_TABLE_MAPPING_VERSION/);
+  assert.match(kitty, /legacyMappingMismatch/);
+  assert.match(kitty, /_legacy_/);
+  assert.match(kitty, /kittyDefaultRedsOnTable\(currentKittyTableConfig\.gameType\)/);
+  assert.match(pageHelpers, /"\/kitty-table-4"/);
+  assert.match(pageHelpers, /"\/kitty-table-4-display"/);
+  assert.match(adminPanel, /T4 Pool Kitty Scorer/);
+  assert.match(adminPanel, /T4 Pool Kitty Display/);
 });
