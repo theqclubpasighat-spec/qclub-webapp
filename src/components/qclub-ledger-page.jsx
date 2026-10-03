@@ -61,6 +61,15 @@ function localTimeInput(value) {
   return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
 }
 
+function initialLedgerTab() {
+  try {
+    const requested = new URLSearchParams(window.location.search).get("tab") || "";
+    return ["desk","fnb","activity","staffops","ledger","finance","admin"].includes(requested) ? requested : "desk";
+  } catch {
+    return "desk";
+  }
+}
+
 function makeKey(prefix) {
   const safePrefix = prefix || "web";
   if (globalThis.crypto && globalThis.crypto.randomUUID) {
@@ -444,7 +453,7 @@ export default function QclubLedgerPage() {
   const [sessionDetails, setSessionDetails] = useState({});
   const [bills, setBills] = useState([]);
   const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
-  const [tab, setTab] = useState("desk");
+  const [tab, setTab] = useState(initialLedgerTab);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
