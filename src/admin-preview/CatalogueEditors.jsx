@@ -116,3 +116,31 @@ export function HeroSlidesEditor({slides,onChange,busy}) {
     <p>Keep at least one slide. HTTPS URLs and site paths beginning with / are accepted.</p>
   </section>;
 }
+
+
+export function ThemeEditor({theme,onChange,busy}) {
+  const value = theme && typeof theme === 'object' ? theme : {};
+  const fields = [
+    ['accent','Accent'],
+    ['background','Background'],
+    ['surface','Surface'],
+    ['text','Text'],
+    ['mutedText','Muted text'],
+    ['border','Border'],
+  ];
+  function patch(key,next){ onChange({...value,[key]:next.toUpperCase()}); }
+  return <section className="card">
+    <h2>Theme</h2>
+    <p>Edit presentation colours only. These values cannot change payments, bookings, inventory, member records or operational settings.</p>
+    <div className="theme-grid">
+      {fields.map(([key,label])=><div className="field" key={key}>
+        <label htmlFor={`theme-${key}`}>{label}</label>
+        <div className="theme-token">
+          <input id={`theme-${key}`} value={value[key]||''} maxLength={7} pattern="#[0-9A-Fa-f]{6}" placeholder="#D9C683" disabled={busy} onChange={e=>patch(key,e.target.value)}/>
+          <span className="theme-swatch" aria-hidden="true" style={{background:/^#[0-9A-Fa-f]{6}$/.test(value[key]||'')?value[key]:'transparent'}}/>
+        </div>
+      </div>)}
+    </div>
+    <p>Use six-digit hex colours such as #D9C683. Theme changes remain rehearsal-only until the public V2 shell is explicitly wired to them.</p>
+  </section>;
+}
