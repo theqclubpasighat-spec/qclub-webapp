@@ -4000,7 +4000,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table1"
-      tableLabel="Snooker Table 1"
+      tableLabel="T1 Liberwin"
     />
   }
 />
@@ -4028,7 +4028,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table2"
-      tableLabel="Snooker Table 2"
+      tableLabel="T2 Wiraka 777"
     />
   }
 />
@@ -4042,7 +4042,7 @@ latestDataRef.current = fresh;
       staffAdmin={staffAdmin}
       commit={commit}
       tableKey="table3"
-      tableLabel="Mini / Table 3"
+      tableLabel="T3 Mini Snooker"
     />
   }
 />
@@ -4147,17 +4147,34 @@ latestDataRef.current = fresh;
 
 <Route
   path="/kitty-table-1-display"
-  element={<KittyDisplayPage tableKey="table1" tableLabel="Snooker Table 1" />}
+  element={<KittyDisplayPage tableKey="table1" tableLabel="T1 Liberwin" />}
 />
 
 <Route
   path="/kitty-table-2-display"
-  element={<KittyDisplayPage tableKey="table2" tableLabel="Snooker Table 2" />}
+  element={<KittyDisplayPage tableKey="table2" tableLabel="T2 Wiraka 777" />}
 />
 
 <Route
   path="/kitty-table-3-display"
-  element={<KittyDisplayPage tableKey="table3" tableLabel="Mini / Table 3" />}
+  element={<KittyDisplayPage tableKey="table3" tableLabel="T3 Mini Snooker" />}
+/>
+<Route
+  path="/kitty-table-4"
+  element={
+    <KittyPage
+      data={data}
+      admin={admin}
+      staffAdmin={staffAdmin}
+      commit={commit}
+      tableKey="table4"
+      tableLabel="T4 Pool"
+    />
+  }
+/>
+<Route
+  path="/kitty-table-4-display"
+  element={<KittyDisplayPage tableKey="table4" tableLabel="T4 Pool" />}
 />
 <Route
   path="/kitty-records"
