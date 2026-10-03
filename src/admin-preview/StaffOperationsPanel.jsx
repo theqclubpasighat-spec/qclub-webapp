@@ -94,7 +94,7 @@ export default function StaffOperationsPanel({client,actor}) {
         </select>
         <label htmlFor="expense-amount">Amount (₹)</label><input id="expense-amount" type="number" min="0.01" max="10000000" step="0.01" value={expense.amountInr} disabled={busy} onChange={e=>setExpense({...expense,amountInr:e.target.value})}/>
         <label htmlFor="expense-method">Paid by</label><select id="expense-method" value={expense.paymentMethod} disabled={busy} onChange={e=>setExpense({...expense,paymentMethod:e.target.value})}>{['CASH','UPI','BANK','OTHER'].map(value=><option key={value}>{value}</option>)}</select>
-        <label htmlFor="expense-description">Description</label><textarea id="expense-description" rows={3} maxLength={2000} value={expense.description} disabled={busy} onChange={e=>setExpense({...expense,description:e.target.value)}/>
+        <label htmlFor="expense-description">Description</label><textarea id="expense-description" rows={3} maxLength={2000} value={expense.description} disabled={busy} onChange={e=>setExpense({...expense,description:e.target.value})}/>
         <button id="record-expense" className="primary" disabled={busy}>Record expense</button>
       </form>
     </section>
