@@ -662,6 +662,11 @@ export function AdminPanel({ data, admin, commit, activeTournament }) {
         note: "Mini/Table 3 Kitty scorer",
       },
       {
+        label: "T4 Pool Kitty Scorer",
+        path: "/kitty-table-4",
+        note: "American Pool Kitty scorer",
+      },
+      {
         label: "Kitty Table 1 Display",
         path: "/kitty-table-1-display",
         note: "Public display for Table 1 Kitty",
@@ -675,6 +680,11 @@ export function AdminPanel({ data, admin, commit, activeTournament }) {
         label: "Kitty Table 3 Display",
         path: "/kitty-table-3-display",
         note: "Public display for Table 3 Kitty",
+      },
+      {
+        label: "T4 Pool Kitty Display",
+        path: "/kitty-table-4-display",
+        note: "Public display for T4 Kitty",
       },
       {
         label: "Kitty Records",
