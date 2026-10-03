@@ -144,3 +144,35 @@ export function ThemeEditor({theme,onChange,busy}) {
     <p>Use six-digit hex colours such as #D9C683. Theme changes remain rehearsal-only until the public V2 shell is explicitly wired to them.</p>
   </section>;
 }
+
+
+export function NotificationTemplatesEditor({templates,onChange,busy}) {
+  const value = templates && typeof templates === 'object' ? templates : {};
+  const fields = [
+    ['foodSuccess','Q Lounge success'],
+    ['foodFailed','Q Lounge failed'],
+    ['qshopSuccess','QShop success'],
+    ['qshopFailed','QShop failed'],
+    ['bookingSuccess','Booking success'],
+    ['bookingFailed','Booking failed'],
+    ['membershipSuccess','Membership success'],
+    ['membershipFailed','Membership failed'],
+    ['tournamentSuccess','Tournament success'],
+    ['tournamentFailed','Tournament failed'],
+    ['otp','OTP'],
+    ['jobApplicationReceived','Job application received'],
+    ['jobInterviewCall','Job interview call'],
+  ];
+  function patch(key,next){ onChange({...value,[key]:next.trim()}); }
+  return <section className="card">
+    <h2>Notification templates</h2>
+    <p>Manage approved MSG91 template names only. Auth keys, sender numbers and live-send controls are intentionally excluded from this editor.</p>
+    <div className="cms-list">
+      {fields.map(([key,label])=><div className="field" key={key}>
+        <label htmlFor={`template-${key}`}>{label}</label>
+        <input id={`template-${key}`} value={value[key]||''} maxLength={120} pattern="[A-Za-z0-9_.-]*" placeholder="approved_template_name" disabled={busy} onChange={e=>patch(key,e.target.value)}/>
+      </div>)}
+    </div>
+    <p>Saving here does not activate, send or change any live WhatsApp message. The rehearsal dispatcher continues to use server-held environment configuration.</p>
+  </section>;
+}
