@@ -63,12 +63,13 @@ try{
  assert.equal((await state()).club.name,'Mobile CMS fixture');
  await button('About & policies');await browser('wait','#aboutContent');await layout('policies-360');
  await button('Food page');await browser('wait','#title');await browser('fill','#subtitle','A mobile-friendly kitchen break.');await save();await layout('food-360');
+ await button('Booking & membership');await browser('wait','#bookPageTitle');await browser('fill','#bookPageTitle','Book your table');await save();await layout('booking-copy-360');
  await button('Notices');await browser('wait','--text','No public notices yet.');await button('Add notice');await browser('wait','textarea');await snapshot('new-notice');
  await browser('fill','textarea','Practice night starts at 6 pm.');await browser('fill','input','/fixtures');await save();await layout('notices-360');
  await button('Membership tiers');await browser('wait','--text','Membership tiers');await browser('fill','input[type="number"]','599');await save();await layout('memberships-360');
  await button('Table rates');await browser('wait','--text','Table rates');await browser('fill','input[type="number"]','450');await save();await layout('rates-360');
  await button('QShop catalogue');await browser('wait','--text','QShop catalogue');await browser('fill','input[type="number"]','129');await save();await layout('qshop-360');
- const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);assert.equal(after.memberships[0].price,599);assert.equal(after.booking.tables[0].pricePerHour,450);assert.equal(after.shopCatalog.items[0].price,129);assert.equal(after.shopCatalog.items[0].stock,original.shopCatalog.items[0].stock);assert.equal(after.shopCatalog.items[0].options[0].stock,original.shopCatalog.items[0].options[0].stock);
+ const after=await state();assert.equal(after.foodPage.subtitle,'A mobile-friendly kitchen break.');assert.equal(after.club.bookPageTitle,'Book your table');assert.equal(after.announcements.filter(x=>x.type==='notice').length,1);assert.equal(after.memberships[0].price,599);assert.equal(after.booking.tables[0].pricePerHour,450);assert.equal(after.shopCatalog.items[0].price,129);assert.equal(after.shopCatalog.items[0].stock,original.shopCatalog.items[0].stock);assert.equal(after.shopCatalog.items[0].options[0].stock,original.shopCatalog.items[0].options[0].stock);
  for(const key of ['admin','paymentOrders','players'])assert.deepEqual(after[key],original[key],`${key} changed`);
  assert.deepEqual(after.booking.requests,original.booking.requests,'booking requests changed');
  assert.deepEqual(after.booking.blockedSlots,original.booking.blockedSlots,'booking blocks changed');
@@ -86,7 +87,7 @@ try{
  assert.equal(await evaluate('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="Save changes").disabled'),true);
  await button('Load latest for comparison');await browser('wait','--text','Another admin saved this');await layout('conflict-360');
  assert.equal(await evaluate('document.querySelector("#tagline").value'),'My unsaved mobile draft');assert.equal((await state()).club.tagline,'Another admin saved this');
- await writeFile(path.join(artifacts,'admin-result.json'),JSON.stringify({passed:true,widths:[360,390,430],disposablePostgres:true,checks:['layout','touch targets','content save','notice save','membership tier save','table rate save','QShop catalogue save','QShop stock preservation','private data preservation','server logout revocation','staff restriction','memory-only session','conflict draft retention','latest comparison']},null,2));
+ await writeFile(path.join(artifacts,'admin-result.json'),JSON.stringify({passed:true,widths:[360,390,430],disposablePostgres:true,checks:['layout','touch targets','content save','expanded page-content save','notice save','membership tier save','table rate save','QShop catalogue save','QShop stock preservation','private data preservation','server logout revocation','staff restriction','memory-only session','conflict draft retention','latest comparison']},null,2));
  console.log('Mobile CMS browser verification passed against disposable Postgres. No production database used.');
 }catch(error){await writeFile(path.join(artifacts,'admin-requests.json'),JSON.stringify(requests,null,2));try{await browser('screenshot',path.join(artifacts,'admin-failure.png'),'--full');await snapshot('failure');await writeFile(path.join(artifacts,'admin-console.json'),JSON.stringify(await browser('console')));}catch{}throw error;}
 finally{try{await browser('close');}finally{await server.close();await fixture.close();}}
