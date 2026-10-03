@@ -79,3 +79,16 @@ test('membership and rate draft changes are sent as explicit CMS sections',()=>{
   assert.deepEqual(changes.bookingTables,after.bookingTables);
   assert.equal(changes.club,undefined);
 });
+
+
+test('QShop draft changes are isolated to the explicit catalogue section',()=>{
+  const before={
+    club:{name:'Q Club'},
+    shopCatalog:{heading:'The Q Shop',topLabel:'Club essentials',description:'Old',badge1:'New',badge2:'Members',items:[{id:'shop_1',name:'Cue Tip',desc:'Old',price:99,badge:'',amazonUrl:'',img:'/old.jpg',images:['/old.jpg'],optionGroupLabel:'',options:[]}]},
+  };
+  const after=structuredClone(before);
+  after.shopCatalog.items[0].price=129;
+  const changes=changesBetween(before,after);
+  assert.deepEqual(changes.shopCatalog,after.shopCatalog);
+  assert.equal(changes.club,undefined);
+});
