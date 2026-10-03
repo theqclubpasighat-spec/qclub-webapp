@@ -9,6 +9,7 @@ import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
 import V2Food from "./v2-live/V2Food.jsx";
+import { V2LegalHub, V2Pricing } from "./v2-live/V2PublicInfo.jsx";
 
 // Supabase Cloud Sync helpers (implemented in src/cloud.js)
 import { cloudMissingVars, isCloudEnabled, subscribeState, writeState } from "./cloud";
@@ -3931,6 +3932,14 @@ latestDataRef.current = fresh;
   commit={commit}
   defaultData={defaultData}
 /></StaticPage>} />
+        <Route path="/refund-policy" element={<StaticPage title={data.club?.refundTitle || "Refund Policy"}><RefundContent
+  data={data}
+  admin={admin}
+  commit={commit}
+  defaultData={defaultData}
+/></StaticPage>} />
+        <Route path="/legal" element={<V2LegalHub />} />
+        <Route path="/pricing" element={<V2Pricing data={data} />} />
         <Route path="/privacy" element={<StaticPage title={data.club?.privacyTitle || "Privacy Policy"}><PrivacyContent
   data={data}
   admin={admin}
