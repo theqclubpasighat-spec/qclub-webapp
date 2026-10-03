@@ -4,7 +4,7 @@
 ================================ */
 
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
@@ -3953,6 +3953,35 @@ latestDataRef.current = fresh;
     </Suspense>
   }
 />
+<Route
+  path="/admin/*"
+  element={
+    <Suspense
+      fallback={
+        <div className="container" style={{ paddingTop: 24 }}>
+          <div className="card">
+            <div className="muted">Loading Website Manager...</div>
+          </div>
+        </div>
+      }
+    >
+      <AdminLivePage />
+    </Suspense>
+  }
+/>
+<Route path="/staff-shifts" element={<Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading staff operations...</div></div></div>}><AdminLivePage /></Suspense>} />
+<Route path="/expense" element={<Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading staff operations...</div></div></div>}><AdminLivePage /></Suspense>} />
+<Route path="/staff-attendance" element={<Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading staff operations...</div></div></div>}><AdminLivePage /></Suspense>} />
+<Route path="/admin/members" element={<Navigate to="/member-registry" replace />} />
+<Route path="/admin/bookings" element={<Navigate to="/QclubLedger" replace />} />
+<Route path="/admin/players" element={<Navigate to="/review-panel" replace />} />
+<Route path="/admin/tournaments" element={<Navigate to="/tournaments" replace />} />
+<Route path="/admin/standings" element={<Navigate to="/leaderboard" replace />} />
+<Route path="/admin/hall-of-fame" element={<Navigate to="/halloffame" replace />} />
+<Route path="/admin/live-games" element={<Navigate to="/live" replace />} />
+<Route path="/admin/food-orders" element={<Navigate to="/admin/orders" replace />} />
+<Route path="/admin/shop-orders" element={<Navigate to="/shop/successful-order-receipts" replace />} />
+<Route path="/admin/payments" element={<Navigate to="/QclubLedger" replace />} />
         <Route path="/about" element={<StaticPage title={data.club?.aboutTitle || "About The Q Club"}><AboutContent
   data={data}
   admin={admin}
