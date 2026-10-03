@@ -207,6 +207,224 @@ const CSS = [
   "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}}"
 ].join("");
 
+
+function StaffOperationsPanel({ protectedCall, isAdmin, auth, flash }) {
+  const today = localDateInput();
+  const [data, setData] = useState({ shifts: [], attendance: [], expenses: [], total_inr: 0 });
+  const [busy, setBusy] = useState(false);
+  const [shiftDraft, setShiftDraft] = useState({
+    staffName: "",
+    assignedRole: "Game Marshall",
+    shiftName: "Regular Duty",
+    dutyDate: today,
+    notes: "",
+  });
+  const [attendanceDraft, setAttendanceDraft] = useState({
+    staffName: auth?.displayName || "",
+    dutyDate: today,
+    status: "PRESENT",
+    inTime: localTimeInput(),
+    outTime: "",
+    overtimeHours: "0",
+    notes: "",
+  });
+  const [expenseDraft, setExpenseDraft] = useState({
+    title: "",
+    amount: "",
+    category: "MISC",
+    paidBy: auth?.displayName || "",
+    paymentMode: "CASH",
+    expenseDate: today,
+    notes: "",
+  });
+
+  const refresh = useCallback(async function() {
+    const values = await Promise.all([
+      protectedCall("staff/shifts?limit=100"),
+      protectedCall("staff/attendance?limit=100"),
+      protectedCall("staff/expenses?limit=100"),
+    ]);
+    setData({
+      shifts: values[0]?.shifts || [],
+      attendance: values[1]?.attendance || [],
+      expenses: values[2]?.expenses || [],
+      total_inr: Number(values[2]?.total_inr || 0),
+    });
+  }, [protectedCall]);
+
+  useEffect(function() {
+    let active = true;
+    refresh().catch(function(error) {
+      if (active) flash(error.message || "Unable to load staff operations.", true);
+    });
+    return function() { active = false; };
+  }, [flash, refresh]);
+
+  async function saveShift(event) {
+    event.preventDefault();
+    if (!isAdmin) return;
+    setBusy(true);
+    try {
+      await protectedCall("staff/shifts", {
+        method: "POST",
+        body: {
+          staff_name: shiftDraft.staffName,
+          assigned_role: shiftDraft.assignedRole,
+          shift_name: shiftDraft.shiftName,
+          duty_date: shiftDraft.dutyDate,
+          notes: shiftDraft.notes,
+        },
+      });
+      setShiftDraft({ ...shiftDraft, staffName: "", notes: "" });
+      await refresh();
+      flash("Shift added to the append-only staff roster.");
+    } catch (error) {
+      flash(error.message || "Unable to save shift.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAttendance(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await protectedCall("staff/attendance", {
+        method: "POST",
+        body: {
+          staff_name: attendanceDraft.staffName,
+          duty_date: attendanceDraft.dutyDate,
+          status: attendanceDraft.status,
+          in_time: attendanceDraft.status === "LEAVE" ? "" : attendanceDraft.inTime,
+          out_time: attendanceDraft.outTime,
+          overtime_hours: Number(attendanceDraft.overtimeHours || 0),
+          notes: attendanceDraft.notes,
+        },
+      });
+      setAttendanceDraft({
+        ...attendanceDraft,
+        staffName: auth?.displayName || attendanceDraft.staffName,
+        inTime: localTimeInput(),
+        outTime: "",
+        overtimeHours: "0",
+        notes: "",
+      });
+      await refresh();
+      flash("Attendance recorded.");
+    } catch (error) {
+      flash(error.message || "Unable to save attendance.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveExpense(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await protectedCall("staff/expenses", {
+        method: "POST",
+        body: {
+          title: expenseDraft.title,
+          amount_inr: Number(expenseDraft.amount),
+          category: expenseDraft.category,
+          paid_by: expenseDraft.paidBy,
+          payment_mode: expenseDraft.paymentMode,
+          expense_date: expenseDraft.expenseDate,
+          notes: expenseDraft.notes,
+        },
+      });
+      setExpenseDraft({ ...expenseDraft, title: "", amount: "", notes: "" });
+      await refresh();
+      flash("Expense added to the append-only operational ledger.");
+    } catch (error) {
+      flash(error.message || "Unable to save expense.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="ql-stat-grid">
+        <div className="ql-stat"><span className="ql-muted">Roster entries</span><strong>{data.shifts.length}</strong></div>
+        <div className="ql-stat"><span className="ql-muted">Attendance entries</span><strong>{data.attendance.length}</strong></div>
+        <div className="ql-stat"><span className="ql-muted">Expense entries</span><strong>{data.expenses.length}</strong></div>
+        <div className="ql-stat"><span className="ql-muted">Expenses shown</span><strong>{money(data.total_inr)}</strong></div>
+      </div>
+
+      <div className="ql-section">Attendance</div>
+      <div className="ql-grid">
+        <form className="ql-card" onSubmit={saveAttendance}>
+          <h3>Record duty attendance</h3>
+          <div className="ql-form-grid" style={{ marginTop: 12 }}>
+            <label className="full"><span className="ql-label">Staff name</span><input className="ql-input" required value={attendanceDraft.staffName} onChange={e=>setAttendanceDraft({...attendanceDraft,staffName:e.target.value})}/></label>
+            <label><span className="ql-label">Date</span><input className="ql-input" type="date" required value={attendanceDraft.dutyDate} onChange={e=>setAttendanceDraft({...attendanceDraft,dutyDate:e.target.value})}/></label>
+            <label><span className="ql-label">Status</span><select className="ql-select" value={attendanceDraft.status} onChange={e=>setAttendanceDraft({...attendanceDraft,status:e.target.value})}><option>PRESENT</option><option>LATE</option><option>HALF_DAY</option><option>LEAVE</option></select></label>
+            <label><span className="ql-label">In time</span><input className="ql-input" type="time" disabled={attendanceDraft.status==="LEAVE"} value={attendanceDraft.inTime} onChange={e=>setAttendanceDraft({...attendanceDraft,inTime:e.target.value})}/></label>
+            <label><span className="ql-label">Out time</span><input className="ql-input" type="time" value={attendanceDraft.outTime} onChange={e=>setAttendanceDraft({...attendanceDraft,outTime:e.target.value})}/></label>
+            <label><span className="ql-label">Overtime hours</span><input className="ql-input" type="number" min="0" max="24" step="0.25" value={attendanceDraft.overtimeHours} onChange={e=>setAttendanceDraft({...attendanceDraft,overtimeHours:e.target.value})}/></label>
+            <label className="full"><span className="ql-label">Notes</span><input className="ql-input" value={attendanceDraft.notes} onChange={e=>setAttendanceDraft({...attendanceDraft,notes:e.target.value})}/></label>
+          </div>
+          <button className="ql-btn primary" style={{marginTop:12}} disabled={busy}>Save attendance</button>
+        </form>
+        <div className="ql-card wide">
+          <h3>Recent attendance</h3>
+          <div className="ql-list" style={{marginTop:12,maxHeight:"420px",overflow:"auto"}}>
+            {data.attendance.length ? data.attendance.slice(0,20).map(row=><div className="ql-line" key={row.id}><div className="ql-space"><strong>{row.staff_name}</strong><span className="ql-badge">{row.status}</span></div><div>{row.duty_date} • {row.in_time || "—"}{row.out_time ? " → "+row.out_time : ""}</div><div className="ql-muted">{row.notes || "No notes"}{Number(row.overtime_hours)>0 ? " • OT "+row.overtime_hours+"h" : ""}</div></div>) : <div className="ql-empty">No attendance recorded.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="ql-section">Shift roster</div>
+      <div className="ql-grid">
+        <form className="ql-card" onSubmit={saveShift}>
+          <h3>{isAdmin ? "Assign duty shift" : "Shift assignment"}</h3>
+          {isAdmin ? <div className="ql-form-grid" style={{marginTop:12}}>
+            <label className="full"><span className="ql-label">Staff name</span><input className="ql-input" required value={shiftDraft.staffName} onChange={e=>setShiftDraft({...shiftDraft,staffName:e.target.value})}/></label>
+            <label><span className="ql-label">Role</span><input className="ql-input" required value={shiftDraft.assignedRole} onChange={e=>setShiftDraft({...shiftDraft,assignedRole:e.target.value})}/></label>
+            <label><span className="ql-label">Shift</span><input className="ql-input" required value={shiftDraft.shiftName} onChange={e=>setShiftDraft({...shiftDraft,shiftName:e.target.value})}/></label>
+            <label><span className="ql-label">Date</span><input className="ql-input" type="date" required value={shiftDraft.dutyDate} onChange={e=>setShiftDraft({...shiftDraft,dutyDate:e.target.value})}/></label>
+            <label className="full"><span className="ql-label">Notes</span><input className="ql-input" value={shiftDraft.notes} onChange={e=>setShiftDraft({...shiftDraft,notes:e.target.value})}/></label>
+            <button className="ql-btn gold full" disabled={busy}>Add shift</button>
+          </div> : <div className="ql-muted" style={{marginTop:12}}>Staff can view the roster. Only the Admin PIN can assign shifts.</div>}
+        </form>
+        <div className="ql-card wide">
+          <h3>Duty roster</h3>
+          <div className="ql-list" style={{marginTop:12,maxHeight:"420px",overflow:"auto"}}>
+            {data.shifts.length ? data.shifts.slice(0,20).map(row=><div className="ql-line" key={row.id}><div className="ql-space"><strong>{row.staff_name}</strong><span className="ql-badge">{row.status}</span></div><div>{row.duty_date} • {row.assigned_role} • {row.shift_name}</div><div className="ql-muted">{row.notes || "No notes"}</div></div>) : <div className="ql-empty">No shifts assigned.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="ql-section">Operational expenses</div>
+      <div className="ql-grid">
+        <form className="ql-card" onSubmit={saveExpense}>
+          <h3>Record expense</h3>
+          <div className="ql-form-grid" style={{marginTop:12}}>
+            <label className="full"><span className="ql-label">Description</span><input className="ql-input" required value={expenseDraft.title} onChange={e=>setExpenseDraft({...expenseDraft,title:e.target.value})}/></label>
+            <label><span className="ql-label">Amount ₹</span><input className="ql-input" type="number" min="0.01" max="1000000" step="0.01" required value={expenseDraft.amount} onChange={e=>setExpenseDraft({...expenseDraft,amount:e.target.value})}/></label>
+            <label><span className="ql-label">Category</span><select className="ql-select" value={expenseDraft.category} onChange={e=>setExpenseDraft({...expenseDraft,category:e.target.value})}><option>MAINTENANCE</option><option>SUPPLIES</option><option>UTILITIES</option><option>REFRESHMENTS</option><option>MISC</option></select></label>
+            <label><span className="ql-label">Paid by</span><input className="ql-input" required value={expenseDraft.paidBy} onChange={e=>setExpenseDraft({...expenseDraft,paidBy:e.target.value})}/></label>
+            <label><span className="ql-label">Mode</span><select className="ql-select" value={expenseDraft.paymentMode} onChange={e=>setExpenseDraft({...expenseDraft,paymentMode:e.target.value})}><option>CASH</option><option>UPI</option><option>CARD</option><option>BANK</option></select></label>
+            <label><span className="ql-label">Date</span><input className="ql-input" type="date" required value={expenseDraft.expenseDate} onChange={e=>setExpenseDraft({...expenseDraft,expenseDate:e.target.value})}/></label>
+            <label className="full"><span className="ql-label">Notes / receipt memo</span><input className="ql-input" value={expenseDraft.notes} onChange={e=>setExpenseDraft({...expenseDraft,notes:e.target.value})}/></label>
+          </div>
+          <button className="ql-btn primary" style={{marginTop:12}} disabled={busy}>Save expense</button>
+        </form>
+        <div className="ql-card wide">
+          <h3>Expense ledger</h3>
+          <div className="ql-list" style={{marginTop:12,maxHeight:"420px",overflow:"auto"}}>
+            {data.expenses.length ? data.expenses.slice(0,20).map(row=><div className="ql-line" key={row.id}><div className="ql-space"><strong>{row.title}</strong><span className="ql-price">{money(row.amount_inr)}</span></div><div>{row.expense_date} • {row.category} • {row.payment_mode}</div><div className="ql-muted">Paid by {row.paid_by}{row.notes ? " • "+row.notes : ""}</div></div>) : <div className="ql-empty">No expenses recorded.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="ql-muted" style={{marginTop:14}}>Audit rule: this first version is append-only. No staff shift, attendance or expense entry can be edited or deleted from this screen.</div>
+    </>
+  );
+}
+
 export default function QclubLedgerPage() {
   const [auth, setAuth] = useState(readAuth);
   const [pin, setPin] = useState("");
