@@ -18,9 +18,12 @@ function activeNotices(data) {
   });
 }
 
-function AnnouncementTicker({ notices }) {
+function AnnouncementTicker({ notices, speed }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [manual, setManual] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -29,26 +32,41 @@ function AnnouncementTicker({ notices }) {
     preference.addEventListener("change", update);
     return () => preference.removeEventListener("change", update);
   }, []);
-  useEffect(() => {
-    if (paused || reducedMotion || notices.length < 2) return;
-    const timer = window.setTimeout(() => setIndex((value) => (value + 1) % notices.length), 6000);
-    return () => window.clearTimeout(timer);
-  }, [index, paused, reducedMotion, notices.length]);
   if (!notices.length) return null;
   const current = notices[index % notices.length];
+  const duration = Math.min(180, Math.max(8, Number(speed) || 28));
+  const select = (direction) => {
+    setIndex((value) => (value + notices.length + direction) % notices.length);
+    setManual(true);
+  };
+  const renderNotice = (notice, duplicate = false) => notice.link
+    ? <Link to={notice.link} tabIndex={duplicate ? -1 : undefined}>{notice.text}</Link>
+    : <span>{notice.text}</span>;
   return (
-    <section className="v2-live-ticker" aria-label="Club announcements"
-      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
-      onFocus={() => setPaused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
+    <section className="v2-live-ticker" aria-label="Club announcements">
       <div className="v2-live-ticker-inner">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m3 10 18-6v16L3 14v-4Zm4 5 2 6h4l-2-5" /></svg>
-        <div className="v2-live-ticker-text" aria-live="off">
-          {current.link ? <Link to={current.link}>{current.text}</Link> : <span>{current.text}</span>}
+        <div className="v2-live-ticker-text" aria-live="off"
+          onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+          onFocus={() => setFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
+          {reducedMotion || manual ? <div className="v2-live-ticker-static">{renderNotice(current)}</div> :
+            <div className="v2-live-ticker-track" style={{ "--ticker-duration": `${duration}s`, animationPlayState: paused || hovered || focused ? "paused" : "running" }}>
+              {[false, true].map((duplicate) => <div className="v2-live-ticker-group" key={String(duplicate)} aria-hidden={duplicate || undefined}>
+                {notices.map((notice, itemIndex) => <div className="v2-live-ticker-item" key={notice.id || itemIndex}>{renderNotice(notice, duplicate)}</div>)}
+              </div>)}
+            </div>}
         </div>
-        {notices.length > 1 ? <div className="v2-live-ticker-controls">
-          <button type="button" aria-label="Previous announcement" onClick={() => setIndex((value) => (value + notices.length - 1) % notices.length)}>‹</button>
-          <button type="button" aria-label="Next announcement" onClick={() => setIndex((value) => (value + 1) % notices.length)}>›</button>
-        </div> : null}
+        <div className="v2-live-ticker-controls">
+          {notices.length > 1 ? <>
+            <button type="button" aria-label="Previous announcement" onClick={() => select(-1)}>‹</button>
+            <button type="button" aria-label="Next announcement" onClick={() => select(1)}>›</button>
+          </> : null}
+          {!reducedMotion ? <button type="button" aria-label={paused || manual ? "Resume announcements" : "Pause announcements"}
+            onClick={() => { if (manual) { setManual(false); setPaused(false); } else setPaused((value) => !value); }}>
+            {paused || manual ? <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="m4 2 10 6-10 6Z"/></svg> :
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2h3v12H3zM10 2h3v12h-3z"/></svg>}
+          </button> : null}
+        </div>
       </div>
     </section>
   );
@@ -79,7 +97,7 @@ export default function V2Home({ data, activeTournament }) {
 
   return (
     <main className="qclub-v2-home" id="main-content">
-      <AnnouncementTicker notices={notices} />
+      <AnnouncementTicker notices={notices} speed={club.tickerSpeed} />
 
       <section className="v2-live-hero">
         <svg className="v2-live-rack" viewBox="0 0 220 190" aria-hidden="true">
@@ -187,3 +205,4 @@ export default function V2Home({ data, activeTournament }) {
     </main>
   );
 }
+
