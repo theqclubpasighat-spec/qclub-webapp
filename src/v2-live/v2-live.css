@@ -850,3 +850,17 @@ body.qclub-v2-live .player-link {
 }
 
 .v2-live-feature-card>strong>span { flex-shrink:0; }
+
+/* The public footer stays in document flow, including on CMS routes. */
+.v2-live-footer { position:static; display:block; max-width:none; margin:0; padding:0; }
+
+/* Continuous announcements: fixed-height lane, with duplicate content for a seamless loop. */
+.v2-live-ticker-text { overflow:hidden; overflow-wrap:normal; white-space:nowrap; }
+.v2-live-ticker-track { display:flex; width:max-content; animation:qclub-announcements-scroll var(--ticker-duration, 28s) linear infinite; }
+.v2-live-ticker-group { display:flex; flex:0 0 auto; gap:32px; padding-right:32px; }
+.v2-live-ticker-item { flex:0 0 auto; white-space:nowrap; }
+.v2-live-ticker-group[aria-hidden="true"] { pointer-events:none; }
+.v2-live-ticker-static { overflow:auto; scrollbar-width:none; }
+.v2-live-ticker-controls button { display:grid; place-items:center; padding:0; }
+@keyframes qclub-announcements-scroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+@media(prefers-reduced-motion:reduce) { .v2-live-ticker-track { animation:none; } }
