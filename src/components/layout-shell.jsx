@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 
 const PUBLIC_V2_PATHS = new Set([
@@ -144,6 +145,7 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
   const [expanded, setExpanded] = useState(false);
   const location = useLocation();
   const pressTimer = useRef(null);
+  const drawerRef = useRef(null);
   const pathname = location.pathname;
 
   useEffect(() => {
@@ -158,6 +160,22 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
   }, [pathname]);
 
   const closeMenu = () => setExpanded(false);
+
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    if (!expanded) {
+      if (drawer.open) drawer.close();
+      return;
+    }
+    drawer.showModal();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      if (drawer.open) drawer.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [expanded]);
 
   return (
     <header className="v2-live-header">
@@ -197,13 +215,25 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
           className="v2-live-menu-button"
           aria-expanded={expanded}
           aria-controls="qclub-v2-menu"
+          aria-label="Open menu"
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? "Close" : "Menu"}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
         </button>
       </div>
 
-      <nav id="qclub-v2-menu" className={`v2-live-menu ${expanded ? "is-open" : ""}`} aria-label="All Q Club pages">
+      {createPortal(
+      <dialog ref={drawerRef} className="v2-live-drawer" aria-labelledby="qclub-menu-title" onCancel={closeMenu} onClick={(event) => { if (event.target === event.currentTarget) closeMenu(); }}>
+        <div className="v2-live-drawer-inner">
+          <div className="v2-live-drawer-heading">
+            <span id="qclub-menu-title">The Q Club</span>
+            <button type="button" className="v2-live-menu-button" aria-label="Close menu" onClick={closeMenu} autoFocus>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+      <nav id="qclub-v2-menu" className="v2-live-menu is-open" aria-label="All Q Club pages">
         <div className="v2-live-menu-section">Club</div>
         <PublicLink to="/" onNavigate={closeMenu}>Home</PublicLink>
         <button
@@ -225,12 +255,19 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
         <PublicLink to="/halloffame" onNavigate={closeMenu}>Hall of Fame</PublicLink>
         <PublicLink to="/rummy-snooker" onNavigate={closeMenu}>Q Chase</PublicLink>
         <PublicLink to="/kitty" onNavigate={closeMenu}>Kitty</PublicLink>
+        <PublicLink to="/live" onNavigate={closeMenu}>Live games</PublicLink>
 
         <div className="v2-live-menu-section">Book, eat & shop</div>
         <PublicLink to="/book" onNavigate={closeMenu}>Book a Table</PublicLink>
         <PublicLink to="/membership" onNavigate={closeMenu}>Membership</PublicLink>
         <PublicLink to="/food" onNavigate={closeMenu}>Q Lounge</PublicLink>
         <PublicLink to="/shop" onNavigate={closeMenu}>Q Shop</PublicLink>
+        <div className="v2-live-menu-section">Discover</div>
+        <PublicLink to="/about" onNavigate={closeMenu}>About the club</PublicLink>
+        <PublicLink to="/contact" onNavigate={closeMenu}>Contact</PublicLink>
+        <PublicLink to="/air-hockey" onNavigate={closeMenu}>Air Hockey</PublicLink>
+        <PublicLink to="/foosball" onNavigate={closeMenu}>Foosball</PublicLink>
+        <PublicLink to="/massage-chair" onNavigate={closeMenu}>Massage Chair</PublicLink>
 
         {(admin || staffAdmin || committeeAdmin) ? (
           <>
@@ -261,6 +298,8 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
           </>
         ) : null}
       </nav>
+        </div>
+      </dialog>, document.body)}
     </header>
   );
 }
