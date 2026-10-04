@@ -1761,6 +1761,25 @@ async function sendKittyMonthlyWhatsapp(player) {
     }
   }, [monthlyPlayers, selectedPlayer, selectedPlayerKey]);
 
+  if (currentKittyTableConfig.kittyEnabled === false) {
+    return (
+      <>
+        <PageShell title="Kitty" subtitle="Kitty table billing" noNav />
+        <div className="container">
+          <div className="card" style={{ maxWidth: 720, margin: "0 auto" }}>
+            <h2 style={{ marginTop: 0 }}>Kitty is not enabled on T4 Pool</h2>
+            <p className="muted">
+              Official Kitty billing is available on T1 Liberwin and T2 Wiraka 777 at ₹600/hr,
+              and T3 Mini Snooker at ₹500/hr. Only the winner pays, minimum ₹100,
+              rounded to the nearest ₹10. No-winner time carries forward.
+            </p>
+            <a className="btn primary" href="/kitty">Open Kitty</a>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (!hasAccess) {
     return (
       <>
@@ -3722,26 +3741,7 @@ function currentKittySettlementSummary() {
 }
 
 function kittyTableChargeDisplayText(summary) {
-  const mode = summary?.tableChargeMode || "handled_separately";
-
-  if (mode === "hide") return "Hidden from player result";
-  if (mode === "handled_separately") return "Handled separately / prepaid";
-  if (mode === "show_only") {
-    return `Shown only: ₹${Number(summary?.roundedTableCharge || 0)}`;
-  }
-    if (mode === "paid_by_winner") {
-  return `Paid by winner: ₹${Number(summary?.winnerTableCharge || 0)}`;
-}
-  if (mode === "include_split") {
-    return `Included: ₹${Number(summary?.roundedTableCharge || 0)} total${
-      Number(summary?.perPlayerTableCharge || 0)
-        ? ` / ₹${Number(summary.perPlayerTableCharge)} each`
-        : ""
-    }`;
-  }
-  if (mode === "manual") return "Manual table charge";
-
-  return "Handled separately / prepaid";
+  return kittySettlementTableChargeText(summary);
 }
 
 function kittySettlementOneLine() {
