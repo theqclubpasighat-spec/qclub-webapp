@@ -22,14 +22,16 @@ test("live CMS uses canonical server auth and never calls rehearsal endpoints", 
   assert.doesNotMatch(page, /rehearsal website|PREVIEW ·/);
 });
 
-test("CMS writes are main-admin only even though legacy committee sessions use ADMIN role", () => {
+test("CMS writes remain main-admin only while committee has a distinct role", () => {
+  assert.match(api, /pin: admin\.committeePin, role: "COMMITTEE"/);
   assert.match(api, /path === "cms\/content"/);
   assert.match(api, /requireAuth\(req, res, \["ADMIN"\]\)/);
   assert.match(api, /auth\.staff_id !== "admin-main"/);
   assert.match(api, /error: "FORBIDDEN"/);
+  assert.match(api, /requireAuth\(req, res, \["STAFF", "ADMIN", "COMMITTEE"\]\)/);
 });
 
-test("committee login is normalized away from ADMIN in the live CMS client", async () => {
+test("committee login remains COMMITTEE in the live CMS client", async () => {
   const calls = [];
   const storage = {
     value: "",
@@ -45,7 +47,7 @@ test("committee login is normalized away from ADMIN in the live CMS client", asy
       async json() {
         return {
           access_token: "snk_" + "a".repeat(43),
-          role: "ADMIN",
+          role: "COMMITTEE",
           staff_id: "admin-committee",
           display_name: "Committee Admin",
           expires_at: new Date(Date.now() + 3600000).toISOString(),

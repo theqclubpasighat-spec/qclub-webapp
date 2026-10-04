@@ -144,7 +144,7 @@ async function login(req, res) {
   const admin = await legacyAdminConfig(supabase);
   const candidates = [
     { pin: admin.mainPin || admin.pin, role: "ADMIN", staffId: "admin-main", displayName: admin.adminName || "Q Club Admin" },
-    { pin: admin.committeePin, role: "ADMIN", staffId: "admin-committee", displayName: admin.committeeName || "Committee Admin" },
+    { pin: admin.committeePin, role: "COMMITTEE", staffId: "admin-committee", displayName: admin.committeeName || "Committee Admin" },
     { pin: admin.staffPin, role: "STAFF", staffId: "staff-game-marshall", displayName: admin.staffName || "Game Marshall" },
   ].filter((candidate) => candidate.pin);
 
@@ -187,7 +187,7 @@ async function login(req, res) {
 }
 
 async function logout(req, res) {
-  const auth = await requireAuth(req, res);
+  const auth = await requireAuth(req, res, ["STAFF", "ADMIN", "COMMITTEE"]);
   if (!auth) return;
   const supabase = getSupabaseAdmin();
   const { error } = await supabase
@@ -4135,10 +4135,10 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "GET" && path === "cms/session") {
-      const auth = await requireAuth(req, res, ["ADMIN", "STAFF"]);
+      const auth = await requireAuth(req, res, ["ADMIN", "STAFF", "COMMITTEE"]);
       if (!auth) return;
       return json(res, 200, {
-        role: auth.staff_id === "admin-committee" ? "COMMITTEE" : auth.role,
+        role: auth.role,
         staff_id: auth.staff_id,
         display_name: auth.display_name,
         expires_at: auth.expires_at,
