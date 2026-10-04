@@ -339,6 +339,7 @@ result: state.winner ? "WINNER DECLARED" : state.noWinner ? "NO WINNER" : "UNFIN
 
     startedAt: state.startedAt || "",
     endedAt: state.endedAt || "",
+    billingEndedAt: state.billingEndedAt || state.endedAt || "",
     duration: state.duration || "",
 
     redsOnTable: state.redsOnTable,
@@ -2835,7 +2836,13 @@ function undoLastAction() {
   const ok = confirm(`Undo last action?\n\nLast saved action: ${snapshot.actionLabel}`);
   if (!ok) return;
 
-  setState(snapshot.state);
+  setState({
+    ...snapshot.state,
+    tableChargeMode: "paid_by_winner",
+    tableRatePerHour: currentKittyTableConfig.ratePerHour,
+    tableManualCharge: "",
+    tableRoundingMode: "nearest_10",
+  });
   setOrder(snapshot.order);
   setPlayers(snapshot.players);
   setCurrentIndex(snapshot.currentIndex);
@@ -2903,6 +2910,13 @@ nextPlayers[name] = {
       endedAt: "",
       billingEndedAt: "",
       duration: "",
+      kittyAddOn: 0,
+      kittyAddOns: [],
+      kittyRoundHistory: [],
+      tableChargeMode: "paid_by_winner",
+      tableRatePerHour: currentKittyTableConfig.ratePerHour,
+      tableManualCharge: "",
+      tableRoundingMode: "nearest_10",
       orderLocked: keepOrder,
       started: false,
       locked: false,
@@ -3491,10 +3505,10 @@ const ok = confirm("Mark this game as NO WINNER?");
 if (!ok) return;
 
 let lockedAddOn = 0;
-const willAdd = confirm("Will players add Kitty Add-on for the next game?");
+const willAdd = confirm("Add Kitty game points for the next game?\n\nThis does NOT affect the table bill.");
 
 if (willAdd) {
-  const entered = prompt("Enter Kitty Add-on value for the next game:", "");
+  const entered = prompt("Enter Kitty Add-on game points for the next game (table billing is unaffected):", "");
   if (entered === null) return;
 
   lockedAddOn = Math.max(0, Number(entered || 0));
@@ -3545,8 +3559,8 @@ addLog(
   "SYSTEM",
   "No winner",
   lockedAddOn > 0
-    ? `Game ended without winner. Kitty Add-on locked: ${lockedAddOn}. Next game uses same order.`
-    : "Game ended without winner. No Kitty Add-on. Next game uses same order."
+    ? `Game ended without winner. Kitty Add-on game points locked: ${lockedAddOn}. Table bill remains ₹0 and time carries forward. Next game uses same order.`
+    : "Game ended without winner. Table bill remains ₹0 and time carries forward. Next game uses same order."
 );
   }
 
@@ -5051,6 +5065,32 @@ export function KittyDisplayPage({
     };
   }, [tableKey]);
 
+  const displayTableConfig = getKittyTableConfig(tableKey);
+
+  if (displayTableConfig.kittyEnabled === false) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "#05010a",
+          color: "#fff",
+          padding: 24,
+          textAlign: "center",
+        }}
+      >
+        <div style={{ maxWidth: 720 }}>
+          <h1>Kitty is not enabled on T4 Pool</h1>
+          <p>
+            T1 Liberwin and T2 Wiraka 777: ₹600/hr • T3 Mini Snooker: ₹500/hr.
+            Winner only • ₹100 minimum • nearest ₹10 • no-winner time carries forward.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const data = snapshot || {};
   const order = Array.isArray(data.order) ? data.order : [];
   const players = data.players || {};
@@ -5239,7 +5279,7 @@ export function KittyDisplayPage({
               }}
             >
               <div style={{ ...panelStyle, padding: 14 }}>
-                <div style={labelStyle}>Game Details</div>
+                <div style={labelStyle}>Game Details / Game Points — Not Table Bill</div>
                 <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>
                   {kittyGameTypeTextFromValue(data.gameType)}
                 </div>
@@ -5258,8 +5298,8 @@ export function KittyDisplayPage({
                   <div>Entry: <b>{settlementSummary.kittyEntry}</b></div>
                   <div>Ball Out: <b>{settlementSummary.outPenalty}</b></div>
                   <div>Add-on: <b>{settlementSummary.totalKittyAddOnPerPlayer || "None"}</b></div>
-                  <div>Ball-out pays: <b>{settlementSummary.ballOutPayable}</b></div>
-                  <div>Not-out pays: <b>{settlementSummary.notOutPayable}</b></div>
+                  <div>Ball-out game points: <b>{settlementSummary.ballOutPayable}</b></div>
+                  <div>Not-out game points: <b>{settlementSummary.notOutPayable}</b></div>
                 </div>
               </div>
 
