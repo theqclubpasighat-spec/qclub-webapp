@@ -16,6 +16,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-1",
     displayPath: "/kitty-table-1-display",
     ratePerHour: 600,
+    kittyEnabled: true,
     needsPin: false,
   },
   table2: {
@@ -26,6 +27,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-2",
     displayPath: "/kitty-table-2-display",
     ratePerHour: 600,
+    kittyEnabled: true,
     needsPin: false,
   },
   table3: {
@@ -36,6 +38,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-3",
     displayPath: "/kitty-table-3-display",
     ratePerHour: 500,
+    kittyEnabled: true,
     needsPin: false,
   },
   table4: {
@@ -46,6 +49,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-4",
     displayPath: "/kitty-table-4-display",
     ratePerHour: 400,
+    kittyEnabled: false,
     needsPin: false,
   },
 };
@@ -189,17 +193,7 @@ function findKittyCloudResultRow(playerName) {
 }
 
 function kittyPlayerTableChargeForCloud({ isWinner }) {
-  const mode = settlementSummary.tableChargeMode || "handled_separately";
-
-  if (mode === "include_split") {
-    return Number(settlementSummary.perPlayerTableCharge || 0);
-  }
-
-  if (mode === "paid_by_winner") {
-    return isWinner ? Number(settlementSummary.winnerTableCharge || 0) : 0;
-  }
-
-  return 0;
+  return isWinner ? Number(settlementSummary.winnerTableCharge || 0) : 0;
 }
 
 const tableChargeTextForCloud = kittySettlementTableChargeText(settlementSummary);
@@ -278,7 +272,7 @@ reds_potted: Number(p.redsPotted || 0),
       gross_kitty_points: Number(settlementSummary.grossKittyPoints || 0),
       winner_net_kitty_points: Number(settlementSummary.winnerNetKittyPoints || 0),
 
-      table_charge_mode: settlementSummary.tableChargeMode || "handled_separately",
+      table_charge_mode: settlementSummary.tableChargeMode || "paid_by_winner",
       table_rate_per_hour: Number(settlementSummary.tableRatePerHour || 0),
       table_minutes: Number(settlementSummary.totalTableMinutes || 0),
       billable_table_minutes: Number(settlementSummary.roundedTableMinutes || 0),
@@ -333,10 +327,10 @@ kittyEntry: Number(state.kittyEntry || 0),
 outPenalty: Number(state.outPenalty || 0),
 kittyAddOn: Number(state.kittyAddOn || 0),
 kittyAddOns: Array.isArray(state.kittyAddOns) ? state.kittyAddOns : [],
-tableChargeMode: state.tableChargeMode || "handled_separately",
+tableChargeMode: state.tableChargeMode || "paid_by_winner",
 tableRatePerHour: Number(state.tableRatePerHour || 0),
 tableManualCharge: Number(state.tableManualCharge || 0),
-tableRoundingMode: state.tableRoundingMode || "round_up",
+tableRoundingMode: state.tableRoundingMode || "nearest_10",
 settlementSummary,
 
 result: state.winner ? "WINNER DECLARED" : state.noWinner ? "NO WINNER" : "UNFINISHED",
@@ -345,6 +339,7 @@ result: state.winner ? "WINNER DECLARED" : state.noWinner ? "NO WINNER" : "UNFIN
 
     startedAt: state.startedAt || "",
     endedAt: state.endedAt || "",
+    billingEndedAt: state.billingEndedAt || state.endedAt || "",
     duration: state.duration || "",
 
     redsOnTable: state.redsOnTable,
@@ -405,29 +400,21 @@ function minutesBetweenNumber(startText, endText) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
-function roundKittyTableMinutes(minutes, mode = "round_up") {
-  const value = Math.max(0, Number(minutes || 0));
-  if (!value) return 0;
+function secondsBetweenNumber(startText, endText) {
+  const start = new Date(startText);
+  const end = new Date(endText);
 
-  if (mode === "nearest") {
-    return Math.round(value / 5) * 5;
-  }
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
 
-  return Math.ceil(value / 5) * 5;
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
 }
 
-function roundKittyTableFee(amount, mode = "round_up") {
+function roundKittyWinnerCharge(amount) {
   const value = Math.max(0, Number(amount || 0));
-  if (!value) return 0;
-
-  const rounded =
-    mode === "nearest"
-      ? Math.round(value / 50) * 50
-      : Math.ceil(value / 50) * 50;
-
-  // Minimum payable table charge is ₹100 whenever table charge is applicable.
-  return Math.max(100, rounded);
+  if (!value) return 100;
+  return Math.max(100, Math.round(value / 10) * 10);
 }
+
 function isPoolKittyGame(gameType) {
   const type = String(gameType || "").toLowerCase();
   return type === "pool" || type === "pool_american" || type.includes("pool");
@@ -478,124 +465,79 @@ function buildKittySettlementSummary({ state, order }) {
   const playerCount = Array.isArray(order) ? order.filter(Boolean).length : 0;
   const kittyNo = Math.max(1, Number(state?.kittyNo || 1));
 
+  // These are game-side settlement values only. They do not affect table billing.
   const kittyEntry = Math.max(0, Number(state?.kittyEntry || 0));
   const outPenalty = Math.max(0, Number(state?.outPenalty || 0));
-
   const kittyAddOns = Array.isArray(state?.kittyAddOns)
     ? state.kittyAddOns.map((value) => Math.max(0, Number(value || 0)))
     : [];
-
   const totalKittyAddOnPerPlayer = kittyAddOns.reduce((sum, value) => sum + value, 0);
   const kittyAddOn = totalKittyAddOnPerPlayer;
   const noWinnerRoundsBeforeFinal = Math.max(0, kittyAddOns.length || kittyNo - 1);
-
-   const winnerName = String(state?.winner || "").trim();
+  const winnerName = String(state?.winner || "").trim();
 
   const playerRows = (order || []).map((name) => {
     const p = state?.players?.[name] || {};
     const isWinner = winnerName && String(name) === winnerName;
-
-        const isOut = !isWinner && isPlayerOutOfGame(p, state);
-    return {
-      name,
-      isWinner,
-      isOut,
-    };
+    const isOut = !isWinner && isPlayerOutOfGame(p, state);
+    return { name, isWinner, isOut };
   });
 
-  const outPlayersCount = state?.winner
-    ? playerRows.filter((row) => row.isOut).length
-    : 0;
-
-  const notOutLosersCount = state?.winner
+  const outPlayersCount = winnerName ? playerRows.filter((row) => row.isOut).length : 0;
+  const notOutLosersCount = winnerName
     ? playerRows.filter((row) => !row.isWinner && !row.isOut).length
     : 0;
-
   const ballOutPayable = outPenalty + totalKittyAddOnPerPlayer;
   const notOutPayable = kittyEntry + totalKittyAddOnPerPlayer;
-
   const outPenaltyTotal = outPlayersCount * ballOutPayable;
   const notOutLosersTotal = notOutLosersCount * notOutPayable;
-
-  const winnerOwnEntryAndAddOn = state?.winner
-    ? kittyEntry + totalKittyAddOnPerPlayer
-    : 0;
-
+  const winnerOwnEntryAndAddOn = winnerName ? kittyEntry + totalKittyAddOnPerPlayer : 0;
   const addOnPot = playerCount * totalKittyAddOnPerPlayer;
-
-  // Example: Entry 300, Ball Out Penalty 500, Add-on 200.
-  // Ball-out loser pays 500 + 200 = 700.
-  // Not-out loser pays 300 + 200 = 500.
-  // Winner net = total received from losing players.
-  const winnerNetKittyPoints = state?.winner
-    ? outPenaltyTotal + notOutLosersTotal
-    : 0;
-
-  const grossKittyPoints = state?.winner
-    ? winnerOwnEntryAndAddOn + winnerNetKittyPoints
-    : 0;
-
+  const winnerNetKittyPoints = winnerName ? outPenaltyTotal + notOutLosersTotal : 0;
+  const grossKittyPoints = winnerName ? winnerOwnEntryAndAddOn + winnerNetKittyPoints : 0;
   const basePot = playerCount * kittyEntry;
 
-  const tableChargeMode = state?.tableChargeMode || "handled_separately";
+  // Official table billing: time only; winner pays; no-winner time carries;
+  // ₹100 minimum; final amount rounded to nearest ₹10.
+  const tableChargeMode = "paid_by_winner";
   const tableRatePerHour = Math.max(0, Number(state?.tableRatePerHour || 0));
-  const tableRoundingMode = state?.tableRoundingMode || "round_up";
+  const tableRoundingMode = "nearest_10";
+  const roundHistory = Array.isArray(state?.kittyRoundHistory) ? state.kittyRoundHistory : [];
 
-  const roundHistory = Array.isArray(state?.kittyRoundHistory)
-    ? state.kittyRoundHistory
-    : [];
+  const carriedTableSeconds = roundHistory.reduce((sum, round) => {
+    const exact = Math.max(0, Number(round?.durationSeconds || 0));
+    if (exact > 0) return sum + exact;
+    return sum + Math.max(0, Number(round?.durationMinutes || 0)) * 60;
+  }, 0);
 
-  const carriedTableMinutes = roundHistory.reduce(
-    (sum, round) => sum + Math.max(0, Number(round?.durationMinutes || 0)),
-    0
-  );
+  const currentRoundSeconds = state?.started && !state?.noWinner
+    ? secondsBetweenNumber(
+        state?.startedAt || state?.createdAt,
+        state?.billingEndedAt || state?.endedAt || new Date().toISOString()
+      )
+    : 0;
 
-  const currentRoundMinutes = minutesBetweenNumber(
-    state?.startedAt || state?.createdAt,
-    state?.endedAt || new Date().toISOString()
-  );
-
-  const totalTableMinutes = carriedTableMinutes + currentRoundMinutes;
-  const roundedTableMinutes = roundKittyTableMinutes(totalTableMinutes, tableRoundingMode);
-
-  const manualTableCharge = Math.max(0, Number(state?.tableManualCharge || 0));
-
+  const totalTableSeconds = carriedTableSeconds + currentRoundSeconds;
+  const totalTableMinutes = Math.round((totalTableSeconds / 60) * 10) / 10;
   const rawTableCharge =
-    tableChargeMode === "manual"
-      ? manualTableCharge
-      : tableRatePerHour > 0
-      ? (tableRatePerHour * roundedTableMinutes) / 60
+    tableRatePerHour > 0 ? (tableRatePerHour * totalTableSeconds) / 3600 : 0;
+  const winnerChargeIfEndedNow =
+    tableRatePerHour > 0 && (state?.started || carriedTableSeconds > 0)
+      ? roundKittyWinnerCharge(rawTableCharge)
       : 0;
-
-  const roundedTableCharge =
-  tableChargeMode === "manual"
-    ? manualTableCharge > 0
-      ? Math.max(100, manualTableCharge)
-      : 0
-    : roundKittyTableFee(rawTableCharge, tableRoundingMode);
-
-  const perPlayerTableCharge =
-    playerCount > 0 && tableChargeMode === "include_split"
-      ? roundKittyTableFee(roundedTableCharge / playerCount, tableRoundingMode)
-      : 0;
-
-  const winnerTableCharge =
-    state?.winner && tableChargeMode === "paid_by_winner"
-      ? roundedTableCharge
-      : 0;
+  const roundedTableCharge = winnerName ? winnerChargeIfEndedNow : 0;
+  const winnerTableCharge = winnerName ? winnerChargeIfEndedNow : 0;
 
   return {
     playerCount,
     kittyNo,
     noWinnerRoundsBeforeFinal,
-
     kittyEntry,
     outPenalty,
     kittyAddOn,
     kittyAddOns,
     totalKittyAddOnPerPlayer,
-
-        basePot,
+    basePot,
     outPlayersCount,
     notOutLosersCount,
     ballOutPayable,
@@ -606,43 +548,34 @@ function buildKittySettlementSummary({ state, order }) {
     grossKittyPoints,
     winnerOwnEntryAndAddOn,
     winnerNetKittyPoints,
-
     tableChargeMode,
     tableRatePerHour,
     tableRoundingMode,
     roundHistory,
-    carriedTableMinutes,
-    currentRoundMinutes,
+    carriedTableSeconds,
+    currentRoundSeconds,
+    totalTableSeconds,
+    carriedTableMinutes: Math.round((carriedTableSeconds / 60) * 10) / 10,
+    currentRoundMinutes: Math.round((currentRoundSeconds / 60) * 10) / 10,
     totalTableMinutes,
-    roundedTableMinutes,
-    manualTableCharge,
+    roundedTableMinutes: totalTableMinutes,
+    manualTableCharge: 0,
     rawTableCharge,
     roundedTableCharge,
-    perPlayerTableCharge,
+    perPlayerTableCharge: 0,
     winnerTableCharge,
+    winnerChargeIfEndedNow,
+    minimumTableCharge: 100,
+    chargeRoundingInr: 10,
   };
 }
 function kittySettlementTableChargeText(summary) {
   if (!summary) return "—";
-
-  if (summary.tableChargeMode === "hide") return "Hidden from player result";
-  if (summary.tableChargeMode === "handled_separately") return "Handled separately / prepaid";
-  if (summary.tableChargeMode === "show_only") {
-    return `Shown only: ₹${Number(summary.roundedTableCharge || 0)}`;
+  if (Number(summary.tableRatePerHour || 0) <= 0) return "Kitty billing not enabled on this table";
+  if (Number(summary.winnerTableCharge || 0) > 0) {
+    return `Winner pays ₹${Number(summary.winnerTableCharge || 0)} • nearest ₹10 • ₹100 minimum`;
   }
-  if (summary.tableChargeMode === "paid_by_winner") {
-    return `Paid by winner: ₹${Number(summary.winnerTableCharge || 0)}`;
-  }
-  if (summary.tableChargeMode === "include_split") {
-    return `Split equally: ₹${Number(summary.roundedTableCharge || 0)} total / ₹${Number(
-      summary.perPlayerTableCharge || 0
-    )} each`;
-  }
-  if (summary.tableChargeMode === "manual") {
-    return `Manual: ₹${Number(summary.roundedTableCharge || 0)}`;
-  }
-
-  return "Handled separately / prepaid";
+  return `Winner pays by time • if game ends now ₹${Number(summary.winnerChargeIfEndedNow || 0)} • no-winner time carries forward`;
 }
 
 function buildKittySettlementHtml(summary) {
@@ -2666,8 +2599,6 @@ export function KittyPage({
     "KATEM",
     "JOMBO",
     "TATIN",
-    "ANANG",
-    "NANA",
   ]);
 const [kittyHandicaps, setKittyHandicaps] = useState({});
 const [playerPhones, setPlayerPhones] = useState(() => {
@@ -2681,8 +2612,6 @@ const [playerPhones, setPlayerPhones] = useState(() => {
     "KATEM",
     "JOMBO",
     "TATIN",
-    "ANANG",
-    "NANA",
   ].forEach((name) => {
     const key = kittyPlayerKey(name);
     seed[key] = book[key] || "";
@@ -2755,6 +2684,7 @@ const [kittyWhatsappSendAllRunning, setKittyWhatsappSendAllRunning] = useState(f
     createdAt: nowText(),
     startedAt: "",
     endedAt: "",
+    billingEndedAt: "",
     duration: "",
     tableName: currentKittyTableConfig.displayName || tableLabel || "Ronnie's Table 12x6",
 gameType: currentKittyTableConfig.gameType || "snooker_ronnie_12x6",
@@ -2771,11 +2701,11 @@ kittyAddOn: 0,
 kittyAddOns: [],
 kittyRoundHistory: [],
 
-// Table charge handling is configurable because some groups may book/pay table time separately.
-tableChargeMode: "handled_separately",
+// Official table billing is fixed: winner pays by time, ₹100 minimum, nearest ₹10; no-winner time carries.
+tableChargeMode: "paid_by_winner",
 tableRatePerHour: getKittyTableRate(currentKittyTableConfig.gameType, currentKittyTableConfig.displayName, tableKey),
 tableManualCharge: "",
-tableRoundingMode: "round_up",
+tableRoundingMode: "nearest_10",
 
 extraRedsAllowed: 0,
     extraRedsPlaced: 0,
@@ -2805,7 +2735,15 @@ useEffect(() => {
     alert(`A Kitty game saved under the old table mapping (${saved.legacyGameType}) was archived and was not restored on this table. Start a fresh Kitty game for ${getKittyTableConfig(tableKey).label}.`);
   }
 
-  if (saved?.state) setState(saved.state);
+  if (saved?.state) {
+    setState({
+      ...saved.state,
+      tableChargeMode: "paid_by_winner",
+      tableRatePerHour: currentKittyTableConfig.kittyEnabled === false ? 0 : currentKittyTableConfig.ratePerHour,
+      tableManualCharge: "",
+      tableRoundingMode: "nearest_10",
+    });
+  }
   if (Array.isArray(saved?.order)) setOrder(saved.order);
   if (saved?.players && typeof saved.players === "object") setPlayers(saved.players);
   if (Array.isArray(saved?.logs)) setLogs(saved.logs);
@@ -2898,7 +2836,13 @@ function undoLastAction() {
   const ok = confirm(`Undo last action?\n\nLast saved action: ${snapshot.actionLabel}`);
   if (!ok) return;
 
-  setState(snapshot.state);
+  setState({
+    ...snapshot.state,
+    tableChargeMode: "paid_by_winner",
+    tableRatePerHour: currentKittyTableConfig.ratePerHour,
+    tableManualCharge: "",
+    tableRoundingMode: "nearest_10",
+  });
   setOrder(snapshot.order);
   setPlayers(snapshot.players);
   setCurrentIndex(snapshot.currentIndex);
@@ -2964,7 +2908,15 @@ nextPlayers[name] = {
       createdAt: nowText(),
       startedAt: "",
       endedAt: "",
+      billingEndedAt: "",
       duration: "",
+      kittyAddOn: 0,
+      kittyAddOns: [],
+      kittyRoundHistory: [],
+      tableChargeMode: "paid_by_winner",
+      tableRatePerHour: currentKittyTableConfig.ratePerHour,
+      tableManualCharge: "",
+      tableRoundingMode: "nearest_10",
       orderLocked: keepOrder,
       started: false,
       locked: false,
@@ -3007,6 +2959,8 @@ if (settlementError) {
 }
     const names = cleanPlayers();
     if (names.length < 2) return alert("Add at least 2 players.");
+  if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
+    if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
 saveKittyPhonesToPhonebook();
     const drawn = shuffle(names);
     const nextPlayers = {};
@@ -3034,6 +2988,7 @@ nextPlayers[name] = {
       orderLocked: true,
       started: true,
       startedAt: s.startedAt || nowText(),
+      billingEndedAt: "",
       redsOnTable: kittyDefaultRedsOnTable(s.gameType),
 tokenBallsLeft: 6,
 extraRedsPlaced: 0,
@@ -3049,6 +3004,7 @@ extraRedsPlaced: 0,
   const names = order.length ? order : cleanPlayers();
   saveKittyPhonesToPhonebook();
   if (names.length < 2) return alert("Add at least 2 players.");
+  if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
 
   const nextKittyNo = state.noWinner
     ? Number(state.kittyNo || 1) + 1
@@ -3098,6 +3054,7 @@ extraRedsPlaced: 0,
     createdAt: nowText(),
     startedAt: nowText(),
     endedAt: "",
+    billingEndedAt: "",
     duration: "",
     orderLocked: true,
     started: true,
@@ -3208,6 +3165,7 @@ extraRedsPlaced: 0,
     ...s,
     redsOnTable: Math.max(0, Number(s.redsOnTable || 0) - 1),
     winner: autoWinner ? currentPlayer : s.winner,
+    billingEndedAt: autoWinner ? (s.billingEndedAt || nowText()) : s.billingEndedAt,
     noWinner: autoWinner ? false : s.noWinner,
   }));
 
@@ -3457,6 +3415,7 @@ pushUndo(`Winner declared: ${currentPlayer}`);
     setState((s) => ({
       ...s,
       winner: currentPlayer,
+      billingEndedAt: s.billingEndedAt || nowText(),
       noWinner: false,
     }));
 
@@ -3546,10 +3505,10 @@ const ok = confirm("Mark this game as NO WINNER?");
 if (!ok) return;
 
 let lockedAddOn = 0;
-const willAdd = confirm("Will players add Kitty Add-on for the next game?");
+const willAdd = confirm("Add Kitty game points for the next game?\n\nThis does NOT affect the table bill.");
 
 if (willAdd) {
-  const entered = prompt("Enter Kitty Add-on value for the next game:", "");
+  const entered = prompt("Enter Kitty Add-on game points for the next game (table billing is unaffected):", "");
   if (entered === null) return;
 
   lockedAddOn = Math.max(0, Number(entered || 0));
@@ -3563,7 +3522,8 @@ if (willAdd) {
 setState((s) => {
   const endedAt = nowText();
   const startedAt = s.startedAt || s.createdAt || endedAt;
-  const durationMinutes = minutesBetweenNumber(startedAt, endedAt);
+  const durationSeconds = secondsBetweenNumber(startedAt, endedAt);
+  const durationMinutes = Math.round((durationSeconds / 60) * 10) / 10;
   const previousHistory = Array.isArray(s.kittyRoundHistory)
     ? s.kittyRoundHistory
     : [];
@@ -3576,6 +3536,7 @@ setState((s) => {
     result: "NO WINNER",
     startedAt,
     endedAt,
+    durationSeconds,
     durationMinutes,
     kittyAddOn: lockedAddOn,
     order: [...(order || [])],
@@ -3586,6 +3547,7 @@ setState((s) => {
     winner: "",
     noWinner: true,
     endedAt,
+    billingEndedAt: endedAt,
     duration: minutesBetween(startedAt, endedAt),
     kittyAddOn: lockedAddOn,
     kittyAddOns: [...(Array.isArray(s.kittyAddOns) ? s.kittyAddOns : []), lockedAddOn],
@@ -3597,8 +3559,8 @@ addLog(
   "SYSTEM",
   "No winner",
   lockedAddOn > 0
-    ? `Game ended without winner. Kitty Add-on locked: ${lockedAddOn}. Next game uses same order.`
-    : "Game ended without winner. No Kitty Add-on. Next game uses same order."
+    ? `Game ended without winner. Kitty Add-on game points locked: ${lockedAddOn}. Table bill remains ₹0 and time carries forward. Next game uses same order.`
+    : "Game ended without winner. Table bill remains ₹0 and time carries forward. Next game uses same order."
 );
   }
 
@@ -3647,7 +3609,7 @@ addLog(
   const ok = confirm("Final Lock will freeze Kitty result and enable printing. Continue?");
   if (!ok) return;
 
-  const endedAt = nowText();
+  const endedAt = state.billingEndedAt || nowText();
   const startedAt = state.startedAt || state.createdAt;
 
   const finalState = {
@@ -3773,26 +3735,7 @@ function currentKittySettlementSummary() {
 }
 
 function kittyTableChargeDisplayText(summary) {
-  const mode = summary?.tableChargeMode || "handled_separately";
-
-  if (mode === "hide") return "Hidden from player result";
-  if (mode === "handled_separately") return "Handled separately / prepaid";
-  if (mode === "show_only") {
-    return `Shown only: ₹${Number(summary?.roundedTableCharge || 0)}`;
-  }
-    if (mode === "paid_by_winner") {
-  return `Paid by winner: ₹${Number(summary?.winnerTableCharge || 0)}`;
-}
-  if (mode === "include_split") {
-    return `Included: ₹${Number(summary?.roundedTableCharge || 0)} total${
-      Number(summary?.perPlayerTableCharge || 0)
-        ? ` / ₹${Number(summary.perPlayerTableCharge)} each`
-        : ""
-    }`;
-  }
-  if (mode === "manual") return "Manual table charge";
-
-  return "Handled separately / prepaid";
+  return kittySettlementTableChargeText(summary);
 }
 
 function kittySettlementOneLine() {
@@ -4102,6 +4045,9 @@ async function sendAllKittyWhatsappResults() {
     .filter((name) => !calculatedOrder.includes(name));
 
   const finalOrder = [...calculatedOrder, ...newPlayers];
+  if (finalOrder.length > 6) {
+    return alert("Kitty supports a maximum of 6 players. Remove extra players before starting the next game.");
+  }
 
   const nextPlayers = {};
   finalOrder.forEach((name) => {
@@ -4126,7 +4072,7 @@ nextPlayers[name] = {
 
   setPlayerInputs(() => {
     const padded = [...finalOrder];
-    while (padded.length < 8) padded.push("");
+    while (padded.length < 6) padded.push("");
     return padded;
   });
 
@@ -4143,6 +4089,7 @@ kittyRoundHistory: [],
     createdAt: nowText(),
     startedAt: nowText(),
     endedAt: "",
+    billingEndedAt: "",
     duration: "",
     orderLocked: true,
     started: true,
@@ -4200,6 +4147,7 @@ extraRedsAllowed: state.extraRedsAllowed,
 extraRedInfo: kittyExtraRedInfo(state, players, logs),
 winner: state.winner,
       noWinner: state.noWinner,
+      billingEndedAt: state.billingEndedAt || "",
 
       // Kitty settlement values needed by monitor display
       kittyEntry: state.kittyEntry,
@@ -4220,6 +4168,25 @@ winner: state.winner,
 
     saveDisplayState(tableKey, snapshot);
   }, [tableKey, state, currentPlayer, current, order, players, logs, nextGameOrder]);
+
+  if (currentKittyTableConfig.kittyEnabled === false) {
+    return (
+      <>
+        <PageShell title="Kitty" subtitle="Kitty table billing" noNav />
+        <div className="container">
+          <div className="card" style={{ maxWidth: 720, margin: "0 auto" }}>
+            <h2 style={{ marginTop: 0 }}>Kitty is not enabled on T4 Pool</h2>
+            <p className="muted">
+              Official Kitty billing is available on T1 Liberwin and T2 Wiraka 777 at ₹600/hr,
+              and T3 Mini Snooker at ₹500/hr. Only the winner pays, minimum ₹100,
+              rounded to the nearest ₹10. No-winner time carries forward.
+            </p>
+            <a className="btn primary" href="/kitty">Open Kitty</a>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   if (!hasAccess) {
     return (
@@ -4299,15 +4266,14 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                     redsOnTable: nextReds,
                     startingRedsOnTable: nextReds,
                     tokenBallsLeft: 6,
-                    tableRatePerHour: getKittyTableRate(
-                      nextGameType,
-                      nextTable.displayName || nextTable.label,
-                      nextTable.key
-                    ),
+                    tableChargeMode: "paid_by_winner",
+                    tableRatePerHour: nextTable.kittyEnabled === false ? 0 : nextTable.ratePerHour,
+                    tableManualCharge: "",
+                    tableRoundingMode: "nearest_10",
                   }));
                 }}
               >
-                {Object.values(KITTY_TABLES).map((table) => (
+                {Object.values(KITTY_TABLES).filter((table) => table.kittyEnabled !== false).map((table) => (
                   <option value={table.gameType} key={table.key}>
                     {table.displayName} — {table.ratePerHour}/hr
                   </option>
@@ -4379,7 +4345,7 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               borderTop: "1px solid rgba(255,255,255,0.12)",
             }}
           >
-            <h3 style={{ margin: "0 0 10px" }}>Kitty Settlement Setup</h3>
+            <h3 style={{ margin: "0 0 10px" }}>Kitty Game Values</h3>
 
             <div
               style={{
@@ -4389,110 +4355,87 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               }}
             >
               <label>
-  Kitty Entry
-  <input
-    type="number"
-    min="0"
-    value={state.kittyEntry ?? ""}
-    disabled={state.started}
-    placeholder="Enter Kitty Entry"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        kittyEntry: e.target.value,
-      }))
-    }
-  />
-</label>
-
-<label>
-  Out Penalty
-  <input
-    type="number"
-    min="0"
-    value={state.outPenalty ?? ""}
-    disabled={state.started}
-    placeholder="Enter Out Penalty"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        outPenalty: e.target.value,
-      }))
-    }
-  />
-</label>
-
-              
-
-              <label>
-                Table Charge Handling
-                <select
-                  value={state.tableChargeMode || "handled_separately"}
+                Kitty Entry (game points)
+                <input
+                  type="number"
+                  min="0"
+                  value={state.kittyEntry ?? ""}
                   disabled={state.started}
+                  placeholder="Enter Kitty Entry"
                   onChange={(e) =>
                     setState((s) => ({
                       ...s,
-                      tableChargeMode: e.target.value,
+                      kittyEntry: e.target.value,
                     }))
                   }
-                >
-                  <option value="handled_separately">Handled separately / prepaid</option>
-                  <option value="include_split">Include and split equally</option>
-                  <option value="paid_by_winner">Paid by winner</option>
-                  <option value="show_only">Show only, do not settle</option>
-                  <option value="hide">Hide from player result</option>
-                  <option value="manual">Manual table charge</option>
-                </select>
+                />
               </label>
 
               <label>
-  Table Rate Per Hour
-  <input
-    type="number"
-    min="0"
-    value={state.tableRatePerHour || 0}
-    disabled
-    title="Auto-fixed based on selected game/table: Pool 400, Mini Snooker 500, Ronnie/12x6 600"
-  />
-</label>
-<label>
-  Manual Table Charge
-  <input
-    type="number"
-    min="0"
-    value={state.tableManualCharge ?? ""}
-    disabled={state.started || state.tableChargeMode !== "manual"}
-    placeholder="Enter table charge"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        tableManualCharge: e.target.value,
-      }))
-    }
-  />
-</label>
-
-              <label>
-                Table Rounding
-                <select
-                  value={state.tableRoundingMode || "round_up"}
-                  disabled={state.started || state.tableChargeMode === "hide"}
+                Out Penalty (game points)
+                <input
+                  type="number"
+                  min="0"
+                  value={state.outPenalty ?? ""}
+                  disabled={state.started}
+                  placeholder="Enter Out Penalty"
                   onChange={(e) =>
                     setState((s) => ({
                       ...s,
-                      tableRoundingMode: e.target.value,
+                      outPenalty: e.target.value,
                     }))
                   }
-                >
-                  <option value="round_up">Round up: 5 min / 50</option>
-                  <option value="nearest">Nearest: 5 min / 50</option>
-                </select>
+                />
               </label>
             </div>
 
             <div className="muted" style={{ marginTop: 8 }}>
-              Kitty Entry and Out Penalty are game values. Table charge is optional and can be hidden,
-              shown separately, prepaid, or included in the final settlement.
+              Kitty Entry, Out Penalty, Ball Out, DEAD, fouls and Kitty Add-ons belong to the game/scoring record only.
+              They do not change the table bill.
+            </div>
+
+            <div
+              style={{
+                marginTop: 14,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid rgba(52,211,153,.35)",
+                background: "rgba(16,185,129,.08)",
+              }}
+            >
+              <h3 style={{ margin: "0 0 10px" }}>Official Kitty Table Billing</h3>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                <div>
+                  <div className="muted">Table Rate</div>
+                  <b>₹{Number(state.tableRatePerHour || 0)}/hr</b>
+                </div>
+                <div>
+                  <div className="muted">Who Pays</div>
+                  <b>Winner only</b>
+                </div>
+                <div>
+                  <div className="muted">Minimum</div>
+                  <b>₹100 per winning chain</b>
+                </div>
+                <div>
+                  <div className="muted">Rounding</div>
+                  <b>Nearest ₹10</b>
+                </div>
+                <div>
+                  <div className="muted">No Winner</div>
+                  <b>₹0 now; time carries forward</b>
+                </div>
+                <div>
+                  <div className="muted">Supported Tables</div>
+                  <b>T1 / T2 ₹600/hr • T3 ₹500/hr</b>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -4599,7 +4542,9 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               <button
                 className="btn"
                 type="button"
-                onClick={() => setPlayerInputs((prev) => [...prev, ""])}
+                onClick={() => setPlayerInputs((prev) => prev.length >= 6 ? prev : [...prev, ""])}
+                disabled={playerInputs.length >= 6}
+                title={playerInputs.length >= 6 ? "Kitty supports up to 6 players." : "Add another player"}
               >
                 + Add Player
               </button>
@@ -4640,6 +4585,24 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                   <h2 style={{ margin: "4px 0" }}>{state.winner || (state.noWinner ? "NO WINNER" : "—")}</h2>
                   <div>{state.locked ? "FINAL LOCKED" : "Running"}</div>
                 </div>
+
+                {(() => {
+                  const summary = currentKittySettlementSummary();
+                  return (
+                    <div className="card" style={{ margin: 0 }}>
+                      <div className="muted">Kitty Table Billing</div>
+                      <h2 style={{ margin: "4px 0" }}>
+                        ₹{Number(state.winner ? summary.winnerTableCharge : summary.winnerChargeIfEndedNow || 0)}
+                      </h2>
+                      <div>
+                        {state.winner ? "Winner charge" : "If game ends now"} • {Number(summary.totalTableMinutes || 0)} min
+                      </div>
+                      <div className="muted">
+                        Winner only • ₹100 minimum • nearest ₹10
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -4848,18 +4811,17 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                     </div>
 
                     <div className="card" style={{ margin: 0 }}>
-                      <div className="muted">Table Charge</div>
+                      <div className="muted">
+                        {state.winner ? "Winner Table Charge" : "Winner Charge If Game Ends Now"}
+                      </div>
                       <h2 style={{ margin: "4px 0" }}>
-                        {summary.tableChargeMode === "hide"
-                          ? "Hidden"
-                          : summary.tableChargeMode === "handled_separately"
-                          ? "Separate"
-                          : summary.tableChargeMode === "manual"
-                          ? "Manual"
-                          : `₹${summary.roundedTableCharge}`}
+                        ₹{Number(state.winner ? summary.winnerTableCharge : summary.winnerChargeIfEndedNow || 0)}
                       </h2>
                       <div className="muted">
-                        {kittyTableChargeDisplayText(summary)}
+                        {Number(summary.totalTableMinutes || 0)} min billable • ₹{Number(summary.tableRatePerHour || 0)}/hr
+                      </div>
+                      <div className="muted">
+                        Winner only • ₹100 minimum • nearest ₹10 • no-winner time carries
                       </div>
                     </div>
                   </div>
@@ -5103,6 +5065,32 @@ export function KittyDisplayPage({
     };
   }, [tableKey]);
 
+  const displayTableConfig = getKittyTableConfig(tableKey);
+
+  if (displayTableConfig.kittyEnabled === false) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "#05010a",
+          color: "#fff",
+          padding: 24,
+          textAlign: "center",
+        }}
+      >
+        <div style={{ maxWidth: 720 }}>
+          <h1>Kitty is not enabled on T4 Pool</h1>
+          <p>
+            T1 Liberwin and T2 Wiraka 777: ₹600/hr • T3 Mini Snooker: ₹500/hr.
+            Winner only • ₹100 minimum • nearest ₹10 • no-winner time carries forward.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const data = snapshot || {};
   const order = Array.isArray(data.order) ? data.order : [];
   const players = data.players || {};
@@ -5291,7 +5279,7 @@ export function KittyDisplayPage({
               }}
             >
               <div style={{ ...panelStyle, padding: 14 }}>
-                <div style={labelStyle}>Game Details</div>
+                <div style={labelStyle}>Game Details / Game Points — Not Table Bill</div>
                 <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>
                   {kittyGameTypeTextFromValue(data.gameType)}
                 </div>
@@ -5310,8 +5298,8 @@ export function KittyDisplayPage({
                   <div>Entry: <b>{settlementSummary.kittyEntry}</b></div>
                   <div>Ball Out: <b>{settlementSummary.outPenalty}</b></div>
                   <div>Add-on: <b>{settlementSummary.totalKittyAddOnPerPlayer || "None"}</b></div>
-                  <div>Ball-out pays: <b>{settlementSummary.ballOutPayable}</b></div>
-                  <div>Not-out pays: <b>{settlementSummary.notOutPayable}</b></div>
+                  <div>Ball-out game points: <b>{settlementSummary.ballOutPayable}</b></div>
+                  <div>Not-out game points: <b>{settlementSummary.notOutPayable}</b></div>
                 </div>
               </div>
 
@@ -5373,6 +5361,41 @@ export function KittyDisplayPage({
               }}
             >
               <b>Extra red rule:</b> {displayExtraInfo.ruleText}
+            </div>
+
+            <div
+              style={{
+                ...panelStyle,
+                padding: "12px 14px",
+                marginBottom: 12,
+                display: "grid",
+                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={labelStyle}>Kitty rate</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>₹{Number(settlementSummary.tableRatePerHour || 0)}/hr</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Billable time</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>{Number(settlementSummary.totalTableMinutes || 0)} min</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Payer</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>Winner only</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Minimum / rounding</div>
+                <div style={{ fontSize: 18, fontWeight: 1000 }}>₹100 • nearest ₹10</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Winner table charge</div>
+                <div style={{ fontSize: 28, fontWeight: 1000, color: "#34d399" }}>
+                  ₹{Number(settlementSummary.winnerTableCharge || 0)}
+                </div>
+              </div>
             </div>
 
             <div style={{ ...panelStyle, padding: 14 }}>
@@ -5736,7 +5759,7 @@ padding: "7px 10px",
               </div>
 
               <div style={{ ...panelStyle, padding: 14 }}>
-                <div style={labelStyle}>Settlement / Rule</div>
+                <div style={labelStyle}>Kitty Billing</div>
 
                 <div
                   style={{
@@ -5748,10 +5771,13 @@ padding: "7px 10px",
                     fontWeight: 850,
                   }}
                 >
-                  <div>Ball-out pays: <b>{settlementSummary.ballOutPayable}</b></div>
-                  <div>Not-out pays: <b>{settlementSummary.notOutPayable}</b></div>
-                  <div>Kitty Points Won: <b>{settlementSummary.grossKittyPoints}</b></div>
-                  <div>Table Charge: <b>{kittySettlementTableChargeText(settlementSummary)}</b></div>
+                  <div>Rate: <b>₹{Number(settlementSummary.tableRatePerHour || 0)}/hr</b></div>
+                  <div>Payer: <b>Winner only</b></div>
+                  <div>Carried time: <b>{Number(settlementSummary.carriedTableMinutes || 0)} min</b></div>
+                  <div>Total billable: <b>{Number(settlementSummary.totalTableMinutes || 0)} min</b></div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    If game ends now: <b style={{ fontSize: 24 }}>₹{Number(settlementSummary.winnerChargeIfEndedNow || 0)}</b>
+                  </div>
                 </div>
 
                 <div
@@ -5762,10 +5788,10 @@ padding: "7px 10px",
                     fontSize: 13,
                     lineHeight: 1.32,
                     fontWeight: 750,
-                    opacity: 0.86,
+                    opacity: 0.9,
                   }}
                 >
-                  Extra reds may be placed only after every qualifier or when only last 2 reds/non-token balls are left.
+                  ₹100 minimum • final charge rounded to nearest ₹10 • a no-winner game charges nobody and its time carries into the next game.
                 </div>
               </div>
             </div>
