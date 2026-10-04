@@ -859,7 +859,6 @@ body.qclub-v2-live .player-link {
 .v2-live-ticker-track { display:flex; width:max-content; animation:qclub-announcements-scroll var(--ticker-duration, 28s) linear infinite; }
 .v2-live-ticker-group { display:flex; flex:0 0 auto; gap:32px; padding-right:32px; }
 .v2-live-ticker-item { flex:0 0 auto; white-space:nowrap; }
-.v2-live-ticker-group[aria-hidden="true"] { pointer-events:none; }
 .v2-live-ticker-static { overflow:auto; scrollbar-width:none; }
 .v2-live-ticker-controls button { display:grid; place-items:center; padding:0; }
 @keyframes qclub-announcements-scroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
