@@ -112,7 +112,7 @@ async function apiRequest(path, options) {
 function allowedGames(table, rules) {
   const map = {
     POOL: ["NORMAL_POOL"],
-    MINI_SNOOKER: ["NORMAL_SNOOKER", "KITTY"],
+    MINI_SNOOKER: ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "KITTY"],
     FULL_SIZE_SNOOKER: ["NORMAL_SNOOKER", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "QCHASE_RUMMY", "KITTY"],
   };
   const keys = map[(table && table.table_type) || ""] || [];

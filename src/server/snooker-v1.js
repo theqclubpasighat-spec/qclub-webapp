@@ -493,6 +493,9 @@ async function publicTableDisplay(req, res, tableKey) {
   } else if (table.table_type === "MINI_SNOOKER") {
     rules.push(
       { title: "Normal Mini Snooker", value: "Member ₹400/hr • Non-member ₹500/hr" },
+      { title: "QChase / Rummy", value: "₹100 per game per player" },
+      { title: "6-Ball Snooker", value: "₹100/player or ₹200/game" },
+      { title: "10-Ball Snooker", value: "₹200/player" },
       { title: "Kitty", value: "₹500/hr • winner pays • minimum ₹100" },
       { title: "Kitty carry", value: "No-winner time carries to the next game until a winner" }
     );
@@ -1896,7 +1899,7 @@ async function rememberIdempotent(supabase, key, scope, resourceId, responseBody
 
 function compatibleGame(tableType, gameType) {
   if (tableType === "POOL") return gameType === "NORMAL_POOL";
-  if (tableType === "MINI_SNOOKER") return ["NORMAL_SNOOKER", "KITTY"].includes(gameType);
+  if (tableType === "MINI_SNOOKER") return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "KITTY"].includes(gameType);
   if (tableType === "FULL_SIZE_SNOOKER") {
     return ["NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER", "TEN_BALL_SNOOKER", "KITTY"].includes(gameType);
   }
