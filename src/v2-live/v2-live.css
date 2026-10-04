@@ -821,7 +821,7 @@ body.qclub-v2-live .player-link {
 .v2-live-ticker-text a { color:inherit; text-decoration:none; }
 .v2-live-ticker-text a:hover { color:var(--qv2-brass-soft); }
 .v2-live-ticker-controls { display:flex; flex-shrink:0; }
-.v2-live-ticker-controls button { width:32px; min-height:44px; border:0; border-radius:6px; background:transparent; color:var(--qv2-brass); font-size:22px; cursor:pointer; }
+.v2-live-ticker-controls button { width:44px; min-height:44px; border:0; border-radius:6px; background:transparent; color:var(--qv2-brass); font-size:22px; cursor:pointer; }
 .v2-live-hero { padding:56px 20px 48px; }
 .v2-live-hero h1 { max-width:900px; margin:0 auto; font-size:clamp(2.4rem,8vw,4.5rem); font-weight:700; letter-spacing:-.04em; line-height:1.05; }
 .v2-live-intro { font-size:14px; line-height:1.7; max-width:470px; margin:20px auto 24px; }
