@@ -522,7 +522,7 @@ function buildKittySettlementSummary({ state, order }) {
   const currentRoundSeconds = state?.started
     ? secondsBetweenNumber(
         state?.startedAt || state?.createdAt,
-        state?.endedAt || new Date().toISOString()
+        state?.billingEndedAt || state?.endedAt || new Date().toISOString()
       )
     : 0;
 
@@ -1761,25 +1761,6 @@ async function sendKittyMonthlyWhatsapp(player) {
     }
   }, [monthlyPlayers, selectedPlayer, selectedPlayerKey]);
 
-  if (currentKittyTableConfig.kittyEnabled === false) {
-    return (
-      <>
-        <PageShell title="Kitty" subtitle="Kitty table billing" noNav />
-        <div className="container">
-          <div className="card" style={{ maxWidth: 720, margin: "0 auto" }}>
-            <h2 style={{ marginTop: 0 }}>Kitty is not enabled on T4 Pool</h2>
-            <p className="muted">
-              Official Kitty billing is available on T1 Liberwin and T2 Wiraka 777 at ₹600/hr,
-              and T3 Mini Snooker at ₹500/hr. Only the winner pays, minimum ₹100,
-              rounded to the nearest ₹10. No-winner time carries forward.
-            </p>
-            <a className="btn primary" href="/kitty">Open Kitty</a>
-          </div>
-        </div>
-      </>
-    );
-  }
-
   if (!hasAccess) {
     return (
       <>
@@ -2710,6 +2691,7 @@ const [kittyWhatsappSendAllRunning, setKittyWhatsappSendAllRunning] = useState(f
     createdAt: nowText(),
     startedAt: "",
     endedAt: "",
+    billingEndedAt: "",
     duration: "",
     tableName: currentKittyTableConfig.displayName || tableLabel || "Ronnie's Table 12x6",
 gameType: currentKittyTableConfig.gameType || "snooker_ronnie_12x6",
@@ -2999,6 +2981,7 @@ nextPlayers[name] = {
       orderLocked: true,
       started: true,
       startedAt: s.startedAt || nowText(),
+      billingEndedAt: "",
       redsOnTable: kittyDefaultRedsOnTable(s.gameType),
 tokenBallsLeft: 6,
 extraRedsPlaced: 0,
@@ -3064,6 +3047,7 @@ extraRedsPlaced: 0,
     createdAt: nowText(),
     startedAt: nowText(),
     endedAt: "",
+    billingEndedAt: "",
     duration: "",
     orderLocked: true,
     started: true,
@@ -3174,6 +3158,7 @@ extraRedsPlaced: 0,
     ...s,
     redsOnTable: Math.max(0, Number(s.redsOnTable || 0) - 1),
     winner: autoWinner ? currentPlayer : s.winner,
+    billingEndedAt: autoWinner ? (s.billingEndedAt || nowText()) : s.billingEndedAt,
     noWinner: autoWinner ? false : s.noWinner,
   }));
 
@@ -3423,6 +3408,7 @@ pushUndo(`Winner declared: ${currentPlayer}`);
     setState((s) => ({
       ...s,
       winner: currentPlayer,
+      billingEndedAt: s.billingEndedAt || nowText(),
       noWinner: false,
     }));
 
@@ -3554,6 +3540,7 @@ setState((s) => {
     winner: "",
     noWinner: true,
     endedAt,
+    billingEndedAt: endedAt,
     duration: minutesBetween(startedAt, endedAt),
     kittyAddOn: lockedAddOn,
     kittyAddOns: [...(Array.isArray(s.kittyAddOns) ? s.kittyAddOns : []), lockedAddOn],
@@ -3615,7 +3602,7 @@ addLog(
   const ok = confirm("Final Lock will freeze Kitty result and enable printing. Continue?");
   if (!ok) return;
 
-  const endedAt = nowText();
+  const endedAt = state.billingEndedAt || nowText();
   const startedAt = state.startedAt || state.createdAt;
 
   const finalState = {
@@ -4051,6 +4038,9 @@ async function sendAllKittyWhatsappResults() {
     .filter((name) => !calculatedOrder.includes(name));
 
   const finalOrder = [...calculatedOrder, ...newPlayers];
+  if (finalOrder.length > 6) {
+    return alert("Kitty supports a maximum of 6 players. Remove extra players before starting the next game.");
+  }
 
   const nextPlayers = {};
   finalOrder.forEach((name) => {
@@ -4075,7 +4065,7 @@ nextPlayers[name] = {
 
   setPlayerInputs(() => {
     const padded = [...finalOrder];
-    while (padded.length < 8) padded.push("");
+    while (padded.length < 6) padded.push("");
     return padded;
   });
 
@@ -4149,6 +4139,7 @@ extraRedsAllowed: state.extraRedsAllowed,
 extraRedInfo: kittyExtraRedInfo(state, players, logs),
 winner: state.winner,
       noWinner: state.noWinner,
+      billingEndedAt: state.billingEndedAt || "",
 
       // Kitty settlement values needed by monitor display
       kittyEntry: state.kittyEntry,
@@ -4169,6 +4160,25 @@ winner: state.winner,
 
     saveDisplayState(tableKey, snapshot);
   }, [tableKey, state, currentPlayer, current, order, players, logs, nextGameOrder]);
+
+  if (currentKittyTableConfig.kittyEnabled === false) {
+    return (
+      <>
+        <PageShell title="Kitty" subtitle="Kitty table billing" noNav />
+        <div className="container">
+          <div className="card" style={{ maxWidth: 720, margin: "0 auto" }}>
+            <h2 style={{ marginTop: 0 }}>Kitty is not enabled on T4 Pool</h2>
+            <p className="muted">
+              Official Kitty billing is available on T1 Liberwin and T2 Wiraka 777 at ₹600/hr,
+              and T3 Mini Snooker at ₹500/hr. Only the winner pays, minimum ₹100,
+              rounded to the nearest ₹10. No-winner time carries forward.
+            </p>
+            <a className="btn primary" href="/kitty">Open Kitty</a>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   if (!hasAccess) {
     return (
