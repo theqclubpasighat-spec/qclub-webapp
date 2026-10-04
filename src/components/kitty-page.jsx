@@ -2606,8 +2606,6 @@ export function KittyPage({
     "KATEM",
     "JOMBO",
     "TATIN",
-    "ANANG",
-    "NANA",
   ]);
 const [kittyHandicaps, setKittyHandicaps] = useState({});
 const [playerPhones, setPlayerPhones] = useState(() => {
@@ -2621,8 +2619,6 @@ const [playerPhones, setPlayerPhones] = useState(() => {
     "KATEM",
     "JOMBO",
     "TATIN",
-    "ANANG",
-    "NANA",
   ].forEach((name) => {
     const key = kittyPlayerKey(name);
     seed[key] = book[key] || "";
@@ -2999,6 +2995,7 @@ extraRedsPlaced: 0,
   const names = order.length ? order : cleanPlayers();
   saveKittyPhonesToPhonebook();
   if (names.length < 2) return alert("Add at least 2 players.");
+  if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
 
   const nextKittyNo = state.noWinner
     ? Number(state.kittyNo || 1) + 1
