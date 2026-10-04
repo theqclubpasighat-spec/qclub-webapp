@@ -16,6 +16,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-1",
     displayPath: "/kitty-table-1-display",
     ratePerHour: 600,
+    kittyEnabled: true,
     needsPin: false,
   },
   table2: {
@@ -26,6 +27,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-2",
     displayPath: "/kitty-table-2-display",
     ratePerHour: 600,
+    kittyEnabled: true,
     needsPin: false,
   },
   table3: {
@@ -36,6 +38,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-3",
     displayPath: "/kitty-table-3-display",
     ratePerHour: 500,
+    kittyEnabled: true,
     needsPin: false,
   },
   table4: {
@@ -46,6 +49,7 @@ const KITTY_TABLES = {
     scorePath: "/kitty-table-4",
     displayPath: "/kitty-table-4-display",
     ratePerHour: 400,
+    kittyEnabled: false,
     needsPin: false,
   },
 };
@@ -405,29 +409,21 @@ function minutesBetweenNumber(startText, endText) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
-function roundKittyTableMinutes(minutes, mode = "round_up") {
-  const value = Math.max(0, Number(minutes || 0));
-  if (!value) return 0;
+function secondsBetweenNumber(startText, endText) {
+  const start = new Date(startText);
+  const end = new Date(endText);
 
-  if (mode === "nearest") {
-    return Math.round(value / 5) * 5;
-  }
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
 
-  return Math.ceil(value / 5) * 5;
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
 }
 
-function roundKittyTableFee(amount, mode = "round_up") {
+function roundKittyWinnerCharge(amount) {
   const value = Math.max(0, Number(amount || 0));
-  if (!value) return 0;
-
-  const rounded =
-    mode === "nearest"
-      ? Math.round(value / 50) * 50
-      : Math.ceil(value / 50) * 50;
-
-  // Minimum payable table charge is ₹100 whenever table charge is applicable.
-  return Math.max(100, rounded);
+  if (!value) return 100;
+  return Math.max(100, Math.round(value / 10) * 10);
 }
+
 function isPoolKittyGame(gameType) {
   const type = String(gameType || "").toLowerCase();
   return type === "pool" || type === "pool_american" || type.includes("pool");
@@ -478,124 +474,77 @@ function buildKittySettlementSummary({ state, order }) {
   const playerCount = Array.isArray(order) ? order.filter(Boolean).length : 0;
   const kittyNo = Math.max(1, Number(state?.kittyNo || 1));
 
+  // These are game-side settlement values only. They do not affect table billing.
   const kittyEntry = Math.max(0, Number(state?.kittyEntry || 0));
   const outPenalty = Math.max(0, Number(state?.outPenalty || 0));
-
   const kittyAddOns = Array.isArray(state?.kittyAddOns)
     ? state.kittyAddOns.map((value) => Math.max(0, Number(value || 0)))
     : [];
-
   const totalKittyAddOnPerPlayer = kittyAddOns.reduce((sum, value) => sum + value, 0);
   const kittyAddOn = totalKittyAddOnPerPlayer;
   const noWinnerRoundsBeforeFinal = Math.max(0, kittyAddOns.length || kittyNo - 1);
-
-   const winnerName = String(state?.winner || "").trim();
+  const winnerName = String(state?.winner || "").trim();
 
   const playerRows = (order || []).map((name) => {
     const p = state?.players?.[name] || {};
     const isWinner = winnerName && String(name) === winnerName;
-
-        const isOut = !isWinner && isPlayerOutOfGame(p, state);
-    return {
-      name,
-      isWinner,
-      isOut,
-    };
+    const isOut = !isWinner && isPlayerOutOfGame(p, state);
+    return { name, isWinner, isOut };
   });
 
-  const outPlayersCount = state?.winner
-    ? playerRows.filter((row) => row.isOut).length
-    : 0;
-
-  const notOutLosersCount = state?.winner
+  const outPlayersCount = winnerName ? playerRows.filter((row) => row.isOut).length : 0;
+  const notOutLosersCount = winnerName
     ? playerRows.filter((row) => !row.isWinner && !row.isOut).length
     : 0;
-
   const ballOutPayable = outPenalty + totalKittyAddOnPerPlayer;
   const notOutPayable = kittyEntry + totalKittyAddOnPerPlayer;
-
   const outPenaltyTotal = outPlayersCount * ballOutPayable;
   const notOutLosersTotal = notOutLosersCount * notOutPayable;
-
-  const winnerOwnEntryAndAddOn = state?.winner
-    ? kittyEntry + totalKittyAddOnPerPlayer
-    : 0;
-
+  const winnerOwnEntryAndAddOn = winnerName ? kittyEntry + totalKittyAddOnPerPlayer : 0;
   const addOnPot = playerCount * totalKittyAddOnPerPlayer;
-
-  // Example: Entry 300, Ball Out Penalty 500, Add-on 200.
-  // Ball-out loser pays 500 + 200 = 700.
-  // Not-out loser pays 300 + 200 = 500.
-  // Winner net = total received from losing players.
-  const winnerNetKittyPoints = state?.winner
-    ? outPenaltyTotal + notOutLosersTotal
-    : 0;
-
-  const grossKittyPoints = state?.winner
-    ? winnerOwnEntryAndAddOn + winnerNetKittyPoints
-    : 0;
-
+  const winnerNetKittyPoints = winnerName ? outPenaltyTotal + notOutLosersTotal : 0;
+  const grossKittyPoints = winnerName ? winnerOwnEntryAndAddOn + winnerNetKittyPoints : 0;
   const basePot = playerCount * kittyEntry;
 
-  const tableChargeMode = state?.tableChargeMode || "handled_separately";
+  // Official table billing: time only; winner pays; no-winner time carries;
+  // ₹100 minimum; final amount rounded to nearest ₹10.
+  const tableChargeMode = "paid_by_winner";
   const tableRatePerHour = Math.max(0, Number(state?.tableRatePerHour || 0));
-  const tableRoundingMode = state?.tableRoundingMode || "round_up";
+  const tableRoundingMode = "nearest_10";
+  const roundHistory = Array.isArray(state?.kittyRoundHistory) ? state.kittyRoundHistory : [];
 
-  const roundHistory = Array.isArray(state?.kittyRoundHistory)
-    ? state.kittyRoundHistory
-    : [];
+  const carriedTableSeconds = roundHistory.reduce((sum, round) => {
+    const exact = Math.max(0, Number(round?.durationSeconds || 0));
+    if (exact > 0) return sum + exact;
+    return sum + Math.max(0, Number(round?.durationMinutes || 0)) * 60;
+  }, 0);
 
-  const carriedTableMinutes = roundHistory.reduce(
-    (sum, round) => sum + Math.max(0, Number(round?.durationMinutes || 0)),
-    0
-  );
+  const currentRoundSeconds = state?.started
+    ? secondsBetweenNumber(
+        state?.startedAt || state?.createdAt,
+        state?.endedAt || new Date().toISOString()
+      )
+    : 0;
 
-  const currentRoundMinutes = minutesBetweenNumber(
-    state?.startedAt || state?.createdAt,
-    state?.endedAt || new Date().toISOString()
-  );
-
-  const totalTableMinutes = carriedTableMinutes + currentRoundMinutes;
-  const roundedTableMinutes = roundKittyTableMinutes(totalTableMinutes, tableRoundingMode);
-
-  const manualTableCharge = Math.max(0, Number(state?.tableManualCharge || 0));
-
+  const totalTableSeconds = carriedTableSeconds + currentRoundSeconds;
+  const totalTableMinutes = Math.round((totalTableSeconds / 60) * 10) / 10;
   const rawTableCharge =
-    tableChargeMode === "manual"
-      ? manualTableCharge
-      : tableRatePerHour > 0
-      ? (tableRatePerHour * roundedTableMinutes) / 60
-      : 0;
-
-  const roundedTableCharge =
-  tableChargeMode === "manual"
-    ? manualTableCharge > 0
-      ? Math.max(100, manualTableCharge)
-      : 0
-    : roundKittyTableFee(rawTableCharge, tableRoundingMode);
-
-  const perPlayerTableCharge =
-    playerCount > 0 && tableChargeMode === "include_split"
-      ? roundKittyTableFee(roundedTableCharge / playerCount, tableRoundingMode)
-      : 0;
-
-  const winnerTableCharge =
-    state?.winner && tableChargeMode === "paid_by_winner"
-      ? roundedTableCharge
-      : 0;
+    tableRatePerHour > 0 ? (tableRatePerHour * totalTableSeconds) / 3600 : 0;
+  const winnerChargeIfEndedNow =
+    state?.started && tableRatePerHour > 0 ? roundKittyWinnerCharge(rawTableCharge) : 0;
+  const roundedTableCharge = winnerName ? winnerChargeIfEndedNow : 0;
+  const winnerTableCharge = winnerName ? winnerChargeIfEndedNow : 0;
 
   return {
     playerCount,
     kittyNo,
     noWinnerRoundsBeforeFinal,
-
     kittyEntry,
     outPenalty,
     kittyAddOn,
     kittyAddOns,
     totalKittyAddOnPerPlayer,
-
-        basePot,
+    basePot,
     outPlayersCount,
     notOutLosersCount,
     ballOutPayable,
@@ -606,43 +555,34 @@ function buildKittySettlementSummary({ state, order }) {
     grossKittyPoints,
     winnerOwnEntryAndAddOn,
     winnerNetKittyPoints,
-
     tableChargeMode,
     tableRatePerHour,
     tableRoundingMode,
     roundHistory,
-    carriedTableMinutes,
-    currentRoundMinutes,
+    carriedTableSeconds,
+    currentRoundSeconds,
+    totalTableSeconds,
+    carriedTableMinutes: Math.round((carriedTableSeconds / 60) * 10) / 10,
+    currentRoundMinutes: Math.round((currentRoundSeconds / 60) * 10) / 10,
     totalTableMinutes,
-    roundedTableMinutes,
-    manualTableCharge,
+    roundedTableMinutes: totalTableMinutes,
+    manualTableCharge: 0,
     rawTableCharge,
     roundedTableCharge,
-    perPlayerTableCharge,
+    perPlayerTableCharge: 0,
     winnerTableCharge,
+    winnerChargeIfEndedNow,
+    minimumTableCharge: 100,
+    chargeRoundingInr: 10,
   };
 }
 function kittySettlementTableChargeText(summary) {
   if (!summary) return "—";
-
-  if (summary.tableChargeMode === "hide") return "Hidden from player result";
-  if (summary.tableChargeMode === "handled_separately") return "Handled separately / prepaid";
-  if (summary.tableChargeMode === "show_only") {
-    return `Shown only: ₹${Number(summary.roundedTableCharge || 0)}`;
+  if (Number(summary.tableRatePerHour || 0) <= 0) return "Kitty billing not enabled on this table";
+  if (Number(summary.winnerTableCharge || 0) > 0) {
+    return `Winner pays ₹${Number(summary.winnerTableCharge || 0)} • nearest ₹10 • ₹100 minimum`;
   }
-  if (summary.tableChargeMode === "paid_by_winner") {
-    return `Paid by winner: ₹${Number(summary.winnerTableCharge || 0)}`;
-  }
-  if (summary.tableChargeMode === "include_split") {
-    return `Split equally: ₹${Number(summary.roundedTableCharge || 0)} total / ₹${Number(
-      summary.perPlayerTableCharge || 0
-    )} each`;
-  }
-  if (summary.tableChargeMode === "manual") {
-    return `Manual: ₹${Number(summary.roundedTableCharge || 0)}`;
-  }
-
-  return "Handled separately / prepaid";
+  return `Winner pays by time • if game ends now ₹${Number(summary.winnerChargeIfEndedNow || 0)} • no-winner time carries forward`;
 }
 
 function buildKittySettlementHtml(summary) {
