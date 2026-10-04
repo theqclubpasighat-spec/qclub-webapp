@@ -160,6 +160,20 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
   }, [pathname]);
 
   const closeMenu = () => setExpanded(false);
+  const trapDrawerFocus = (event) => {
+    if (event.key !== "Tab") return;
+    const controls = Array.from(event.currentTarget.querySelectorAll("a[href], button:not([disabled])"))
+      .filter((element) => element.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  };
 
   useEffect(() => {
     const drawer = drawerRef.current;
@@ -225,7 +239,7 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
       </div>
 
       {createPortal(
-      <dialog ref={drawerRef} className="v2-live-drawer" aria-labelledby="qclub-menu-title" onCancel={closeMenu} onClick={(event) => { if (event.target === event.currentTarget) closeMenu(); }}>
+      <dialog ref={drawerRef} className="v2-live-drawer" aria-labelledby="qclub-menu-title" onKeyDown={trapDrawerFocus} onCancel={closeMenu} onClick={(event) => { if (event.target === event.currentTarget) closeMenu(); }}>
         <div className="v2-live-drawer-inner">
           <div className="v2-live-drawer-heading">
             <span id="qclub-menu-title">The Q Club</span>
