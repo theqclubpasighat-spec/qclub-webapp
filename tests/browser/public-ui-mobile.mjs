@@ -44,7 +44,7 @@ try{
  await browser('wait',6500);assert.equal(await evaluate('document.querySelector(".v2-live-ticker-text").textContent'),'Second fixture announcement');
  await button('Previous announcement');assert.equal(await evaluate('document.querySelector(".v2-live-ticker-text").textContent'),'First fixture announcement');
  await browser('wait',6500);assert.equal(await evaluate('document.querySelector(".v2-live-ticker-text").textContent'),'First fixture announcement','Rotation must pause while controls have focus');
- await button('Open menu');await browser('find','role','link','click','--name','Fixtures');assert.equal(await evaluate('location.pathname'),'/fixtures');assert.equal(await evaluate('document.querySelector("dialog").open'),false);
+ await button('Open menu');await browser('wait','dialog[open] a[href="/fixtures"]');await browser('wait',300);await browser('click','dialog[open] a[href="/fixtures"]');assert.equal(await evaluate('location.pathname'),'/fixtures');assert.equal(await evaluate('document.querySelector("dialog").open'),false);
  await browser('open','http://127.0.0.1:5185/?reduced');await browser('wait','--text','First fixture announcement');await browser('wait',6500);assert.equal(await evaluate('document.querySelector(".v2-live-ticker-text").textContent'),'First fixture announcement','Reduced-motion must disable rotation');
  await browser('open','http://127.0.0.1:5185/?admin');await button('Open menu');assert.equal(await evaluate('document.querySelector("dialog").innerText.includes("Website Manager")'),true);
  assert.deepEqual(await evaluate('window.__uiErrors'),[]);
