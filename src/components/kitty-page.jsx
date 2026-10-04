@@ -4567,6 +4567,24 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                   <h2 style={{ margin: "4px 0" }}>{state.winner || (state.noWinner ? "NO WINNER" : "—")}</h2>
                   <div>{state.locked ? "FINAL LOCKED" : "Running"}</div>
                 </div>
+
+                {(() => {
+                  const summary = currentKittySettlementSummary();
+                  return (
+                    <div className="card" style={{ margin: 0 }}>
+                      <div className="muted">Kitty Table Billing</div>
+                      <h2 style={{ margin: "4px 0" }}>
+                        ₹{Number(state.winner ? summary.winnerTableCharge : summary.winnerChargeIfEndedNow || 0)}
+                      </h2>
+                      <div>
+                        {state.winner ? "Winner charge" : "If game ends now"} • {Number(summary.totalTableMinutes || 0)} min
+                      </div>
+                      <div className="muted">
+                        Winner only • ₹100 minimum • nearest ₹10
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -4775,18 +4793,17 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                     </div>
 
                     <div className="card" style={{ margin: 0 }}>
-                      <div className="muted">Table Charge</div>
+                      <div className="muted">
+                        {state.winner ? "Winner Table Charge" : "Winner Charge If Game Ends Now"}
+                      </div>
                       <h2 style={{ margin: "4px 0" }}>
-                        {summary.tableChargeMode === "hide"
-                          ? "Hidden"
-                          : summary.tableChargeMode === "handled_separately"
-                          ? "Separate"
-                          : summary.tableChargeMode === "manual"
-                          ? "Manual"
-                          : `₹${summary.roundedTableCharge}`}
+                        ₹{Number(state.winner ? summary.winnerTableCharge : summary.winnerChargeIfEndedNow || 0)}
                       </h2>
                       <div className="muted">
-                        {kittyTableChargeDisplayText(summary)}
+                        {Number(summary.totalTableMinutes || 0)} min billable • ₹{Number(summary.tableRatePerHour || 0)}/hr
+                      </div>
+                      <div className="muted">
+                        Winner only • ₹100 minimum • nearest ₹10 • no-winner time carries
                       </div>
                     </div>
                   </div>
