@@ -2712,10 +2712,10 @@ kittyAddOns: [],
 kittyRoundHistory: [],
 
 // Table charge handling is configurable because some groups may book/pay table time separately.
-tableChargeMode: "handled_separately",
+tableChargeMode: "paid_by_winner",
 tableRatePerHour: getKittyTableRate(currentKittyTableConfig.gameType, currentKittyTableConfig.displayName, tableKey),
 tableManualCharge: "",
-tableRoundingMode: "round_up",
+tableRoundingMode: "nearest_10",
 
 extraRedsAllowed: 0,
     extraRedsPlaced: 0,
@@ -2745,7 +2745,15 @@ useEffect(() => {
     alert(`A Kitty game saved under the old table mapping (${saved.legacyGameType}) was archived and was not restored on this table. Start a fresh Kitty game for ${getKittyTableConfig(tableKey).label}.`);
   }
 
-  if (saved?.state) setState(saved.state);
+  if (saved?.state) {
+    setState({
+      ...saved.state,
+      tableChargeMode: "paid_by_winner",
+      tableRatePerHour: currentKittyTableConfig.kittyEnabled === false ? 0 : currentKittyTableConfig.ratePerHour,
+      tableManualCharge: "",
+      tableRoundingMode: "nearest_10",
+    });
+  }
   if (Array.isArray(saved?.order)) setOrder(saved.order);
   if (saved?.players && typeof saved.players === "object") setPlayers(saved.players);
   if (Array.isArray(saved?.logs)) setLogs(saved.logs);
@@ -2947,6 +2955,8 @@ if (settlementError) {
 }
     const names = cleanPlayers();
     if (names.length < 2) return alert("Add at least 2 players.");
+  if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
+    if (names.length > 6) return alert("Kitty supports a maximum of 6 players.");
 saveKittyPhonesToPhonebook();
     const drawn = shuffle(names);
     const nextPlayers = {};
@@ -3503,7 +3513,8 @@ if (willAdd) {
 setState((s) => {
   const endedAt = nowText();
   const startedAt = s.startedAt || s.createdAt || endedAt;
-  const durationMinutes = minutesBetweenNumber(startedAt, endedAt);
+  const durationSeconds = secondsBetweenNumber(startedAt, endedAt);
+  const durationMinutes = Math.round((durationSeconds / 60) * 10) / 10;
   const previousHistory = Array.isArray(s.kittyRoundHistory)
     ? s.kittyRoundHistory
     : [];
@@ -3516,6 +3527,7 @@ setState((s) => {
     result: "NO WINNER",
     startedAt,
     endedAt,
+    durationSeconds,
     durationMinutes,
     kittyAddOn: lockedAddOn,
     order: [...(order || [])],
@@ -4239,15 +4251,14 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                     redsOnTable: nextReds,
                     startingRedsOnTable: nextReds,
                     tokenBallsLeft: 6,
-                    tableRatePerHour: getKittyTableRate(
-                      nextGameType,
-                      nextTable.displayName || nextTable.label,
-                      nextTable.key
-                    ),
+                    tableChargeMode: "paid_by_winner",
+                    tableRatePerHour: nextTable.kittyEnabled === false ? 0 : nextTable.ratePerHour,
+                    tableManualCharge: "",
+                    tableRoundingMode: "nearest_10",
                   }));
                 }}
               >
-                {Object.values(KITTY_TABLES).map((table) => (
+                {Object.values(KITTY_TABLES).filter((table) => table.kittyEnabled !== false).map((table) => (
                   <option value={table.gameType} key={table.key}>
                     {table.displayName} — {table.ratePerHour}/hr
                   </option>
@@ -4539,7 +4550,9 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               <button
                 className="btn"
                 type="button"
-                onClick={() => setPlayerInputs((prev) => [...prev, ""])}
+                onClick={() => setPlayerInputs((prev) => prev.length >= 6 ? prev : [...prev, ""])}
+                disabled={playerInputs.length >= 6}
+                title={playerInputs.length >= 6 ? "Kitty supports up to 6 players." : "Add another player"}
               >
                 + Add Player
               </button>
