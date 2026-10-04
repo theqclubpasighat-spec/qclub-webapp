@@ -60,6 +60,10 @@ jobs:
         run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" QCLUB_PGLITE_MODULE="$RUNNER_TEMP/qclub-tests/node_modules/@electric-sql/pglite/dist/index.js" node tests/browser/admin-mobile.mjs
         env:
           QCLUB_BROWSER_FIXTURES: enabled
+      - name: Verify public hamburger drawer, ticker and responsive home
+        run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" node tests/browser/public-ui-mobile.mjs
+        env:
+          QCLUB_BROWSER_FIXTURES: enabled
       - name: Save screenshots and browser results
         if: always()
         uses: actions/upload-artifact@v4

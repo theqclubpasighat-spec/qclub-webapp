@@ -110,7 +110,7 @@ export default function V2Food() {
         <div>
           <p className="v2-live-eyebrow">A break between frames</p>
           <h1>Q Lounge</h1>
-          <p className="v2-live-muted">Browse the shared club catalogue here, then use Order Food for the existing secure checkout.</p>
+          <p className="v2-live-muted">Food, drinks and a break between frames. Browse the menu and place your order.</p>
         </div>
         <div className="v2-live-inline-actions">
           <Link className="v2-live-button v2-live-primary" to="/offer">Order Food</Link>
