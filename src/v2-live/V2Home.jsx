@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 const money = (amount) =>
@@ -18,36 +18,68 @@ function activeNotices(data) {
   });
 }
 
+function AnnouncementTicker({ notices }) {
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(preference.matches);
+    update();
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (paused || reducedMotion || notices.length < 2) return;
+    const timer = window.setTimeout(() => setIndex((value) => (value + 1) % notices.length), 6000);
+    return () => window.clearTimeout(timer);
+  }, [index, paused, reducedMotion, notices.length]);
+  if (!notices.length) return null;
+  const current = notices[index % notices.length];
+  return (
+    <section className="v2-live-ticker" aria-label="Club announcements"
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
+      <div className="v2-live-ticker-inner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m3 10 18-6v16L3 14v-4Zm4 5 2 6h4l-2-5" /></svg>
+        <div className="v2-live-ticker-text" aria-live="off">
+          {current.link ? <Link to={current.link}>{current.text}</Link> : <span>{current.text}</span>}
+        </div>
+        {notices.length > 1 ? <div className="v2-live-ticker-controls">
+          <button type="button" aria-label="Previous announcement" onClick={() => setIndex((value) => (value + notices.length - 1) % notices.length)}>‹</button>
+          <button type="button" aria-label="Next announcement" onClick={() => setIndex((value) => (value + 1) % notices.length)}>›</button>
+        </div> : null}
+      </div>
+    </section>
+  );
+}
+
+function FeatureIcon({ kind }) {
+  const paths = {
+    book: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /><path d="m16 8 5-5" /></>,
+    food: <><path d="M4 3v7a3 3 0 0 0 6 0V3M7 3v18M20 3c-4 3-4 8 0 9V3Zm0 9v9" /></>,
+    shop: <><path d="M5 7h14l2 14H3L5 7Z" /><path d="M9 7V5a3 3 0 0 1 6 0v2" /></>,
+    membership: <><path d="m8 14-1 7 5-3 5 3-1-7" /><circle cx="12" cy="8" r="6" /></>,
+  };
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+}
+
 export default function V2Home({ data, activeTournament }) {
   const club = data?.club || {};
-  const notices = activeNotices(data).slice(0, 4);
+  const notices = activeNotices(data).slice(0, 10);
   const tiers = (data?.memberships || []).slice(0, 4);
   const tournament = activeTournament || (data?.tournaments || []).find(Boolean) || null;
 
   const features = [
-    { title: "Book a table", text: "Reserve snooker, mini snooker or American pool.", to: "/book", icon: "◉" },
-    { title: "Q Lounge", text: "Browse the menu and continue to the existing food-order checkout.", to: "/food", icon: "☕" },
-    { title: "The Q Shop", text: "Cue sticks, cases, chalk and club accessories.", to: "/shop", icon: "◇" },
-    { title: "Membership", text: "Member rates, RFID access and club privileges.", to: "/membership", icon: "✦" },
+    { title: "Book a table", text: "Reserve snooker, mini snooker or American pool.", to: "/book", icon: "book", action: "Reserve a table" },
+    { title: "Q Lounge", text: "Food, drinks and a break between frames.", to: "/food", icon: "food", action: "Browse the menu" },
+    { title: "The Q Shop", text: "Cue sticks, cases, chalk and club accessories.", to: "/shop", icon: "shop", action: "Explore the shop" },
+    { title: "Membership", text: "Member rates, club access and more time to play.", to: "/membership", icon: "membership", action: "View membership" },
   ];
 
   return (
     <main className="qclub-v2-home" id="main-content">
-      {notices.length ? (
-        <section className="v2-live-notices" aria-label="Club notices">
-          {notices.map((notice) =>
-            notice.link ? (
-              <Link key={notice.id || notice.text} to={notice.link} className="v2-live-notice">
-                {notice.text}
-              </Link>
-            ) : (
-              <span key={notice.id || notice.text} className="v2-live-notice">
-                {notice.text}
-              </span>
-            )
-          )}
-        </section>
-      ) : null}
+      <AnnouncementTicker notices={notices} />
 
       <section className="v2-live-hero">
         <svg className="v2-live-rack" viewBox="0 0 220 190" aria-hidden="true">
@@ -63,6 +95,7 @@ export default function V2Home({ data, activeTournament }) {
             [94, 128],
             [126, 128],
             [158, 128],
+            [46, 156], [78, 156], [110, 156], [142, 156], [174, 156],
           ].map(([x, y]) => (
             <circle key={`${x}-${y}`} cx={x} cy={y} r="13" />
           ))}
@@ -90,14 +123,14 @@ export default function V2Home({ data, activeTournament }) {
 
       <section className="v2-live-section" aria-labelledby="v2-live-explore">
         <p className="v2-live-eyebrow">Make yourself at home</p>
-        <h2 id="v2-live-explore">Everything you need, without the endless scroll</h2>
+        <h2 id="v2-live-explore">Your time at The Q Club</h2>
         <div className="v2-live-feature-grid">
           {features.map((feature) => (
             <Link className="v2-live-feature-card" to={feature.to} key={feature.to}>
-              <span aria-hidden="true">{feature.icon}</span>
+              <span className="v2-live-feature-icon"><FeatureIcon kind={feature.icon} /></span>
               <h3>{feature.title}</h3>
               <p>{feature.text}</p>
-              <strong>Open →</strong>
+              <strong>{feature.action} <span aria-hidden="true">→</span></strong>
             </Link>
           ))}
         </div>
