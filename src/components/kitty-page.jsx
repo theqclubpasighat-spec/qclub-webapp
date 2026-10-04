@@ -5319,6 +5319,41 @@ export function KittyDisplayPage({
               <b>Extra red rule:</b> {displayExtraInfo.ruleText}
             </div>
 
+            <div
+              style={{
+                ...panelStyle,
+                padding: "12px 14px",
+                marginBottom: 12,
+                display: "grid",
+                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={labelStyle}>Kitty rate</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>₹{Number(settlementSummary.tableRatePerHour || 0)}/hr</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Billable time</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>{Number(settlementSummary.totalTableMinutes || 0)} min</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Payer</div>
+                <div style={{ fontSize: 22, fontWeight: 1000 }}>Winner only</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Minimum / rounding</div>
+                <div style={{ fontSize: 18, fontWeight: 1000 }}>₹100 • nearest ₹10</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Winner table charge</div>
+                <div style={{ fontSize: 28, fontWeight: 1000, color: "#34d399" }}>
+                  ₹{Number(settlementSummary.winnerTableCharge || 0)}
+                </div>
+              </div>
+            </div>
+
             <div style={{ ...panelStyle, padding: 14 }}>
               <h2 style={{ margin: "0 0 12px", fontSize: 22 }}>
                 Kitty Result List
@@ -5680,7 +5715,7 @@ padding: "7px 10px",
               </div>
 
               <div style={{ ...panelStyle, padding: 14 }}>
-                <div style={labelStyle}>Settlement / Rule</div>
+                <div style={labelStyle}>Kitty Billing</div>
 
                 <div
                   style={{
@@ -5692,10 +5727,13 @@ padding: "7px 10px",
                     fontWeight: 850,
                   }}
                 >
-                  <div>Ball-out pays: <b>{settlementSummary.ballOutPayable}</b></div>
-                  <div>Not-out pays: <b>{settlementSummary.notOutPayable}</b></div>
-                  <div>Kitty Points Won: <b>{settlementSummary.grossKittyPoints}</b></div>
-                  <div>Table Charge: <b>{kittySettlementTableChargeText(settlementSummary)}</b></div>
+                  <div>Rate: <b>₹{Number(settlementSummary.tableRatePerHour || 0)}/hr</b></div>
+                  <div>Payer: <b>Winner only</b></div>
+                  <div>Carried time: <b>{Number(settlementSummary.carriedTableMinutes || 0)} min</b></div>
+                  <div>Total billable: <b>{Number(settlementSummary.totalTableMinutes || 0)} min</b></div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    If game ends now: <b style={{ fontSize: 24 }}>₹{Number(settlementSummary.winnerChargeIfEndedNow || 0)}</b>
+                  </div>
                 </div>
 
                 <div
@@ -5706,10 +5744,10 @@ padding: "7px 10px",
                     fontSize: 13,
                     lineHeight: 1.32,
                     fontWeight: 750,
-                    opacity: 0.86,
+                    opacity: 0.9,
                   }}
                 >
-                  Extra reds may be placed only after every qualifier or when only last 2 reds/non-token balls are left.
+                  ₹100 minimum • final charge rounded to nearest ₹10 • a no-winner game charges nobody and its time carries into the next game.
                 </div>
               </div>
             </div>
