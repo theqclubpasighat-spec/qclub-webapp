@@ -835,7 +835,7 @@ body.qclub-v2-live .player-link {
 .v2-live-feature-card .v2-live-feature-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:10px; background:rgba(219,186,113,.08); border:1px solid rgba(219,186,113,.18); margin-bottom:18px; }
 .v2-live-feature-card h3 { font-size:16px; letter-spacing:-.025em; line-height:1.25; }
 .v2-live-feature-card p { font-size:12px; line-height:1.65; margin-bottom:18px; }
-.v2-live-feature-card>strong { margin-top:auto; font-size:11px; font-weight:600; line-height:1.5; }
+.v2-live-feature-card>strong { display:flex; align-items:center; gap:6px; margin-top:auto; font-size:11px; font-weight:600; line-height:1.5; }
 .v2-live-button { border-radius:8px; font-size:13px; font-weight:600; }
 .v2-live-panel h2 { letter-spacing:-.03em; }
 @media(min-width:1040px) {
@@ -848,3 +848,5 @@ body.qclub-v2-live .player-link {
   .v2-live-drawer[open] { animation:none; }
   .v2-live-feature-card { transition:none; }
 }
+
+.v2-live-feature-card>strong>span { flex-shrink:0; }
