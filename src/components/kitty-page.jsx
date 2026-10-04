@@ -4327,7 +4327,7 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               borderTop: "1px solid rgba(255,255,255,0.12)",
             }}
           >
-            <h3 style={{ margin: "0 0 10px" }}>Kitty Settlement Setup</h3>
+            <h3 style={{ margin: "0 0 10px" }}>Kitty Game Values</h3>
 
             <div
               style={{
@@ -4337,110 +4337,87 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
               }}
             >
               <label>
-  Kitty Entry
-  <input
-    type="number"
-    min="0"
-    value={state.kittyEntry ?? ""}
-    disabled={state.started}
-    placeholder="Enter Kitty Entry"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        kittyEntry: e.target.value,
-      }))
-    }
-  />
-</label>
-
-<label>
-  Out Penalty
-  <input
-    type="number"
-    min="0"
-    value={state.outPenalty ?? ""}
-    disabled={state.started}
-    placeholder="Enter Out Penalty"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        outPenalty: e.target.value,
-      }))
-    }
-  />
-</label>
-
-              
-
-              <label>
-                Table Charge Handling
-                <select
-                  value={state.tableChargeMode || "handled_separately"}
+                Kitty Entry (game points)
+                <input
+                  type="number"
+                  min="0"
+                  value={state.kittyEntry ?? ""}
                   disabled={state.started}
+                  placeholder="Enter Kitty Entry"
                   onChange={(e) =>
                     setState((s) => ({
                       ...s,
-                      tableChargeMode: e.target.value,
+                      kittyEntry: e.target.value,
                     }))
                   }
-                >
-                  <option value="handled_separately">Handled separately / prepaid</option>
-                  <option value="include_split">Include and split equally</option>
-                  <option value="paid_by_winner">Paid by winner</option>
-                  <option value="show_only">Show only, do not settle</option>
-                  <option value="hide">Hide from player result</option>
-                  <option value="manual">Manual table charge</option>
-                </select>
+                />
               </label>
 
               <label>
-  Table Rate Per Hour
-  <input
-    type="number"
-    min="0"
-    value={state.tableRatePerHour || 0}
-    disabled
-    title="Auto-fixed based on selected game/table: Pool 400, Mini Snooker 500, Ronnie/12x6 600"
-  />
-</label>
-<label>
-  Manual Table Charge
-  <input
-    type="number"
-    min="0"
-    value={state.tableManualCharge ?? ""}
-    disabled={state.started || state.tableChargeMode !== "manual"}
-    placeholder="Enter table charge"
-    onChange={(e) =>
-      setState((s) => ({
-        ...s,
-        tableManualCharge: e.target.value,
-      }))
-    }
-  />
-</label>
-
-              <label>
-                Table Rounding
-                <select
-                  value={state.tableRoundingMode || "round_up"}
-                  disabled={state.started || state.tableChargeMode === "hide"}
+                Out Penalty (game points)
+                <input
+                  type="number"
+                  min="0"
+                  value={state.outPenalty ?? ""}
+                  disabled={state.started}
+                  placeholder="Enter Out Penalty"
                   onChange={(e) =>
                     setState((s) => ({
                       ...s,
-                      tableRoundingMode: e.target.value,
+                      outPenalty: e.target.value,
                     }))
                   }
-                >
-                  <option value="round_up">Round up: 5 min / 50</option>
-                  <option value="nearest">Nearest: 5 min / 50</option>
-                </select>
+                />
               </label>
             </div>
 
             <div className="muted" style={{ marginTop: 8 }}>
-              Kitty Entry and Out Penalty are game values. Table charge is optional and can be hidden,
-              shown separately, prepaid, or included in the final settlement.
+              Kitty Entry, Out Penalty, Ball Out, DEAD, fouls and Kitty Add-ons belong to the game/scoring record only.
+              They do not change the table bill.
+            </div>
+
+            <div
+              style={{
+                marginTop: 14,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid rgba(52,211,153,.35)",
+                background: "rgba(16,185,129,.08)",
+              }}
+            >
+              <h3 style={{ margin: "0 0 10px" }}>Official Kitty Table Billing</h3>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                <div>
+                  <div className="muted">Table Rate</div>
+                  <b>₹{Number(state.tableRatePerHour || 0)}/hr</b>
+                </div>
+                <div>
+                  <div className="muted">Who Pays</div>
+                  <b>Winner only</b>
+                </div>
+                <div>
+                  <div className="muted">Minimum</div>
+                  <b>₹100 per winning chain</b>
+                </div>
+                <div>
+                  <div className="muted">Rounding</div>
+                  <b>Nearest ₹10</b>
+                </div>
+                <div>
+                  <div className="muted">No Winner</div>
+                  <b>₹0 now; time carries forward</b>
+                </div>
+                <div>
+                  <div className="muted">Supported Tables</div>
+                  <b>T1 / T2 ₹600/hr • T3 ₹500/hr</b>
+                </div>
+              </div>
             </div>
           </div>
         </div>
