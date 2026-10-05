@@ -1811,7 +1811,20 @@ function saveData(data) {
   localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
-function handicapFromGroups(group1, group2, game = "snooker") {
+function tournamentHandicapRules(club = {}) {
+  const content = String(club?.handicapContent || "");
+  const adjacentMatch =
+    content.match(/A\s*vs\s*B\s*=\s*(\d+)/i) ||
+    content.match(/B\s*vs\s*C\s*=\s*(\d+)/i);
+  const twoGroupMatch = content.match(/A\s*vs\s*C\s*=\s*(\d+)/i);
+
+  return {
+    adjacent: Math.max(0, safeNum(adjacentMatch?.[1], 6)),
+    twoGroup: Math.max(0, safeNum(twoGroupMatch?.[1], 12)),
+  };
+}
+
+function handicapFromGroups(group1, group2, game = "snooker", rules = {}) {
   const gameKey = tournamentGameKey(game);
 
   if (gameKey !== "snooker") {
@@ -1830,7 +1843,9 @@ function handicapFromGroups(group1, group2, game = "snooker") {
   }
 
   const diff = Math.abs(r1 - r2);
-  const points = diff === 1 ? 6 : 12;
+  const points = diff === 1
+    ? Math.max(0, safeNum(rules?.adjacent, 6))
+    : Math.max(0, safeNum(rules?.twoGroup, 12));
 
   if (r1 > r2) {
     return { handicap1: 0, handicap2: points };
@@ -1841,7 +1856,7 @@ function handicapFromGroups(group1, group2, game = "snooker") {
 /* ---------------------------
    Round robin fixtures
 ---------------------------- */
-function generateRoundRobin(playerIds, allPlayers = []) {
+function generateRoundRobin(playerIds, allPlayers = [], handicapRules = {}) {
   const ids = [...playerIds];
   const BYE = "BYE";
   if (ids.length < 2) return [];
@@ -1868,7 +1883,7 @@ function generateRoundRobin(playerIds, allPlayers = []) {
           p2,
           p1Group: getPlayerGroup(p1),
 p2Group: getPlayerGroup(p2),
-...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules),
           score1: "",
           score2: "",
           break1: "",
@@ -1891,7 +1906,7 @@ p2Group: getPlayerGroup(p2),
   return matches;
 }
 
-function generateKnockout(playerIds, allPlayers = []) {
+function generateKnockout(playerIds, allPlayers = [], handicapRules = {}) {
   const ids = [...playerIds].filter(Boolean);
   if (ids.length < 2) return [];
 
@@ -1933,7 +1948,7 @@ function generateKnockout(playerIds, allPlayers = []) {
       p2,
       p1Group: getPlayerGroup(p1),
 p2Group: getPlayerGroup(p2),
-...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules),
       score1: "",
       score2: "",
       winner: "",
@@ -1988,7 +2003,7 @@ p2Group: String(p2).startsWith("WINNER_") ? "" : getPlayerGroup(p2),
 ...(
   String(p1).startsWith("WINNER_") || String(p2).startsWith("WINNER_")
     ? { handicap1: 0, handicap2: 0 }
-    : handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker")
+    : handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules)
 ),
         score1: "",
         score2: "",
@@ -2013,96 +2028,6 @@ p2Group: String(p2).startsWith("WINNER_") ? "" : getPlayerGroup(p2),
   }
 
   return matches;
-}
-function generateKnockoutForTournamentNow(data, commit, tournamentId) {
-  const tournaments = data.tournaments || [];
-  const tournament = tournaments.find((t) => t.id === tournamentId);
-
-  if (!tournament) {
-    alert("Tournament not found.");
-    return;
-  }
-
-  const participantIds = Array.isArray(tournament.participantIds)
-    ? tournament.participantIds.filter(Boolean)
-    : [];
-
-  if (participantIds.length < 2) {
-    alert("Need at least 2 registered players to generate knockout fixtures.");
-    return;
-  }
-
-  const hasExistingMatches = Array.isArray(tournament.matches) && tournament.matches.length > 0;
-
-  if (hasExistingMatches) {
-    const ok = confirm("Knockout fixtures already exist. Overwrite them?");
-    if (!ok) return;
-  }
-
-  const matches = generateKnockout(participantIds, data.players || []);
-
-  const fixtureAnnouncement = {
-    id: uid(),
-    text: `Knockout fixtures generated for ${tournament.name || "current tournament"} !`,
-    link: "/fixtures",
-    createdAt: Date.now(),
-  };
-
-  commit({
-    ...data,
-    tournaments: tournaments.map((t) =>
-      t.id === tournamentId
-        ? {
-            ...t,
-            format: "knockout",
-            matches,
-          }
-        : t
-    ),
-    announcements: [
-      fixtureAnnouncement,
-      ...(data.announcements || []),
-    ].slice(0, 20),
-  });
-
-  alert("Knockout fixtures generated successfully.");
-}
-function generateKnockoutForTournamentSilently(data, commit, tournamentId) {
-  const tournaments = data.tournaments || [];
-  const tournament = tournaments.find((t) => t.id === tournamentId);
-
-  if (!tournament) return false;
-
-  const participantIds = Array.isArray(tournament.participantIds)
-    ? tournament.participantIds.filter(Boolean)
-    : [];
-
-  if (participantIds.length < 2) return false;
-
-  const matches = generateKnockout(participantIds, data.players || []);
-
-  const fixtureAnnouncement = {
-    id: uid(),
-    text: `Knockout fixtures generated for ${tournament.name || "current tournament"} !`,
-    link: "/fixtures",
-    createdAt: Date.now(),
-  };
-
-  commit({
-    ...data,
-    tournaments: tournaments.map((t) =>
-      t.id === tournamentId
-        ? {
-            ...t,
-            format: "knockout",
-            matches,
-          }
-        : t
-    ),
-    announcements: [fixtureAnnouncement, ...(data.announcements || [])].slice(0, 20),
-  });
-
-  return true;
 }
 /* ---------------------------
    Leaderboard calc (per tournament)
@@ -2347,6 +2272,8 @@ const scorerOnlyPaths = [
     "/qclubledger",
     "/QclubPay",
     "/qclubpay",
+    "/tvdisplay",
+    "/tv-display",
 ];
 
 const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
@@ -3827,6 +3754,16 @@ latestDataRef.current = fresh;
   }
 />
 <Route
+  path="/leaderboards"
+  element={
+    <LeaderboardAll
+      data={data}
+      onOpenPlayer={openPlayerModal}
+    />
+  }
+/>
+<Route path="/fictures" element={<Navigate to="/fixtures" replace />} />
+<Route
   path="/staff-walkins"
   element={
     <StaffWalkinBookings
@@ -3872,6 +3809,23 @@ latestDataRef.current = fresh;
     </Suspense>
   }
 />
+<Route
+  path="/tvdisplay"
+  element={
+    <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading TV display...</div></div></div>}>
+      <TVMode
+        data={data}
+        activeTournament={activeTournament}
+        players={data.players || []}
+        admin={false}
+        staffAdmin={false}
+        commit={commit}
+        displayOnly
+      />
+    </Suspense>
+  }
+/>
+<Route path="/tv-display" element={<Navigate to="/tvdisplay" replace />} />
         <Route
   path="/review-panel"
   element={
@@ -10249,11 +10203,9 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
                   <button
                     className="btn primary"
                     type="button"
-                    onClick={() =>
-                      generateKnockoutForTournamentNow(data, commit, currentTournament.id)
-                    }
+                    onClick={() => navigate(`/fixtures?id=${currentTournament.id}`)}
                   >
-                    Generate Knockout Now
+                    Open Fixtures Manager
                   </button>
                 ) : null}
 
@@ -10596,6 +10548,16 @@ committeeNotes: "",
 }
   async function deletePlayer(id) {
     if (!admin) return alert("Admin only");
+
+    const referencedTournament = (data.tournaments || []).find((t) =>
+      (t.participantIds || []).includes(id) ||
+      (t.matches || []).some((m) => m.p1 === id || m.p2 === id || m.winner === id)
+    );
+    if (referencedTournament) {
+      alert(`This player is part of tournament history (${referencedTournament.name || "Tournament"}). Deletion is blocked so fixtures and leaderboards are not rewritten.`);
+      return;
+    }
+
     if (!confirm("Delete this player?")) return;
 
     const current = (data.players || []).find((p) => p.id === id);
@@ -10604,11 +10566,6 @@ committeeNotes: "",
     commit({
       ...data,
       players: (data.players || []).filter((p) => p.id !== id),
-      tournaments: (data.tournaments || []).map((t) => ({
-        ...t,
-        participantIds: (t.participantIds || []).filter((pid) => pid !== id),
-        matches: (t.matches || []).filter((m) => m.p1 !== id && m.p2 !== id),
-      })),
     });
 
     if (selectedPlayerId === id) setSelectedPlayerId("");
@@ -11154,11 +11111,12 @@ function Tournaments({ data, admin, commit }) {
                   Registered Players
                 </Link>
 
-                {admin ? (
-                  <Link className="btn" to="/fixtures">
-                    Manage Fixtures
-                  </Link>
-                ) : null}
+                <Link className="btn" to={`/fixtures?id=${t.id}`}>
+                  {admin ? "Manage Fixtures" : "View Fixtures"}
+                </Link>
+                <Link className="btn" to={`/leaderboard?id=${t.id}`}>
+                  Leaderboard
+                </Link>
               </div>
             </div>
           ))}
@@ -11178,10 +11136,12 @@ const queryTournamentId = params.get("id") || "";
   if (queryTournamentId) return queryTournamentId;
   return tournaments[0]?.id || "";
 });
+  const [fixtureFilter, setFixtureFilter] = useState("all");
 useEffect(() => {
   if (!queryTournamentId) return;
-  setSelectedTournamentId((prev) => prev || queryTournamentId);
-}, [queryTournamentId]);
+  if (!(tournaments || []).some((t) => t.id === queryTournamentId)) return;
+  setSelectedTournamentId(queryTournamentId);
+}, [queryTournamentId, tournaments]);
 
   useEffect(() => {
     if (!selectedTournamentId && tournaments[0]?.id) {
@@ -11231,12 +11191,25 @@ const canPrintFixtures = admin || staffAdmin;
       return alert("Need at least 2 players to generate fixtures.");
     }
 
-    if (!confirm("Generate / regenerate fixtures for this tournament?")) return;
+    const existingMatches = selectedTournament.matches || [];
+    const hasEnteredResults = existingMatches.some((m) =>
+      m.status === "done" ||
+      m.status === "live" ||
+      String(m.score1 ?? "").trim() ||
+      String(m.score2 ?? "").trim() ||
+      String(m.result ?? "").trim() ||
+      String(m.winner ?? "").trim()
+    );
+    const warning = existingMatches.length
+      ? `This will replace ${existingMatches.length} existing fixture(s)${hasEnteredResults ? " and erase entered/live results" : ""}. Continue?`
+      : "Generate fixtures for this tournament?";
+    if (!confirm(warning)) return;
 
+    const handicapRules = tournamentHandicapRules(data.club);
     const matches =
   format === "knockout"
-    ? generateKnockout(pool.map((p) => p.id), players)
-    : generateRoundRobin(pool.map((p) => p.id), players);
+    ? generateKnockout(pool.map((p) => p.id), players, handicapRules)
+    : generateRoundRobin(pool.map((p) => p.id), players, handicapRules);
 
     commit({
       ...data,
@@ -11321,7 +11294,7 @@ const canPrintFixtures = admin || staffAdmin;
     next.p2 &&
     !String(next.p1).startsWith("WINNER_") &&
     !String(next.p2).startsWith("WINNER_")
-      ? handicapFromGroups(nextP1Group, nextP2Group, "snooker")
+      ? handicapFromGroups(nextP1Group, nextP2Group, "snooker", tournamentHandicapRules(data.club))
       : { handicap1: 0, handicap2: 0 };
 
   next.p1Group = nextP1Group;
@@ -11352,11 +11325,13 @@ const canPrintFixtures = admin || staffAdmin;
     const match = (selectedTournament.matches || []).find((m) => m.id === matchId);
     if (!match) return;
 
-    const s1 = Number(match.score1);
-    const s2 = Number(match.score2);
+    const rawScore1 = String(match.score1 ?? "").trim();
+    const rawScore2 = String(match.score2 ?? "").trim();
+    const s1 = Number(rawScore1);
+    const s2 = Number(rawScore2);
 
-    if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
-      return alert("Enter valid numeric scores first.");
+    if (!rawScore1 || !rawScore2 || !Number.isFinite(s1) || !Number.isFinite(s2) || s1 < 0 || s2 < 0) {
+      return alert("Enter both valid non-negative scores first.");
     }
 
     commit({
@@ -11397,10 +11372,14 @@ const canPrintFixtures = admin || staffAdmin;
   }
 
   function playerName(id) {
-  return tournamentPlayers.find((p) => p.id === id)?.name || "Unknown Player";
+  const token = String(id || "");
+  const winnerMatch = token.match(/^WINNER_R(\d+)_M(\d+)$/);
+  if (winnerMatch) return `Winner R${winnerMatch[1]} M${winnerMatch[2]}`;
+  return tournamentPlayers.find((p) => p.id === id)?.name || players.find((p) => p.id === id)?.name || "TBD";
 }
 function playerGroup(id) {
-  return tournamentPlayers.find((p) => p.id === id)?.group || "C";
+  if (String(id || "").startsWith("WINNER_")) return "";
+  return tournamentPlayers.find((p) => p.id === id)?.group || players.find((p) => p.id === id)?.group || "C";
 }
 function handicapLabel(m) {
   const h1 = Number(m.handicap1 || 0);
@@ -11412,6 +11391,7 @@ function handicapLabel(m) {
   ? calcLeaderboard(tournamentPlayers, selectedTournament)
   : [];
 function updateMatchStatus(matchId, status) {
+  if (!admin || !selectedTournament) return;
 
   commit({
     ...data,
@@ -11430,6 +11410,27 @@ function updateMatchStatus(matchId, status) {
   });
 
 }
+  const fixtureMatches = selectedTournament?.matches || [];
+  const liveFixtureCount = fixtureMatches.filter((m) => m.status === "live").length;
+  const doneFixtureCount = fixtureMatches.filter((m) => m.status === "done").length;
+  const upcomingFixtureCount = fixtureMatches.filter((m) => !["live", "done"].includes(m.status)).length;
+  const visibleFixtureMatches = fixtureMatches.filter((m) => {
+    if (fixtureFilter === "live") return m.status === "live";
+    if (fixtureFilter === "upcoming") return !["live", "done"].includes(m.status);
+    if (fixtureFilter === "done") return m.status === "done";
+    return true;
+  });
+  const fixtureIntegrityIssues = fixtureMatches.filter((m) => {
+    if (isKnockout) {
+      const hasWinner = Boolean(String(m.winner || "").trim());
+      return (hasWinner && m.status !== "done") || (!hasWinner && m.status === "done");
+    }
+    if (m.status === "done") {
+      return !String(m.score1 ?? "").trim() || !String(m.score2 ?? "").trim();
+    }
+    return false;
+  });
+
   return (
     <>
       <PageShell
@@ -11447,6 +11448,12 @@ function updateMatchStatus(matchId, status) {
                 </option>
               ))}
             </select>
+
+            {(admin || staffAdmin) && selectedTournament ? (
+              <a className="btn" href={`/tvdisplay?id=${selectedTournament.id}`} target="_blank" rel="noopener noreferrer">
+                Open TV Display
+              </a>
+            ) : null}
 
             {admin ? (
   <>
@@ -11469,6 +11476,14 @@ function updateMatchStatus(matchId, status) {
           </div>
         ) : (
           <>
+            {fixtureIntegrityIssues.length ? (
+              <div className="card" style={{ marginBottom: 14, borderColor: "rgba(255,193,7,.45)" }}>
+                <b>Fixture status review needed</b>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {fixtureIntegrityIssues.length} match{fixtureIntegrityIssues.length === 1 ? "" : "es"} have stored result/winner data that does not match the saved status. No result was changed automatically.
+                </div>
+              </div>
+            ) : null}
             <div className="grid">
               {admin ? (
               <div className="card cols-5">
@@ -11481,14 +11496,14 @@ function updateMatchStatus(matchId, status) {
                 </div>
 
                 <div className="muted" style={{ marginTop: 10 }}>
-                  Choose players for this tournament. If none are selected, all eligible players will be used.
+                  Select the eligible players who are actually entering this tournament. Registered players stay checked automatically.
                 </div>
 
                 <div style={{ marginTop: 14 }}>
-                  {tournamentPlayers.length === 0 ? (
-  <div className="muted">No players registered yet.</div>
+                  {eligiblePlayers.length === 0 ? (
+  <div className="muted">No eligible players are available for this tournament.</div>
 ) : (
-  tournamentPlayers.map((p) => {
+  eligiblePlayers.map((p) => {
                       const checked = (selectedTournament.participantIds || []).includes(p.id);
                       return (
                         <label
@@ -11567,7 +11582,7 @@ function updateMatchStatus(matchId, status) {
                     No standings yet. Generate fixtures and mark matches done.
                   </div>
                 ) : (
-                  <div style={{ marginTop: 12 }}>
+                  <div className="fixtureTableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
                     <table>
                       <thead>
                         <tr>
@@ -11620,8 +11635,11 @@ function updateMatchStatus(matchId, status) {
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <h2 style={{ margin: 0 }}>Matches</h2>
                   <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <div className="muted">
-                      {selectedTournament.matches?.length || 0} fixtures
+                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className={fixtureFilter === "all" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("all")}>All {fixtureMatches.length}</button>
+                      <button type="button" className={fixtureFilter === "live" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("live")}>Live {liveFixtureCount}</button>
+                      <button type="button" className={fixtureFilter === "upcoming" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("upcoming")}>Upcoming {upcomingFixtureCount}</button>
+                      <button type="button" className={fixtureFilter === "done" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("done")}>Completed {doneFixtureCount}</button>
                     </div>
                     {canPrintFixtures ? (
                       <button
@@ -11647,7 +11665,7 @@ function updateMatchStatus(matchId, status) {
     Fixture will be generated after registration closes.
   </div>
 ) : (
-                  <div style={{ marginTop: 12 }}>
+                  <div className="fixtureTableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
                     <table>
                       <thead>
                         <tr>
@@ -11665,7 +11683,7 @@ function updateMatchStatus(matchId, status) {
 </tr>
                       </thead>
                       <tbody>
-                        {(selectedTournament.matches || []).map((m) => (
+                        {visibleFixtureMatches.map((m) => (
                           <tr key={m.id}>
                             <td>{m.round}</td>
                             <td>
@@ -11848,6 +11866,7 @@ function updateMatchStatus(matchId, status) {
                                   className={m.status === "done" ? "dot" : "dot warn"}
                                 />
                                 {m.status || "scheduled"}
+                                {isKnockout && String(m.winner || "").trim() && m.status !== "done" ? " • winner recorded" : ""}
                               </span>
                             </td>
                             <td>
@@ -11862,12 +11881,22 @@ function updateMatchStatus(matchId, status) {
           Reopen
         </button>
       ) : (
-        <button
-          className="btn primary"
-          onClick={() => advanceKnockoutWinner(m.id)}
-        >
-          Advance Winner
-        </button>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {m.status !== "live" ? (
+            <button
+              className="btn"
+              onClick={() => updateMatchStatus(m.id, "live")}
+            >
+              Go Live
+            </button>
+          ) : null}
+          <button
+            className="btn primary"
+            onClick={() => advanceKnockoutWinner(m.id)}
+          >
+            Advance Winner
+          </button>
+        </div>
       )
     ) : (
       m.status === "done" ? (
@@ -11878,12 +11907,22 @@ function updateMatchStatus(matchId, status) {
           Reopen
         </button>
       ) : (
-        <button
-          className="btn primary"
-          onClick={() => markMatchDone(m.id)}
-        >
-          Mark Done
-        </button>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {m.status !== "live" ? (
+            <button
+              className="btn"
+              onClick={() => updateMatchStatus(m.id, "live")}
+            >
+              Go Live
+            </button>
+          ) : null}
+          <button
+            className="btn primary"
+            onClick={() => markMatchDone(m.id)}
+          >
+            Mark Done
+          </button>
+        </div>
       )
     )}
   </div>
@@ -12044,16 +12083,23 @@ function printFixtureSlip({ tournament = null, matches = [], players = [] }) {
 function LeaderboardAll({ data, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
+  const location = useLocation();
+  const leaderboardParams = new URLSearchParams(location.search);
+  const leaderboardTournamentId = leaderboardParams.get("id") || "";
 
   const [selectedTournamentId, setSelectedTournamentId] = useState(
-    tournaments[0]?.id || ""
+    leaderboardTournamentId || tournaments[0]?.id || ""
   );
 
   useEffect(() => {
+    if (leaderboardTournamentId && tournaments.some((t) => t.id === leaderboardTournamentId)) {
+      setSelectedTournamentId(leaderboardTournamentId);
+      return;
+    }
     if (!selectedTournamentId && tournaments[0]?.id) {
       setSelectedTournamentId(tournaments[0].id);
     }
-  }, [selectedTournamentId, tournaments]);
+  }, [leaderboardTournamentId, selectedTournamentId, tournaments]);
 
   const selectedTournament =
     tournaments.find((t) => t.id === selectedTournamentId) || null;
@@ -13360,12 +13406,29 @@ return (
 function HallOfFame({ data, admin, commit }) {
 
   const entries = data.hallOfFame || [];
+  const players = data.players || [];
+
+  function linkedPlayer(entry) {
+    return players.find((p) => p.id === entry?.playerId) || null;
+  }
+
+  function hallName(entry) {
+    return linkedPlayer(entry)?.name || entry?.name || "Player";
+  }
+
+  function hallPhoto(entry) {
+    return entry?.photo || linkedPlayer(entry)?.photo || "";
+  }
 
   function addEntry() {
     if (!admin) return alert("Admin only");
 
     const name = prompt("Player name:");
     if (!name) return;
+
+    const matchedPlayer = players.find(
+      (p) => String(p.name || "").trim().toLowerCase() === String(name).trim().toLowerCase()
+    );
 
     const title = prompt("Achievement / Title:", "Tournament Champion");
     if (!title) return;
@@ -13379,7 +13442,8 @@ function HallOfFame({ data, admin, commit }) {
         ...entries,
         {
           id: uid(),
-          name,
+          playerId: matchedPlayer?.id || "",
+          name: matchedPlayer?.name || name,
           title,
           year,
           photo: "",
@@ -13469,10 +13533,10 @@ function HallOfFame({ data, admin, commit }) {
 
               <div className="row" style={{gap:16}}>
 
-                {e.photo ? (
+                {hallPhoto(e) ? (
                   <img
-                    src={e.photo}
-                    alt={e.name}
+                    src={hallPhoto(e)}
+                    alt={hallName(e)}
                     style={{
                       width:80,
                       height:80,
@@ -13482,14 +13546,15 @@ function HallOfFame({ data, admin, commit }) {
                   />
                 ) : (
                   <div className="avatarLarge">
-                    {e.name?.charAt(0)}
+                    {hallName(e).charAt(0)}
                   </div>
                 )}
 
                 <div>
-                  <h2 style={{margin:0}}>{e.name}</h2>
+                  <h2 style={{margin:0}}>{hallName(e)}</h2>
                   <div className="badge">{e.title}</div>
                   <div className="muted">{e.year}</div>
+                  {e.playerId ? <Link className="player-link" to={`/players?playerId=${e.playerId}`}>View player profile</Link> : null}
                 </div>
 
               </div>

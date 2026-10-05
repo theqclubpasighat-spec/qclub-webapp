@@ -17,6 +17,7 @@ const PUBLIC_V2_PATHS = new Set([
   "/tournament-register",
   "/fixtures",
   "/leaderboard",
+  "/leaderboards",
   "/players",
   "/handicap",
   "/halloffame",
