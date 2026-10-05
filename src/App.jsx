@@ -11183,11 +11183,12 @@ function Tournaments({ data, admin, commit }) {
                   Registered Players
                 </Link>
 
-                {admin ? (
-                  <Link className="btn" to="/fixtures">
-                    Manage Fixtures
-                  </Link>
-                ) : null}
+                <Link className="btn" to={`/fixtures?id=${t.id}`}>
+                  {admin ? "Manage Fixtures" : "View Fixtures"}
+                </Link>
+                <Link className="btn" to={`/leaderboard?id=${t.id}`}>
+                  Leaderboard
+                </Link>
               </div>
             </div>
           ))}
@@ -11262,7 +11263,19 @@ const canPrintFixtures = admin || staffAdmin;
       return alert("Need at least 2 players to generate fixtures.");
     }
 
-    if (!confirm("Generate / regenerate fixtures for this tournament?")) return;
+    const existingMatches = selectedTournament.matches || [];
+    const hasEnteredResults = existingMatches.some((m) =>
+      m.status === "done" ||
+      m.status === "live" ||
+      String(m.score1 ?? "").trim() ||
+      String(m.score2 ?? "").trim() ||
+      String(m.result ?? "").trim() ||
+      String(m.winner ?? "").trim()
+    );
+    const warning = existingMatches.length
+      ? `This will replace ${existingMatches.length} existing fixture(s)${hasEnteredResults ? " and erase entered/live results" : ""}. Continue?`
+      : "Generate fixtures for this tournament?";
+    if (!confirm(warning)) return;
 
     const matches =
   format === "knockout"
@@ -11428,10 +11441,14 @@ const canPrintFixtures = admin || staffAdmin;
   }
 
   function playerName(id) {
-  return tournamentPlayers.find((p) => p.id === id)?.name || "Unknown Player";
+  const token = String(id || "");
+  const winnerMatch = token.match(/^WINNER_R(\d+)_M(\d+)$/);
+  if (winnerMatch) return `Winner R${winnerMatch[1]} M${winnerMatch[2]}`;
+  return tournamentPlayers.find((p) => p.id === id)?.name || players.find((p) => p.id === id)?.name || "TBD";
 }
 function playerGroup(id) {
-  return tournamentPlayers.find((p) => p.id === id)?.group || "C";
+  if (String(id || "").startsWith("WINNER_")) return "";
+  return tournamentPlayers.find((p) => p.id === id)?.group || players.find((p) => p.id === id)?.group || "C";
 }
 function handicapLabel(m) {
   const h1 = Number(m.handicap1 || 0);
@@ -11528,8 +11545,8 @@ function updateMatchStatus(matchId, status) {
                 </div>
 
                 <div style={{ marginTop: 14 }}>
-                  {tournamentPlayers.length === 0 ? (
-  <div className="muted">No players registered yet.</div>
+                  {eligiblePlayers.length === 0 ? (
+  <div className="muted">No eligible players are available for this tournament.</div>
 ) : (
   eligiblePlayers.map((p) => {
                       const checked = (selectedTournament.participantIds || []).includes(p.id);
@@ -11693,7 +11710,7 @@ function updateMatchStatus(matchId, status) {
     Fixture will be generated after registration closes.
   </div>
 ) : (
-                  <div style={{ marginTop: 12 }}>
+                  <div className="fixtureTableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
                     <table>
                       <thead>
                         <tr>
@@ -12110,16 +12127,23 @@ function printFixtureSlip({ tournament = null, matches = [], players = [] }) {
 function LeaderboardAll({ data, onOpenPlayer }) {
   const tournaments = data.tournaments || [];
   const players = data.players || [];
+  const location = useLocation();
+  const leaderboardParams = new URLSearchParams(location.search);
+  const leaderboardTournamentId = leaderboardParams.get("id") || "";
 
   const [selectedTournamentId, setSelectedTournamentId] = useState(
-    tournaments[0]?.id || ""
+    leaderboardTournamentId || tournaments[0]?.id || ""
   );
 
   useEffect(() => {
+    if (leaderboardTournamentId && tournaments.some((t) => t.id === leaderboardTournamentId)) {
+      setSelectedTournamentId(leaderboardTournamentId);
+      return;
+    }
     if (!selectedTournamentId && tournaments[0]?.id) {
       setSelectedTournamentId(tournaments[0].id);
     }
-  }, [selectedTournamentId, tournaments]);
+  }, [leaderboardTournamentId, selectedTournamentId, tournaments]);
 
   const selectedTournament =
     tournaments.find((t) => t.id === selectedTournamentId) || null;
