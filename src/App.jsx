@@ -3111,6 +3111,7 @@ function shouldAutoPrintFoodOrders() {
       sessionStorage.removeItem("qclub_admin_role");
       sessionStorage.removeItem("qclub_admin_access_token_v2");
       localStorage.removeItem("qclub_admin_role");
+      window.dispatchEvent(new Event("qclub-secure-session-changed"));
     } catch {}
     return;
   }
@@ -3134,6 +3135,7 @@ function shouldAutoPrintFoodOrders() {
     setAdminRole(role);
     sessionStorage.setItem("qclub_admin_role", role);
     sessionStorage.setItem("qclub_admin_access_token_v2", result.access_token);
+    window.dispatchEvent(new Event("qclub-secure-session-changed"));
   } catch {
     alert("Cannot reach secure login. Please try again.");
   }
