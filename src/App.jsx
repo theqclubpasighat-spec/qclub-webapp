@@ -8640,14 +8640,11 @@ if (!requestedEndTime || !Number.isFinite(requestedEndMinutes) || requestedEndMi
     return false;
   }
 
-  commit({
-  ...data,
-  booking: {
-    ...(data.booking || {}),
-    tables,
-    requests: [req, ...(data.booking?.requests || [])],
-  },
-});
+  fetch("/api/snooker/v1/website/state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "booking", payload: req }),
+  }).catch((error) => console.warn("Secure booking inbox save failed:", error));
 saveBookingRequestOperationalRecord(req).catch((error) => {
   console.warn("Booking request operational dual-write failed:", error);
 });
