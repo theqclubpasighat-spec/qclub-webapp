@@ -6405,6 +6405,7 @@ function QShopPage({ data, admin, commit, startPayment }) {
   });
 
   const [lightbox, setLightbox] = useState(null);
+  const [detailItemId, setDetailItemId] = useState("");
     const sharedLinkHandledRef = useRef("");
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -7404,280 +7405,59 @@ saveShopItems(
           </div>
         ) : null}
 
-        <div className="shopProductGrid">
+        <div className="shopProductGrid shopStorefrontGrid">
           {normalizedShopItems.map((item) => {
             const selectedOption = getSelectedOption(item);
             const selectedOptionId = selectedOption?.id || "";
             const availableStock = getAvailableStock(item, selectedOptionId);
             const currentQty = itemQty(item.id, selectedOptionId);
-            const galleryImages = getGalleryImages(item);
-            const currentImageIndex = Math.min(
-              Math.max(0, safeNum(selectedImageIndex[item.id], 0)),
-              Math.max(0, galleryImages.length - 1)
-            );
-            const currentImage = galleryImages[currentImageIndex] || "";
-
+            const currentImage = getGalleryImages(item)[0] || "";
             return (
-              <div
-  key={item.id}
-  id={`shop-item-${item.id}`}
-  className="card shopProductCard"
->
-                <button
-                  type="button"
-                  onClick={() => openLightbox(item, currentImageIndex)}
-                  style={{
-                    width: "100%",
-                    border: "none",
-                    padding: 0,
-                    margin: 0,
-                    background: "transparent",
-                    cursor: currentImage ? "zoom-in" : "default",
-                  }}
-                >
-                  <img
-                    src={currentImage}
-                    alt={item.name}
-                    className="shopProductMainImage"
-                    style={{
-                      width: "100%",
-                      height: 156,
-                      objectFit: "contain",
-                      objectPosition: "center",
-                      borderRadius: 16,
-                      marginBottom: 10,
-                      background: "#0b1020",
-                      padding: 8,
-                      display: "block",
-                    }}
-                  />
+              <article key={item.id} id={`shop-item-${item.id}`} className="card shopProductCard shopStorefrontCard">
+                <button type="button" className="shopStorefrontOpen" onClick={() => setDetailItemId(item.id)} aria-label={`View ${item.name}`}>
+                  <div className="shopStorefrontImageBox"><img src={currentImage} alt={item.name} className="shopStorefrontImage" /></div>
+                  <div className="shopStorefrontCardBody">
+                    <h3>{item.name}</h3>
+                    <div className="shopStorefrontPrice">₹{safeNum(item.price, 0)}</div>
+                    <div className="muted shopStorefrontStock">{availableStock > 0 ? `${availableStock} in stock` : "Out of stock"}</div>
+                  </div>
                 </button>
-
-                {galleryImages.length > 1 ? (
-                  <div className="shopGalleryThumbRow">
-                    {galleryImages.map((imgSrc, imgIndex) => (
-                      <button
-                        key={`${item.id}_thumb_${imgIndex}`}
-                        type="button"
-                        onClick={() => setItemImageIndex(item.id, imgIndex)}
-                        className="shopGalleryThumbBtn"
-                        style={{
-                          flex: "0 0 auto",
-                          width: 46,
-                          height: 46,
-                          padding: 3,
-                          borderRadius: 10,
-                          border:
-                            imgIndex === currentImageIndex
-                              ? "1px solid rgba(56,211,159,.7)"
-                              : "1px solid rgba(255,255,255,.12)",
-                          background:
-                            imgIndex === currentImageIndex
-                              ? "rgba(56,211,159,.10)"
-                              : "rgba(255,255,255,.03)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <img
-                          src={imgSrc}
-                          alt={`${item.name} ${imgIndex + 1}`}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            borderRadius: 8,
-                            display: "block",
-                          }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                  <h3 style={{ margin: 0 }}>{item.name}</h3>
-                  <span className="badge">{item.badge}</span>
-                </div>
-
-                <div className="muted" style={{ marginTop: 8 }}>
-                  {item.desc}
-                </div>
-
-                {itemHasOptions(item) ? (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="muted" style={{ marginBottom: 8 }}>
-                      Select {item.optionGroupLabel || "Option"}:
-                    </div>
-
-                    <div className="row shopOptionRow" style={{ gap: 8, flexWrap: "wrap" }}>
-                      {item.options.map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          className="btn"
-                          onClick={() => changeSelectedOption(item.id, opt.id)}
-                          style={{
-                            borderColor:
-                              selectedOptionId === opt.id
-                                ? "rgba(56,211,159,.6)"
-                                : "rgba(255,255,255,.12)",
-                            background:
-                              selectedOptionId === opt.id
-                                ? "rgba(56,211,159,.12)"
-                                : "rgba(255,255,255,.04)",
-                            opacity: Math.max(0, safeNum(opt.stock, 0)) > 0 ? 1 : 0.55,
-                          }}
-                        >
-                          {opt.label} ({Math.max(0, safeNum(opt.stock, 0))})
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div style={{ marginTop: 14, fontWeight: 800, fontSize: "1.05rem" }}>
-                  ₹{safeNum(item.price, 0)}
-                </div>
-
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Stock: {availableStock}
-                </div>
-                                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    className="btn"
-                    type="button"
-                    onClick={async () => {
-                      const shareUrl = buildShopShareUrl(item, selectedOption);
-                      try {
-                        await navigator.clipboard.writeText(shareUrl);
-                        alert("Product link copied.");
-                      } catch {
-                        prompt("Copy this product link:", shareUrl);
-                      }
-                    }}
-                  >
-                    Copy Product Link
-                  </button>
-                </div>
-                                {String(item.amazonUrl || "").trim() ? (
-                  <div style={{ marginTop: 12 }}>
-                    <a
-                      className="btn"
-                      href={String(item.amazonUrl || "").trim()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "inline-flex",
-                        width: "100%",
-                        justifyContent: "center",
-                        textAlign: "center",
-                      }}
-                    >
-                      Compare with Amazon
-                    </a>
-                  </div>
-                ) : null}
-
-                {!admin ? (
-                  <div
-                    className="row"
-                    style={{ marginTop: 14, gap: 8, flexWrap: "wrap", alignItems: "center" }}
-                  >
-                    <button
-                      className="btn secondary"
-                      type="button"
-                      onClick={() => removeFromCart(item.id, selectedOptionId)}
-                    >
-                      −
-                    </button>
-
-                    <div style={{ minWidth: 24, textAlign: "center", fontWeight: 800 }}>
-                      {currentQty}
-                    </div>
-
-                    <button
-                      className="btn secondary"
-                      type="button"
-                      onClick={() => addToCart(item.id)}
-                      disabled={currentQty >= availableStock}
-                    >
-                      +
-                    </button>
-
-                    <button
-                      className="btn primary"
-                      type="button"
-                      onClick={() => addToCart(item.id)}
-                      disabled={availableStock <= 0 || currentQty >= availableStock}
-                    >
-                      Add to Cart
-                    </button>
-                  </div>
-                ) : (
-                  <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-                                      <button
-                      className="btn"
-                      type="button"
-                      onClick={async () => {
-                        const shareUrl = buildShopShareUrl(item, selectedOption);
-                        try {
-                          await navigator.clipboard.writeText(shareUrl);
-                          alert("Product link copied.");
-                        } catch {
-                          prompt("Copy this product link:", shareUrl);
-                        }
-                      }}
-                    >
-                      Copy Link
-                    </button>
-                    <label className="btn secondary" style={{ cursor: "pointer" }}>
-                      Upload Image
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: "none" }}
-                        onChange={(e) => uploadShopItemImage(item.id, e.target.files?.[0])}
-                      />
-                    </label>
-
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => editShopItem(item.id)}
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      className="btn warn"
-                      type="button"
-                      onClick={() => deleteCurrentShopItemImage(item.id)}
-                    >
-                      Delete Current Image
-                    </button>
-
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => clearShopItemImages(item.id)}
-                    >
-                      Reset Gallery
-                    </button>
-
-                    <button
-                      className="btn danger"
-                      type="button"
-                      onClick={() => deleteShopItem(item.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </div>
+                {!admin ? <button className="btn primary shopStorefrontAdd" type="button" onClick={() => addToCart(item.id)} disabled={availableStock <= 0 || currentQty >= availableStock}>Add to Cart</button> : <button className="btn" type="button" onClick={() => setDetailItemId(item.id)}>Manage</button>}
+              </article>
             );
           })}
         </div>
 
+        {detailItemId ? (() => {
+          const item = normalizedShopItems.find((row) => row.id === detailItemId);
+          if (!item) return null;
+          const selectedOption = getSelectedOption(item);
+          const selectedOptionId = selectedOption?.id || "";
+          const availableStock = getAvailableStock(item, selectedOptionId);
+          const currentQty = itemQty(item.id, selectedOptionId);
+          const galleryImages = getGalleryImages(item);
+          const currentImageIndex = Math.min(Math.max(0, safeNum(selectedImageIndex[item.id], 0)), Math.max(0, galleryImages.length - 1));
+          const currentImage = galleryImages[currentImageIndex] || "";
+          return <div className="shopDetailOverlay" role="dialog" aria-modal="true" aria-label={item.name} onClick={() => setDetailItemId("")}>
+            <section className="shopDetailPanel" onClick={(e) => e.stopPropagation()}>
+              <div className="shopDetailHeader"><button className="btn secondary" type="button" onClick={() => setDetailItemId("")}>← Back to Q Shop</button><button className="iconBtn shopDetailClose" type="button" onClick={() => setDetailItemId("")} aria-label="Close product details">✕</button></div>
+              <div className="shopDetailLayout">
+                <div>
+                  <button className="shopDetailMainImageButton" type="button" onClick={() => openLightbox(item, currentImageIndex)}><img src={currentImage} alt={item.name} className="shopDetailMainImage" /></button>
+                  {galleryImages.length > 1 ? <div className="shopGalleryThumbRow">{galleryImages.map((src,index)=><button key={src+index} type="button" className="shopGalleryThumbBtn" onClick={()=>setItemImageIndex(item.id,index)}><img src={src} alt={`${item.name} ${index+1}`} /></button>)}</div> : null}
+                </div>
+                <div className="shopDetailInfo">
+                  <div className="row" style={{justifyContent:"space-between",gap:10}}><h2>{item.name}</h2>{item.badge ? <span className="badge">{item.badge}</span> : null}</div>
+                  <p className="muted">{item.desc}</p>
+                  {itemHasOptions(item) ? <div className="shopDetailOptions"><div className="muted">Select {item.optionGroupLabel || "Option"}:</div><div className="row shopOptionRow">{item.options.map(opt=><button key={opt.id} type="button" className="btn" onClick={()=>changeSelectedOption(item.id,opt.id)} disabled={safeNum(opt.stock,0)<=0}>{opt.label} ({Math.max(0,safeNum(opt.stock,0))})</button>)}</div></div> : null}
+                  <div className="shopDetailPrice">₹{safeNum(item.price,0)}</div><div className="muted">Stock: {availableStock}</div>
+                  {!admin ? <div className="row shopDetailCart"><button className="btn secondary" type="button" onClick={()=>removeFromCart(item.id,selectedOptionId)}>−</button><strong>{currentQty}</strong><button className="btn secondary" type="button" onClick={()=>addToCart(item.id)} disabled={currentQty>=availableStock}>+</button><button className="btn primary" type="button" onClick={()=>addToCart(item.id)} disabled={availableStock<=0||currentQty>=availableStock}>Add to Cart</button></div> : <div className="row shopDetailAdmin"><label className="btn secondary">Upload Image<input type="file" accept="image/*" style={{display:"none"}} onChange={(e)=>uploadShopItemImage(item.id,e.target.files?.[0])}/></label><button className="btn" type="button" onClick={()=>editShopItem(item.id)}>Edit</button><button className="btn danger" type="button" onClick={()=>deleteShopItem(item.id)}>Delete</button></div>}
+                  {String(item.amazonUrl||"").trim() ? <a className="shopDetailExternal" href={String(item.amazonUrl).trim()} target="_blank" rel="noopener noreferrer">Compare price on Amazon ↗</a> : null}
+                </div>
+              </div>
+            </section>
+          </div>;
+        })() : null}
         
       </div>
             {!admin && cart.length > 0 && !(showCart || showCheckout) ? (
