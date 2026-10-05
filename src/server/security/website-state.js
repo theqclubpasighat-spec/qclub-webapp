@@ -12,12 +12,12 @@ const ITEM=['id','name','displayName','description','price','image','imagePath',
 const PRIVATE={
  ADMIN:['jobApplications','memberRegistry','foodOrders','archivedFoodOrders','shopReceipts','paymentOrders','inventoryItems','speakerAlerts','whatsappJobs','reviewHistory','matchLedger','qChaseActiveGames'],
  STAFF:['memberRegistry','foodOrders','archivedFoodOrders','shopReceipts','inventoryItems','speakerAlerts','whatsappJobs','matchLedger','qChaseActiveGames'],
- COMMITTEE:['reviewHistory','matchLedger','qChaseActiveGames'],
+ COMMITTEE:['reviewHistory'],
 };
 const WRITABLE={
  ADMIN:['club','offers','photos','booking','players','foodPage','hallOfFame','jobSettings','membersPage','memberships','menuCatalog','shopCatalog','tournaments','mediaLibrary','jobApplications','memberRegistry','foodOrders','archivedFoodOrders','shopReceipts','inventoryItems','speakerAlerts','whatsappJobs','reviewHistory','matchLedger','qChaseActiveGames'],
  STAFF:['booking','foodOrders','archivedFoodOrders','shopReceipts','inventoryItems','speakerAlerts','whatsappJobs','matchLedger','qChaseActiveGames'],
- COMMITTEE:['players','tournaments','reviewHistory','matchLedger','qChaseActiveGames'],
+ COMMITTEE:['players','reviewHistory'],
 };
 export function websitePublicState(state={}){
  const club=fields(state.club,CLUB);
@@ -65,20 +65,11 @@ export function applyWebsitePatch(state,role,patch){
   if(JSON.stringify(patch.booking.tables)!==JSON.stringify(state.booking?.tables))throw new SecurityError(403,'FORBIDDEN');
   next.booking={...state.booking,...fields(patch.booking,['lastSeenRequestAt']),requests:structuredClone(patch.booking.requests||[]),blockedSlots:structuredClone(patch.booking.blockedSlots||[])};
  }
- if(role==='COMMITTEE'&&patch.tournaments){
-  const current=new Map((state.tournaments||[]).map(t=>[t.id,t]));
-  if(!uniqueRows(patch.tournaments)||patch.tournaments.length!==current.size)throw new SecurityError(403,'FORBIDDEN');
-  next.tournaments=patch.tournaments.map(t=>{
-   if(!current.has(t.id)||!uniqueRows(t.matches||[]))throw new SecurityError(403,'FORBIDDEN');
-   const prior=current.get(t.id),matches=new Map((prior.matches||[]).map(m=>[m.id,m]));
-   return {...prior,...fields(t,['format','participantIds','isCurrent']),matches:t.matches.map(m=>({...matches.get(m.id),...fields(m,MATCH)}))};
-  });
- }
  // Restricted roles cannot erase private fields by posting a public projection.
  if(role==='COMMITTEE'&&patch.players){
   const current=new Map((state.players||[]).map(p=>[p.id,p]));
   if(!uniqueRows(patch.players))throw new SecurityError(400,'INVALID_PATCH');
-  next.players=patch.players.map(p=>{if(!current.has(p.id))throw new SecurityError(403,'FORBIDDEN');return {...current.get(p.id),...fields(p,[...PLAYER,'committeeNotes','lastReviewDate','reviewRecommendation','reviewStatus'])};});
+  next.players=patch.players.map(p=>{if(!current.has(p.id))throw new SecurityError(403,'FORBIDDEN');return {...current.get(p.id),...fields(p,['group','committeeNotes','lastReviewDate','reviewRecommendation','reviewStatus'])};});
   if(next.players.length!==current.size)throw new SecurityError(403,'FORBIDDEN');
  }
  return next;
