@@ -523,17 +523,31 @@ async function dashboardSummary(req, res) {
   const [
     { data: todayBills, error: billError },
     { data: cashPayments, error: cashError },
-    { data: upiPayments, error: upiError },
+    { data: manualUpiPayments, error: manualUpiError },
+    { data: onlinePayments, error: onlineError },
+    { data: legacyOnlinePayments, error: legacyOnlineError },
     { data: outstandingBills, error: outstandingError },
+    { data: customerBalances, error: balanceError },
   ] = await Promise.all([
     supabase.from("snooker_bills").select("id").eq("accounting_excluded", false).gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
     supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "RECEIVED").is("cashfree_order_id", null).gte("created_at", bounds.start).lt("created_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "ONLINE").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").not("cashfree_order_id", "is", null).gte("verified_at", bounds.start).lt("verified_at", bounds.end),
     supabase.from("snooker_bills").select("due_inr").eq("accounting_excluded", false).gt("due_inr", 0),
+    supabase.from("snooker_customers").select("balance_inr").neq("balance_inr", 0).eq("active", true),
   ]);
-  if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
+  if (billError || cashError || manualUpiError || onlineError || legacyOnlineError || outstandingError || balanceError) {
+    throw billError || cashError || manualUpiError || onlineError || legacyOnlineError || outstandingError || balanceError;
+  }
 
-  const paymentBillIds = [...new Set([...(cashPayments || []), ...(upiPayments || [])].map((row) => row.bill_id).filter(Boolean))];
+  const allMoneyPayments = [
+    ...(cashPayments || []),
+    ...(manualUpiPayments || []),
+    ...(onlinePayments || []),
+    ...(legacyOnlinePayments || []),
+  ];
+  const paymentBillIds = [...new Set(allMoneyPayments.map((row) => row.bill_id).filter(Boolean))];
   let excludedPaymentBillIds = new Set();
   if (paymentBillIds.length) {
     const { data: excludedRows, error: excludedError } = await supabase
@@ -544,16 +558,29 @@ async function dashboardSummary(req, res) {
     if (excludedError) throw excludedError;
     excludedPaymentBillIds = new Set((excludedRows || []).map((row) => row.id));
   }
-  const cash = (cashPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const upi = (upiPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const outstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
+
+  const sumIncluded = (rows) => (rows || [])
+    .filter((row) => !excludedPaymentBillIds.has(row.bill_id))
+    .reduce((sum, row) => sum + number(row.amount_inr), 0);
+
+  const cash = sumIncluded(cashPayments);
+  const upi = sumIncluded(manualUpiPayments);
+  const online = sumIncluded([...(onlinePayments || []), ...(legacyOnlinePayments || [])]);
+  const billOutstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
+  const carriedDebit = (customerBalances || []).reduce((sum, row) => sum + Math.max(0, -number(row.balance_inr)), 0);
+  const customerCredit = (customerBalances || []).reduce((sum, row) => sum + Math.max(0, number(row.balance_inr)), 0);
+
   return json(res, 200, {
     business_date: bounds.day,
     today_finalized_bills: (todayBills || []).length,
     today_cash_inr: money(cash),
     today_upi_inr: money(upi),
-    today_realized_sales_inr: money(cash + upi),
-    outstanding_all_inr: money(outstanding),
+    today_online_inr: money(online),
+    today_realized_sales_inr: money(cash + upi + online),
+    open_bill_due_inr: money(billOutstanding),
+    carried_customer_debit_inr: money(carriedDebit),
+    customer_credit_liability_inr: money(customerCredit),
+    outstanding_all_inr: money(billOutstanding + carriedDebit),
   });
 }
 
