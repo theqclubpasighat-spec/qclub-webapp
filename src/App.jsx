@@ -2347,6 +2347,8 @@ const scorerOnlyPaths = [
     "/qclubledger",
     "/QclubPay",
     "/qclubpay",
+    "/tvdisplay",
+    "/tv-display",
 ];
 
 const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
@@ -3827,6 +3829,16 @@ latestDataRef.current = fresh;
   }
 />
 <Route
+  path="/leaderboards"
+  element={
+    <LeaderboardAll
+      data={data}
+      onOpenPlayer={openPlayerModal}
+    />
+  }
+/>
+<Route path="/fictures" element={<Navigate to="/fixtures" replace />} />
+<Route
   path="/staff-walkins"
   element={
     <StaffWalkinBookings
@@ -3872,6 +3884,23 @@ latestDataRef.current = fresh;
     </Suspense>
   }
 />
+<Route
+  path="/tvdisplay"
+  element={
+    <Suspense fallback={<div className="container" style={{ paddingTop: 24 }}><div className="card"><div className="muted">Loading TV display...</div></div></div>}>
+      <TVMode
+        data={data}
+        activeTournament={activeTournament}
+        players={data.players || []}
+        admin={false}
+        staffAdmin={false}
+        commit={commit}
+        displayOnly
+      />
+    </Suspense>
+  }
+/>
+<Route path="/tv-display" element={<Navigate to="/tvdisplay" replace />} />
         <Route
   path="/review-panel"
   element={
@@ -11178,10 +11207,12 @@ const queryTournamentId = params.get("id") || "";
   if (queryTournamentId) return queryTournamentId;
   return tournaments[0]?.id || "";
 });
+  const [fixtureFilter, setFixtureFilter] = useState("all");
 useEffect(() => {
   if (!queryTournamentId) return;
-  setSelectedTournamentId((prev) => prev || queryTournamentId);
-}, [queryTournamentId]);
+  if (!(tournaments || []).some((t) => t.id === queryTournamentId)) return;
+  setSelectedTournamentId(queryTournamentId);
+}, [queryTournamentId, tournaments]);
 
   useEffect(() => {
     if (!selectedTournamentId && tournaments[0]?.id) {
@@ -11412,6 +11443,7 @@ function handicapLabel(m) {
   ? calcLeaderboard(tournamentPlayers, selectedTournament)
   : [];
 function updateMatchStatus(matchId, status) {
+  if (!admin || !selectedTournament) return;
 
   commit({
     ...data,
@@ -11430,6 +11462,17 @@ function updateMatchStatus(matchId, status) {
   });
 
 }
+  const fixtureMatches = selectedTournament?.matches || [];
+  const liveFixtureCount = fixtureMatches.filter((m) => m.status === "live").length;
+  const doneFixtureCount = fixtureMatches.filter((m) => m.status === "done").length;
+  const upcomingFixtureCount = fixtureMatches.filter((m) => !["live", "done"].includes(m.status)).length;
+  const visibleFixtureMatches = fixtureMatches.filter((m) => {
+    if (fixtureFilter === "live") return m.status === "live";
+    if (fixtureFilter === "upcoming") return !["live", "done"].includes(m.status);
+    if (fixtureFilter === "done") return m.status === "done";
+    return true;
+  });
+
   return (
     <>
       <PageShell
@@ -11481,14 +11524,14 @@ function updateMatchStatus(matchId, status) {
                 </div>
 
                 <div className="muted" style={{ marginTop: 10 }}>
-                  Choose players for this tournament. If none are selected, all eligible players will be used.
+                  Select the eligible players who are actually entering this tournament. Registered players stay checked automatically.
                 </div>
 
                 <div style={{ marginTop: 14 }}>
                   {tournamentPlayers.length === 0 ? (
   <div className="muted">No players registered yet.</div>
 ) : (
-  tournamentPlayers.map((p) => {
+  eligiblePlayers.map((p) => {
                       const checked = (selectedTournament.participantIds || []).includes(p.id);
                       return (
                         <label
@@ -11567,7 +11610,7 @@ function updateMatchStatus(matchId, status) {
                     No standings yet. Generate fixtures and mark matches done.
                   </div>
                 ) : (
-                  <div style={{ marginTop: 12 }}>
+                  <div className="fixtureTableWrap" style={{ marginTop: 12, overflowX: "auto" }}>
                     <table>
                       <thead>
                         <tr>
@@ -11620,8 +11663,11 @@ function updateMatchStatus(matchId, status) {
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <h2 style={{ margin: 0 }}>Matches</h2>
                   <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <div className="muted">
-                      {selectedTournament.matches?.length || 0} fixtures
+                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className={fixtureFilter === "all" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("all")}>All {fixtureMatches.length}</button>
+                      <button type="button" className={fixtureFilter === "live" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("live")}>Live {liveFixtureCount}</button>
+                      <button type="button" className={fixtureFilter === "upcoming" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("upcoming")}>Upcoming {upcomingFixtureCount}</button>
+                      <button type="button" className={fixtureFilter === "done" ? "btn primary" : "btn secondary"} onClick={() => setFixtureFilter("done")}>Completed {doneFixtureCount}</button>
                     </div>
                     {canPrintFixtures ? (
                       <button
@@ -11665,7 +11711,7 @@ function updateMatchStatus(matchId, status) {
 </tr>
                       </thead>
                       <tbody>
-                        {(selectedTournament.matches || []).map((m) => (
+                        {visibleFixtureMatches.map((m) => (
                           <tr key={m.id}>
                             <td>{m.round}</td>
                             <td>
@@ -11862,12 +11908,22 @@ function updateMatchStatus(matchId, status) {
           Reopen
         </button>
       ) : (
-        <button
-          className="btn primary"
-          onClick={() => advanceKnockoutWinner(m.id)}
-        >
-          Advance Winner
-        </button>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {m.status !== "live" ? (
+            <button
+              className="btn"
+              onClick={() => updateMatchStatus(m.id, "live")}
+            >
+              Go Live
+            </button>
+          ) : null}
+          <button
+            className="btn primary"
+            onClick={() => advanceKnockoutWinner(m.id)}
+          >
+            Advance Winner
+          </button>
+        </div>
       )
     ) : (
       m.status === "done" ? (
@@ -11878,12 +11934,22 @@ function updateMatchStatus(matchId, status) {
           Reopen
         </button>
       ) : (
-        <button
-          className="btn primary"
-          onClick={() => markMatchDone(m.id)}
-        >
-          Mark Done
-        </button>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {m.status !== "live" ? (
+            <button
+              className="btn"
+              onClick={() => updateMatchStatus(m.id, "live")}
+            >
+              Go Live
+            </button>
+          ) : null}
+          <button
+            className="btn primary"
+            onClick={() => markMatchDone(m.id)}
+          >
+            Mark Done
+          </button>
+        </div>
       )
     )}
   </div>
