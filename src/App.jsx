@@ -1811,7 +1811,20 @@ function saveData(data) {
   localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
-function handicapFromGroups(group1, group2, game = "snooker") {
+function tournamentHandicapRules(club = {}) {
+  const content = String(club?.handicapContent || "");
+  const adjacentMatch =
+    content.match(/A\s*vs\s*B\s*=\s*(\d+)/i) ||
+    content.match(/B\s*vs\s*C\s*=\s*(\d+)/i);
+  const twoGroupMatch = content.match(/A\s*vs\s*C\s*=\s*(\d+)/i);
+
+  return {
+    adjacent: Math.max(0, safeNum(adjacentMatch?.[1], 6)),
+    twoGroup: Math.max(0, safeNum(twoGroupMatch?.[1], 12)),
+  };
+}
+
+function handicapFromGroups(group1, group2, game = "snooker", rules = {}) {
   const gameKey = tournamentGameKey(game);
 
   if (gameKey !== "snooker") {
@@ -1830,7 +1843,9 @@ function handicapFromGroups(group1, group2, game = "snooker") {
   }
 
   const diff = Math.abs(r1 - r2);
-  const points = diff === 1 ? 6 : 12;
+  const points = diff === 1
+    ? Math.max(0, safeNum(rules?.adjacent, 6))
+    : Math.max(0, safeNum(rules?.twoGroup, 12));
 
   if (r1 > r2) {
     return { handicap1: 0, handicap2: points };
@@ -1841,7 +1856,7 @@ function handicapFromGroups(group1, group2, game = "snooker") {
 /* ---------------------------
    Round robin fixtures
 ---------------------------- */
-function generateRoundRobin(playerIds, allPlayers = []) {
+function generateRoundRobin(playerIds, allPlayers = [], handicapRules = {}) {
   const ids = [...playerIds];
   const BYE = "BYE";
   if (ids.length < 2) return [];
@@ -1868,7 +1883,7 @@ function generateRoundRobin(playerIds, allPlayers = []) {
           p2,
           p1Group: getPlayerGroup(p1),
 p2Group: getPlayerGroup(p2),
-...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules),
           score1: "",
           score2: "",
           break1: "",
@@ -1891,7 +1906,7 @@ p2Group: getPlayerGroup(p2),
   return matches;
 }
 
-function generateKnockout(playerIds, allPlayers = []) {
+function generateKnockout(playerIds, allPlayers = [], handicapRules = {}) {
   const ids = [...playerIds].filter(Boolean);
   if (ids.length < 2) return [];
 
@@ -1933,7 +1948,7 @@ function generateKnockout(playerIds, allPlayers = []) {
       p2,
       p1Group: getPlayerGroup(p1),
 p2Group: getPlayerGroup(p2),
-...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker"),
+...handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules),
       score1: "",
       score2: "",
       winner: "",
@@ -1988,7 +2003,7 @@ p2Group: String(p2).startsWith("WINNER_") ? "" : getPlayerGroup(p2),
 ...(
   String(p1).startsWith("WINNER_") || String(p2).startsWith("WINNER_")
     ? { handicap1: 0, handicap2: 0 }
-    : handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker")
+    : handicapFromGroups(getPlayerGroup(p1), getPlayerGroup(p2), "snooker", handicapRules)
 ),
         score1: "",
         score2: "",
@@ -2039,7 +2054,7 @@ function generateKnockoutForTournamentNow(data, commit, tournamentId) {
     if (!ok) return;
   }
 
-  const matches = generateKnockout(participantIds, data.players || []);
+  const matches = generateKnockout(participantIds, data.players || [], tournamentHandicapRules(data.club));
 
   const fixtureAnnouncement = {
     id: uid(),
@@ -2079,7 +2094,7 @@ function generateKnockoutForTournamentSilently(data, commit, tournamentId) {
 
   if (participantIds.length < 2) return false;
 
-  const matches = generateKnockout(participantIds, data.players || []);
+  const matches = generateKnockout(participantIds, data.players || [], tournamentHandicapRules(data.club));
 
   const fixtureAnnouncement = {
     id: uid(),
@@ -11277,10 +11292,11 @@ const canPrintFixtures = admin || staffAdmin;
       : "Generate fixtures for this tournament?";
     if (!confirm(warning)) return;
 
+    const handicapRules = tournamentHandicapRules(data.club);
     const matches =
   format === "knockout"
-    ? generateKnockout(pool.map((p) => p.id), players)
-    : generateRoundRobin(pool.map((p) => p.id), players);
+    ? generateKnockout(pool.map((p) => p.id), players, handicapRules)
+    : generateRoundRobin(pool.map((p) => p.id), players, handicapRules);
 
     commit({
       ...data,
@@ -11365,7 +11381,7 @@ const canPrintFixtures = admin || staffAdmin;
     next.p2 &&
     !String(next.p1).startsWith("WINNER_") &&
     !String(next.p2).startsWith("WINNER_")
-      ? handicapFromGroups(nextP1Group, nextP2Group, "snooker")
+      ? handicapFromGroups(nextP1Group, nextP2Group, "snooker", tournamentHandicapRules(data.club))
       : { handicap1: 0, handicap2: 0 };
 
   next.p1Group = nextP1Group;
