@@ -3202,19 +3202,72 @@ export default function QclubLedgerPage() {
                     </div>
                   ) : null}
 
-                  <div className="ql-section">Payments — Cash / UPI / Split</div>
+                  <div className="ql-section">Payments</div>
                   <div className="ql-paybox">
                     <div className="ql-line">
-                      <strong>Cash</strong>
-                      <label className="ql-label" style={{ marginTop: 8 }}>Amount applied</label>
+                      <strong>Cash / UPI</strong>
+                      <div className="ql-muted" style={{ marginTop: 5 }}>
+                        Use this for cash or a UPI payment you have personally confirmed in the shop/static QR account.
+                      </div>
+                      <label className="ql-label" style={{ marginTop: 10 }}>Payment method</label>
+                      <select className="ql-select" value={manualMethod} onChange={function(e) { setManualMethod(e.target.value); }}>
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI — shop QR / direct transfer</option>
+                      </select>
+
+                      {billDetail.customer_id ? (
+                        <div className="ql-line" style={{ marginTop: 10 }}>
+                          <div className="ql-space">
+                            <span>Previous carry balance</span>
+                            <strong>{balanceLabel(billDetail.customer_balance_inr)}</strong>
+                          </div>
+                          <div className="ql-muted" style={{ marginTop: 4 }}>
+                            Credit reduces what the customer needs to pay. Debit increases what they need to clear.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="ql-muted" style={{ marginTop: 9 }}>
+                          Exact/partial payment can still be recorded, but credit/debit carry-over needs an identified customer.
+                        </div>
+                      )}
+
+                      <label className="ql-label" style={{ marginTop: 10 }}>Amount received</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={cashAmount} onChange={function(e) { setCashAmount(e.target.value); }} />
-                      <label className="ql-label" style={{ marginTop: 8 }}>Cash tendered</label>
-                      <input className="ql-input" type="number" min="0" step="0.01" value={cashTendered} onChange={function(e) { setCashTendered(e.target.value); }} />
-                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={recordCash}>Record Cash</button>
+
+                      {billDetail.customer_id ? (
+                        <div className="ql-muted" style={{ marginTop: 7 }}>
+                          To clear this bill + previous balance: {money(Math.max(0, Number(billDetail.due_inr || 0) - Number(billDetail.customer_balance_inr || 0)))}
+                          {" • "}After settlement: {balanceLabel(Number(billDetail.customer_balance_inr || 0) + Number(cashAmount || 0) - Number(billDetail.due_inr || 0))}
+                        </div>
+                      ) : null}
+
+                      <button
+                        className="ql-btn primary"
+                        style={{ width: "100%", marginTop: 10 }}
+                        disabled={busy || Number(billDetail.due_inr) <= 0}
+                        onClick={function() { recordManual(true); }}
+                      >
+                        Settle & Carry Balance
+                      </button>
+                      <button
+                        className="ql-btn"
+                        style={{ width: "100%", marginTop: 7 }}
+                        disabled={busy || Number(billDetail.due_inr) <= 0}
+                        onClick={function() { recordManual(false); }}
+                      >
+                        Partial / Split Payment
+                      </button>
+                      <div className="ql-muted" style={{ marginTop: 7 }}>
+                        Example: bill ₹273, received ₹250 → Debit ₹23. Received ₹300 → Credit ₹27. Each adjustment is timestamped.
+                      </div>
                     </div>
+
                     <div className="ql-line">
-                      <strong>UPI</strong>
-                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for UPI / WhatsApp</label>
+                      <strong>Online</strong>
+                      <div className="ql-muted" style={{ marginTop: 5 }}>
+                        Dynamic Cashfree QR with automatic payment verification.
+                      </div>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for Online / WhatsApp</label>
                       <input
                         className="ql-input"
                         inputMode="numeric"
@@ -3223,12 +3276,14 @@ export default function QclubLedgerPage() {
                         onChange={function(e) { setPaymentPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }}
                         placeholder="10-digit mobile"
                       />
-                      <div className="ql-muted" style={{ marginTop: 6 }}>Cash payments do not require a mobile number. Cashfree UPI and WhatsApp receipts do.</div>
-                      <label className="ql-label" style={{ marginTop: 8 }}>UPI amount</label>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Online amount</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={upiAmount} onChange={function(e) { setUpiAmount(e.target.value); }} />
                       <button className="ql-btn gold" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={createUpi}>Generate Cashfree QR</button>
-                      <div className="ql-muted" style={{ marginTop: 8 }}>For split payment, record partial cash first, then UPI for the remaining due.</div>
+                      <div className="ql-muted" style={{ marginTop: 8 }}>
+                        For a split payment, record the Cash / manual UPI portion first, then generate Online QR for the remaining bill due.
+                      </div>
                     </div>
+
                     <div className="ql-line">
                       <strong>Receipt</strong>
                       <div className="ql-muted" style={{ margin: "9px 0" }}>
@@ -3241,11 +3296,10 @@ export default function QclubLedgerPage() {
                       </button>
                     </div>
                   </div>
-
                   {upiOrder && upiOrder.qr_payload ? (
                     <div className="ql-line" style={{ marginTop: 12 }}>
                       <div className="ql-space">
-                        <div><strong>Cashfree UPI Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
+                        <div><strong>Online — Cashfree</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
                       <div className="ql-row" style={{ marginTop: 10 }}>
@@ -3262,14 +3316,53 @@ export default function QclubLedgerPage() {
                       const paymentId = payment.payment_id || payment.id;
                       return (
                         <div className="ql-line ql-space" key={paymentId}>
-                          <div><strong>{payment.method} • {money(payment.amount_inr)}</strong><div className="ql-muted">{payment.status} • {paymentId}</div></div>
+                          <div>
+                            <strong>{paymentMethodLabel(payment)} • {money(payment.amount_inr)}</strong>
+                            <div className="ql-muted">{payment.status} • {dateTime(payment.verified_at || payment.created_at)}</div>
+                          </div>
                           <div className="ql-row">
-                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
+                            {isCashfreePayment(payment) && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
                           </div>
                         </div>
                       );
                     }) : <div className="ql-empty">No payment recorded yet.</div>}
                   </div>
+
+                  {billDetail.customer_id ? (
+                    <>
+                      <div className="ql-section">Customer credit / debit history</div>
+                      <div className="ql-line">
+                        <div className="ql-space">
+                          <div>
+                            <strong>{billDetail.customer_name || "Customer"}</strong>
+                            <div className="ql-muted">Persistent balance carried across visits</div>
+                          </div>
+                          <strong>{balanceLabel(billDetail.customer_balance_inr)}</strong>
+                        </div>
+                      </div>
+                      <div className="ql-list">
+                        {(billDetail.balance_entries || []).length ? (billDetail.balance_entries || []).map(function(entry) {
+                          const delta = Number(entry.delta_inr || 0);
+                          return (
+                            <div className="ql-line ql-space" key={entry.balance_entry_id}>
+                              <div>
+                                <strong>{String(entry.entry_type || "").replaceAll("_", " ")}</strong>
+                                <div className="ql-muted">
+                                  {dateTime(entry.created_at)}
+                                  {entry.bill_no ? " • " + entry.bill_no : ""}
+                                  {" • "}{entry.reason || "Balance adjustment"}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <strong>{delta >= 0 ? "+" : "−"}{money(Math.abs(delta))}</strong>
+                                <div className="ql-muted">Balance: {balanceLabel(entry.balance_after_inr)}</div>
+                              </div>
+                            </div>
+                          );
+                        }) : <div className="ql-empty">No previous credit/debit adjustments.</div>}
+                      </div>
+                    </>
+                  ) : null}
                 </>
               )}
             </div>
