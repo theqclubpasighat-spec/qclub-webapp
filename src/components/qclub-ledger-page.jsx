@@ -41,6 +41,30 @@ function paymentStatusLabel(status) {
   return "WAITING FOR PAYMENT";
 }
 
+function isCashfreePayment(payment) {
+  return Boolean(
+    payment &&
+    (payment.method === "ONLINE" ||
+      (payment.method === "UPI" && (payment.cashfree_order_id || payment.payment_session_id)))
+  );
+}
+
+function paymentMethodLabel(payment) {
+  if (!payment) return "PAYMENT";
+  if (payment.method === "BALANCE") return "CARRY BALANCE";
+  if (isCashfreePayment(payment)) return "ONLINE";
+  if (payment.method === "UPI") return "UPI";
+  if (payment.method === "CASH") return "CASH";
+  return String(payment.method || "PAYMENT");
+}
+
+function balanceLabel(value) {
+  const amount = Number(value || 0);
+  if (amount > 0.009) return "CREDIT " + money(amount);
+  if (amount < -0.009) return "DEBIT " + money(Math.abs(amount));
+  return "CLEAR";
+}
+
 function dateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -277,7 +301,7 @@ export default function QclubLedgerPage() {
     lowStockThreshold: "5",
   });
   const [cashAmount, setCashAmount] = useState("");
-  const [cashTendered, setCashTendered] = useState("");
+  const [manualMethod, setManualMethod] = useState("CASH");
   const [upiAmount, setUpiAmount] = useState("");
   const [paymentPhone, setPaymentPhone] = useState("");
   const [memberCheck, setMemberCheck] = useState(null);
@@ -1639,8 +1663,8 @@ export default function QclubLedgerPage() {
     try {
       const detail = await protectedCall("bills/" + billId);
       setBillDetail(detail);
-      setCashAmount(Number(detail.due_inr || 0).toFixed(2));
-      setCashTendered(Number(detail.due_inr || 0).toFixed(2));
+      const suggestedManual = Math.max(0, Number(detail.due_inr || 0) - Number(detail.customer_balance_inr || 0));
+      setCashAmount(suggestedManual.toFixed(2));
       setUpiAmount(Number(detail.due_inr || 0).toFixed(2));
       if (!opts.preserveContact) {
         setPaymentPhone(String(detail.customer_phone || "").replace(/\D/g, "").slice(-10));
@@ -1662,43 +1686,59 @@ export default function QclubLedgerPage() {
     runInBackground(refreshBillingOverview());
   }
 
-  async function recordCash() {
+  async function recordManual(settleMode) {
     if (!billDetail) return;
-    const amount = Number(cashAmount || 0);
-    const tendered = Number(cashTendered || amount);
-    if (!(amount > 0) || tendered < amount) {
-      flash("Check cash amount/tendered.", true);
+    const received = Number(cashAmount || 0);
+    if (!Number.isFinite(received) || received < 0 || (!settleMode && !(received > 0))) {
+      flash(settleMode ? "Enter a valid amount received." : "Enter an amount for the partial payment.", true);
       return;
     }
+
+    if (manualMethod === "UPI") {
+      const ok = window.confirm(
+        "Confirm that you have already verified this UPI payment in the shop/static QR account.\n\n" +
+        "QClubLedger cannot verify a manual UPI transfer. Use Online / Cashfree QR when automatic verification is required."
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     try {
-      const result = await protectedCall("payments/cash", {
+      const result = await protectedCall("payments/manual", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          amount_applied_inr: amount,
-          cash_tendered_inr: tendered,
+          method: manualMethod,
+          received_inr: received,
+          settle_mode: Boolean(settleMode),
           customer_phone: String(paymentPhone || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10) || null,
-          idempotency_key: makeKey("cash"),
-          staff_notes: "QClubLedger web terminal",
+          idempotency_key: makeKey(settleMode ? "settle" : "partial"),
         },
       });
-      setBillDetail(function(current) {
-        if (!current) return current;
-        const due = result.due_inr == null ? current.due_inr : Number(result.due_inr);
-        return {
-          ...current,
-          status: result.bill_status || current.status,
-          due_inr: due,
-          paid_inr: Math.max(0, Number(current.total_inr || 0) - Number(due || 0)),
-        };
-      });
-      setCashAmount(Number(result.due_inr || 0).toFixed(2));
-      setCashTendered(Number(result.due_inr || 0).toFixed(2));
-      setUpiAmount(Number(result.due_inr || 0).toFixed(2));
-      flash(Number(result.change_inr) > 0 ? "Cash recorded. Return change " + money(result.change_inr) + "." : "Cash payment recorded.");
-      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+
+      if (result.bill) setBillDetail(result.bill);
+      else await loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true });
+
+      if (settleMode) {
+        const balance = Number(result.customer_balance_inr || 0);
+        if (balance > 0.009) {
+          flash("Settled. " + money(balance) + " CREDIT carried forward for this customer.");
+        } else if (balance < -0.009) {
+          flash("Settled. " + money(Math.abs(balance)) + " DEBIT carried forward for this customer.");
+        } else {
+          flash("Settled. Customer balance is clear.");
+        }
+      } else {
+        flash("Partial " + manualMethod + " payment recorded. " + money(result.due_inr || 0) + " remains on this bill.");
+      }
+
+      const nextBill = result.bill || billDetail;
+      const nextDue = Number(nextBill.due_inr ?? result.due_inr ?? 0);
+      const nextBalance = Number(nextBill.customer_balance_inr ?? result.customer_balance_inr ?? 0);
+      setCashAmount(Math.max(0, nextDue - nextBalance).toFixed(2));
+      setUpiAmount(nextDue.toFixed(2));
       runInBackground(refreshBillingOverview());
+      runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -1710,13 +1750,13 @@ export default function QclubLedgerPage() {
     if (!billDetail) return;
     const amount = Number(upiAmount || 0);
     if (!(amount > 0)) {
-      flash("Enter a valid UPI amount.", true);
+      flash("Enter a valid Online payment amount.", true);
       return;
     }
     const session = sessionLookup[billDetail.session_id];
     const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
     if (!/^\d{10}$/.test(phone)) {
-      flash("Enter the customer's 10-digit mobile number to generate the Cashfree UPI QR.", true);
+      flash("Enter the customer's 10-digit mobile number to generate the Cashfree Online QR.", true);
       return;
     }
     setPaymentPhone(phone);
@@ -1729,7 +1769,7 @@ export default function QclubLedgerPage() {
           amount_inr: amount,
           customer_phone: phone,
           customer_name: (session && session.customer_name) || billDetail.customer_name || "",
-          idempotency_key: makeKey("upi"),
+          idempotency_key: makeKey("online"),
         },
       });
       setUpiOrder(result);
@@ -1740,7 +1780,7 @@ export default function QclubLedgerPage() {
       setBillDetail(function(current) {
         return current ? { ...current, customer_phone: phone } : current;
       });
-      flash("Cashfree UPI order created. The secure QR is loading.");
+      flash("Cashfree Online payment created. The secure QR is loading.");
       runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
