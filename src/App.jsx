@@ -17408,9 +17408,13 @@ const jobWhatsappDraft = {
   templateParams: [form.name, applicationId],
 };
 
-commit({
-  ...data,
-  jobApplications: [application, ...(data.jobApplications || [])],
+await fetch("/api/snooker/v1/website/state", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ kind: "job_application", payload: application }),
+}).then(async (response) => {
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result?.error || "Unable to securely save application.");
 });
 
 try {
