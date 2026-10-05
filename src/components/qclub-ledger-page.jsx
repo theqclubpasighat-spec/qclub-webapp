@@ -278,6 +278,8 @@ export default function QclubLedgerPage() {
   });
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
+  const [manualPaymentMethod, setManualPaymentMethod] = useState("CASH");
+  const [carryDifference, setCarryDifference] = useState(true);
   const [upiAmount, setUpiAmount] = useState("");
   const [paymentPhone, setPaymentPhone] = useState("");
   const [memberCheck, setMemberCheck] = useState(null);
