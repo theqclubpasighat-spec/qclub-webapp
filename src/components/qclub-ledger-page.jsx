@@ -1282,6 +1282,9 @@ export default function QclubLedgerPage() {
         if (loserIds.length !== 1) return flash("Singles loser-pays requires exactly 2 selected players.", true);
       }
     }
+    if (session.payment_rule === "LOSER_PAYS" && session.match_format === "DOUBLES" && gameEntry.payerMode === "ONE" && !gameEntry.payerPersonId) {
+      return flash("Select which losing player will pay the full charge.", true);
+    }
     setBusy(true);
     try {
       await protectedCall("sessions/" + session.session_id + "/games", {
@@ -3821,17 +3824,21 @@ export default function QclubLedgerPage() {
                   } else if (gameEntry.winnerPersonId) {
                     losingPeople = (gameEntry.people || []).filter(function(person) { return gameEntry.selectedIds.includes(person.person_id) && person.person_id !== gameEntry.winnerPersonId; });
                   }
-                  const estimated = losingPeople.reduce(function(sum, person) {
+                  const needsPayer = gameEntry.session.match_format === "DOUBLES" && gameEntry.payerMode === "ONE";
+                  const estimated = needsPayer && !gameEntry.payerPersonId ? 0 : losingPeople.reduce(function(sum, person) {
                     const rate = Number(person.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
                     const fraction = gameEntry.session.match_format === "DOUBLES" && gameEntry.payerMode !== "ONE" ? 0.5 : 1;
-                    if (gameEntry.payerMode === "ONE" && gameEntry.payerPersonId && person.person_id !== gameEntry.payerPersonId) return sum;
+                    if (gameEntry.payerMode === "ONE" && person.person_id !== gameEntry.payerPersonId) return sum;
                     return sum + (frameSeconds / 3600) * rate * fraction;
                   }, 0);
+                  const estimateLabel = !losingPeople.length
+                    ? "Tap winner"
+                    : (needsPayer && !gameEntry.payerPersonId ? "Select payer" : "≈ " + money(estimated));
                   return (
                     <div className="ql-line" style={{ marginTop: 12 }}>
                       <div className="ql-space">
                         <div><strong>Frame time {clockLabel(frameSeconds)}</strong><div className="ql-muted">Paused time excluded • server recalculates before posting.</div></div>
-                        <strong>{losingPeople.length ? "≈ " + money(estimated) : "Tap winner"}</strong>
+                        <strong>{estimateLabel}</strong>
                       </div>
                     </div>
                   );
