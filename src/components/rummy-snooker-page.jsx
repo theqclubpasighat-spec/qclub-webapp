@@ -953,11 +953,9 @@ export function RummySnookerPage({
   tableKey = "table1",
   tableLabel = "Snooker Table 1",
 }) {
-  const rummyPin = String(data?.admin?.rummyPin || "2468");
-  const rummyFinalLockPin = String(data?.admin?.rummyFinalLockPin || "8642");
   const [allowed, setAllowed] = useState(() => {
     try {
-      return localStorage.getItem("qclub_rummy_access") === "yes";
+      return sessionStorage.getItem("qclub_rummy_access") === "yes";
     } catch {
       return false;
     }
@@ -1058,19 +1056,12 @@ const [logs, setLogs] = useState([]);
   ]);
   const [reckonerMultiplier, setReckonerMultiplier] = useState(100);
 
-  function unlockWithPin() {
+  async function unlockWithPin() {
     const pin = prompt("Enter Q CHASE PAGE PIN");
     if (pin === null) return;
-
-    if (String(pin).trim() === rummyPin) {
-      setAllowed(true);
-      try {
-        localStorage.setItem("qclub_rummy_access", "yes");
-      } catch {}
-      return;
-    }
-
-    alert("Wrong PAGE PIN.");
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(pin).trim()})});
+    if (!response.ok) return alert("Wrong PAGE PIN.");
+    setAllowed(true); try { sessionStorage.setItem("qclub_rummy_access","yes"); } catch {}
   }
 
   function changeRummyPin() {
