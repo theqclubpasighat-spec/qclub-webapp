@@ -110,7 +110,7 @@ export default function TableDisplayPage({ tableKey: fixedTableKey }) {
                 <div style={{ gridColumn:"1/-1", border:"1px solid #8a6e27", borderRadius:18, padding:20 }}><div style={{ color:"#d8c27f" }}>CURRENT BILL</div><strong style={{ fontSize:46 }}>{money(liveTotal)}</strong></div>
               </div>
             )}
-            <div style={{ marginTop:30, borderTop:"1px solid #294334", paddingTop:18, fontWeight:850 }}>After play: Pay by UPI QR on this screen or pay Cash at the counter.</div>
+            <div style={{ marginTop:30, borderTop:"1px solid #294334", paddingTop:18, fontWeight:850 }}>After play: Pay by Online by Cashfree QR on this screen, or pay Cash / UPI at the counter.</div>
             <div style={{ color:"#9fb3a6", marginTop:8 }}>This display is read-only. Session controls are available only to Q Club staff.</div>
           </section>
         ) : null}
@@ -119,8 +119,8 @@ export default function TableDisplayPage({ tableKey: fixedTableKey }) {
           <section style={{ textAlign:"center", paddingTop:28 }}>
             <div style={{ fontWeight:900 }}>SESSION ENDED • PAYMENT DUE</div>
             <div style={{ color:"#9fb3a6", marginTop:8 }}>FINAL BILL</div><div style={{ fontSize:"clamp(58px,11vw,108px)", fontWeight:950 }}>{money(bill.due_inr)}</div>
-            {payment?.qr_url ? <><div style={{ fontSize:24, fontWeight:900, marginTop:18 }}>PAY BY UPI HERE</div><iframe title="Secure Cashfree UPI QR" src={payment.qr_url} style={{ width:"min(430px,92vw)", height:520, border:0, borderRadius:20, background:"#fff", marginTop:12 }} /></> : <div style={{ margin:"24px auto", maxWidth:620, border:"1px solid #8a6e27", borderRadius:18, padding:22 }}>UPI QR will appear here when staff selects UPI payment.</div>}
-            <div style={{ margin:"24px 0 8px", color:"#9fb3a6" }}>— OR —</div><div style={{ fontSize:28, fontWeight:950 }}>PAY BY CASH AT THE COUNTER</div>
+            {payment?.qr_url ? <><div style={{ fontSize:24, fontWeight:900, marginTop:18 }}>PAY ONLINE HERE</div><iframe title="Secure Cashfree Online QR" src={payment.qr_url} style={{ width:"min(430px,92vw)", height:520, border:0, borderRadius:20, background:"#fff", marginTop:12 }} /></> : <div style={{ margin:"24px auto", maxWidth:620, border:"1px solid #8a6e27", borderRadius:18, padding:22 }}>Online Cashfree QR will appear here when staff selects Online payment.</div>}
+            <div style={{ margin:"24px 0 8px", color:"#9fb3a6" }}>— OR —</div><div style={{ fontSize:28, fontWeight:950 }}>PAY CASH / UPI AT THE COUNTER</div>
             <div style={{ marginTop:20 }}>Table / Game {money(bill.game_total_inr)} • F&B {money(bill.fnb_total_inr)}</div><div style={{ color:"#9fb3a6", marginTop:8 }}>{bill.bill_no}</div>
           </section>
         ) : null}
