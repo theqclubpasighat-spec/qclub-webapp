@@ -2747,7 +2747,7 @@ export default function QclubLedgerPage() {
               </div>
               <div>
                 <label className="ql-label">Category</label>
-                <div className="ql-row" role="group" aria-label="F&B category filter" style={{ gap: 6, flexWrap: "wrap" }}>
+                <div className="ql-row" role="group" aria-label="F&B category filter" style={{ gap: 6, flexWrap: "wrap" }} data-category-filter="buttons">
                   {fnbCategories.map(function(category) {
                     const active = fnbCategory === category;
                     return (
