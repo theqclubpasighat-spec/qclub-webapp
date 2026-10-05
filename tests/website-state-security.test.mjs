@@ -48,3 +48,36 @@ test('anonymous state mutation fails before reading private data; cross-site req
  await assert.rejects(websiteStateTransport(db,{method:'PATCH',headers:{},body:{role:'ADMIN',patch:{club:{name:'Changed'}}}}),/AUTH_REQUIRED/);
  await assert.rejects(websiteStateTransport(db,{method:'GET',headers:{'sec-fetch-site':'cross-site'}}),/CROSS_SITE_REQUEST/);
 });
+
+test('malformed and duplicate restricted-role patches cannot erase protected data',()=>{
+ const state=fixture();state.players.push({id:'p2',name:'Second',mobile:'private-second'});
+ assert.throws(()=>applyWebsitePatch(state,'STAFF',{booking:null}),/INVALID_PATCH/);
+ assert.throws(()=>applyWebsitePatch(state,'COMMITTEE',{players:[{id:'p1'},{id:'p1'}]}),/INVALID_PATCH/);
+ assert.throws(()=>applyWebsitePatch(state,'COMMITTEE',{tournaments:[{id:'t1',matches:[]},{id:'t1',matches:[]}]}),/FORBIDDEN/);
+ const next=applyWebsitePatch(state,'COMMITTEE',{tournaments:[{id:'t1',registrationFee:1,matches:[{id:'m1',score1:12,notes:'overwrite'}]}]});
+ assert.equal(next.tournaments[0].registrationFee,40);assert.equal(next.tournaments[0].matches[0].notes,'fixture-private');assert.equal(next.tournaments[0].matches[0].score1,12);
+});
+
+test('Postgres transport validates sessions and conflicts without exposing private state',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
+ const {createFixtureDatabase}=await import('./support/rehearsal-db.mjs');
+ const {tokenHash}=await import('../src/server/security/foundation.js');
+ const harness=await createFixtureDatabase();
+ try{
+  const pg=harness.pg,db=harness.db,state=fixture();
+  await pg.query("update qclub_state set state=$1 where key='main'",[JSON.stringify(state)]);
+  const token=`snk_${'a'.repeat(43)}`;
+  await pg.query("insert into snooker_auth_sessions(token_hash,role,staff_id,display_name,expires_at) values($1,'ADMIN','admin-main','Fixture',now()+interval '1 hour')",[tokenHash(token)]);
+  const headers={authorization:`Bearer ${token}`};
+  const publicResponse=await websiteStateTransport(db,{method:'GET',headers:{}});
+  assert.equal(JSON.stringify(publicResponse).includes('fixture-secret'),false);assert.equal(JSON.stringify(publicResponse).includes('fixture-private'),false);
+  const privateResponse=await websiteStateTransport(db,{method:'GET',headers});
+  assert.equal(privateResponse.role,'ADMIN');assert.equal(privateResponse.state.jobApplications[0].id,'job1');assert.equal(privateResponse.state.admin,undefined);
+  const saved=await websiteStateTransport(db,{method:'PATCH',headers,body:{baseUpdatedAt:privateResponse.updatedAt,patch:{club:{name:'Updated'}}}});
+  assert.equal(saved.state.club.name,'Updated');
+  await assert.rejects(websiteStateTransport(db,{method:'PATCH',headers,body:{baseUpdatedAt:privateResponse.updatedAt,patch:{club:{name:'Stale'}}}}),/STATE_CONFLICT/);
+  const stored=(await pg.query("select state from qclub_state where key='main'")).rows[0].state;
+  assert.equal(stored.club.name,'Updated');assert.equal(stored.admin.mainPin,'fixture-secret');assert.equal(stored.paymentOrders[0].id,'payment1');
+  await pg.query('update snooker_auth_sessions set revoked_at=now() where token_hash=$1',[tokenHash(token)]);
+  await assert.rejects(websiteStateTransport(db,{method:'GET',headers}),/AUTH_REQUIRED/);
+ }finally{await harness.close();}
+});
