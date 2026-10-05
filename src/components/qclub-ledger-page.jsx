@@ -953,7 +953,6 @@ export default function QclubLedgerPage() {
       gameType,
       matchFormat: "FLEX",
       paymentRule: "HOURLY",
-      frameRate: "",
       isMember: false,
       players: [
         { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
