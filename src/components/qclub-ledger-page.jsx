@@ -620,7 +620,7 @@ export default function QclubLedgerPage() {
           if (disposed) return;
           const message = data && data.error && data.error.message
             ? data.error.message
-            : "Cashfree could not load the UPI QR.";
+            : "Cashfree could not load the Online QR.";
           setCashfreeQrError(message);
         });
 
@@ -634,20 +634,20 @@ export default function QclubLedgerPage() {
           })).then(function(result) {
             if (disposed || !result) return;
             if (result.error) {
-              setCashfreeQrError(result.error.message || "Cashfree UPI QR payment could not be started.");
+              setCashfreeQrError(result.error.message || "Cashfree Online QR payment could not be started.");
               return;
             }
             if (result.paymentDetails) {
               verifyPayment(upiOrder.payment_id);
             }
           }).catch(function(error) {
-            if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree UPI QR payment failed to start.");
+            if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree Online QR payment failed to start.");
           });
         });
 
         component.mount("#qclub-cashfree-upi-qr");
       } catch (error) {
-        if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree UPI QR is unavailable.");
+        if (!disposed) setCashfreeQrError(error && error.message ? error.message : "Cashfree Online QR is unavailable.");
       }
     }
 
@@ -2003,6 +2003,7 @@ export default function QclubLedgerPage() {
       "</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:24px auto}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd}th{text-align:left}.stats{display:flex;gap:18px;flex-wrap:wrap;margin:18px 0}.stats div{border:1px solid #ddd;padding:10px 14px;border-radius:8px}</style></head><body><h1>The Q Club Pasighat</h1><h2>Daily Closing — " +
       escapeHtml(businessDate) + "</h2><div class='stats'><div>Finalized bills: <b>" + escapeHtml(summary && summary.today_finalized_bills) +
       "</b></div><div>Cash: <b>" + money(summary && summary.today_cash_inr) + "</b></div><div>UPI: <b>" + money(summary && summary.today_upi_inr) +
+      "</b></div><div>Online: <b>" + money(summary && summary.today_online_inr) +
       "</b></div><div>Realized: <b>" + money(summary && summary.today_realized_sales_inr) + "</b></div><div>Total outstanding: <b>" +
       money(summary && summary.outstanding_all_inr) + "</b></div></div><table><thead><tr><th>Bill</th><th>Customer</th><th style='text-align:right'>Total</th><th style='text-align:right'>Paid</th><th style='text-align:right'>Due</th></tr></thead><tbody>" +
       body + "</tbody></table><script>window.onload=function(){window.print();}</script></body></html>";
@@ -2378,8 +2379,8 @@ export default function QclubLedgerPage() {
             <div className="ql-stat-grid">
               <div className="ql-stat"><span className="ql-muted">Active tables</span><strong>{sessions.filter(function(s) { return ["ACTIVE", "PAUSED"].includes(s.status); }).length}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
-              <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)} • Online {money(summary && summary.today_online_inr)}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong><div className="ql-muted">Open bills {money(summary && summary.open_bill_due_inr)} • Carried debit {money(summary && summary.carried_customer_debit_inr)} • Customer credit {money(summary && summary.customer_credit_liability_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
             </div>
             <div className="ql-section">Open Club Tabs</div>
@@ -3660,6 +3661,7 @@ export default function QclubLedgerPage() {
                 <div className="ql-muted">CURRENT DUE</div>
                 <strong className="ql-price">{money(playerAccountPerson.current_due_inr)}</strong>
                 <div className="ql-muted">Unbilled {money(playerAccountPerson.unbilled_inr)} • Billed due {money(playerAccountPerson.billed_due_inr)}</div>
+                <div className="ql-muted" style={{ marginTop: 5 }}>Carry balance: <strong>{balanceLabel(playerAccountPerson.carry_balance_inr)}</strong> • Net after carry {money(playerAccountPerson.net_after_carry_inr)}</div>
               </div>
               <div className="ql-card">
                 <div className="ql-muted">SESSION TOTALS</div>
@@ -3802,11 +3804,11 @@ export default function QclubLedgerPage() {
 
       {showUpiQrModal && upiOrder && upiOrder.payment_session_id ? (
         <div className="ql-modal-bg ql-pay-modal-bg">
-          <div className="ql-pay-modal" role="dialog" aria-modal="true" aria-label="Cashfree UPI payment QR">
+          <div className="ql-pay-modal" role="dialog" aria-modal="true" aria-label="Cashfree Online payment QR">
             <div className="ql-space" style={{ alignItems: "center" }}>
               <div style={{ textAlign: "left" }}>
                 <div className="ql-pay-kicker">THE Q CLUB PASIGHAT</div>
-                <h2>UPI PAYMENT</h2>
+                <h2>ONLINE PAYMENT</h2>
               </div>
               <button className="ql-btn ghost" onClick={function() { setShowUpiQrModal(false); }}>✕</button>
             </div>
