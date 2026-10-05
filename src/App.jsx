@@ -3079,106 +3079,72 @@ function markWhatsappJobAsSending(jobId, extra = {}) {
 function shouldAutoPrintFoodOrders() {
   return true;
 }
-  function toggleAdmin() {
+  async function toggleAdmin() {
   if (adminRole) {
+    const token = sessionStorage.getItem("qclub_admin_access_token_v2") || "";
+    if (token) {
+      fetch("/api/snooker/v1/auth/logout", { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+    }
     setAdminRole("");
     try {
       sessionStorage.removeItem("qclub_admin_role");
-localStorage.removeItem("qclub_admin_role");
+      sessionStorage.removeItem("qclub_admin_access_token_v2");
+      localStorage.removeItem("qclub_admin_role");
     } catch {}
     return;
   }
 
   const pin = prompt("Enter Access PIN");
   if (!pin) return;
-
-  if (pin === data.admin?.mainPin) {
-    setAdminRole("main");
-    try {
-      sessionStorage.setItem("qclub_admin_role", "main");
-    } catch {}
-    return;
-  }
-
-  if (pin === data.admin?.staffPin) {
-    setAdminRole("staff");
-    try {
-      sessionStorage.setItem("qclub_admin_role", "staff");
-    } catch {}
-    return;
-  }
-
-  if (pin === data.admin?.committeePin) {
-    setAdminRole("committee");
-    try {
-      sessionStorage.setItem("qclub_admin_role", "committee");
-    } catch {}
-    return;
-  }
-
-  alert("Wrong PIN");
-}
-  function changePin() {
-  if (!admin) return;
-
-  const mode = prompt(
-  "Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN\n3 for Committee PIN\n4 for QChase Master Edit PIN",
-  "4"
-);
-
-  if (!mode) return;
-
-  if (mode !== "1" && mode !== "2" && mode !== "3" && mode !== "4") {
-  alert("Invalid choice");
-  return;
-}
-
-  if (mode === "1") {
-    const current = data.admin?.mainPin || "";
-    const oldPin = prompt("Enter current Main Admin PIN");
-    if (oldPin === null) return;
-
-    if (oldPin !== current) {
-      alert("Current Main Admin PIN is incorrect");
+  try {
+    const response = await fetch("/api/snooker/v1/auth/login", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, device_id: "qclub-website", client_version: "qclub-web-security-v2" }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.access_token) {
+      alert(response.status === 429 ? "Too many attempts. Please try again later." : "Wrong PIN");
       return;
     }
+    const role = result.role === "ADMIN" ? "main" : result.role === "STAFF" ? "staff" : result.role === "COMMITTEE" ? "committee" : "";
+    if (!role) { alert("This account has no website role."); return; }
+    setAdminRole(role);
+    sessionStorage.setItem("qclub_admin_role", role);
+    sessionStorage.setItem("qclub_admin_access_token_v2", result.access_token);
+  } catch {
+    alert("Cannot reach secure login. Please try again.");
   }
-
-  const nextPin = prompt(
-  mode === "1"
-    ? "Enter new Main Admin PIN"
-    : mode === "2"
-    ? "Enter new Staff PIN"
-    : mode === "3"
-    ? "Enter new Committee PIN"
-    : "Enter new QChase Master Edit PIN"
-);
-
+}
+  async function changePin() {
+  if (!admin) return;
+  const mode = prompt("Change which PIN?\nType:\n1 for Main Admin PIN\n2 for Staff PIN\n3 for Committee PIN", "1");
+  if (!mode) return;
+  const credentialId = mode === "1" ? "main" : mode === "2" ? "staff" : mode === "3" ? "committee" : "";
+  if (!credentialId) { alert("Invalid choice"); return; }
+  const nextPin = prompt(mode === "1" ? "Enter new Main Admin PIN" : mode === "2" ? "Enter new Staff PIN" : "Enter new Committee PIN");
   if (!nextPin) return;
-
-  commit({
-    ...data,
-    admin: {
-      ...(data.admin || {}),
-      mainPin: mode === "1" ? nextPin : data.admin?.mainPin || "1234",
-      staffPin: mode === "2" ? nextPin : data.admin?.staffPin || "5678",
-      committeePin: mode === "3" ? nextPin : data.admin?.committeePin || "9012",
-      qChaseMasterEditPin:
-  mode === "4"
-    ? nextPin
-    : data.admin?.qChaseMasterEditPin || "456456",
-    },
-  });
-
- alert(
-  mode === "1"
-    ? "Main Admin PIN updated"
-    : mode === "2"
-    ? "Staff PIN reset successfully"
-    : mode === "3"
-    ? "Committee PIN reset successfully"
-    : "QChase Master Edit PIN updated successfully"
-);
+  const token = sessionStorage.getItem("qclub_admin_access_token_v2") || "";
+  if (!token) { alert("Your secure session has ended. Sign in again."); setAdminRole(""); return; }
+  try {
+    const response = await fetch("/api/snooker/v1/auth/rotate-pin", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ credential_id: credentialId, new_pin: nextPin }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(result?.error || "PIN change failed."); return; }
+    alert("PIN updated securely.");
+    if (result?.signInAgain) {
+      setAdminRole("");
+      sessionStorage.removeItem("qclub_admin_role");
+      sessionStorage.removeItem("qclub_admin_access_token_v2");
+    }
+  } catch {
+    alert("PIN change failed. Please try again.");
+  }
 }
 
   function resetAll() {
