@@ -1183,6 +1183,7 @@ function customerDto(row) {
     phone: row.phone || null,
     is_member: Boolean(row.is_member),
     member_tier: row.member_tier || null,
+    balance_inr: money(row.balance_inr),
     visit_count: number(row.visit_count),
     last_seen_at: row.last_seen_at || null,
     source: row.source || null,
@@ -1244,6 +1245,124 @@ async function rememberCustomer(supabase, { name, phone, isMember = false, membe
     .single();
   if (error) throw error;
   return data;
+}
+
+async function ensureBillCustomer(supabase, bill) {
+  if (!bill) return null;
+
+  if (bill.customer_id) {
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("id", bill.customer_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  let name = canonicalCustomerName(bill.customer_name || "");
+  let phone = normalizePhone(bill.customer_phone || "") || null;
+  let isMember = false;
+  let customerId = null;
+
+  if (bill.person_id) {
+    const { data: person, error } = await supabase
+      .from("snooker_session_people")
+      .select("*")
+      .eq("id", bill.person_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (person) {
+      customerId = person.customer_id || null;
+      name = canonicalCustomerName(person.name || name);
+      phone = normalizePhone(person.phone || phone || "") || null;
+      isMember = Boolean(person.is_member);
+    }
+  }
+
+  if (customerId) {
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("id", customerId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      await supabase.from("snooker_bills").update({
+        customer_id: data.id,
+        customer_name: data.name || name || null,
+        customer_phone: data.phone || phone || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", bill.id);
+      return data;
+    }
+  }
+
+  if (bill.session_id) {
+    const { data: session, error } = await supabase
+      .from("snooker_sessions")
+      .select("customer_name,customer_phone,is_member")
+      .eq("id", bill.session_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (session) {
+      name = canonicalCustomerName(session.customer_name || name);
+      phone = normalizePhone(session.customer_phone || phone || "") || null;
+      isMember = Boolean(session.is_member || isMember);
+    }
+  }
+
+  if (!name) return null;
+  const customer = await rememberCustomer(supabase, {
+    name,
+    phone,
+    isMember,
+    source: "bill_settlement",
+  });
+  if (!customer) return null;
+
+  const { error: linkError } = await supabase.from("snooker_bills").update({
+    customer_id: customer.id,
+    customer_name: customer.name || name,
+    customer_phone: customer.phone || phone,
+    updated_at: new Date().toISOString(),
+  }).eq("id", bill.id);
+  if (linkError) throw linkError;
+  return customer;
+}
+
+async function customerBalanceHistory(supabase, customerId, limit = 20) {
+  if (!customerId) return [];
+  const { data, error } = await supabase
+    .from("snooker_customer_balance_entries")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  const billIds = [...new Set((data || []).map((row) => row.bill_id).filter(Boolean))];
+  let billMap = new Map();
+  if (billIds.length) {
+    const { data: bills, error: billError } = await supabase
+      .from("snooker_bills")
+      .select("id,bill_no")
+      .in("id", billIds);
+    if (billError) throw billError;
+    billMap = new Map((bills || []).map((bill) => [bill.id, bill.bill_no]));
+  }
+
+  return (data || []).map((row) => ({
+    balance_entry_id: row.id,
+    entry_type: row.entry_type,
+    delta_inr: money(row.delta_inr),
+    balance_after_inr: money(row.balance_after_inr),
+    payment_method: row.payment_method || null,
+    reason: row.reason,
+    bill_id: row.bill_id || null,
+    bill_no: row.bill_id ? billMap.get(row.bill_id) || null : null,
+    created_at: row.created_at,
+  }));
 }
 
 async function listCustomers(req, res) {
