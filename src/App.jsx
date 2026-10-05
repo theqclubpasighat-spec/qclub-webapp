@@ -13400,12 +13400,29 @@ return (
 function HallOfFame({ data, admin, commit }) {
 
   const entries = data.hallOfFame || [];
+  const players = data.players || [];
+
+  function linkedPlayer(entry) {
+    return players.find((p) => p.id === entry?.playerId) || null;
+  }
+
+  function hallName(entry) {
+    return linkedPlayer(entry)?.name || entry?.name || "Player";
+  }
+
+  function hallPhoto(entry) {
+    return entry?.photo || linkedPlayer(entry)?.photo || "";
+  }
 
   function addEntry() {
     if (!admin) return alert("Admin only");
 
     const name = prompt("Player name:");
     if (!name) return;
+
+    const matchedPlayer = players.find(
+      (p) => String(p.name || "").trim().toLowerCase() === String(name).trim().toLowerCase()
+    );
 
     const title = prompt("Achievement / Title:", "Tournament Champion");
     if (!title) return;
@@ -13419,7 +13436,8 @@ function HallOfFame({ data, admin, commit }) {
         ...entries,
         {
           id: uid(),
-          name,
+          playerId: matchedPlayer?.id || "",
+          name: matchedPlayer?.name || name,
           title,
           year,
           photo: "",
@@ -13509,10 +13527,10 @@ function HallOfFame({ data, admin, commit }) {
 
               <div className="row" style={{gap:16}}>
 
-                {e.photo ? (
+                {hallPhoto(e) ? (
                   <img
-                    src={e.photo}
-                    alt={e.name}
+                    src={hallPhoto(e)}
+                    alt={hallName(e)}
                     style={{
                       width:80,
                       height:80,
@@ -13522,14 +13540,15 @@ function HallOfFame({ data, admin, commit }) {
                   />
                 ) : (
                   <div className="avatarLarge">
-                    {e.name?.charAt(0)}
+                    {hallName(e).charAt(0)}
                   </div>
                 )}
 
                 <div>
-                  <h2 style={{margin:0}}>{e.name}</h2>
+                  <h2 style={{margin:0}}>{hallName(e)}</h2>
                   <div className="badge">{e.title}</div>
                   <div className="muted">{e.year}</div>
+                  {e.playerId ? <Link className="player-link" to={`/players?playerId=${e.playerId}`}>View player profile</Link> : null}
                 </div>
 
               </div>
