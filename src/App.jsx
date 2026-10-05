@@ -10548,6 +10548,16 @@ committeeNotes: "",
 }
   async function deletePlayer(id) {
     if (!admin) return alert("Admin only");
+
+    const referencedTournament = (data.tournaments || []).find((t) =>
+      (t.participantIds || []).includes(id) ||
+      (t.matches || []).some((m) => m.p1 === id || m.p2 === id || m.winner === id)
+    );
+    if (referencedTournament) {
+      alert(`This player is part of tournament history (${referencedTournament.name || "Tournament"}). Deletion is blocked so fixtures and leaderboards are not rewritten.`);
+      return;
+    }
+
     if (!confirm("Delete this player?")) return;
 
     const current = (data.players || []).find((p) => p.id === id);
@@ -10556,11 +10566,6 @@ committeeNotes: "",
     commit({
       ...data,
       players: (data.players || []).filter((p) => p.id !== id),
-      tournaments: (data.tournaments || []).map((t) => ({
-        ...t,
-        participantIds: (t.participantIds || []).filter((pid) => pid !== id),
-        matches: (t.matches || []).filter((m) => m.p1 !== id && m.p2 !== id),
-      })),
     });
 
     if (selectedPlayerId === id) setSelectedPlayerId("");
