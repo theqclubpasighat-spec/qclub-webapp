@@ -4190,10 +4190,17 @@ async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger =
     }
     reservation = inserted;
 
-    const summaryBase = (bill.items || [])
+    const itemSummary = (bill.items || [])
       .slice(0, 12)
       .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
       .join(" • ") || "Q Club bill";
+    const carryBalance = number(bill.customer_balance_inr);
+    const carrySummary = carryBalance > 0.009
+      ? `Customer CREDIT ₹${money(carryBalance)}`
+      : carryBalance < -0.009
+        ? `Customer DEBIT ₹${money(Math.abs(carryBalance))}`
+        : "";
+    const summaryBase = carrySummary ? `${itemSummary} • ${carrySummary}` : itemSummary;
     const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
     const params = [
       customer,
@@ -4329,10 +4336,17 @@ async function sendReceipt(req, res) {
   }
 
   const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
-  const summaryBase = (bill.items || [])
+  const itemSummary = (bill.items || [])
     .slice(0, 12)
     .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
     .join(" • ") || "Q Club bill";
+  const carryBalance = number(bill.customer_balance_inr);
+  const carrySummary = carryBalance > 0.009
+    ? `Customer CREDIT ₹${money(carryBalance)}`
+    : carryBalance < -0.009
+      ? `Customer DEBIT ₹${money(Math.abs(carryBalance))}`
+      : "";
+  const summaryBase = carrySummary ? `${itemSummary} • ${carrySummary}` : itemSummary;
   const summary = paymentUrlValue ? `${summaryBase} • Pay securely: ${paymentUrlValue}` : summaryBase;
   const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
   const params = [
