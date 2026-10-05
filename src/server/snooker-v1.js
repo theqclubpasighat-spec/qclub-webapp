@@ -400,7 +400,7 @@ async function publicPaymentSession(req, res, paymentId) {
   const supabase = getSupabaseAdmin();
   const signature = safeText(req.query?.sig || "", 500);
   const { data } = await supabase.from("snooker_bill_payments").select("*").eq("id", paymentId).maybeSingle();
-  if (!data || data.method !== "UPI" || !signature || !secureEqual(signature, paymentLinkSignature(data))) {
+  if (!data || !["ONLINE", "UPI"].includes(data.method) || !data.cashfree_order_id || !signature || !secureEqual(signature, paymentLinkSignature(data))) {
     return json(res, 404, { ok: false, error: "PAYMENT_LINK_NOT_FOUND" });
   }
 
@@ -507,7 +507,7 @@ async function publicTableDisplay(req, res, tableKey) {
 
   let payment = null;
   if (number(bill.due_inr) > 0) {
-    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).eq("method","UPI").eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
+    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).in("method",["ONLINE","UPI"]).not("cashfree_order_id","is",null).eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
     if (data) payment = { payment_id: data.id, status: data.status, amount_inr: money(data.amount_inr), qr_url: qrElementUrl(data) };
   }
   const billPayload = { bill_id: bill.id, bill_no: bill.bill_no, game_total_inr: money(bill.game_total_inr), fnb_total_inr: money(bill.fnb_total_inr), total_inr: money(bill.total_inr), due_inr: money(bill.due_inr), status: bill.status };
@@ -523,17 +523,31 @@ async function dashboardSummary(req, res) {
   const [
     { data: todayBills, error: billError },
     { data: cashPayments, error: cashError },
-    { data: upiPayments, error: upiError },
+    { data: manualUpiPayments, error: manualUpiError },
+    { data: onlinePayments, error: onlineError },
+    { data: legacyOnlinePayments, error: legacyOnlineError },
     { data: outstandingBills, error: outstandingError },
+    { data: customerBalances, error: balanceError },
   ] = await Promise.all([
     supabase.from("snooker_bills").select("id").eq("accounting_excluded", false).gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
     supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "RECEIVED").is("cashfree_order_id", null).gte("created_at", bounds.start).lt("created_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "ONLINE").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").not("cashfree_order_id", "is", null).gte("verified_at", bounds.start).lt("verified_at", bounds.end),
     supabase.from("snooker_bills").select("due_inr").eq("accounting_excluded", false).gt("due_inr", 0),
+    supabase.from("snooker_customers").select("balance_inr").neq("balance_inr", 0).eq("active", true),
   ]);
-  if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
+  if (billError || cashError || manualUpiError || onlineError || legacyOnlineError || outstandingError || balanceError) {
+    throw billError || cashError || manualUpiError || onlineError || legacyOnlineError || outstandingError || balanceError;
+  }
 
-  const paymentBillIds = [...new Set([...(cashPayments || []), ...(upiPayments || [])].map((row) => row.bill_id).filter(Boolean))];
+  const allMoneyPayments = [
+    ...(cashPayments || []),
+    ...(manualUpiPayments || []),
+    ...(onlinePayments || []),
+    ...(legacyOnlinePayments || []),
+  ];
+  const paymentBillIds = [...new Set(allMoneyPayments.map((row) => row.bill_id).filter(Boolean))];
   let excludedPaymentBillIds = new Set();
   if (paymentBillIds.length) {
     const { data: excludedRows, error: excludedError } = await supabase
@@ -544,16 +558,29 @@ async function dashboardSummary(req, res) {
     if (excludedError) throw excludedError;
     excludedPaymentBillIds = new Set((excludedRows || []).map((row) => row.id));
   }
-  const cash = (cashPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const upi = (upiPayments || []).filter((row) => !excludedPaymentBillIds.has(row.bill_id)).reduce((sum, row) => sum + number(row.amount_inr), 0);
-  const outstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
+
+  const sumIncluded = (rows) => (rows || [])
+    .filter((row) => !excludedPaymentBillIds.has(row.bill_id))
+    .reduce((sum, row) => sum + number(row.amount_inr), 0);
+
+  const cash = sumIncluded(cashPayments);
+  const upi = sumIncluded(manualUpiPayments);
+  const online = sumIncluded([...(onlinePayments || []), ...(legacyOnlinePayments || [])]);
+  const billOutstanding = (outstandingBills || []).reduce((sum, row) => sum + number(row.due_inr), 0);
+  const carriedDebit = (customerBalances || []).reduce((sum, row) => sum + Math.max(0, -number(row.balance_inr)), 0);
+  const customerCredit = (customerBalances || []).reduce((sum, row) => sum + Math.max(0, number(row.balance_inr)), 0);
+
   return json(res, 200, {
     business_date: bounds.day,
     today_finalized_bills: (todayBills || []).length,
     today_cash_inr: money(cash),
     today_upi_inr: money(upi),
-    today_realized_sales_inr: money(cash + upi),
-    outstanding_all_inr: money(outstanding),
+    today_online_inr: money(online),
+    today_realized_sales_inr: money(cash + upi + online),
+    open_bill_due_inr: money(billOutstanding),
+    carried_customer_debit_inr: money(carriedDebit),
+    customer_credit_liability_inr: money(customerCredit),
+    outstanding_all_inr: money(billOutstanding + carriedDebit),
   });
 }
 
@@ -571,22 +598,40 @@ async function loadFinanceReserveSummary(supabase) {
 
   const [
     { data: monthCashPayments, error: monthCashError },
-    { data: monthUpiPayments, error: monthUpiError },
+    { data: monthManualUpiPayments, error: monthManualUpiError },
+    { data: monthOnlinePayments, error: monthOnlineError },
+    { data: monthLegacyOnlinePayments, error: monthLegacyOnlineError },
     { data: monthFnbLines, error: monthFnbError },
     { data: fnbCatalogue, error: fnbCatalogueError },
   ] = await Promise.all([
     supabase
       .from("snooker_bill_payments")
-      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
       .eq("method", "CASH")
       .eq("status", "RECEIVED")
       .gte("created_at", bounds.start)
       .lt("created_at", bounds.end),
     supabase
       .from("snooker_bill_payments")
-      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
+      .eq("method", "UPI")
+      .eq("status", "RECEIVED")
+      .is("cashfree_order_id", null)
+      .gte("created_at", bounds.start)
+      .lt("created_at", bounds.end),
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
+      .eq("method", "ONLINE")
+      .eq("status", "VERIFIED")
+      .gte("verified_at", bounds.start)
+      .lt("verified_at", bounds.end),
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
       .eq("method", "UPI")
       .eq("status", "VERIFIED")
+      .not("cashfree_order_id", "is", null)
       .gte("verified_at", bounds.start)
       .lt("verified_at", bounds.end),
     supabase
@@ -602,8 +647,8 @@ async function loadFinanceReserveSummary(supabase) {
       .order("category")
       .order("name"),
   ]);
-  if (monthCashError || monthUpiError || monthFnbError || fnbCatalogueError) {
-    throw monthCashError || monthUpiError || monthFnbError || fnbCatalogueError;
+  if (monthCashError || monthManualUpiError || monthOnlineError || monthLegacyOnlineError || monthFnbError || fnbCatalogueError) {
+    throw monthCashError || monthManualUpiError || monthOnlineError || monthLegacyOnlineError || monthFnbError || fnbCatalogueError;
   }
 
   const fnbBillIds = [...new Set((monthFnbLines || []).map((row) => row.bill_id).filter(Boolean))];
@@ -618,7 +663,12 @@ async function loadFinanceReserveSummary(supabase) {
     excludedFnbBillIds = new Set((excludedFnbBills || []).map((row) => row.id));
   }
 
-  const monthPayments = [...(monthCashPayments || []), ...(monthUpiPayments || [])];
+  const monthPayments = [
+    ...(monthCashPayments || []),
+    ...(monthManualUpiPayments || []),
+    ...(monthOnlinePayments || []),
+    ...(monthLegacyOnlinePayments || []),
+  ];
   const billIds = [...new Set(monthPayments.map((row) => row.bill_id).filter(Boolean))];
 
   let bills = [];
@@ -635,7 +685,7 @@ async function loadFinanceReserveSummary(supabase) {
         .eq("accounting_excluded", false),
       supabase
         .from("snooker_bill_payments")
-        .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+        .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
         .in("bill_id", billIds)
         .in("status", ["RECEIVED", "VERIFIED"]),
     ]);
@@ -648,7 +698,8 @@ async function loadFinanceReserveSummary(supabase) {
   const paymentsByBill = new Map();
   for (const payment of allSuccessfulPayments) {
     if (!payment?.bill_id) continue;
-    const effectiveAt = payment.method === "UPI"
+    const isProviderPayment = payment.method === "ONLINE" || (payment.method === "UPI" && payment.cashfree_order_id);
+    const effectiveAt = isProviderPayment
       ? (payment.verified_at || payment.created_at)
       : payment.created_at;
     const effectiveMs = Date.parse(effectiveAt || "");
@@ -698,7 +749,7 @@ async function loadFinanceReserveSummary(supabase) {
 
       if (payment.effective_ms >= monthStartMs && payment.effective_ms < monthEndMs && tablePortion > 0) {
         if (payment.method === "CASH") tableCash += tablePortion;
-        else if (payment.method === "UPI") tableUpi += tablePortion;
+        else if (payment.method === "UPI" || payment.method === "ONLINE") tableUpi += tablePortion;
       }
     }
 
@@ -1064,6 +1115,16 @@ async function individualSessionSnapshot(supabase, sessionId) {
     supabase.from("snooker_bills").select("*").eq("source_session_id", sessionId).eq("bill_source", "PLAYER_ACCOUNT").order("finalized_at"),
   ]);
   const activeCharges = (charges || []).filter((x) => x.status === "ACTIVE");
+  const customerIds = [...new Set((people || []).map((person) => person.customer_id).filter(Boolean))];
+  let customerMap = new Map();
+  if (customerIds.length) {
+    const { data: customers, error: customerError } = await supabase
+      .from("snooker_customers")
+      .select("id,balance_inr")
+      .in("id", customerIds);
+    if (customerError) throw customerError;
+    customerMap = new Map((customers || []).map((customer) => [customer.id, customer]));
+  }
   const now = new Date();
   return (people || []).map((person) => {
     const own = activeCharges.filter((x) => x.person_id === person.id);
@@ -1099,6 +1160,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       name: person.name,
       phone: person.phone,
       is_member: person.is_member,
+      carry_balance_inr: money(customerMap.get(person.customer_id)?.balance_inr),
       team_no: person.team_no,
       status: person.status,
       joined_at: person.joined_at,
@@ -1112,6 +1174,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       billed_due_inr: billedDue,
       paid_inr: billedPaid,
       current_due_inr: money(unbilledTotal + billedDue),
+      net_after_carry_inr: money(Math.max(0, unbilledTotal + billedDue - number(customerMap.get(person.customer_id)?.balance_inr))),
       account_entries: accountEntries,
       bills: ownBills.map((b)=>({bill_id:b.id,bill_no:b.bill_no,status:b.status,total_inr:money(b.total_inr),paid_inr:money(b.paid_inr),due_inr:money(b.due_inr)})),
     };
@@ -1183,6 +1246,7 @@ function customerDto(row) {
     phone: row.phone || null,
     is_member: Boolean(row.is_member),
     member_tier: row.member_tier || null,
+    balance_inr: money(row.balance_inr),
     visit_count: number(row.visit_count),
     last_seen_at: row.last_seen_at || null,
     source: row.source || null,
@@ -1244,6 +1308,153 @@ async function rememberCustomer(supabase, { name, phone, isMember = false, membe
     .single();
   if (error) throw error;
   return data;
+}
+
+async function ensureBillCustomer(supabase, bill) {
+  if (!bill) return null;
+
+  if (bill.customer_id) {
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("id", bill.customer_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  let name = canonicalCustomerName(bill.customer_name || "");
+  let phone = normalizePhone(bill.customer_phone || "") || null;
+  let isMember = false;
+  let customerId = null;
+
+  if (bill.person_id) {
+    const { data: person, error } = await supabase
+      .from("snooker_session_people")
+      .select("*")
+      .eq("id", bill.person_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (person) {
+      customerId = person.customer_id || null;
+      name = canonicalCustomerName(person.name || name);
+      phone = normalizePhone(person.phone || phone || "") || null;
+      isMember = Boolean(person.is_member);
+    }
+  }
+
+  if (customerId) {
+    const { data, error } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("id", customerId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      await supabase.from("snooker_bills").update({
+        customer_id: data.id,
+        customer_name: data.name || name || null,
+        customer_phone: data.phone || phone || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", bill.id);
+      return data;
+    }
+  }
+
+  if (bill.session_id) {
+    const { data: session, error } = await supabase
+      .from("snooker_sessions")
+      .select("customer_name,customer_phone,is_member")
+      .eq("id", bill.session_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (session) {
+      name = canonicalCustomerName(session.customer_name || name);
+      phone = normalizePhone(session.customer_phone || phone || "") || null;
+      isMember = Boolean(session.is_member || isMember);
+    }
+  }
+
+  if (!name && phone) {
+    const { data: phoneMatches, error: phoneError } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("normalized_phone", phone)
+      .eq("active", true)
+      .limit(2);
+    if (phoneError) throw phoneError;
+    if ((phoneMatches || []).length === 1) {
+      const customer = phoneMatches[0];
+      const { error: linkError } = await supabase.from("snooker_bills").update({
+        customer_id: customer.id,
+        customer_name: customer.name,
+        customer_phone: customer.phone || phone,
+        updated_at: new Date().toISOString(),
+      }).eq("id", bill.id);
+      if (linkError) throw linkError;
+      return customer;
+    }
+  }
+
+  if (!name) return null;
+  const normalizedName = normalizeCustomerName(name);
+  const { data: existingByName, error: existingError } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("normalized_name", normalizedName)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const customer = existingByName || await rememberCustomer(supabase, {
+    name,
+    phone,
+    isMember,
+    source: "bill_settlement",
+  });
+  if (!customer) return null;
+
+  const { error: linkError } = await supabase.from("snooker_bills").update({
+    customer_id: customer.id,
+    customer_name: customer.name || name,
+    customer_phone: customer.phone || phone,
+    updated_at: new Date().toISOString(),
+  }).eq("id", bill.id);
+  if (linkError) throw linkError;
+  return customer;
+}
+
+async function customerBalanceHistory(supabase, customerId, limit = 20) {
+  if (!customerId) return [];
+  const { data, error } = await supabase
+    .from("snooker_customer_balance_entries")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  const billIds = [...new Set((data || []).map((row) => row.bill_id).filter(Boolean))];
+  let billMap = new Map();
+  if (billIds.length) {
+    const { data: bills, error: billError } = await supabase
+      .from("snooker_bills")
+      .select("id,bill_no")
+      .in("id", billIds);
+    if (billError) throw billError;
+    billMap = new Map((bills || []).map((bill) => [bill.id, bill.bill_no]));
+  }
+
+  return (data || []).map((row) => ({
+    balance_entry_id: row.id,
+    entry_type: row.entry_type,
+    delta_inr: money(row.balance_delta_inr),
+    balance_after_inr: money(row.balance_after_inr),
+    payment_method: row.payment_method || null,
+    reason: row.note || row.reference_text || "Balance adjustment",
+    bill_id: row.bill_id || null,
+    bill_no: row.bill_id ? billMap.get(row.bill_id) || null : null,
+    created_at: row.created_at,
+  }));
 }
 
 async function listCustomers(req, res) {
@@ -1347,11 +1558,13 @@ async function listPlayerTabs(req,res){
       name:customer?.name||ownFnbTabs[0]?.customer_name||ownPeople[0]?.name||"CUSTOMER",
       phone:customer?.phone||ownFnbTabs[0]?.customer_phone||ownPeople[0]?.phone||null,
       is_member:Boolean(customer?.is_member),
+      carry_balance_inr: money(customer?.balance_inr),
       player_unbilled_inr:playerUnbilled,
       fnb_unbilled_inr:runningFnbUnbilled,
       unbilled_inr:unbilled,
       billed_due_inr:billedDue,
       current_due_inr:money(unbilled+billedDue),
+      net_after_carry_inr: money(Math.max(0, unbilled + billedDue - number(customer?.balance_inr))),
       active_locations:activeLocations,
       open_fnb_tab_ids:ownFnbTabs.map(t=>t.id),
       charge_count:ownCharges.length+ownRunningFnb.length,
@@ -3069,14 +3282,6 @@ async function createWalkInFnbBill(req, res) {
     throw error;
   }
 
-  if (customerName) {
-    try {
-      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "quick_fnb_bill" });
-    } catch (customerError) {
-      console.error("customer directory remember failed", { source: "quick_fnb_bill", name: customerName, message: customerError?.message });
-    }
-  }
-
   const response = await billDetailPayload(supabase, bill.id);
   await rememberIdempotent(supabase, key, "walkin_fnb_bill", bill.id, response);
   return json(res, 201, response);
@@ -3276,11 +3481,24 @@ async function finalizeBill(req, res) {
 }
 
 async function billDetailPayload(supabase, billId) {
-  const { data: bill } = await supabase.from("snooker_bills").select("*").eq("id", billId).maybeSingle();
+  let { data: bill } = await supabase.from("snooker_bills").select("*").eq("id", billId).maybeSingle();
   if (!bill) return null;
-  const [{ data: items }, { data: payments }] = await Promise.all([
+
+  const linkedCustomer = await ensureBillCustomer(supabase, bill);
+  if (linkedCustomer && !bill.customer_id) {
+    const { data: refreshedBill, error: refreshedBillError } = await supabase
+      .from("snooker_bills")
+      .select("*")
+      .eq("id", billId)
+      .single();
+    if (refreshedBillError) throw refreshedBillError;
+    bill = refreshedBill;
+  }
+
+  const [{ data: items }, { data: payments }, balanceEntries] = await Promise.all([
     supabase.from("snooker_bill_items").select("*").eq("bill_id", billId).order("created_at"),
     supabase.from("snooker_bill_payments").select("*").eq("bill_id", billId).order("created_at"),
+    linkedCustomer ? customerBalanceHistory(supabase, linkedCustomer.id, 20) : Promise.resolve([]),
   ]);
   return {
     bill_id: bill.id,
@@ -3290,9 +3508,11 @@ async function billDetailPayload(supabase, billId) {
     source_session_id: bill.source_session_id || null,
     person_id: bill.person_id || null,
     bill_source: bill.bill_source || "GAME_SESSION",
-    customer_id: bill.customer_id || null,
-    customer_name: bill.customer_name || null,
-    customer_phone: bill.customer_phone || null,
+    customer_id: bill.customer_id || linkedCustomer?.id || null,
+    customer_name: bill.customer_name || linkedCustomer?.name || null,
+    customer_phone: bill.customer_phone || linkedCustomer?.phone || null,
+    customer_balance_inr: money(linkedCustomer?.balance_inr),
+    balance_entries: balanceEntries,
     game_total_inr: money(bill.game_total_inr),
     fnb_total_inr: money(bill.fnb_total_inr),
     discount_inr: money(bill.discount_inr),
@@ -3441,6 +3661,92 @@ async function cancelPaymentAttempt(req, res, paymentId) {
   return json(res, 200, await billDetailPayload(supabase, payment.bill_id));
 }
 
+async function manualPayment(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  if (!key) return json(res, 400, { ok: false, error: "IDEMPOTENCY_KEY_REQUIRED" });
+
+  const billId = safeText(req.body?.bill_id || req.body?.billId || "", 100);
+  let { data: bill, error: billError } = await supabase
+    .from("snooker_bills")
+    .select("*")
+    .eq("id", billId)
+    .maybeSingle();
+  if (billError) throw billError;
+  if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
+
+  const method = safeText(req.body?.method || "CASH", 20).trim().toUpperCase();
+  if (!["CASH", "UPI"].includes(method)) {
+    return json(res, 400, { ok: false, error: "INVALID_MANUAL_PAYMENT_METHOD" });
+  }
+
+  const requestedPhone = normalizePhone(req.body?.customer_phone || "");
+  if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
+    const { error: contactError } = await supabase
+      .from("snooker_bills")
+      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
+      .eq("id", billId);
+    if (contactError) throw contactError;
+    bill = { ...bill, customer_phone: requestedPhone };
+  }
+
+  const customer = await ensureBillCustomer(supabase, bill);
+  const received = money(req.body?.received_inr ?? req.body?.amount_inr ?? 0);
+  let settleMode = req.body?.settle_mode !== false;
+
+  // Exact payment can still be accepted for an unidentified walk-in. Carrying a
+  // credit/debit across days always requires a persistent customer identity.
+  const due = money(bill.due_inr);
+  if (settleMode && !customer && Math.abs(received - due) <= 0.009) settleMode = false;
+  if (settleMode && !customer) {
+    return json(res, 409, {
+      ok: false,
+      error: "CUSTOMER_REQUIRED_FOR_CARRYOVER",
+      message: "Select or identify the customer before carrying a credit/debit balance.",
+    });
+  }
+
+  const { data: result, error } = await supabase.rpc("qclub_manual_settle_bill", {
+    p_bill_id: billId,
+    p_customer_id: customer?.id || null,
+    p_payment_method: method,
+    p_received_inr: received,
+    p_settle_mode: settleMode,
+    p_staff_id: auth.staff_id,
+    p_idempotency_key: key,
+  });
+  if (error) throw error;
+  if (!result?.ok) {
+    const conflictErrors = new Set([
+      "BILL_ALREADY_PAID",
+      "BILL_CANCELLED",
+      "ACTIVE_ONLINE_PAYMENT_PENDING",
+      "CUSTOMER_REQUIRED_FOR_CARRYOVER",
+      "PARTIAL_PAYMENT_EXCEEDS_DUE",
+    ]);
+    return json(res, conflictErrors.has(result?.error) ? 409 : 400, result || { ok: false, error: "MANUAL_PAYMENT_FAILED" });
+  }
+
+  const detail = await billDetailPayload(supabase, billId);
+  const settledPaymentId = result.payment_id || result.balance_payment_id || null;
+  const autoReceipt = detail?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, billId, settledPaymentId, method + "_MANUAL_SETTLEMENT")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+
+  return json(res, 201, {
+    ...result,
+    method,
+    bill_status: detail?.status || result.bill_status,
+    due_inr: money(detail?.due_inr ?? result.due_inr),
+    customer_balance_inr: money(detail?.customer_balance_inr ?? result.customer_balance_inr),
+    balance_entries: detail?.balance_entries || [],
+    bill: detail,
+    auto_receipt: autoReceipt,
+  });
+}
+
 async function cashPayment(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -3553,7 +3859,8 @@ async function upiPayment(req, res) {
     .from("snooker_bill_payments")
     .select("*")
     .eq("bill_id", billId)
-    .eq("method", "UPI")
+    .in("method", ["ONLINE", "UPI"])
+    .not("cashfree_order_id", "is", null)
     .eq("status", "PENDING")
     .eq("amount_inr", amount)
     .gt("expires_at", new Date().toISOString())
@@ -3644,7 +3951,7 @@ async function upiPayment(req, res) {
   const { data: payment, error } = await supabase.from("snooker_bill_payments").insert({
     id: paymentId,
     bill_id: billId,
-    method: "UPI",
+    method: "ONLINE",
     amount_inr: amount,
     status: "PENDING",
     cashfree_order_id: orderId,
@@ -3682,7 +3989,7 @@ async function upiPayment(req, res) {
 }
 
 async function syncCashfreePayment(supabase, payment) {
-  if (!payment || payment.method !== "UPI" || !payment.cashfree_order_id || ["VERIFIED", "FAILED", "EXPIRED", "CANCELLED"].includes(payment.status)) return payment;
+  if (!payment || !["ONLINE", "UPI"].includes(payment.method) || !payment.cashfree_order_id || ["VERIFIED", "FAILED", "EXPIRED", "CANCELLED"].includes(payment.status)) return payment;
   if (!env("CASHFREE_APP_ID") || !env("CASHFREE_SECRET_KEY")) return payment;
 
   const order = await cashfreeJson(`https://api.cashfree.com/pg/orders/${encodeURIComponent(payment.cashfree_order_id)}`, {
@@ -3883,10 +4190,17 @@ async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger =
     }
     reservation = inserted;
 
-    const summaryBase = (bill.items || [])
+    const itemSummary = (bill.items || [])
       .slice(0, 12)
       .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
       .join(" • ") || "Q Club bill";
+    const carryBalance = number(bill.customer_balance_inr);
+    const carrySummary = carryBalance > 0.009
+      ? `Customer CREDIT ₹${money(carryBalance)}`
+      : carryBalance < -0.009
+        ? `Customer DEBIT ₹${money(Math.abs(carryBalance))}`
+        : "";
+    const summaryBase = carrySummary ? `${itemSummary} • ${carrySummary}` : itemSummary;
     const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
     const params = [
       customer,
@@ -4011,7 +4325,8 @@ async function sendReceipt(req, res) {
       .from("snooker_bill_payments")
       .select("*")
       .eq("bill_id", billId)
-      .eq("method", "UPI")
+      .in("method", ["ONLINE", "UPI"])
+      .not("cashfree_order_id", "is", null)
       .eq("status", "PENDING")
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
@@ -4021,10 +4336,17 @@ async function sendReceipt(req, res) {
   }
 
   const paymentUrlValue = linkedPayment ? paymentLinkUrl(linkedPayment) : "";
-  const summaryBase = (bill.items || [])
+  const itemSummary = (bill.items || [])
     .slice(0, 12)
     .map((item) => `${item.description} x ${item.quantity} = ₹${money(item.line_total_inr)}`)
     .join(" • ") || "Q Club bill";
+  const carryBalance = number(bill.customer_balance_inr);
+  const carrySummary = carryBalance > 0.009
+    ? `Customer CREDIT ₹${money(carryBalance)}`
+    : carryBalance < -0.009
+      ? `Customer DEBIT ₹${money(Math.abs(carryBalance))}`
+      : "";
+  const summaryBase = carrySummary ? `${itemSummary} • ${carrySummary}` : itemSummary;
   const summary = paymentUrlValue ? `${summaryBase} • Pay securely: ${paymentUrlValue}` : summaryBase;
   const customer = msg91BodyText(session?.customer_name || bill.customer_name || "Customer", 120) || "Customer";
   const params = [
@@ -4320,6 +4642,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "bills" && parts[1] && parts.length === 2 && method === "GET") return await billDetail(req, res, parts[1]);
     if (parts[0] === "bills" && parts[1] && parts[2] === "accounting-exclusion" && method === "PATCH") return await setBillAccountingExclusion(req, res, parts[1]);
 
+    if (method === "POST" && path === "payments/manual") return await manualPayment(req, res);
     if (method === "POST" && path === "payments/cash") return await cashPayment(req, res);
     if (method === "POST" && path === "payments/upi") return await upiPayment(req, res);
     if (parts[0] === "payments" && parts[1] && parts.length === 2 && method === "GET") return await paymentStatus(req, res, parts[1]);
