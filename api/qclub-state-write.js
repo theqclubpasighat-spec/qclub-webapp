@@ -29,10 +29,15 @@ function normalizeDate(value) {
   if (!text) return "";
   const time = new Date(text).getTime();
   if (!Number.isFinite(time)) return "";
-  return new Date(time).toISOString();
+  // JavaScript Date truncates PostgreSQL microseconds. Keep that precision
+  // in the initial comparison as well as in the final UPDATE predicate.
+  const fraction = text.match(/\.(\d+)(?:Z|[+-]\d{2}(?::?\d{2})?)$/i)?.[1] || "";
+  if (fraction.length > 6) return "";
+  return new Date(time).toISOString().replace(/\.\d{3}Z$/, `.${fraction.padEnd(6, "0")}Z`);
 }
 
-export default async function handler(req, res) {
+export function createStateWriteHandler({ createDatabase = getSupabaseAdmin, clock = () => new Date() } = {}) {
+return async function handler(req, res) {
   if (req.method !== "POST") {
     return json(res, 405, { error: "Method not allowed" });
   }
@@ -65,7 +70,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const supabase = getSupabaseAdmin();
+    const supabase = createDatabase();
 
     const { data: currentRow, error: readError } = await supabase
       .from(TABLE)
@@ -75,7 +80,7 @@ export default async function handler(req, res) {
 
     if (readError) {
       console.error("qclub-state-write read error:", readError);
-      return json(res, 500, { error: readError.message || "Cloud read failed." });
+      return json(res, 500, { error: "Cloud read failed." });
     }
 
     const currentUpdatedAt = normalizeDate(currentRow?.updated_at);
@@ -88,7 +93,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const now = new Date().toISOString();
+    // Always advance the revision, including saves in the same millisecond.
+    const now = new Date(Math.max(clock().getTime(), new Date(currentRow.updated_at).getTime() + 1)).toISOString();
 
     const cleanState = {
       ...state,
@@ -103,14 +109,25 @@ export default async function handler(req, res) {
       updated_at: now,
     };
 
-    const { error } = await supabase
+    // Match the original PostgreSQL revision, including its microseconds.
+    // PostgreSQL checks this predicate under its row lock, so only one
+    // writer can succeed for a revision. Never insert a missing main row.
+    const { data: saved, error } = await supabase
       .from(TABLE)
-      .upsert(payload, { onConflict: "key" });
+      .update({ state: payload.state, updated_at: payload.updated_at })
+      .eq("key", KEY)
+      .eq("updated_at", currentRow.updated_at)
+      .select("updated_at")
+      .maybeSingle();
 
     if (error) {
       console.error("qclub-state-write Supabase error:", error);
-      return json(res, 500, { error: error.message || "Supabase write failed." });
+      return json(res, 500, { error: "Supabase write failed." });
     }
+
+    if (!saved) return json(res, 409, {
+      error: "Cloud changed after this page loaded. Refresh before saving.",
+    });
 
     return json(res, 200, {
       ok: true,
@@ -120,7 +137,11 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("qclub-state-write fatal error:", error);
     return json(res, 500, {
-      error: error?.message || "Cloud write failed.",
+      error: "Cloud write failed.",
     });
   }
 }
+
+}
+
+export default createStateWriteHandler();
