@@ -4159,6 +4159,21 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
+    if (method === "POST" && path === "auth/rotate-pin") {
+      const auth = await requireAuth(req, res, ["ADMIN"]);
+      if (!auth) return;
+      if (auth.staff_id !== "admin-main") return json(res, 403, { ok: false, error: "FORBIDDEN" });
+      const credentialId = safeText(req.body?.credential_id || "", 20);
+      const newPin = safeText(req.body?.new_pin || "", 100);
+      const { data: rotated, error: rotateError } = await getSupabaseAdmin().rpc("qclub_security_rotate_pin", {
+        p_actor_token_hash: hashToken(bearer(req)),
+        p_credential_id: credentialId,
+        p_new_pin: newPin,
+      });
+      if (rotateError) return json(res, 503, { ok: false, error: "CREDENTIAL_CHANGE_FAILED" });
+      if (!rotated?.ok) return json(res, rotated?.forbidden ? 403 : 400, { ok: false, error: rotated?.invalid ? "INVALID_PIN_FORMAT" : "CREDENTIAL_CHANGE_FAILED" });
+      return json(res, 200, rotated);
+    }
     if (method === "GET" && path === "cms/session") {
       const auth = await requireAuth(req, res, ["ADMIN", "STAFF", "COMMITTEE"]);
       if (!auth) return;
