@@ -51,6 +51,12 @@ export function applyWebsitePatch(state,role,patch){
  if(!Object.hasOwn(WRITABLE,role))throw new SecurityError(403,'FORBIDDEN');
  if(!patch||typeof patch!=='object'||Array.isArray(patch)||!Object.keys(patch).length)throw new SecurityError(400,'INVALID_PATCH');
  if(Object.keys(patch).some(k=>!WRITABLE[role].includes(k)))throw new SecurityError(403,'FORBIDDEN');
+ if(JSON.stringify(patch).length>1_000_000)throw new SecurityError(413,'PATCH_TOO_LARGE');
+ for(const [key,value] of Object.entries(patch)){
+  const objects=['club','booking','foodPage','jobSettings','menuCatalog','shopCatalog'];
+  if(objects.includes(key)?(!value||typeof value!=='object'||Array.isArray(value)):!Array.isArray(value))throw new SecurityError(400,'INVALID_PATCH');
+ }
+ const uniqueRows=value=>Array.isArray(value)&&value.every(v=>v&&typeof v==='object'&&typeof v.id==='string')&&new Set(value.map(v=>v.id)).size===value.length;
  // Preserve every server-owned section, including credentials and gateway records.
  const next=structuredClone(state);
  for(const [key,value] of Object.entries(patch))next[key]=structuredClone(value);
@@ -61,12 +67,17 @@ export function applyWebsitePatch(state,role,patch){
  }
  if(role==='COMMITTEE'&&patch.tournaments){
   const current=new Map((state.tournaments||[]).map(t=>[t.id,t]));
-  if(!Array.isArray(patch.tournaments)||patch.tournaments.length!==current.size)throw new SecurityError(403,'FORBIDDEN');
-  next.tournaments=patch.tournaments.map(t=>{if(!current.has(t.id))throw new SecurityError(403,'FORBIDDEN');return {...current.get(t.id),...fields(t,['format','participantIds','isCurrent']),matches:structuredClone(t.matches||[])};});
+  if(!uniqueRows(patch.tournaments)||patch.tournaments.length!==current.size)throw new SecurityError(403,'FORBIDDEN');
+  next.tournaments=patch.tournaments.map(t=>{
+   if(!current.has(t.id)||!uniqueRows(t.matches||[]))throw new SecurityError(403,'FORBIDDEN');
+   const prior=current.get(t.id),matches=new Map((prior.matches||[]).map(m=>[m.id,m]));
+   return {...prior,...fields(t,['format','participantIds','isCurrent']),matches:t.matches.map(m=>({...matches.get(m.id),...fields(m,MATCH)}))};
+  });
  }
  // Restricted roles cannot erase private fields by posting a public projection.
  if(role==='COMMITTEE'&&patch.players){
   const current=new Map((state.players||[]).map(p=>[p.id,p]));
+  if(!uniqueRows(patch.players))throw new SecurityError(400,'INVALID_PATCH');
   next.players=patch.players.map(p=>{if(!current.has(p.id))throw new SecurityError(403,'FORBIDDEN');return {...current.get(p.id),...fields(p,[...PLAYER,'committeeNotes','lastReviewDate','reviewRecommendation','reviewStatus'])};});
   if(next.players.length!==current.size)throw new SecurityError(403,'FORBIDDEN');
  }
