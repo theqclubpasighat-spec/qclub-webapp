@@ -278,6 +278,8 @@ export default function QclubLedgerPage() {
   });
   const [cashAmount, setCashAmount] = useState("");
   const [cashTendered, setCashTendered] = useState("");
+  const [manualPaymentMethod, setManualPaymentMethod] = useState("CASH");
+  const [carryDifference, setCarryDifference] = useState(true);
   const [upiAmount, setUpiAmount] = useState("");
   const [paymentPhone, setPaymentPhone] = useState("");
   const [memberCheck, setMemberCheck] = useState(null);
@@ -1664,40 +1666,54 @@ export default function QclubLedgerPage() {
 
   async function recordCash() {
     if (!billDetail) return;
-    const amount = Number(cashAmount || 0);
-    const tendered = Number(cashTendered || amount);
-    if (!(amount > 0) || tendered < amount) {
-      flash("Check cash amount/tendered.", true);
+    const received = Number(cashAmount || 0);
+    if (!(received > 0)) {
+      flash("Enter the amount actually received.", true);
       return;
     }
     setBusy(true);
     try {
-      const result = await protectedCall("payments/cash", {
+      const result = await protectedCall("payments/manual", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          amount_applied_inr: amount,
-          cash_tendered_inr: tendered,
+          method: manualPaymentMethod,
+          received_inr: received,
+          carry_difference: carryDifference,
+          customer_name: billDetail.customer_name || "",
           customer_phone: String(paymentPhone || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10) || null,
-          idempotency_key: makeKey("cash"),
-          staff_notes: "QClubLedger web terminal",
+          idempotency_key: makeKey("manual-payment"),
         },
-      });
-      setBillDetail(function(current) {
-        if (!current) return current;
-        const due = result.due_inr == null ? current.due_inr : Number(result.due_inr);
-        return {
-          ...current,
-          status: result.bill_status || current.status,
-          due_inr: due,
-          paid_inr: Math.max(0, Number(current.total_inr || 0) - Number(due || 0)),
-        };
       });
       setCashAmount(Number(result.due_inr || 0).toFixed(2));
       setCashTendered(Number(result.due_inr || 0).toFixed(2));
       setUpiAmount(Number(result.due_inr || 0).toFixed(2));
-      flash(Number(result.change_inr) > 0 ? "Cash recorded. Return change " + money(result.change_inr) + "." : "Cash payment recorded.");
-      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+      const carry = Number(result.carry_inr || 0);
+      if (carry > 0) flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " recorded. " + money(carry) + " player credit carried forward.");
+      else if (carry < 0) flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " recorded. " + money(Math.abs(carry)) + " player debit carried forward.");
+      else if (Number(result.change_inr) > 0) flash("Cash recorded. Return change " + money(result.change_inr) + ".");
+      else flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " payment recorded.");
+      await loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true });
+      runInBackground(refreshBillingOverview());
+    } catch (error) {
+      flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyCarriedBalance() {
+    if (!billDetail) return;
+    setBusy(true);
+    try {
+      const result = await protectedCall("payments/balance", {
+        method: "POST",
+        body: { bill_id: billDetail.bill_id, idempotency_key: makeKey("balance-apply") },
+      });
+      if (result.entry_type === "CREDIT_APPLIED") flash("Player credit applied: " + money(result.applied_inr) + ".");
+      else if (result.entry_type === "DEBIT_APPLIED") flash("Previous debit added to this bill: " + money(result.applied_inr) + ".");
+      else flash("No carried balance to apply.");
+      await loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true });
       runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
@@ -1716,7 +1732,7 @@ export default function QclubLedgerPage() {
     const session = sessionLookup[billDetail.session_id];
     const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
     if (!/^\d{10}$/.test(phone)) {
-      flash("Enter the customer's 10-digit mobile number to generate the Cashfree UPI QR.", true);
+      flash("Enter the customer's 10-digit mobile number to generate the Cashfree Online QR.", true);
       return;
     }
     setPaymentPhone(phone);
@@ -1740,7 +1756,7 @@ export default function QclubLedgerPage() {
       setBillDetail(function(current) {
         return current ? { ...current, customer_phone: phone } : current;
       });
-      flash("Cashfree UPI order created. The secure QR is loading.");
+      flash("Cashfree Online order created. The secure QR is loading.");
       runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
@@ -3162,19 +3178,40 @@ export default function QclubLedgerPage() {
                     </div>
                   ) : null}
 
-                  <div className="ql-section">Payments — Cash / UPI / Split</div>
+                  <div className="ql-section">Payments — Cash / UPI / Online</div>
+                  {billDetail.customer_id ? (
+                    <div className="ql-line" style={{ marginBottom: 12 }}>
+                      <div className="ql-space">
+                        <div>
+                          <strong>Player carry balance</strong>
+                          <div className="ql-muted">Positive = credit • Negative = debit • every change is timestamped.</div>
+                        </div>
+                        <strong style={{ fontSize: 18 }}>{money(billDetail.customer_balance_inr || 0)}</strong>
+                      </div>
+                      {Math.abs(Number(billDetail.customer_balance_inr || 0)) > 0.009 && Number(billDetail.due_inr) > 0 ? (
+                        <button className="ql-btn" style={{ marginTop: 9 }} disabled={busy} onClick={applyCarriedBalance}>Apply carried balance to this bill</button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="ql-paybox">
                     <div className="ql-line">
-                      <strong>Cash</strong>
-                      <label className="ql-label" style={{ marginTop: 8 }}>Amount applied</label>
+                      <strong>Cash / UPI</strong>
+                      <label className="ql-label" style={{ marginTop: 8 }}>How did the player pay?</label>
+                      <select className="ql-select" value={manualPaymentMethod} onChange={function(e) { setManualPaymentMethod(e.target.value); }}>
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI — shop/static QR</option>
+                      </select>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Amount actually received</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={cashAmount} onChange={function(e) { setCashAmount(e.target.value); }} />
-                      <label className="ql-label" style={{ marginTop: 8 }}>Cash tendered</label>
-                      <input className="ql-input" type="number" min="0" step="0.01" value={cashTendered} onChange={function(e) { setCashTendered(e.target.value); }} />
-                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={recordCash}>Record Cash</button>
+                      <label className="ql-line" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 9 }}>
+                        <input type="checkbox" checked={carryDifference} onChange={function(e) { setCarryDifference(e.target.checked); }} />
+                        <span><strong>Carry difference</strong><div className="ql-muted">Extra becomes player credit; shortfall becomes player debit for the next game.</div></span>
+                      </label>
+                      <button className="ql-btn primary" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={recordCash}>Record {manualPaymentMethod === "UPI" ? "UPI" : "Cash"}</button>
                     </div>
                     <div className="ql-line">
-                      <strong>UPI</strong>
-                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for UPI / WhatsApp</label>
+                      <strong>Online</strong>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Customer mobile for Cashfree / WhatsApp</label>
                       <input
                         className="ql-input"
                         inputMode="numeric"
@@ -3183,18 +3220,18 @@ export default function QclubLedgerPage() {
                         onChange={function(e) { setPaymentPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); }}
                         placeholder="10-digit mobile"
                       />
-                      <div className="ql-muted" style={{ marginTop: 6 }}>Cash payments do not require a mobile number. Cashfree UPI and WhatsApp receipts do.</div>
-                      <label className="ql-label" style={{ marginTop: 8 }}>UPI amount</label>
+                      <div className="ql-muted" style={{ marginTop: 6 }}>Use this only for the dynamic Cashfree QR generated by QclubLedger.</div>
+                      <label className="ql-label" style={{ marginTop: 8 }}>Online amount</label>
                       <input className="ql-input" type="number" min="0" step="0.01" value={upiAmount} onChange={function(e) { setUpiAmount(e.target.value); }} />
                       <button className="ql-btn gold" style={{ width: "100%", marginTop: 9 }} disabled={busy || Number(billDetail.due_inr) <= 0} onClick={createUpi}>Generate Cashfree QR</button>
-                      <div className="ql-muted" style={{ marginTop: 8 }}>For split payment, record partial cash first, then UPI for the remaining due.</div>
+                      <div className="ql-muted" style={{ marginTop: 8 }}>Cashfree verifies this automatically. Do not use this for payments made to the shop/static QR.</div>
                     </div>
                     <div className="ql-line">
                       <strong>Receipt</strong>
                       <div className="ql-muted" style={{ margin: "9px 0" }}>
                         {billDetail.status === "PAID"
                           ? "Receipt was sent automatically when the bill became fully paid. Use the button below only to resend it."
-                          : "WhatsApp receipt will be sent automatically after the bill becomes fully paid. You can still send one manually when needed."}
+                          : "WhatsApp receipt will be sent automatically after the bill becomes fully paid."}
                       </div>
                       <button className="ql-btn" style={{ width: "100%" }} disabled={busy} onClick={sendReceipt}>
                         {billDetail.status === "PAID" ? "Resend Receipt" : (upiOrder && upiOrder.payment_url ? "Send Receipt + Payment Link" : "Send Receipt")}
@@ -3205,7 +3242,7 @@ export default function QclubLedgerPage() {
                   {upiOrder && upiOrder.qr_payload ? (
                     <div className="ql-line" style={{ marginTop: 12 }}>
                       <div className="ql-space">
-                        <div><strong>Cashfree UPI Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
+                        <div><strong>Cashfree Online Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
                       <div className="ql-row" style={{ marginTop: 10 }}>
@@ -3216,6 +3253,25 @@ export default function QclubLedgerPage() {
                     </div>
                   ) : null}
 
+                  {(billDetail.balance_history || []).length ? (
+                    <>
+                      <div className="ql-section">Player credit / debit history</div>
+                      <div className="ql-list">
+                        {(billDetail.balance_history || []).slice(0, 8).map(function(entry) {
+                          return (
+                            <div className="ql-line ql-space" key={entry.id}>
+                              <div>
+                                <strong>{Number(entry.delta_inr) > 0 ? "CREDIT +" : "DEBIT / USE "}{money(Math.abs(Number(entry.delta_inr || 0)))}</strong>
+                                <div className="ql-muted">{entry.note || entry.entry_type} • {dateTime(entry.created_at)}</div>
+                              </div>
+                              <div className="ql-muted">Balance {money(entry.balance_after_inr)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
+
                   <div className="ql-section">Recorded payments</div>
                   <div className="ql-list">
                     {(billDetail.payments || []).length ? (billDetail.payments || []).map(function(payment) {
@@ -3224,7 +3280,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-line ql-space" key={paymentId}>
                           <div><strong>{payment.method} • {money(payment.amount_inr)}</strong><div className="ql-muted">{payment.status} • {paymentId}</div></div>
                           <div className="ql-row">
-                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
+                            {(payment.method === "ONLINE" || (payment.method === "UPI" && payment.cashfree_order_id)) && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
                           </div>
                         </div>
                       );

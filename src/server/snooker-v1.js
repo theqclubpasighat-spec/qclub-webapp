@@ -507,7 +507,7 @@ async function publicTableDisplay(req, res, tableKey) {
 
   let payment = null;
   if (number(bill.due_inr) > 0) {
-    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).eq("method","UPI").eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
+    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).in("method",["ONLINE","UPI"]).eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
     if (data) payment = { payment_id: data.id, status: data.status, amount_inr: money(data.amount_inr), qr_url: qrElementUrl(data) };
   }
   const billPayload = { bill_id: bill.id, bill_no: bill.bill_no, game_total_inr: money(bill.game_total_inr), fnb_total_inr: money(bill.fnb_total_inr), total_inr: money(bill.total_inr), due_inr: money(bill.due_inr), status: bill.status };
@@ -528,7 +528,7 @@ async function dashboardSummary(req, res) {
   ] = await Promise.all([
     supabase.from("snooker_bills").select("id").eq("accounting_excluded", false).gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
     supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").in("method", ["UPI","ONLINE"]).in("status", ["RECEIVED","VERIFIED"]).gte("updated_at", bounds.start).lt("updated_at", bounds.end),
     supabase.from("snooker_bills").select("due_inr").eq("accounting_excluded", false).gt("due_inr", 0),
   ]);
   if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
@@ -585,10 +585,10 @@ async function loadFinanceReserveSummary(supabase) {
     supabase
       .from("snooker_bill_payments")
       .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
-      .eq("method", "UPI")
-      .eq("status", "VERIFIED")
-      .gte("verified_at", bounds.start)
-      .lt("verified_at", bounds.end),
+      .in("method", ["UPI","ONLINE"])
+      .in("status", ["RECEIVED","VERIFIED"])
+      .gte("updated_at", bounds.start)
+      .lt("updated_at", bounds.end),
     supabase
       .from("snooker_fnb_lines")
       .select("bill_id,item_id,item_name_snapshot,unit_price_snapshot_inr,quantity,line_total_inr,status,added_at")
@@ -648,8 +648,8 @@ async function loadFinanceReserveSummary(supabase) {
   const paymentsByBill = new Map();
   for (const payment of allSuccessfulPayments) {
     if (!payment?.bill_id) continue;
-    const effectiveAt = payment.method === "UPI"
-      ? (payment.verified_at || payment.created_at)
+    const effectiveAt = ["UPI","ONLINE"].includes(payment.method)
+      ? (payment.verified_at || payment.updated_at || payment.created_at)
       : payment.created_at;
     const effectiveMs = Date.parse(effectiveAt || "");
     if (!Number.isFinite(effectiveMs)) continue;
@@ -698,7 +698,7 @@ async function loadFinanceReserveSummary(supabase) {
 
       if (payment.effective_ms >= monthStartMs && payment.effective_ms < monthEndMs && tablePortion > 0) {
         if (payment.method === "CASH") tableCash += tablePortion;
-        else if (payment.method === "UPI") tableUpi += tablePortion;
+        else if (["UPI","ONLINE"].includes(payment.method)) tableUpi += tablePortion;
       }
     }
 
@@ -1186,6 +1186,7 @@ function customerDto(row) {
     visit_count: number(row.visit_count),
     last_seen_at: row.last_seen_at || null,
     source: row.source || null,
+    balance_inr: money(row.balance_inr || 0),
   };
 }
 
@@ -3239,6 +3240,19 @@ async function finalizeBill(req, res) {
     discount = Math.max(0, money(req.body.discount_inr));
   }
   const total = Math.max(0, money(gameTotal + fnbTotal - discount));
+  let linkedCustomer = null;
+  if (session.customer_name) {
+    try {
+      linkedCustomer = await rememberCustomer(supabase, {
+        name: session.customer_name,
+        phone: session.customer_phone,
+        isMember: session.is_member,
+        source: "finalized_table_bill",
+      });
+    } catch (customerError) {
+      console.error("bill customer link failed", { session_id: sessionId, message: customerError?.message });
+    }
+  }
   const billId = randomUUID();
   const suffix = billId.replace(/-/g, "").slice(-6).toUpperCase();
   const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
@@ -3248,6 +3262,9 @@ async function finalizeBill(req, res) {
     id: billId,
     bill_no: billNo,
     session_id: sessionId,
+    customer_id: linkedCustomer?.id || null,
+    customer_name: session.customer_name || null,
+    customer_phone: session.customer_phone || null,
     game_total_inr: gameTotal,
     fnb_total_inr: fnbTotal,
     discount_inr: discount,
@@ -3282,6 +3299,16 @@ async function billDetailPayload(supabase, billId) {
     supabase.from("snooker_bill_items").select("*").eq("bill_id", billId).order("created_at"),
     supabase.from("snooker_bill_payments").select("*").eq("bill_id", billId).order("created_at"),
   ]);
+  let customerBalance = 0;
+  let balanceHistory = [];
+  if (bill.customer_id) {
+    const [{ data: customer }, { data: history }] = await Promise.all([
+      supabase.from("snooker_customers").select("balance_inr").eq("id", bill.customer_id).maybeSingle(),
+      supabase.from("snooker_customer_balance_entries").select("*").eq("customer_id", bill.customer_id).order("created_at", { ascending: false }).limit(20),
+    ]);
+    customerBalance = money(customer?.balance_inr || 0);
+    balanceHistory = history || [];
+  }
   return {
     bill_id: bill.id,
     id: bill.id,
@@ -3293,6 +3320,8 @@ async function billDetailPayload(supabase, billId) {
     customer_id: bill.customer_id || null,
     customer_name: bill.customer_name || null,
     customer_phone: bill.customer_phone || null,
+    customer_balance_inr: customerBalance,
+    balance_history: balanceHistory,
     game_total_inr: money(bill.game_total_inr),
     fnb_total_inr: money(bill.fnb_total_inr),
     discount_inr: money(bill.discount_inr),
@@ -3446,60 +3475,84 @@ async function cashPayment(req, res) {
   if (!auth) return;
   const supabase = getSupabaseAdmin();
   const key = idempotencyKey(req);
-  const old = await previousIdempotent(supabase, key, "cash_payment");
+  const old = await previousIdempotent(supabase, key, "manual_payment");
   if (old) return json(res, 200, old);
 
   const billId = safeText(req.body?.bill_id || req.body?.billId || "", 100);
-  const { data: bill } = await supabase.from("snooker_bills").select("*").eq("id", billId).maybeSingle();
+  let { data: bill } = await supabase.from("snooker_bills").select("*").eq("id", billId).maybeSingle();
   if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
-  if (bill.status === "PAID") return json(res, 409, { ok: false, error: "BILL_ALREADY_PAID" });
 
   const requestedPhone = normalizePhone(req.body?.customer_phone || "");
-  if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
-    const { error: contactError } = await supabase
-      .from("snooker_bills")
-      .update({ customer_phone: requestedPhone, updated_at: new Date().toISOString() })
-      .eq("id", billId);
+  const requestedName = canonicalCustomerName(req.body?.customer_name || bill.customer_name || "");
+  if (!bill.customer_id && requestedName) {
+    const customer = await rememberCustomer(supabase, {
+      name: requestedName,
+      phone: requestedPhone || bill.customer_phone || "",
+      source: "bill_payment",
+    });
+    if (customer?.id) {
+      const { data: linked, error: linkError } = await supabase.from("snooker_bills").update({
+        customer_id: customer.id,
+        customer_name: customer.name,
+        customer_phone: requestedPhone || customer.phone || bill.customer_phone || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", billId).select("*").single();
+      if (linkError) throw linkError;
+      bill = linked;
+    }
+  } else if (requestedPhone && requestedPhone !== normalizePhone(bill.customer_phone || "")) {
+    const { data: linked, error: contactError } = await supabase.from("snooker_bills").update({
+      customer_phone: requestedPhone,
+      updated_at: new Date().toISOString(),
+    }).eq("id", billId).select("*").single();
     if (contactError) throw contactError;
-    bill.customer_phone = requestedPhone;
+    bill = linked;
   }
 
-  const due = money(bill.due_inr);
-  const requested = money(req.body?.amount_applied_inr ?? req.body?.amount_inr ?? due);
-  const applied = Math.min(due, requested > 0 ? requested : due);
-  const tendered = money(req.body?.cash_tendered_inr ?? applied);
-  if (tendered < applied) return json(res, 400, { ok: false, error: "CASH_TENDERED_TOO_LOW" });
-  const change = money(tendered - applied);
+  const method = safeText(req.body?.method || "CASH", 20).toUpperCase();
+  const received = money(req.body?.received_inr ?? req.body?.cash_tendered_inr ?? req.body?.amount_applied_inr ?? req.body?.amount_inr ?? bill.due_inr);
+  const carryDifference = req.body?.carry_difference !== false;
 
-  const { data: payment, error } = await supabase.from("snooker_bill_payments").insert({
-    bill_id: billId,
-    method: "CASH",
-    amount_inr: applied,
-    cash_tendered_inr: tendered,
-    change_inr: change,
-    status: "RECEIVED",
-    received_by: auth.staff_id,
-    idempotency_key: key || null,
-  }).select("*").single();
+  const { data: result, error } = await supabase.rpc("qclub_snooker_record_manual_payment", {
+    p_bill_id: billId,
+    p_method: method,
+    p_received_inr: received,
+    p_staff_id: auth.staff_id,
+    p_idempotency_key: key || null,
+    p_carry_difference: carryDifference,
+  });
+  if (error) throw error;
+
+  const updatedBill = await refreshBill(supabase, billId);
+  const autoReceipt = updatedBill?.status === "PAID"
+    ? await autoSendPaidReceipt(supabase, billId, result?.payment_id, method === "UPI" ? "MANUAL_UPI_RECEIVED" : "CASH_RECEIVED")
+    : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
+  const response = { ...(result || {}), auto_receipt: autoReceipt };
+  await rememberIdempotent(supabase, key, "manual_payment", result?.payment_id || billId, response);
+  return json(res, 201, response);
+}
+
+async function applyCustomerBalance(req, res) {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const key = idempotencyKey(req);
+  const old = await previousIdempotent(supabase, key, "apply_customer_balance");
+  if (old) return json(res, 200, old);
+  const billId = safeText(req.body?.bill_id || req.body?.billId || "", 100);
+  const { data: result, error } = await supabase.rpc("qclub_snooker_apply_customer_balance", {
+    p_bill_id: billId,
+    p_staff_id: auth.staff_id,
+    p_idempotency_key: key || null,
+  });
   if (error) throw error;
   const updatedBill = await refreshBill(supabase, billId);
   const autoReceipt = updatedBill?.status === "PAID"
-    ? await autoSendPaidReceipt(supabase, billId, payment.id, "CASH_RECEIVED")
+    ? await autoSendPaidReceipt(supabase, billId, null, "BALANCE_APPLIED")
     : { attempted: false, status: "SKIPPED", reason: "BILL_NOT_PAID" };
-  const response = {
-    payment_id: payment.id,
-    bill_id: billId,
-    method: "CASH",
-    amount_applied_inr: applied,
-    cash_tendered_inr: tendered,
-    change_inr: change,
-    status: "RECEIVED",
-    bill_status: updatedBill.status,
-    due_inr: money(updatedBill.due_inr),
-    auto_receipt: autoReceipt,
-  };
-  await rememberIdempotent(supabase, key, "cash_payment", payment.id, response);
-  return json(res, 201, response);
+  const response = { ...(result || {}), auto_receipt: autoReceipt };
+  await rememberIdempotent(supabase, key, "apply_customer_balance", billId, response);
+  return json(res, 200, response);
 }
 
 function cashfreeHeaders() {
@@ -3553,7 +3606,7 @@ async function upiPayment(req, res) {
     .from("snooker_bill_payments")
     .select("*")
     .eq("bill_id", billId)
-    .eq("method", "UPI")
+    .in("method", ["ONLINE","UPI"])
     .eq("status", "PENDING")
     .eq("amount_inr", amount)
     .gt("expires_at", new Date().toISOString())
@@ -3644,7 +3697,7 @@ async function upiPayment(req, res) {
   const { data: payment, error } = await supabase.from("snooker_bill_payments").insert({
     id: paymentId,
     bill_id: billId,
-    method: "UPI",
+    method: "ONLINE",
     amount_inr: amount,
     status: "PENDING",
     cashfree_order_id: orderId,
@@ -3682,7 +3735,7 @@ async function upiPayment(req, res) {
 }
 
 async function syncCashfreePayment(supabase, payment) {
-  if (!payment || payment.method !== "UPI" || !payment.cashfree_order_id || ["VERIFIED", "FAILED", "EXPIRED", "CANCELLED"].includes(payment.status)) return payment;
+  if (!payment || !["ONLINE","UPI"].includes(payment.method) || !payment.cashfree_order_id || ["VERIFIED", "FAILED", "EXPIRED", "CANCELLED"].includes(payment.status)) return payment;
   if (!env("CASHFREE_APP_ID") || !env("CASHFREE_SECRET_KEY")) return payment;
 
   const order = await cashfreeJson(`https://api.cashfree.com/pg/orders/${encodeURIComponent(payment.cashfree_order_id)}`, {
@@ -4011,7 +4064,7 @@ async function sendReceipt(req, res) {
       .from("snooker_bill_payments")
       .select("*")
       .eq("bill_id", billId)
-      .eq("method", "UPI")
+      .in("method", ["ONLINE","UPI"])
       .eq("status", "PENDING")
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
@@ -4320,7 +4373,8 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "bills" && parts[1] && parts.length === 2 && method === "GET") return await billDetail(req, res, parts[1]);
     if (parts[0] === "bills" && parts[1] && parts[2] === "accounting-exclusion" && method === "PATCH") return await setBillAccountingExclusion(req, res, parts[1]);
 
-    if (method === "POST" && path === "payments/cash") return await cashPayment(req, res);
+    if (method === "POST" && (path === "payments/cash" || path === "payments/manual")) return await cashPayment(req, res);
+    if (method === "POST" && path === "payments/balance") return await applyCustomerBalance(req, res);
     if (method === "POST" && path === "payments/upi") return await upiPayment(req, res);
     if (parts[0] === "payments" && parts[1] && parts.length === 2 && method === "GET") return await paymentStatus(req, res, parts[1]);
     if (parts[0] === "payments" && parts[1] && parts[2] === "cancel" && method === "POST") return await cancelPaymentAttempt(req, res, parts[1]);
