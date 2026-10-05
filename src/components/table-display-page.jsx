@@ -86,7 +86,7 @@ export default function TableDisplayPage({ tableKey: fixedTableKey }) {
               <strong>🔒 SECURE COMPUTER-GENERATED BILLING</strong>
               <p style={{ color:"#b5c7bb", lineHeight:1.55, marginBottom:0 }}>Playing time and table charges are calculated automatically from the recorded session. Finalized bills cannot be edited by staff. Any authorized correction is retained in the audit trail.</p>
             </div>
-            <div style={{ textAlign:"center", marginTop:22, fontWeight:900, fontSize:18 }}>UPI — Pay by QR on this screen &nbsp; • &nbsp; CASH — Pay at the counter</div>
+            <div style={{ textAlign:"center", marginTop:22, fontWeight:900, fontSize:18 }}>ONLINE — Pay by Cashfree QR on this screen &nbsp; • &nbsp; CASH / UPI — Pay at the counter or shop QR</div>
           </section>
         ) : null}
 
