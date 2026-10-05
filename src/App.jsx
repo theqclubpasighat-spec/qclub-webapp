@@ -11449,6 +11449,12 @@ function updateMatchStatus(matchId, status) {
               ))}
             </select>
 
+            {(admin || staffAdmin) && selectedTournament ? (
+              <a className="btn" href={`/tvdisplay?id=${selectedTournament.id}`} target="_blank" rel="noopener noreferrer">
+                Open TV Display
+              </a>
+            ) : null}
+
             {admin ? (
   <>
     <button className="btn" onClick={() => generateFixtures("round_robin")}>
