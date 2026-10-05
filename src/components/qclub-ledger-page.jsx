@@ -130,6 +130,17 @@ function elapsedLabel(session) {
   return hours ? hours + "h " + rest + "m" : rest + "m";
 }
 
+function sharedHourlyLiveShare(session, people) {
+  if (!session || session.payment_rule !== "HOURLY_SHARED" || !session.timer_running) return 0;
+  const active = (people || []).filter(function(person) { return person.status === "ACTIVE"; });
+  if (!active.length) return 0;
+  const start = Date.parse(session.shared_hourly_last_at || session.started_at || "");
+  if (!Number.isFinite(start)) return 0;
+  const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const rate = Number(session.shared_hourly_rate_inr || 0);
+  return rate > 0 ? (rate * seconds / 3600) / active.length : 0;
+}
+
 function escapeHtml(value) {
   return String(value == null ? "" : value)
     .replaceAll("&", "&amp;")
@@ -1127,6 +1138,55 @@ export default function QclubLedgerPage() {
     }
   }
 
+  async function settleAndLeave(session, person) {
+    if (!session || !person) return;
+    const ok = window.confirm(
+      person.name + " will leave this table now. Their shared table share stops at this moment and a bill will be created from all current unbilled Club Tab charges. Continue?"
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    let left = false;
+    try {
+      await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
+        method: "PATCH",
+        body: { action: "LEAVE" },
+      });
+      left = true;
+
+      const bill = person.customer_id
+        ? await protectedCall("player-tabs/" + person.customer_id + "/finalize", {
+            method: "POST",
+            body: { idempotency_key: makeKey("settle-leave-club-tab") },
+          })
+        : await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id + "/finalize", {
+            method: "POST",
+            body: { idempotency_key: makeKey("settle-leave-player") },
+          });
+
+      setBillDetail(bill);
+      setCashAmount(Number(bill.due_inr || 0).toFixed(2));
+      setCashTendered(Number(bill.due_inr || 0).toFixed(2));
+      setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
+      setPaymentPhone(String(bill.customer_phone || person.phone || "").replace(/\D/g, "").slice(-10));
+      setTab("ledger");
+      flash(person.name + " left the table. Their shared table charge is frozen and bill " + (bill.bill_no || "") + " is ready.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshLiveState());
+    } catch (error) {
+      if (left && error?.payload?.error === "NOTHING_TO_BILL") {
+        flash(person.name + " left the table. There was nothing new to bill.");
+        runInBackground(refreshLiveState());
+      } else {
+        flash((left ? person.name + " left the table, but bill creation needs attention: " : "") + (error.message || "Unable to settle and leave."), true);
+        runInBackground(refreshLiveState());
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
   function openGameEntry(session) {
     const detail = sessionDetails[session.session_id] || {};
     const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
@@ -1176,7 +1236,7 @@ export default function QclubLedgerPage() {
         },
       });
       setGameEntry(null);
-      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
+      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "HOURLY_SHARED" ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players." : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
@@ -2336,6 +2396,20 @@ export default function QclubLedgerPage() {
                           <span className="ql-badge">Games {games.filter(function(g) { return g.status !== "VOIDED"; }).length}</span>
                           <span className="ql-badge">F&B {money(liveFnb)}</span>
                         </div>
+                        {session.payment_rule === "HOURLY_SHARED" ? (() => {
+                          const people = (detail && detail.people) || [];
+                          const activeCount = people.filter(function(person) { return person.status === "ACTIVE"; }).length;
+                          const liveShare = sharedHourlyLiveShare(session, people);
+                          return (
+                            <div className="ql-line" style={{ marginTop: 10 }}>
+                              <strong>Hourly Shared</strong>
+                              <div className="ql-muted">
+                                Table {money(session.shared_hourly_rate_inr)}/hr • {activeCount} active player{activeCount === 1 ? "" : "s"} • current slice ≈ {money(liveShare)} each.
+                                Roster changes automatically close the old slice and start a new equal split.
+                              </div>
+                            </div>
+                          );
+                        })() : null}
 
                         {session.account_mode === "INDIVIDUAL" ? (
                           <>
@@ -2351,6 +2425,11 @@ export default function QclubLedgerPage() {
                                         <div className="ql-muted">
                                           Game {money(person.game_charges_inr)} • F&B {money(person.fnb_charges_inr)} • Table {money(person.table_charges_inr)}
                                         </div>
+                                        {session.payment_rule === "HOURLY_SHARED" && person.status === "ACTIVE" ? (
+                                          <div className="ql-muted">
+                                            Running shared slice ≈ {money(sharedHourlyLiveShare(session, (detail && detail.people) || []))} • freezes when this player leaves
+                                          </div>
+                                        ) : null}
                                       </div>
                                       <div style={{ textAlign: "right" }}>
                                         <strong>{money(person.current_due_inr)}</strong>
@@ -2384,7 +2463,14 @@ export default function QclubLedgerPage() {
                                       <button className="ql-btn" onClick={function() { setPlayerAccountView({ sessionId: session.session_id, personId: person.person_id }); }}>View Account</button>
                                       <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
                                       <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
-                                      {person.status === "ACTIVE" ? <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave Game/Table</button> : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
+                                      {person.status === "ACTIVE" ? (
+                                        session.payment_rule === "HOURLY_SHARED" ? (
+                                          <>
+                                            <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave • Keep Tab Open</button>
+                                            <button className="ql-btn primary" onClick={function() { settleAndLeave(session, person); }}>Settle & Leave</button>
+                                          </>
+                                        ) : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave Game/Table</button>
+                                      ) : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
                                       {Number(person.current_due_inr || 0) > 0
                                         ? <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay {money(person.current_due_inr)}</button>
                                         : <span className="ql-badge good">PAID UP</span>}
@@ -2397,7 +2483,7 @@ export default function QclubLedgerPage() {
                               <button className="ql-btn" onClick={function() { joinPlayer(session); }}>+ Join Player</button>
                               {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>✓ Complete Frame/Game</button> : null}
                               {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
-                              {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
+                              {session.status === "ACTIVE" && ((rule && rule.timer_required) || session.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                               {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
                               {session.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(session.session_id, "END"); }}>End Table</button> : <button className="ql-btn primary" onClick={function() { patchSession(session.session_id, "CLOSE"); }}>Close Table</button>}
                             </div>
@@ -3346,7 +3432,30 @@ export default function QclubLedgerPage() {
                   </div>
                 </>
               ) : startForm.gameType === "QCHASE_RUMMY" ? (
-                <div className="full ql-line"><strong>QChase / Rummy</strong><div className="ql-muted">2–6 players. Each completed game charges only the players who actually played that game.</div></div>
+                <div className="full ql-line">
+                  <strong>QChase / Rummy</strong>
+                  <div className="ql-form-grid" style={{ marginTop: 10 }}>
+                    <label>
+                      <span className="ql-label">Billing mode</span>
+                      <select
+                        className="ql-select"
+                        value={startForm.paymentRule}
+                        onChange={function(e) { setStartForm({ ...startForm, matchFormat: "FLEX", paymentRule: e.target.value }); }}
+                      >
+                        <option value="PER_PLAYER">Per Game — ₹100/player/game</option>
+                        <option value="HOURLY_SHARED">Hourly Shared — split table time among active players</option>
+                      </select>
+                    </label>
+                    <div>
+                      <span className="ql-label">How it works</span>
+                      <div className="ql-muted" style={{ paddingTop: 8 }}>
+                        {startForm.paymentRule === "HOURLY_SHARED"
+                          ? "The table hourly charge is split equally among the players currently playing. Leaving freezes that player’s share; remaining players continue sharing automatically. Completed QChase/Rummy games are recorded with no ₹100 game charge."
+                          : "Each completed game charges ₹100 only to the players who actually played that game."}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="full ql-line"><strong>Kitty</strong><div className="ql-muted">2–6 individual players. No singles/doubles and no shared billing rule. The game runs on time: Liberwin/Wiraka ₹600/hr; Mini Snooker ₹500/hr. Only the winner is charged, minimum ₹100, rounded to the nearest ₹10. If there is no winner, that game time carries forward until a later game produces a winner.</div></div>
               )}
