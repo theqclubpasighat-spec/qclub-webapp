@@ -1,3 +1,5 @@
+import { fulfillLegacyOrder } from "../src/server/payments/legacy-fulfillment.js";
+import { patchLegacyOrder } from "../src/server/payments/legacy-state.js";
 import { createClient } from "@supabase/supabase-js";
 
 const TABLE = "qclub_state";
@@ -41,19 +43,6 @@ async function readState(supabase) {
 
   if (error) throw new Error(error.message || "Supabase read failed");
   return data?.state || {};
-}
-
-async function writeState(supabase, state) {
-  const { error } = await supabase.from(TABLE).upsert(
-    {
-      key: KEY,
-      state,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "key" }
-  );
-
-  if (error) throw new Error(error.message || "Supabase write failed");
 }
 
 function parseOrderTags(raw) {
@@ -285,7 +274,7 @@ function findPaymentOrder(state, orderId) {
   return { orders, index, record: index >= 0 ? orders[index] : null };
 }
 
-async function fetchCashfreeOrder(orderId) {
+export async function fetchCashfreeOrder(orderId) {
   const response = await fetch(`https://api.cashfree.com/pg/orders/${encodeURIComponent(orderId)}`, {
     method: "GET",
     headers: {
@@ -380,101 +369,6 @@ function safeResponse(record, verification) {
   };
 }
 
-function updateOrder(orders, index, patch) {
-  return orders.map((order, i) => (i === index ? { ...order, ...patch } : order));
-}
-
-async function updateVerifiedRecord(supabase, state, orders, index, record, verification) {
-  const now = new Date().toISOString();
-  const patch = {
-    status: verification.verified ? "verified" : "verification_failed",
-    verified: verification.verified,
-    paymentStatus: verification.orderStatus,
-    cashfreeOrderStatus: verification.orderStatus,
-    lastVerifiedAt: now,
-    verificationChecks: verification.checks,
-  };
-
-  const nextRecord = { ...record, ...patch };
-  const nextState = {
-    ...state,
-    paymentOrders: updateOrder(orders, index, patch),
-  };
-
-  await writeState(supabase, nextState);
-  return { nextState, nextRecord };
-}
-
-async function claimFulfillment(supabase, state, orders, index, record) {
-  if (record?.fulfilled) return record;
-  if (claimedFresh(record)) return record;
-
-  const patch = {
-    fulfillmentStatus: "claimed",
-    claimedAt: new Date().toISOString(),
-  };
-
-  await writeState(supabase, {
-    ...state,
-    paymentOrders: updateOrder(orders, index, patch),
-  });
-
-  return { ...record, ...patch };
-}
-
-async function completeFulfillment(supabase, state, orders, index, record, result = {}) {
-  const now = new Date().toISOString();
-  const safeResult = sanitizeFulfillmentResult(result);
-  const patch = {
-    fulfilled: true,
-    fulfilledAt: record?.fulfilledAt || now,
-    fulfillmentStatus: "fulfilled",
-    fulfillmentCompletionType: "server_secret",
-    fulfillmentResult: {
-      ...(record?.fulfillmentResult || {}),
-      ...safeResult,
-      completedAt: now,
-    },
-  };
-
-  await writeState(supabase, {
-    ...state,
-    paymentOrders: updateOrder(orders, index, patch),
-  });
-
-  return { ...record, ...patch };
-}
-
-async function acknowledgeFulfillment(supabase, state, orders, index, record, result = {}) {
-  const now = new Date().toISOString();
-  const safeResult = sanitizeFulfillmentResult(result);
-  const previousAcks = Array.isArray(record?.clientFulfillmentAcks)
-    ? record.clientFulfillmentAcks
-    : [];
-  const patch = {
-    fulfilled: true,
-    fulfilledAt: record?.fulfilledAt || now,
-    fulfillmentStatus: "client_acknowledged",
-    fulfillmentCompletionType: "client_acknowledged",
-    clientAcknowledgedAt: now,
-    clientFulfillmentResult: safeResult,
-    clientFulfillmentAcks: [
-      {
-        at: now,
-        result: safeResult,
-      },
-      ...previousAcks,
-    ].slice(0, MAX_CLIENT_ACKS),
-  };
-
-  await writeState(supabase, {
-    ...state,
-    paymentOrders: updateOrder(orders, index, patch),
-  });
-
-  return { ...record, ...patch };
-}
-
 export default async function handler(req, res) {
   const orderId = safeText(req.query?.order_id || req.body?.order_id || "", 120);
   const action = safeText(req.query?.action || req.body?.action || "", 80).toLowerCase();
@@ -510,73 +404,17 @@ export default async function handler(req, res) {
       });
     }
 
-    if (action === "complete_fulfillment") {
-      if (!hasServerFulfillmentSecret(req)) {
-        return res.status(403).json({ ok: false, error: "Fulfillment completion requires server authorization" });
-      }
-
-      const cashfreeOrder = await fetchCashfreeOrder(orderId);
-      const verification = verifyAgainstTrustedRecord(record, cashfreeOrder);
-      const verifiedUpdate = await updateVerifiedRecord(supabase, state, orders, index, record, verification);
-      state = verifiedUpdate.nextState;
-      record = verifiedUpdate.nextRecord;
-      ({ orders, index } = findPaymentOrder(state, orderId));
-      if (verification.verified) {
-        await persistVerifiedOperationalRecord(supabase, record);
-      }
-
-      if (
-        !verification.verified ||
-        !["claimed", "client_acknowledged", "fulfilled"].includes(String(record?.fulfillmentStatus || ""))
-      ) {
-        return res.status(409).json({
-          ...safeResponse(record, verification),
-          ok: false,
-          error: "Payment order is not ready to complete fulfillment",
-        });
-      }
-
-      record = await completeFulfillment(supabase, state, orders, index, record, req.body?.result || {});
-      return res.status(200).json(safeResponse(record, verification));
-    }
-
     const cashfreeOrder = await fetchCashfreeOrder(orderId);
     const verification = verifyAgainstTrustedRecord(record, cashfreeOrder);
-    const verifiedUpdate = await updateVerifiedRecord(supabase, state, orders, index, record, verification);
-    state = verifiedUpdate.nextState;
-    record = verifiedUpdate.nextRecord;
-    ({ orders, index } = findPaymentOrder(state, orderId));
     if (verification.verified) {
+      record = await fulfillLegacyOrder(supabase, orderId, async () => cashfreeOrder);
       await persistVerifiedOperationalRecord(supabase, record);
     }
-
-    let claimAccepted = null;
-
-    if (action === "acknowledge_fulfillment") {
-      if (!verification.verified) {
-        return res.status(409).json(safeResponse(record, verification));
-      }
-
-      record = await acknowledgeFulfillment(supabase, state, orders, index, record, req.body?.result || {});
-      const responsePayload = safeResponse(record, verification);
-      responsePayload.acknowledged = true;
-      return res.status(200).json(responsePayload);
-    }
-
-    if (action === "claim_fulfillment") {
-      if (!verification.verified) {
-        return res.status(409).json(safeResponse(record, verification));
-      }
-
-      const alreadyClaimed = claimedFresh(record);
-      record = await claimFulfillment(supabase, state, orders, index, record);
-      claimAccepted = !alreadyClaimed && !record?.fulfilled;
-    }
-
-    const responsePayload = safeResponse(record, verification);
-    if (claimAccepted !== null) responsePayload.claimAccepted = claimAccepted;
-
-    return res.status(200).json(responsePayload);
+    const payload = safeResponse(record, verification);
+    payload.serverFulfilled = Boolean(record.fulfilled);
+    if (action === "claim_fulfillment") payload.claimAccepted = false;
+    if (action === "acknowledge_fulfillment") payload.acknowledged = Boolean(record.fulfilled);
+    return res.status(verification.verified || !action ? 200 : 409).json(payload);
   } catch (err) {
     console.error("get-order-status error:", err);
     return res.status(err?.status || 500).json({
