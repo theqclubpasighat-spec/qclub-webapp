@@ -2296,6 +2296,27 @@ export default function App() {
 const admin = adminRole === "main";
 const staffAdmin = adminRole === "staff";
 const committeeAdmin = adminRole === "committee";
+useEffect(() => {
+  const token = sessionStorage.getItem("qclub_admin_access_token_v2") || "";
+  if (!adminRole || !token) {
+    if (adminRole && !token) setAdminRole("");
+    return;
+  }
+  let cancelled = false;
+  fetch("/api/snooker/v1/cms/session", { cache: "no-store", headers: { Authorization: "Bearer " + token } })
+    .then(async (response) => ({ response, body: await response.json().catch(() => ({})) }))
+    .then(({ response, body }) => {
+      if (cancelled) return;
+      const expected = body?.role === "ADMIN" ? "main" : body?.role === "STAFF" ? "staff" : body?.role === "COMMITTEE" ? "committee" : "";
+      if (!response.ok || expected !== adminRole) {
+        setAdminRole("");
+        sessionStorage.removeItem("qclub_admin_role");
+        sessionStorage.removeItem("qclub_admin_access_token_v2");
+      }
+    })
+    .catch(() => {});
+  return () => { cancelled = true; };
+}, []);
 const latestDataRef = useRef(data);
 const cloudWriteLockedRef = useRef(isCloudEnabled());
 const autoPrintedFoodIdsRef = useRef({});
