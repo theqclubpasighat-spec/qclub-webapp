@@ -1192,6 +1192,20 @@ async function syncActivePersonTimers(supabase, sessionId, action, at = new Date
   }
 }
 
+
+async function settleSharedHourlySlice(supabase, session, at, staffId, reason) {
+  if (!session || session.payment_rule !== "HOURLY_SHARED") return null;
+  const endedAt = at instanceof Date ? at.toISOString() : new Date(at || Date.now()).toISOString();
+  const { data, error } = await supabase.rpc("settle_shared_hourly_slice", {
+    p_session_id: session.id,
+    p_at: endedAt,
+    p_staff_id: staffId || null,
+    p_reason: reason || "ROSTER_CHANGE",
+  });
+  if (error) throw error;
+  return data || null;
+}
+
 function canonicalCustomerName(value = "") {
   return safeText(value, 160).trim().replace(/\s+/g, " ").toUpperCase();
 }
@@ -1924,6 +1938,8 @@ function sessionDto(row) {
     match_format: row.match_format || null,
     payment_rule: row.payment_rule || null,
     frame_rate_override_inr: row.frame_rate_override_inr == null ? null : money(row.frame_rate_override_inr),
+    shared_hourly_rate_inr: row.shared_hourly_rate_inr == null ? null : money(row.shared_hourly_rate_inr),
+    shared_hourly_last_at: row.shared_hourly_last_at || null,
     started_at: row.started_at,
     ended_at: row.ended_at,
     timer_running: row.timer_running,
@@ -1990,10 +2006,13 @@ async function createSession(req, res) {
 
   let matchFormat=safeText(req.body?.match_format || "",30).toUpperCase() || "FLEX";
   let paymentRule=safeText(req.body?.payment_rule || "",30).toUpperCase();
-  if(gameType==="QCHASE_RUMMY"){ matchFormat="FLEX"; paymentRule="PER_PLAYER"; }
+  if(gameType==="QCHASE_RUMMY"){
+    matchFormat="FLEX";
+    if(!["PER_PLAYER","HOURLY_SHARED"].includes(paymentRule)) paymentRule="PER_PLAYER";
+  }
   if(!paymentRule) paymentRule = rule.billing_mode==="HOURLY" ? "HOURLY" : "PER_PLAYER";
   if(!["FLEX","SINGLES","DOUBLES"].includes(matchFormat)) return json(res,400,{ok:false,error:"INVALID_MATCH_FORMAT"});
-  if(!["HOURLY","PER_PLAYER","LOSER_PAYS"].includes(paymentRule)) return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
+  if(!["HOURLY","HOURLY_SHARED","PER_PLAYER","LOSER_PAYS"].includes(paymentRule)) return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
   if(matchFormat==="SINGLES" && people.length!==2) return json(res,400,{ok:false,error:"SINGLES_REQUIRES_TWO_PLAYERS"});
   if(matchFormat==="DOUBLES" && people.length!==4) return json(res,400,{ok:false,error:"DOUBLES_REQUIRES_FOUR_PLAYERS"});
   if(matchFormat==="DOUBLES"){
@@ -2012,6 +2031,15 @@ async function createSession(req, res) {
     if(individual && first) first.is_member=isMember;
   }
 
+  const sharedHourly = paymentRule === "HOURLY_SHARED";
+  const sessionRunsOnTime = rule.billing_mode === "HOURLY" || sharedHourly;
+  const sharedHourlyRate = sharedHourly
+    ? money(isMember ? table.member_price_per_hour_inr : table.price_per_hour_inr)
+    : null;
+  if (sharedHourly && !(sharedHourlyRate > 0)) {
+    return json(res,409,{ok:false,error:"TABLE_RATE_NOT_CONFIGURED"});
+  }
+
   const frameRate = req.body?.frame_rate_override_inr==null ? null : money(req.body.frame_rate_override_inr);
   if(gameType==="NORMAL_SNOOKER" && paymentRule==="LOSER_PAYS" && !(frameRate>0)) {
     return json(res,400,{ok:false,error:"FRAME_RATE_REQUIRED"});
@@ -2026,7 +2054,9 @@ async function createSession(req, res) {
     match_format:individual?matchFormat:null,
     payment_rule:individual?paymentRule:null,
     frame_rate_override_inr:frameRate,
-    started_at:now,timer_started_at:now,timer_running:rule.billing_mode==="HOURLY",
+    shared_hourly_rate_inr:sharedHourlyRate,
+    shared_hourly_last_at:sharedHourly?now:null,
+    started_at:now,timer_started_at:now,timer_running:sessionRunsOnTime,
     created_by:auth.staff_id,updated_by:auth.staff_id,client_revision:safeText(req.body?.client_revision||"",120)||null,idempotency_key:key||null,
   }).select("*").single();
   if(error) throw error;
@@ -2051,7 +2081,7 @@ async function createSession(req, res) {
     }
     const rows=people.map((p,index)=>({
       session_id:data.id,customer_id:customerRows[index]?.id||null,name:p.name,phone:p.phone,is_member:p.is_member,team_no:p.team_no,
-      status:"ACTIVE",joined_at:now,timer_running:rule.billing_mode==="HOURLY",timer_started_at:rule.billing_mode==="HOURLY"?now:null,
+      status:"ACTIVE",joined_at:now,timer_running:sessionRunsOnTime,timer_started_at:sessionRunsOnTime?now:null,
       created_by:auth.staff_id,updated_by:auth.staff_id,
     }));
     const {data:inserted,error:pe}=await supabase.from("snooker_session_people").insert(rows).select("*");
@@ -2105,13 +2135,14 @@ async function addSessionPerson(req,res,sessionId){
   const supabase=getSupabaseAdmin();
   const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
   if(!session||session.account_mode!=="INDIVIDUAL"||!["ACTIVE","PAUSED"].includes(session.status)) return json(res,409,{ok:false,error:"INDIVIDUAL_SESSION_NOT_ACTIVE"});
-  const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).neq("status","SETTLED");
-  if(number(count)>=6)return json(res,409,{ok:false,error:"MAX_SIX_PLAYERS"});
+  const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).eq("status","ACTIVE");
+  if(number(count)>=6)return json(res,409,{ok:false,error:"MAX_SIX_ACTIVE_PLAYERS"});
   const name=canonicalCustomerName(req.body?.name||""); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
   const phone=normalizePhone(req.body?.phone||"")||null;
   const teamNo=req.body?.team_no==null?null:number(req.body.team_no);
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
   const now=new Date().toISOString();
+  if(session.payment_rule==="HOURLY_SHARED") await settleSharedHourlySlice(supabase,session,now,auth.staff_id,"PLAYER_JOIN");
   let linkedCustomer=null;
   const requestedCustomerId=safeText(req.body?.customer_id || "",100) || null;
   try {
@@ -2149,6 +2180,10 @@ async function updateSessionPerson(req,res,sessionId,personId){
   const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
   const action=safeText(req.body?.action||"",30).toUpperCase();
   const now=new Date();
+  if(session?.payment_rule==="HOURLY_SHARED" && (action==="LEAVE" || action==="REJOIN")){
+    await settleSharedHourlySlice(supabase,session,now,auth.staff_id,action==="LEAVE"?"PLAYER_LEAVE":"PLAYER_REJOIN");
+    session.shared_hourly_last_at=now.toISOString();
+  }
   const patch={updated_by:auth.staff_id,updated_at:now.toISOString()};
   if(req.body?.name!==undefined)patch.name=canonicalCustomerName(req.body.name)||person.name;
   if(req.body?.phone!==undefined)patch.phone=normalizePhone(req.body.phone)||null;
@@ -2250,8 +2285,12 @@ async function updateSession(req,res,sessionId){
   if(req.body?.customer_name!==undefined)patch.customer_name=safeText(req.body.customer_name,160)||null;
   if(req.body?.customer_phone!==undefined)patch.customer_phone=normalizePhone(req.body.customer_phone)||null;
   const now=new Date();
+  if(current.payment_rule==="HOURLY_SHARED" && current.timer_running && (action==="PAUSE" || action==="END" || safeText(req.body?.status||"").toUpperCase()==="ENDED")){
+    await settleSharedHourlySlice(supabase,current,now,auth.staff_id,action==="PAUSE"?"TABLE_PAUSE":"TABLE_END");
+    current.shared_hourly_last_at=now.toISOString();
+  }
   if(action==="PAUSE"&&current.timer_running){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="PAUSED";if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
-  else if(action==="RESUME"&&!current.timer_running){patch.timer_started_at=now.toISOString();patch.timer_running=true;patch.status="ACTIVE";if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"RESUME",now);}
+  else if(action==="RESUME"&&!current.timer_running){patch.timer_started_at=now.toISOString();patch.timer_running=true;patch.status="ACTIVE";if(current.payment_rule==="HOURLY_SHARED")patch.shared_hourly_last_at=now.toISOString();if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"RESUME",now);}
   else if(action==="END"||safeText(req.body?.status||"").toUpperCase()==="ENDED"){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="ENDED";patch.ended_at=now.toISOString();if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
   else if(action==="CLOSE" && current.account_mode==="INDIVIDUAL"){
     const people=await individualSessionSnapshot(supabase,sessionId);
@@ -2329,11 +2368,22 @@ async function recordGame(req,res,sessionId){
   const {data:last}=await supabase.from("snooker_completed_games").select("game_number").eq("session_id",sessionId).order("game_number",{ascending:false}).limit(1).maybeSingle();
   const gameNumber=number(last?.game_number,0)+1,count=people.length;
   const settlement=session.payment_rule||"PER_PLAYER";
-  let rate=session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"?money(session.frame_rate_override_inr):money(rule?.rate_inr);
+  let rate=settlement==="HOURLY_SHARED"
+    ? money(session.shared_hourly_rate_inr)
+    : session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"
+      ? money(session.frame_rate_override_inr)
+      : money(rule?.rate_inr);
   if(!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
-  let total=session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"?rate:money(rate*count);
+  let total=settlement==="HOURLY_SHARED"
+    ? 0
+    : session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"
+      ? rate
+      : money(rate*count);
   let allocations=[],loserIds=[],winnerIds=[];
-  if(settlement==="LOSER_PAYS"){
+  if(settlement==="HOURLY_SHARED"){
+    allocations=[];
+    winnerIds=Array.isArray(req.body?.winner_person_ids)?req.body.winner_person_ids:[];
+  }else if(settlement==="LOSER_PAYS"){
     loserIds=Array.isArray(req.body?.loser_person_ids)?req.body.loser_person_ids.map(String):[];
     if(!loserIds.length||loserIds.some(id=>!selectedIds.includes(id)))return json(res,400,{ok:false,error:"LOSER_SELECTION_REQUIRED"});
     winnerIds=selectedIds.filter(id=>!loserIds.includes(id));
@@ -2349,7 +2399,7 @@ async function recordGame(req,res,sessionId){
   }
   const names=selectedIds.map(id=>(people||[]).find(p=>p.id===id)?.name||"Player");
   const {data:game,error}=await supabase.from("snooker_completed_games").insert({
-    session_id:sessionId,game_number:gameNumber,game_type:session.game_type,billing_mode:rule?.billing_mode||"PER_PLAYER_PER_GAME",rate_snapshot_inr:rate,
+    session_id:sessionId,game_number:gameNumber,game_type:session.game_type,billing_mode:settlement==="HOURLY_SHARED"?"HOURLY_SHARED":(rule?.billing_mode||"PER_PLAYER_PER_GAME"),rate_snapshot_inr:rate,
     player_ids:selectedIds,player_names:names,player_count_snapshot:count,calculated_charge_inr:total,settlement_rule:settlement,match_format:session.match_format,
     winner_person_ids:winnerIds,loser_person_ids:loserIds,charge_allocations:allocations,completed_by:auth.staff_id,idempotency_key:key||null
   }).select("*").single();if(error)throw error;
