@@ -76,10 +76,18 @@ export function applyWebsitePatch(state,role,patch){
 }
 export async function websiteStateTransport(db,req){
  const method=String(req.method||'GET').toUpperCase();
- if(!['GET','PATCH'].includes(method))throw new SecurityError(405,'METHOD_NOT_ALLOWED');
+ if(!['GET','PATCH','POST'].includes(method))throw new SecurityError(405,'METHOD_NOT_ALLOWED');
  if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
  const actor=req.headers?.authorization?await authenticate(db,req):null;
  if(method==='PATCH'&&!actor)throw new SecurityError(401,'AUTH_REQUIRED');
+ if(method==='POST'){
+  const kind=String(req.body?.kind||''); const payload=req.body?.payload;
+  if(!['booking','job_application'].includes(kind)||!payload||typeof payload!=='object'||Array.isArray(payload))throw new SecurityError(400,'INVALID_SUBMISSION');
+  if(JSON.stringify(payload).length>200000)throw new SecurityError(413,'SUBMISSION_TOO_LARGE');
+  const saved=await db.from('qclub_public_submissions').insert({kind,payload}).select('id,created_at').single();
+  if(saved.error||!saved.data)throw new SecurityError(503,'SUBMISSION_UNAVAILABLE');
+  return {ok:true,id:saved.data.id,createdAt:saved.data.created_at};
+ }
  const {data,error}=await db.from('qclub_state').select('state,updated_at').eq('key','main').single();
  if(error||!data)throw new SecurityError(503,'STATE_UNAVAILABLE');
  if(method==='GET')return {state:actor?websiteActorState(data.state,actor.role):websitePublicState(data.state),updatedAt:data.updated_at,role:actor?.role||null};

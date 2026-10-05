@@ -953,11 +953,9 @@ export function RummySnookerPage({
   tableKey = "table1",
   tableLabel = "Snooker Table 1",
 }) {
-  const rummyPin = String(data?.admin?.rummyPin || "2468");
-  const rummyFinalLockPin = String(data?.admin?.rummyFinalLockPin || "8642");
   const [allowed, setAllowed] = useState(() => {
     try {
-      return localStorage.getItem("qclub_rummy_access") === "yes";
+      return sessionStorage.getItem("qclub_rummy_access") === "yes";
     } catch {
       return false;
     }
@@ -1058,71 +1056,16 @@ const [logs, setLogs] = useState([]);
   ]);
   const [reckonerMultiplier, setReckonerMultiplier] = useState(100);
 
-  function unlockWithPin() {
+  async function unlockWithPin() {
     const pin = prompt("Enter Q CHASE PAGE PIN");
     if (pin === null) return;
-
-    if (String(pin).trim() === rummyPin) {
-      setAllowed(true);
-      try {
-        localStorage.setItem("qclub_rummy_access", "yes");
-      } catch {}
-      return;
-    }
-
-    alert("Wrong PAGE PIN.");
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(pin).trim()})});
+    if (!response.ok) return alert("Wrong PAGE PIN.");
+    setAllowed(true); try { sessionStorage.setItem("qclub_rummy_access","yes"); } catch {}
   }
 
-  function changeRummyPin() {
-    if (!admin) {
-      alert("Only Main Admin can change the Page PIN.");
-      return;
-    }
-
-    const next = prompt("Enter new PAGE PIN:", rummyPin);
-    if (next === null) return;
-
-    const clean = String(next || "").trim();
-    if (clean.length < 4) {
-      alert("Use at least 4 digits/characters.");
-      return;
-    }
-
-    commit({
-      ...data,
-      admin: {
-        ...(data.admin || {}),
-        rummyPin: clean,
-      },
-    });
-
-    alert("PAGE PIN changed.");
-  }
-  function changeRummyFinalLockPin() {
-  if (!admin) {
-    alert("Only Main Admin can change the Final Lock PIN.");
-    return;
-  }
-
-  const next = prompt("Enter new FINAL LOCK PIN:", rummyFinalLockPin);
-  if (next === null) return;
-
-  const clean = String(next || "").trim();
-  if (clean.length < 4) {
-    alert("Use at least 4 digits/characters.");
-    return;
-  }
-
-  commit({
-    ...data,
-    admin: {
-      ...(data.admin || {}),
-      rummyFinalLockPin: clean,
-    },
-  });
-
-  alert("FINAL LOCK PIN changed.");
-}
+  function changeRummyPin() { alert("Game PIN changes are now managed by the secure server credential store."); }
+  function changeRummyFinalLockPin() { alert("Final Lock PIN changes are now managed by the secure server credential store."); }
 function playerKey(value) {
   return String(value || "").trim().toUpperCase();
 }
@@ -2255,11 +2198,8 @@ breakAfter,
   if (!admin && !staffAdmin) {
     const pin = prompt("Enter FINAL LOCK PIN");
     if (pin === null) return;
-
-    if (String(pin).trim() !== rummyFinalLockPin) {
-      alert("Wrong FINAL LOCK PIN.");
-      return;
-    }
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"final_lock",pin:String(pin).trim()})});
+    if (!response.ok) { alert("Wrong FINAL LOCK PIN."); return; }
   }
 
   const ok = confirm(

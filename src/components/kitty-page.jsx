@@ -2578,12 +2578,10 @@ export function KittyPage({
   tableKey = "table1",
   tableLabel = "Snooker Table 1",
 }) {
-  const rummyPin = String(data?.admin?.rummyPin || "2468");
-  const rummyFinalLockPin = String(data?.admin?.rummyFinalLockPin || "8642");
 
   const [allowed, setAllowed] = useState(() => {
     try {
-      return localStorage.getItem("qclub_kitty_access") === "yes";
+      return sessionStorage.getItem("qclub_kitty_access") === "yes";
     } catch {
       return false;
     }
@@ -2930,20 +2928,12 @@ tokenBallsLeft: 6,
 extraRedsPlaced: 0,
     }));
   }
-function resetKittyWithPin() {
+async function resetKittyWithPin() {
   const enteredPin = prompt("Enter PIN to reset this Kitty game:");
-
-  if (enteredPin !== rummyPin) {
-    alert("Wrong PIN. Kitty reset cancelled.");
-    return;
-  }
-
-  const ok = confirm(
-    "Reset this Kitty game?\n\nThis will clear the current order, scores, winner, logs, and allow a fresh serial draw."
-  );
-
-  if (!ok) return;
-
+  if (enteredPin === null) return;
+  const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(enteredPin).trim()})});
+  if (!response.ok) return alert("Wrong PIN. Kitty reset cancelled.");
+  if (!confirm("Reset this Kitty game?\n\nThis will clear the current order, scores, winner, logs, and allow a fresh serial draw.")) return;
   resetGame(false, []);
 }
   function lockRandomOrder() {
@@ -3599,11 +3589,8 @@ addLog(
   if (!admin && !staffAdmin) {
     const pin = prompt("Enter FINAL LOCK PIN");
     if (pin === null) return;
-
-    if (String(pin).trim() !== rummyFinalLockPin) {
-      alert("Wrong FINAL LOCK PIN.");
-      return;
-    }
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"final_lock",pin:String(pin).trim()})});
+    if (!response.ok) { alert("Wrong FINAL LOCK PIN."); return; }
   }
 
   const ok = confirm("Final Lock will freeze Kitty result and enable printing. Continue?");
@@ -4110,19 +4097,12 @@ extraRedsPlaced: 0,
   );
 }
 
-  function unlockWithPin() {
+  async function unlockWithPin() {
     const pin = prompt("Enter Kitty / Q Chase access PIN");
     if (pin === null) return;
-
-    if (String(pin).trim() !== rummyPin) {
-      alert("Wrong PIN.");
-      return;
-    }
-
-    try {
-      localStorage.setItem("qclub_kitty_access", "yes");
-    } catch {}
-
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(pin).trim()})});
+    if (!response.ok) return alert("Wrong PIN.");
+    try { sessionStorage.setItem("qclub_kitty_access","yes"); } catch {}
     setAllowed(true);
   }
 
@@ -4248,13 +4228,8 @@ const extraInfo = kittyExtraRedInfo(state, players, logs);
                     ) || currentKittyTableConfig;
 
                   if (nextTable.needsPin) {
-                    const enteredPin = prompt("Enter PIN to select this 12x6 Snooker Table:");
-                    const expectedPin = String(data?.admin?.rummyPin || "2468");
-
-                    if (enteredPin !== expectedPin) {
-                      alert("Wrong PIN. This table cannot be selected.");
-                      return;
-                    }
+                    alert("This table requires secure staff access.");
+                    return;
                   }
 
                   const nextReds = kittyDefaultRedsOnTable(nextGameType);

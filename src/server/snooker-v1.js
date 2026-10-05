@@ -4159,6 +4159,15 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
+    if (method === "POST" && path === "auth/verify-game-pin") {
+      const pin = safeText(req.body?.pin || "", 100);
+      const kind = safeText(req.body?.kind || "", 20);
+      const forwarded = safeText(req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || req.socket?.remoteAddress || "", 300).split(",")[0].trim();
+      if (!pin || !forwarded) return json(res, 400, { ok: false, error: "INVALID_REQUEST" });
+      const { data: ok, error } = await getSupabaseAdmin().rpc("qclub_security_verify_game_pin", { p_network_hash: hashToken("ip:" + forwarded), p_kind: kind, p_pin: pin });
+      if (error) return json(res, 503, { ok: false, error: "VERIFY_UNAVAILABLE" });
+      return json(res, ok ? 200 : 401, { ok: Boolean(ok) });
+    }
     if (method === "POST" && path === "auth/rotate-pin") {
       const auth = await requireAuth(req, res, ["ADMIN"]);
       if (!auth) return;

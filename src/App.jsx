@@ -3111,6 +3111,7 @@ function shouldAutoPrintFoodOrders() {
       sessionStorage.removeItem("qclub_admin_role");
       sessionStorage.removeItem("qclub_admin_access_token_v2");
       localStorage.removeItem("qclub_admin_role");
+      window.dispatchEvent(new Event("qclub-secure-session-changed"));
     } catch {}
     return;
   }
@@ -3134,6 +3135,7 @@ function shouldAutoPrintFoodOrders() {
     setAdminRole(role);
     sessionStorage.setItem("qclub_admin_role", role);
     sessionStorage.setItem("qclub_admin_access_token_v2", result.access_token);
+    window.dispatchEvent(new Event("qclub-secure-session-changed"));
   } catch {
     alert("Cannot reach secure login. Please try again.");
   }
@@ -8638,14 +8640,11 @@ if (!requestedEndTime || !Number.isFinite(requestedEndMinutes) || requestedEndMi
     return false;
   }
 
-  commit({
-  ...data,
-  booking: {
-    ...(data.booking || {}),
-    tables,
-    requests: [req, ...(data.booking?.requests || [])],
-  },
-});
+  fetch("/api/snooker/v1/website/state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "booking", payload: req }),
+  }).catch((error) => console.warn("Secure booking inbox save failed:", error));
 saveBookingRequestOperationalRecord(req).catch((error) => {
   console.warn("Booking request operational dual-write failed:", error);
 });
@@ -17409,9 +17408,13 @@ const jobWhatsappDraft = {
   templateParams: [form.name, applicationId],
 };
 
-commit({
-  ...data,
-  jobApplications: [application, ...(data.jobApplications || [])],
+await fetch("/api/snooker/v1/website/state", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ kind: "job_application", payload: application }),
+}).then(async (response) => {
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result?.error || "Unable to securely save application.");
 });
 
 try {
