@@ -1666,40 +1666,54 @@ export default function QclubLedgerPage() {
 
   async function recordCash() {
     if (!billDetail) return;
-    const amount = Number(cashAmount || 0);
-    const tendered = Number(cashTendered || amount);
-    if (!(amount > 0) || tendered < amount) {
-      flash("Check cash amount/tendered.", true);
+    const received = Number(cashAmount || 0);
+    if (!(received > 0)) {
+      flash("Enter the amount actually received.", true);
       return;
     }
     setBusy(true);
     try {
-      const result = await protectedCall("payments/cash", {
+      const result = await protectedCall("payments/manual", {
         method: "POST",
         body: {
           bill_id: billDetail.bill_id,
-          amount_applied_inr: amount,
-          cash_tendered_inr: tendered,
+          method: manualPaymentMethod,
+          received_inr: received,
+          carry_difference: carryDifference,
+          customer_name: billDetail.customer_name || "",
           customer_phone: String(paymentPhone || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10) || null,
-          idempotency_key: makeKey("cash"),
-          staff_notes: "QClubLedger web terminal",
+          idempotency_key: makeKey("manual-payment"),
         },
-      });
-      setBillDetail(function(current) {
-        if (!current) return current;
-        const due = result.due_inr == null ? current.due_inr : Number(result.due_inr);
-        return {
-          ...current,
-          status: result.bill_status || current.status,
-          due_inr: due,
-          paid_inr: Math.max(0, Number(current.total_inr || 0) - Number(due || 0)),
-        };
       });
       setCashAmount(Number(result.due_inr || 0).toFixed(2));
       setCashTendered(Number(result.due_inr || 0).toFixed(2));
       setUpiAmount(Number(result.due_inr || 0).toFixed(2));
-      flash(Number(result.change_inr) > 0 ? "Cash recorded. Return change " + money(result.change_inr) + "." : "Cash payment recorded.");
-      runInBackground(loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true }));
+      const carry = Number(result.carry_inr || 0);
+      if (carry > 0) flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " recorded. " + money(carry) + " player credit carried forward.");
+      else if (carry < 0) flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " recorded. " + money(Math.abs(carry)) + " player debit carried forward.");
+      else if (Number(result.change_inr) > 0) flash("Cash recorded. Return change " + money(result.change_inr) + ".");
+      else flash((manualPaymentMethod === "UPI" ? "UPI" : "Cash") + " payment recorded.");
+      await loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true });
+      runInBackground(refreshBillingOverview());
+    } catch (error) {
+      flash(error.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyCarriedBalance() {
+    if (!billDetail) return;
+    setBusy(true);
+    try {
+      const result = await protectedCall("payments/balance", {
+        method: "POST",
+        body: { bill_id: billDetail.bill_id, idempotency_key: makeKey("balance-apply") },
+      });
+      if (result.entry_type === "CREDIT_APPLIED") flash("Player credit applied: " + money(result.applied_inr) + ".");
+      else if (result.entry_type === "DEBIT_APPLIED") flash("Previous debit added to this bill: " + money(result.applied_inr) + ".");
+      else flash("No carried balance to apply.");
+      await loadBill(billDetail.bill_id, { preserveContact: true, preserveUpi: true, silent: true });
       runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
