@@ -35,7 +35,7 @@ test('authorized patches preserve server credentials, private collections and ga
  const before=fixture();const next=applyWebsitePatch(before,'ADMIN',{club:{name:'Changed'}});
  assert.equal(next.club.name,'Changed');assert.deepEqual(next.admin,before.admin);assert.deepEqual(next.paymentOrders,before.paymentOrders);assert.deepEqual(next.jobApplications,before.jobApplications);
  for(const role of ['STAFF','COMMITTEE','ADMIN'])assert.throws(()=>applyWebsitePatch(before,role,{admin:{mainPin:'changed'}}),/FORBIDDEN/);
- for(const key of ['jobApplications','memberRegistry','paymentOrders','whatsappPersistence','club'])assert.throws(()=>applyWebsitePatch(before,'COMMITTEE',{[key]:[]}),/FORBIDDEN/);
+ for(const key of ['jobApplications','memberRegistry','paymentOrders','whatsappPersistence','club','matchLedger','qChaseActiveGames','tournaments'])assert.throws(()=>applyWebsitePatch(before,'COMMITTEE',{[key]:[]}),/FORBIDDEN/);
 });
 test('committee reviews preserve private player fields; staff cannot alter table pricing',()=>{
  const state=fixture();const next=applyWebsitePatch(state,'COMMITTEE',{players:[{id:'p1',name:'Player',committeeNotes:'Reviewed'}]});
@@ -54,8 +54,9 @@ test('malformed and duplicate restricted-role patches cannot erase protected dat
  assert.throws(()=>applyWebsitePatch(state,'STAFF',{booking:null}),/INVALID_PATCH/);
  assert.throws(()=>applyWebsitePatch(state,'COMMITTEE',{players:[{id:'p1'},{id:'p1'}]}),/INVALID_PATCH/);
  assert.throws(()=>applyWebsitePatch(state,'COMMITTEE',{tournaments:[{id:'t1',matches:[]},{id:'t1',matches:[]}]}),/FORBIDDEN/);
- const next=applyWebsitePatch(state,'COMMITTEE',{tournaments:[{id:'t1',registrationFee:1,matches:[{id:'m1',score1:12,notes:'overwrite'}]}]});
- assert.equal(next.tournaments[0].registrationFee,40);assert.equal(next.tournaments[0].matches[0].notes,'fixture-private');assert.equal(next.tournaments[0].matches[0].score1,12);
+ assert.throws(()=>applyWebsitePatch(state,'COMMITTEE',{tournaments:[{id:'t1',registrationFee:1,matches:[]}]}),/FORBIDDEN/);
+ const next=applyWebsitePatch(state,'COMMITTEE',{players:[{id:'p1',name:'Changed',group:'B'},{id:'p2',name:'Second'}]});
+ assert.equal(next.players[0].name,'Player');assert.equal(next.players[0].group,'B');
 });
 
 test('Postgres transport validates sessions and conflicts without exposing private state',{skip:!process.env.QCLUB_PGLITE_MODULE},async()=>{
