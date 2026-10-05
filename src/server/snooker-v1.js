@@ -2457,7 +2457,7 @@ async function recordGame(req,res,sessionId){
       ? `${label} — Frame ${gameNumber} • ${Math.max(1,Math.round(frameElapsedSeconds/60))} min (Loser pays by time)`
       : `${label} — Frame/Game ${gameNumber}${settlement==="LOSER_PAYS"?" (Loser pays)":""}`;
     await createPersonCharge(supabase,{
-      sessionId,personId:a.person_id,type:"GAME",referenceId:game.id,description,amount:a.amount_inr,staffId:auth.staff_id,
+      sessionId,personId:a.person_id,type:normalTimedLoserPays?"TABLE":"GAME",referenceId:game.id,description,amount:a.amount_inr,staffId:auth.staff_id,
       metadata:{
         game_number:gameNumber,settlement_rule:settlement,person_name:person?.name,
         frame_elapsed_seconds:frameElapsedSeconds||undefined,
@@ -2478,7 +2478,7 @@ async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
   const { data: existing } = await supabase.from("snooker_completed_games").select("*").eq("id", gameId).maybeSingle();
   if (!existing) return json(res, 404, { ok: false, error: "GAME_NOT_FOUND" });
   if (existing.status === "VOIDED") return json(res, 200, existing);
-  const { data: billedCharges } = await supabase.from("snooker_person_charges").select("id,bill_id").eq("reference_id", gameId).eq("charge_type","GAME").eq("status","ACTIVE");
+  const { data: billedCharges } = await supabase.from("snooker_person_charges").select("id,bill_id").eq("reference_id", gameId).in("charge_type",["GAME","TABLE"]).eq("status","ACTIVE");
   if ((billedCharges || []).some((x) => x.bill_id)) return json(res,409,{ok:false,error:"GAME_ALREADY_BILLED"});
   const voidedAt = new Date().toISOString();
   const { data, error } = await supabase.from("snooker_completed_games").update({
@@ -2487,7 +2487,7 @@ async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
   if (error) throw error;
   const { error: chargeVoidError } = await supabase.from("snooker_person_charges").update({
     status: "VOIDED", voided_at: voidedAt, voided_by: auth.staff_id, void_reason: reason,
-  }).eq("reference_id", gameId).eq("charge_type","GAME").eq("status","ACTIVE").is("bill_id",null);
+  }).eq("reference_id", gameId).in("charge_type",["GAME","TABLE"]).eq("status","ACTIVE").is("bill_id",null);
   if (chargeVoidError) throw chargeVoidError;
   return json(res, 200, data);
 }
