@@ -7,7 +7,7 @@
     "api/food-print-test-order.js": "e5e8a70ece713ec21c2de5e895cf16676d28e97f",
     "api/food-receipt-html.js": "e72be496cf1321876b52959d867c17e3fd446444",
     "api/get-order-status.js": "323a1375c5bdbf671fd83d7d2142205f486dd5fe",
-    "api/qclub-state-write.js": "19a5c3dd1ecbe96ed47e4af1e3a60dec8bd092df",
+    "api/qclub-state-write.js": "b8427272da9692a2284a76b536eadf627765f0a8",
     "api/snooker-v1.js": "7d381ba9c9532696af07b38fb325a48ba46d26a0",
     "api/snooker-webhook.js": "e6ab3863e9283bd9d2b454df928a9c1563c0d0db",
     "api/whatsapp-send.js": "9cbb4e5422f36ca894e9833aa23e6a03675854a5",
