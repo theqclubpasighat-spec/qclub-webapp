@@ -598,22 +598,40 @@ async function loadFinanceReserveSummary(supabase) {
 
   const [
     { data: monthCashPayments, error: monthCashError },
-    { data: monthUpiPayments, error: monthUpiError },
+    { data: monthManualUpiPayments, error: monthManualUpiError },
+    { data: monthOnlinePayments, error: monthOnlineError },
+    { data: monthLegacyOnlinePayments, error: monthLegacyOnlineError },
     { data: monthFnbLines, error: monthFnbError },
     { data: fnbCatalogue, error: fnbCatalogueError },
   ] = await Promise.all([
     supabase
       .from("snooker_bill_payments")
-      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
       .eq("method", "CASH")
       .eq("status", "RECEIVED")
       .gte("created_at", bounds.start)
       .lt("created_at", bounds.end),
     supabase
       .from("snooker_bill_payments")
-      .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
+      .eq("method", "UPI")
+      .eq("status", "RECEIVED")
+      .is("cashfree_order_id", null)
+      .gte("created_at", bounds.start)
+      .lt("created_at", bounds.end),
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
+      .eq("method", "ONLINE")
+      .eq("status", "VERIFIED")
+      .gte("verified_at", bounds.start)
+      .lt("verified_at", bounds.end),
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
       .eq("method", "UPI")
       .eq("status", "VERIFIED")
+      .not("cashfree_order_id", "is", null)
       .gte("verified_at", bounds.start)
       .lt("verified_at", bounds.end),
     supabase
@@ -629,8 +647,8 @@ async function loadFinanceReserveSummary(supabase) {
       .order("category")
       .order("name"),
   ]);
-  if (monthCashError || monthUpiError || monthFnbError || fnbCatalogueError) {
-    throw monthCashError || monthUpiError || monthFnbError || fnbCatalogueError;
+  if (monthCashError || monthManualUpiError || monthOnlineError || monthLegacyOnlineError || monthFnbError || fnbCatalogueError) {
+    throw monthCashError || monthManualUpiError || monthOnlineError || monthLegacyOnlineError || monthFnbError || fnbCatalogueError;
   }
 
   const fnbBillIds = [...new Set((monthFnbLines || []).map((row) => row.bill_id).filter(Boolean))];
@@ -645,7 +663,12 @@ async function loadFinanceReserveSummary(supabase) {
     excludedFnbBillIds = new Set((excludedFnbBills || []).map((row) => row.id));
   }
 
-  const monthPayments = [...(monthCashPayments || []), ...(monthUpiPayments || [])];
+  const monthPayments = [
+    ...(monthCashPayments || []),
+    ...(monthManualUpiPayments || []),
+    ...(monthOnlinePayments || []),
+    ...(monthLegacyOnlinePayments || []),
+  ];
   const billIds = [...new Set(monthPayments.map((row) => row.bill_id).filter(Boolean))];
 
   let bills = [];
@@ -675,7 +698,8 @@ async function loadFinanceReserveSummary(supabase) {
   const paymentsByBill = new Map();
   for (const payment of allSuccessfulPayments) {
     if (!payment?.bill_id) continue;
-    const effectiveAt = payment.method === "UPI"
+    const isProviderPayment = payment.method === "ONLINE" || (payment.method === "UPI" && payment.cashfree_order_id);
+    const effectiveAt = isProviderPayment
       ? (payment.verified_at || payment.created_at)
       : payment.created_at;
     const effectiveMs = Date.parse(effectiveAt || "");
@@ -725,7 +749,7 @@ async function loadFinanceReserveSummary(supabase) {
 
       if (payment.effective_ms >= monthStartMs && payment.effective_ms < monthEndMs && tablePortion > 0) {
         if (payment.method === "CASH") tableCash += tablePortion;
-        else if (payment.method === "UPI") tableUpi += tablePortion;
+        else if (payment.method === "UPI" || payment.method === "ONLINE") tableUpi += tablePortion;
       }
     }
 
