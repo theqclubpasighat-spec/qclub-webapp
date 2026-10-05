@@ -29,7 +29,11 @@ function normalizeDate(value) {
   if (!text) return "";
   const time = new Date(text).getTime();
   if (!Number.isFinite(time)) return "";
-  return new Date(time).toISOString();
+  // JavaScript Date truncates PostgreSQL microseconds. Keep that precision
+  // in the initial comparison as well as in the final UPDATE predicate.
+  const fraction = text.match(/\.(\d+)(?:Z|[+-]\d{2}(?::?\d{2})?)$/i)?.[1] || "";
+  if (fraction.length > 6) return "";
+  return new Date(time).toISOString().replace(/\.\d{3}Z$/, `.${fraction.padEnd(6, "0")}Z`);
 }
 
 export function createStateWriteHandler({ createDatabase = getSupabaseAdmin, clock = () => new Date() } = {}) {
