@@ -1,3 +1,5 @@
+import {websiteStateTransport} from './security/website-state.js';
+import {SecurityError as WebsiteSecurityError} from './security/errors.js';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { publicContent as cmsPublicContent, saveContent as saveCmsContent } from "./security/foundation.js";
@@ -4132,6 +4134,15 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     const path = safeText(rawPath || req.query?.path || "", 500).replace(/^\/+|\/+$/g, "");
     const parts = path ? path.split("/").filter(Boolean) : [];
 
+    if (path === "website/state") {
+      try {
+        return json(res, 200, await websiteStateTransport(getSupabaseAdmin(), req));
+      } catch (error) {
+        return json(res, error instanceof WebsiteSecurityError ? error.status : 503, {
+          ok: false, error: error instanceof WebsiteSecurityError ? error.code : "STATE_UNAVAILABLE",
+        });
+      }
+    }
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
