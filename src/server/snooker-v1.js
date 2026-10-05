@@ -685,7 +685,7 @@ async function loadFinanceReserveSummary(supabase) {
         .eq("accounting_excluded", false),
       supabase
         .from("snooker_bill_payments")
-        .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
+        .select("id,bill_id,method,amount_inr,status,created_at,verified_at,cashfree_order_id")
         .in("bill_id", billIds)
         .in("status", ["RECEIVED", "VERIFIED"]),
     ]);
@@ -1546,11 +1546,13 @@ async function listPlayerTabs(req,res){
       name:customer?.name||ownFnbTabs[0]?.customer_name||ownPeople[0]?.name||"CUSTOMER",
       phone:customer?.phone||ownFnbTabs[0]?.customer_phone||ownPeople[0]?.phone||null,
       is_member:Boolean(customer?.is_member),
+      carry_balance_inr: money(customer?.balance_inr),
       player_unbilled_inr:playerUnbilled,
       fnb_unbilled_inr:runningFnbUnbilled,
       unbilled_inr:unbilled,
       billed_due_inr:billedDue,
       current_due_inr:money(unbilled+billedDue),
+      net_after_carry_inr: money(Math.max(0, unbilled + billedDue - number(customer?.balance_inr))),
       active_locations:activeLocations,
       open_fnb_tab_ids:ownFnbTabs.map(t=>t.id),
       charge_count:ownCharges.length+ownRunningFnb.length,
@@ -3266,14 +3268,6 @@ async function createWalkInFnbBill(req, res) {
     // bill_id uses ON DELETE CASCADE for F&B lines / bill items.
     await supabase.from("snooker_bills").delete().eq("id", bill.id);
     throw error;
-  }
-
-  if (customerName) {
-    try {
-      await rememberCustomer(supabase, { name: customerName, phone: customerPhone, source: "quick_fnb_bill" });
-    } catch (customerError) {
-      console.error("customer directory remember failed", { source: "quick_fnb_bill", name: customerName, message: customerError?.message });
-    }
   }
 
   const response = await billDetailPayload(supabase, bill.id);
