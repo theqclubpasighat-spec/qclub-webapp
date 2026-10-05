@@ -2747,11 +2747,22 @@ export default function QclubLedgerPage() {
               </div>
               <div>
                 <label className="ql-label">Category</label>
-                <select className="ql-select" value={fnbCategory} onChange={function(e) { setFnbCategory(e.target.value); }}>
+                <div className="ql-row" role="group" aria-label="F&B category filter" style={{ gap: 6, flexWrap: "wrap" }}>
                   {fnbCategories.map(function(category) {
-                    return <option key={category} value={category}>{category === "ALL" ? "All categories" : category}</option>;
+                    const active = fnbCategory === category;
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        className={"ql-btn " + (active ? "primary" : "")}
+                        aria-pressed={active}
+                        onClick={function() { setFnbCategory(category); }}
+                      >
+                        {category === "ALL" ? "ALL" : category}
+                      </button>
+                    );
                   })}
-                </select>
+                </div>
               </div>
             </div>
             <div className="ql-fnb-grid">
