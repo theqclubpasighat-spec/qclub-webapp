@@ -507,7 +507,7 @@ async function publicTableDisplay(req, res, tableKey) {
 
   let payment = null;
   if (number(bill.due_inr) > 0) {
-    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).eq("method","UPI").eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
+    const { data } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", bill.id).in("method",["ONLINE","UPI"]).eq("status","PENDING").order("created_at",{ascending:false}).limit(1).maybeSingle();
     if (data) payment = { payment_id: data.id, status: data.status, amount_inr: money(data.amount_inr), qr_url: qrElementUrl(data) };
   }
   const billPayload = { bill_id: bill.id, bill_no: bill.bill_no, game_total_inr: money(bill.game_total_inr), fnb_total_inr: money(bill.fnb_total_inr), total_inr: money(bill.total_inr), due_inr: money(bill.due_inr), status: bill.status };
@@ -528,7 +528,7 @@ async function dashboardSummary(req, res) {
   ] = await Promise.all([
     supabase.from("snooker_bills").select("id").eq("accounting_excluded", false).gte("finalized_at", bounds.start).lt("finalized_at", bounds.end),
     supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "CASH").eq("status", "RECEIVED").gte("created_at", bounds.start).lt("created_at", bounds.end),
-    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").eq("method", "UPI").eq("status", "VERIFIED").gte("verified_at", bounds.start).lt("verified_at", bounds.end),
+    supabase.from("snooker_bill_payments").select("bill_id,amount_inr").in("method", ["UPI","ONLINE"]).in("status", ["RECEIVED","VERIFIED"]).gte("updated_at", bounds.start).lt("updated_at", bounds.end),
     supabase.from("snooker_bills").select("due_inr").eq("accounting_excluded", false).gt("due_inr", 0),
   ]);
   if (billError || cashError || upiError || outstandingError) throw billError || cashError || upiError || outstandingError;
@@ -585,10 +585,10 @@ async function loadFinanceReserveSummary(supabase) {
     supabase
       .from("snooker_bill_payments")
       .select("id,bill_id,method,amount_inr,status,created_at,verified_at")
-      .eq("method", "UPI")
-      .eq("status", "VERIFIED")
-      .gte("verified_at", bounds.start)
-      .lt("verified_at", bounds.end),
+      .in("method", ["UPI","ONLINE"])
+      .in("status", ["RECEIVED","VERIFIED"])
+      .gte("updated_at", bounds.start)
+      .lt("updated_at", bounds.end),
     supabase
       .from("snooker_fnb_lines")
       .select("bill_id,item_id,item_name_snapshot,unit_price_snapshot_inr,quantity,line_total_inr,status,added_at")
@@ -648,8 +648,8 @@ async function loadFinanceReserveSummary(supabase) {
   const paymentsByBill = new Map();
   for (const payment of allSuccessfulPayments) {
     if (!payment?.bill_id) continue;
-    const effectiveAt = payment.method === "UPI"
-      ? (payment.verified_at || payment.created_at)
+    const effectiveAt = ["UPI","ONLINE"].includes(payment.method)
+      ? (payment.verified_at || payment.updated_at || payment.created_at)
       : payment.created_at;
     const effectiveMs = Date.parse(effectiveAt || "");
     if (!Number.isFinite(effectiveMs)) continue;
@@ -698,7 +698,7 @@ async function loadFinanceReserveSummary(supabase) {
 
       if (payment.effective_ms >= monthStartMs && payment.effective_ms < monthEndMs && tablePortion > 0) {
         if (payment.method === "CASH") tableCash += tablePortion;
-        else if (payment.method === "UPI") tableUpi += tablePortion;
+        else if (["UPI","ONLINE"].includes(payment.method)) tableUpi += tablePortion;
       }
     }
 
@@ -4064,7 +4064,7 @@ async function sendReceipt(req, res) {
       .from("snooker_bill_payments")
       .select("*")
       .eq("bill_id", billId)
-      .eq("method", "UPI")
+      .in("method", ["ONLINE","UPI"])
       .eq("status", "PENDING")
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
