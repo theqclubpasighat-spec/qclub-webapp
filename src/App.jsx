@@ -11396,11 +11396,13 @@ const canPrintFixtures = admin || staffAdmin;
     const match = (selectedTournament.matches || []).find((m) => m.id === matchId);
     if (!match) return;
 
-    const s1 = Number(match.score1);
-    const s2 = Number(match.score2);
+    const rawScore1 = String(match.score1 ?? "").trim();
+    const rawScore2 = String(match.score2 ?? "").trim();
+    const s1 = Number(rawScore1);
+    const s2 = Number(rawScore2);
 
-    if (!Number.isFinite(s1) || !Number.isFinite(s2)) {
-      return alert("Enter valid numeric scores first.");
+    if (!rawScore1 || !rawScore2 || !Number.isFinite(s1) || !Number.isFinite(s2) || s1 < 0 || s2 < 0) {
+      return alert("Enter both valid non-negative scores first.");
     }
 
     commit({
@@ -11489,6 +11491,16 @@ function updateMatchStatus(matchId, status) {
     if (fixtureFilter === "done") return m.status === "done";
     return true;
   });
+  const fixtureIntegrityIssues = fixtureMatches.filter((m) => {
+    if (isKnockout) {
+      const hasWinner = Boolean(String(m.winner || "").trim());
+      return (hasWinner && m.status !== "done") || (!hasWinner && m.status === "done");
+    }
+    if (m.status === "done") {
+      return !String(m.score1 ?? "").trim() || !String(m.score2 ?? "").trim();
+    }
+    return false;
+  });
 
   return (
     <>
@@ -11529,6 +11541,14 @@ function updateMatchStatus(matchId, status) {
           </div>
         ) : (
           <>
+            {fixtureIntegrityIssues.length ? (
+              <div className="card" style={{ marginBottom: 14, borderColor: "rgba(255,193,7,.45)" }}>
+                <b>Fixture status review needed</b>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {fixtureIntegrityIssues.length} match{fixtureIntegrityIssues.length === 1 ? "" : "es"} have stored result/winner data that does not match the saved status. No result was changed automatically.
+                </div>
+              </div>
+            ) : null}
             <div className="grid">
               {admin ? (
               <div className="card cols-5">
@@ -11911,6 +11931,7 @@ function updateMatchStatus(matchId, status) {
                                   className={m.status === "done" ? "dot" : "dot warn"}
                                 />
                                 {m.status || "scheduled"}
+                                {isKnockout && String(m.winner || "").trim() && m.status !== "done" ? " • winner recorded" : ""}
                               </span>
                             </td>
                             <td>
