@@ -1905,6 +1905,7 @@ function sessionDto(row) {
     started_at: row.started_at,
     ended_at: row.ended_at,
     timer_running: row.timer_running,
+    timer_started_at: row.timer_started_at || null,
     accumulated_seconds: number(row.accumulated_seconds),
     revision: row.client_revision || row.updated_at,
     updated_at: row.updated_at,
@@ -1983,15 +1984,20 @@ async function createSession(req, res) {
   }
   if(gameType==="QCHASE_RUMMY" && (people.length<2||people.length>6)) return json(res,400,{ok:false,error:"QCHASE_REQUIRES_TWO_TO_SIX_PLAYERS"});
 
+  if (individual) {
+    for (const person of people) {
+      try {
+        const verified = await verifyMemberRecord(supabase, { phone: person.phone, name: person.name });
+        person.is_member = Boolean(verified?.verified);
+      } catch {
+        person.is_member = false;
+      }
+    }
+  }
   const first=people[0] || null;
   const customerName=individual ? first?.name : (canonicalCustomerName(req.body?.customer_name || req.body?.customerName || "")||null);
   const customerPhone=individual ? first?.phone : (normalizePhone(req.body?.customer_phone || req.body?.customerPhone || "")||null);
-  let isMember=Boolean(first?.is_member ?? req.body?.is_member ?? false);
-  if(isMember){
-    const v=await verifyMemberRecord(supabase,{phone:customerPhone,name:customerName});
-    isMember=Boolean(v.verified);
-    if(individual && first) first.is_member=isMember;
-  }
+  const isMember=Boolean(first?.is_member ?? req.body?.is_member ?? false);
 
   const sharedHourly = paymentRule === "HOURLY_SHARED";
   const sessionRunsOnTime = rule.billing_mode === "HOURLY" || sharedHourly;
@@ -2002,10 +2008,12 @@ async function createSession(req, res) {
     return json(res,409,{ok:false,error:"TABLE_RATE_NOT_CONFIGURED"});
   }
 
-  const frameRate = req.body?.frame_rate_override_inr==null ? null : money(req.body.frame_rate_override_inr);
-  if(gameType==="NORMAL_SNOOKER" && paymentRule==="LOSER_PAYS" && !(frameRate>0)) {
-    return json(res,400,{ok:false,error:"FRAME_RATE_REQUIRED"});
-  }
+  // Legacy fixed frame_rate_override_inr is intentionally ignored for Normal Snooker
+  // LOSER_PAYS. That mode is server-priced from actual active frame time and the
+  // losing player's verified member/non-member hourly table rate.
+  const frameRate = gameType==="NORMAL_SNOOKER" && paymentRule==="LOSER_PAYS"
+    ? null
+    : (req.body?.frame_rate_override_inr==null ? null : money(req.body.frame_rate_override_inr));
 
   const now=new Date().toISOString();
   const {data,error}=await supabase.from("snooker_sessions").insert({
@@ -2090,7 +2098,23 @@ async function sessionDetail(req,res,sessionId){
     supabase.from("snooker_bills").select("*").eq("session_id",sessionId).maybeSingle(),
     session.account_mode==="INDIVIDUAL"?individualSessionSnapshot(supabase,sessionId):Promise.resolve([]),
   ]);
-  return json(res,200,{...sessionDto(session),games:games||[],fnb_lines:fnb||[],bill:bill||null,people});
+  let loserPaysFrameBaseSeconds = 0;
+  if (session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS") {
+    const lastValidFrame = [...(games || [])].reverse().find((game) =>
+      game.status === "COMPLETED" &&
+      game.game_type === "NORMAL_SNOOKER" &&
+      game.settlement_rule === "LOSER_PAYS"
+    );
+    loserPaysFrameBaseSeconds = number(lastValidFrame?.session_elapsed_seconds_snapshot, 0);
+  }
+  return json(res,200,{
+    ...sessionDto(session),
+    games:games||[],
+    fnb_lines:fnb||[],
+    bill:bill||null,
+    people,
+    loser_pays_frame_base_session_seconds:loserPaysFrameBaseSeconds,
+  });
 }
 async function addSessionPerson(req,res,sessionId){
   const auth=await requireAuth(req,res); if(!auth)return;
@@ -2330,44 +2354,120 @@ async function recordGame(req,res,sessionId){
   const {data:last}=await supabase.from("snooker_completed_games").select("game_number").eq("session_id",sessionId).order("game_number",{ascending:false}).limit(1).maybeSingle();
   const gameNumber=number(last?.game_number,0)+1,count=people.length;
   const settlement=session.payment_rule||"PER_PLAYER";
-  let rate=settlement==="HOURLY_SHARED"
-    ? money(session.shared_hourly_rate_inr)
-    : session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"
-      ? money(session.frame_rate_override_inr)
-      : money(rule?.rate_inr);
-  if(!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
-  let total=settlement==="HOURLY_SHARED"
-    ? 0
-    : session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS"
-      ? rate
-      : money(rate*count);
+  const normalTimedLoserPays=session.game_type==="NORMAL_SNOOKER"&&settlement==="LOSER_PAYS";
   let allocations=[],loserIds=[],winnerIds=[];
-  if(settlement==="HOURLY_SHARED"){
-    allocations=[];
-    winnerIds=Array.isArray(req.body?.winner_person_ids)?req.body.winner_person_ids:[];
-  }else if(settlement==="LOSER_PAYS"){
+  if(settlement==="LOSER_PAYS"){
     loserIds=Array.isArray(req.body?.loser_person_ids)?req.body.loser_person_ids.map(String):[];
     if(!loserIds.length||loserIds.some(id=>!selectedIds.includes(id)))return json(res,400,{ok:false,error:"LOSER_SELECTION_REQUIRED"});
     winnerIds=selectedIds.filter(id=>!loserIds.includes(id));
-    const payer=safeText(req.body?.payer_person_id||"",100);
-    if(payer){
-      if(!loserIds.includes(payer))return json(res,400,{ok:false,error:"PAYER_MUST_BE_ON_LOSING_SIDE"});
-      allocations=[{person_id:payer,amount_inr:total}];
-    }else{
-      let used=0;allocations=loserIds.map((id,i)=>{const amt=i===loserIds.length-1?money(total-used):money(total/loserIds.length);used=money(used+amt);return{person_id:id,amount_inr:amt};});
-    }
   }else{
-    allocations=selectedIds.map(id=>({person_id:id,amount_inr:rate}));winnerIds=Array.isArray(req.body?.winner_person_ids)?req.body.winner_person_ids:[];
+    winnerIds=Array.isArray(req.body?.winner_person_ids)?req.body.winner_person_ids.map(String):[];
+  }
+
+  let rate=0,total=0,frameElapsedSeconds=0,sessionElapsedSnapshot=0,pricingSnapshot={};
+  if(normalTimedLoserPays){
+    const now=new Date();
+    sessionElapsedSnapshot=elapsedSeconds(session,now);
+    const {data:lastValidFrame}=await supabase
+      .from("snooker_completed_games")
+      .select("session_elapsed_seconds_snapshot")
+      .eq("session_id",sessionId)
+      .eq("status","COMPLETED")
+      .eq("game_type","NORMAL_SNOOKER")
+      .eq("settlement_rule","LOSER_PAYS")
+      .order("game_number",{ascending:false})
+      .limit(1)
+      .maybeSingle();
+    const previousSnapshot=number(lastValidFrame?.session_elapsed_seconds_snapshot,0);
+    frameElapsedSeconds=Math.max(0,sessionElapsedSnapshot-previousSnapshot);
+    if(frameElapsedSeconds<=0)return json(res,409,{ok:false,error:"FRAME_TIME_NOT_AVAILABLE",message:"No active frame time has elapsed yet."});
+
+    const {data:table}=await supabase.from("snooker_tables").select("*").eq("id",session.table_id).maybeSingle();
+    const walkInRate=money(table?.price_per_hour_inr);
+    const memberRate=money(table?.member_price_per_hour_inr);
+    if(!(walkInRate>0)||!(memberRate>0))return json(res,409,{ok:false,error:"TABLE_RATE_NOT_CONFIGURED"});
+
+    const loserPeople=loserIds.map((id)=>(people||[]).find((person)=>person.id===id)).filter(Boolean);
+    if(loserPeople.length!==loserIds.length)return json(res,400,{ok:false,error:"LOSER_SELECTION_REQUIRED"});
+    const payer=safeText(req.body?.payer_person_id||"",100);
+    if(payer&&!loserIds.includes(payer))return json(res,400,{ok:false,error:"PAYER_MUST_BE_ON_LOSING_SIDE"});
+
+    const chargeRows=[];
+    if(payer){
+      const person=loserPeople.find((row)=>row.id===payer);
+      const hourlyRate=money(person?.is_member?memberRate:walkInRate);
+      const amount=money((frameElapsedSeconds/3600)*hourlyRate);
+      allocations=[{person_id:payer,amount_inr:amount}];
+      chargeRows.push({person_id:payer,is_member:Boolean(person?.is_member),hourly_rate_inr:hourlyRate,share_fraction:1,amount_inr:amount});
+      rate=hourlyRate;
+    }else{
+      const shareFraction=1/loserPeople.length;
+      allocations=loserPeople.map((person)=>{
+        const hourlyRate=money(person.is_member?memberRate:walkInRate);
+        const amount=money((frameElapsedSeconds/3600)*hourlyRate*shareFraction);
+        chargeRows.push({person_id:person.id,is_member:Boolean(person.is_member),hourly_rate_inr:hourlyRate,share_fraction:shareFraction,amount_inr:amount});
+        return {person_id:person.id,amount_inr:amount};
+      });
+      rate=loserPeople.length===1?chargeRows[0].hourly_rate_inr:walkInRate;
+    }
+    total=money(allocations.reduce((sum,row)=>sum+number(row.amount_inr),0));
+    pricingSnapshot={
+      mode:"LOSER_PAYS_BY_ACTIVE_FRAME_TIME",
+      frame_elapsed_seconds:frameElapsedSeconds,
+      table_walkin_rate_inr:walkInRate,
+      table_member_rate_inr:memberRate,
+      allocations:chargeRows,
+    };
+  }else{
+    rate=settlement==="HOURLY_SHARED"?money(session.shared_hourly_rate_inr):money(rule?.rate_inr);
+    if(settlement!=="HOURLY_SHARED"&&!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
+    total=settlement==="HOURLY_SHARED"?0:money(rate*count);
+    if(settlement==="HOURLY_SHARED"){
+      allocations=[];
+    }else if(settlement==="LOSER_PAYS"){
+      const payer=safeText(req.body?.payer_person_id||"",100);
+      if(payer){
+        if(!loserIds.includes(payer))return json(res,400,{ok:false,error:"PAYER_MUST_BE_ON_LOSING_SIDE"});
+        allocations=[{person_id:payer,amount_inr:total}];
+      }else{
+        let used=0;
+        allocations=loserIds.map((id,i)=>{
+          const amt=i===loserIds.length-1?money(total-used):money(total/loserIds.length);
+          used=money(used+amt);
+          return{person_id:id,amount_inr:amt};
+        });
+      }
+    }else{
+      allocations=selectedIds.map(id=>({person_id:id,amount_inr:rate}));
+    }
   }
   const names=selectedIds.map(id=>(people||[]).find(p=>p.id===id)?.name||"Player");
   const {data:game,error}=await supabase.from("snooker_completed_games").insert({
     session_id:sessionId,game_number:gameNumber,game_type:session.game_type,billing_mode:settlement==="HOURLY_SHARED"?"HOURLY_SHARED":(rule?.billing_mode||"PER_PLAYER_PER_GAME"),rate_snapshot_inr:rate,
     player_ids:selectedIds,player_names:names,player_count_snapshot:count,calculated_charge_inr:total,settlement_rule:settlement,match_format:session.match_format,
-    winner_person_ids:winnerIds,loser_person_ids:loserIds,charge_allocations:allocations,completed_by:auth.staff_id,idempotency_key:key||null
+    winner_person_ids:winnerIds,loser_person_ids:loserIds,charge_allocations:allocations,
+    frame_elapsed_seconds:frameElapsedSeconds,session_elapsed_seconds_snapshot:sessionElapsedSnapshot,pricing_snapshot:pricingSnapshot,
+    completed_by:auth.staff_id,idempotency_key:key||null
   }).select("*").single();if(error)throw error;
   const label=rule?.display_name||session.game_type;
-  for(const a of allocations){const person=(people||[]).find(p=>p.id===a.person_id);await createPersonCharge(supabase,{sessionId,personId:a.person_id,type:"GAME",referenceId:game.id,description:`${label} — Frame/Game ${gameNumber}${settlement==="LOSER_PAYS"?" (Loser pays)":""}`,amount:a.amount_inr,staffId:auth.staff_id,metadata:{game_number:gameNumber,settlement_rule:settlement,person_name:person?.name}});}
-  const response={...game,game_id:game.id,charge_allocations:allocations};await rememberIdempotent(supabase,key,"record_game",game.id,response);return json(res,201,response);
+  for(const a of allocations){
+    const person=(people||[]).find(p=>p.id===a.person_id);
+    const priceRow=Array.isArray(pricingSnapshot.allocations)?pricingSnapshot.allocations.find((row)=>row.person_id===a.person_id):null;
+    const description=normalTimedLoserPays
+      ? `${label} — Frame ${gameNumber} • ${Math.max(1,Math.round(frameElapsedSeconds/60))} min (Loser pays by time)`
+      : `${label} — Frame/Game ${gameNumber}${settlement==="LOSER_PAYS"?" (Loser pays)":""}`;
+    await createPersonCharge(supabase,{
+      sessionId,personId:a.person_id,type:"GAME",referenceId:game.id,description,amount:a.amount_inr,staffId:auth.staff_id,
+      metadata:{
+        game_number:gameNumber,settlement_rule:settlement,person_name:person?.name,
+        frame_elapsed_seconds:frameElapsedSeconds||undefined,
+        hourly_rate_inr:priceRow?.hourly_rate_inr,
+        member_rate_applied:priceRow?.is_member,
+      }
+    });
+  }
+  const response={...game,game_id:game.id,charge_allocations:allocations,frame_elapsed_seconds:frameElapsedSeconds,pricing_snapshot:pricingSnapshot};
+  await rememberIdempotent(supabase,key,"record_game",game.id,response);return json(res,201,response);
 }
 async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
   const auth = await requireAuth(req, res, roles);
@@ -2380,10 +2480,15 @@ async function voidGame(req, res, gameId, roles = ["STAFF", "ADMIN"]) {
   if (existing.status === "VOIDED") return json(res, 200, existing);
   const { data: billedCharges } = await supabase.from("snooker_person_charges").select("id,bill_id").eq("reference_id", gameId).eq("charge_type","GAME").eq("status","ACTIVE");
   if ((billedCharges || []).some((x) => x.bill_id)) return json(res,409,{ok:false,error:"GAME_ALREADY_BILLED"});
+  const voidedAt = new Date().toISOString();
   const { data, error } = await supabase.from("snooker_completed_games").update({
-    status: "VOIDED", voided_at: new Date().toISOString(), voided_by: auth.staff_id, void_reason: reason,
+    status: "VOIDED", voided_at: voidedAt, voided_by: auth.staff_id, void_reason: reason,
   }).eq("id", gameId).select("*").single();
   if (error) throw error;
+  const { error: chargeVoidError } = await supabase.from("snooker_person_charges").update({
+    status: "VOIDED", voided_at: voidedAt, voided_by: auth.staff_id, void_reason: reason,
+  }).eq("reference_id", gameId).eq("charge_type","GAME").eq("status","ACTIVE").is("bill_id",null);
+  if (chargeVoidError) throw chargeVoidError;
   return json(res, 200, data);
 }
 
