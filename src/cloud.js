@@ -1,4 +1,4 @@
-const POLL_INTERVAL_MS = 5000;
+const AUTHENTICATED_POLL_INTERVAL_MS = 30000;
 const ENDPOINT = "/api/snooker/v1/website/state";
 
 export function isCloudEnabled() { return true; }
@@ -17,10 +17,15 @@ async function fetchLatestState() {
 export function subscribeState(onState,onError) {
   let closed=false; let timer=null;
   const pull=async()=>{try{const state=await fetchLatestState();if(!closed&&state)onState(state);}catch(e){if(!closed)onError?.(e);}};
-  pull(); timer=setInterval(pull,POLL_INTERVAL_MS);
-  const refresh=()=>pull();
+  pull();
+  // Public visitors only need the initial projection. Operational sessions poll
+  // at a moderate cadence instead of forcing a network request every 5 seconds.
+  if (token()) timer=setInterval(pull,AUTHENTICATED_POLL_INTERVAL_MS);
+  const refresh=()=>{ if (!closed) pull(); };
+  const onVisibility=()=>{ if (document.visibilityState === "visible" && token()) pull(); };
   window.addEventListener("qclub-secure-session-changed",refresh);
-  return()=>{closed=true;if(timer)clearInterval(timer);window.removeEventListener("qclub-secure-session-changed",refresh);};
+  document.addEventListener("visibilitychange",onVisibility);
+  return()=>{closed=true;if(timer)clearInterval(timer);window.removeEventListener("qclub-secure-session-changed",refresh);document.removeEventListener("visibilitychange",onVisibility);};
 }
 export async function writeState(state) {
   const t=token();

@@ -212,7 +212,7 @@ export function TopNav({ club, admin, staffAdmin, committeeAdmin, onToggleAdmin,
           <span className="v2-live-brand-mark" aria-hidden="true">Q</span>
           <span className="v2-live-brand-copy">
             <strong>{club?.name || "The Q Club"}</strong>
-            <small>{club?.location || "Pasighat"} · {club?.tagline || "Play. Chill. Compete."}</small>
+            <small>{club?.tagline || "Play. Chill. Compete."}</small>
           </span>
         </Link>
 

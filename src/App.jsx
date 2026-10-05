@@ -2892,6 +2892,16 @@ function commit(next) {
   }
 
   if (isCloudEnabled()) {
+    // Public pages may still run legacy local-only housekeeping. Never turn those
+    // harmless background updates into repeated authentication popups.
+    let secureToken = "";
+    try { secureToken = sessionStorage.getItem("qclub_admin_access_token_v2") || ""; } catch {}
+    if (!secureToken) {
+      setData(safeNext);
+      latestDataRef.current = safeNext;
+      saveData(safeNext);
+      return;
+    }
     if (cloudWriteLockedRef.current || !hasHydratedFromCloud) {
       setCloudStatus("error");
       alert(
