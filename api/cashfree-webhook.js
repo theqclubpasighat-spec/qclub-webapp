@@ -1,3 +1,6 @@
+import { fulfillLegacyOrder } from "../src/server/payments/legacy-fulfillment.js";
+import { fetchCashfreeOrder } from "./get-order-status.js";
+import { patchLegacyOrder } from "../src/server/payments/legacy-state.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
@@ -35,19 +38,6 @@ async function readState(supabase) {
 
   if (error) throw new Error(error.message || "Supabase read failed");
   return data?.state || {};
-}
-
-async function writeState(supabase, state) {
-  const { error } = await supabase.from(TABLE).upsert(
-    {
-      key: KEY,
-      state,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "key" }
-  );
-
-  if (error) throw new Error(error.message || "Supabase write failed");
 }
 
 function normalizePhone(value = "") {
@@ -740,9 +730,22 @@ function webhookMatchesTrusted(record, parsed) {
 }
 
 async function writePaymentPatch(supabase, state, orders, index, patch) {
-  await writeState(supabase, {
-    ...state,
-    paymentOrders: updateOrder(orders, index, patch),
+  const orderId = orders[index]?.order_id;
+  return patchLegacyOrder(supabase, orderId, (current, latest) => {
+    // Recompute stock against the current row within the same atomic write.
+    if (patch.fulfillmentCompletionType === "cashfree_webhook" && current.context === "shop") {
+      const fulfilled = fulfilQShopInState(latest, {
+        orderId, customerName:current.customer_name, phone:current.customer_phone,
+        amount:current.expectedAmount, orderTags:current.order_tags, now:new Date().toISOString(),
+      });
+      Object.assign(latest, fulfilled.state);
+    }
+    const next = {...patch};
+    if (current.verified && !patch.verified) {
+      for (const key of ['status','verified','paymentStatus','cashfreeOrderStatus']) delete next[key];
+    }
+    if (patch.webhookWhatsapp) next.webhookWhatsapp = {...current.webhookWhatsapp,...patch.webhookWhatsapp};
+    return next;
   });
 }
 
@@ -770,8 +773,8 @@ export default async function handler(req, res) {
     }
 
     const supabase = getSupabaseClient();
-    const state = await readState(supabase);
-    const { orders, index, record } = findPaymentOrder(state, parsed.orderId);
+    let state = await readState(supabase);
+    let { orders, index, record } = findPaymentOrder(state, parsed.orderId);
 
     if (!record) {
       return res.status(200).json({
@@ -819,11 +822,14 @@ export default async function handler(req, res) {
     }
 
     if (parsed.paymentStatus === "SUCCESS") {
+      await fulfillLegacyOrder(supabase, parsed.orderId, fetchCashfreeOrder);
+      state = await readState(supabase);
+      ({ orders, index, record } = findPaymentOrder(state, parsed.orderId));
       let stateForSuccess = state;
       let shopFulfillmentResult = null;
       let shopFulfillmentPatch = {};
 
-      if (context === "shop") {
+      if (context === "shop" && !record.fulfilled) {
         const fulfilled = fulfilQShopInState(state, {
           orderId: parsed.orderId,
           customerName,

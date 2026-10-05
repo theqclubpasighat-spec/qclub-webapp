@@ -1,3 +1,5 @@
+import { quoteLegacyOrder } from "../src/server/payments/legacy-quote.js";
+import { mutateLegacyState } from "../src/server/payments/legacy-state.js";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
@@ -27,30 +29,6 @@ function getSupabaseClient() {
   });
 }
 
-async function readState(supabase) {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select("state")
-    .eq("key", KEY)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message || "Supabase read failed");
-  return data?.state || {};
-}
-
-async function writeState(supabase, state) {
-  const { error } = await supabase.from(TABLE).upsert(
-    {
-      key: KEY,
-      state,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "key" }
-  );
-
-  if (error) throw new Error(error.message || "Supabase write failed");
-}
-
 function cleanText(value = "", maxLength = 1000) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
@@ -76,16 +54,9 @@ function cleanOrderTags(raw = {}) {
 
 async function storePaymentOrder(orderRecord) {
   const supabase = getSupabaseClient();
-  const state = await readState(supabase);
-  const existing = Array.isArray(state.paymentOrders) ? state.paymentOrders : [];
-  const nextOrders = [
-    orderRecord,
-    ...existing.filter((order) => String(order?.order_id || "") !== orderRecord.order_id),
-  ].slice(0, MAX_PAYMENT_ORDERS);
-
-  await writeState(supabase, {
-    ...state,
-    paymentOrders: nextOrders,
+  await mutateLegacyState(supabase, state => {
+    const existing = Array.isArray(state.paymentOrders) ? state.paymentOrders : [];
+    state.paymentOrders = [orderRecord, ...existing.filter(order => order?.order_id !== orderRecord.order_id)].slice(0, MAX_PAYMENT_ORDERS);
   });
 }
 
@@ -102,7 +73,7 @@ export default async function handler(req, res) {
       order_tags = {},
     } = req.body || {};
 
-    const orderAmount = Number(amount || 0);
+    let orderAmount = Number(amount || 0);
 
     if (!Number.isFinite(orderAmount) || orderAmount <= 0) {
       return res.status(400).json({
@@ -111,7 +82,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const tags = cleanOrderTags(order_tags);
+    let tags = cleanOrderTags(order_tags);
     const context = cleanText(tags.context || "", 60).toLowerCase();
 
     if (!context) {
@@ -139,6 +110,12 @@ export default async function handler(req, res) {
         error: "Invalid customer phone number",
       });
     }
+
+    const catalogue = await getSupabaseClient().from("qclub_state").select("state").eq("key","main").single();
+    if (catalogue.error || !catalogue.data) throw new Error("STATE_UNAVAILABLE");
+    const quote = quoteLegacyOrder(catalogue.data.state, tags, {name:customerName,phone:customerPhone}, amount);
+    orderAmount = quote.amount;
+    tags = quote.tags;
 
     const cashfreePayload = {
       order_id,
@@ -217,7 +194,7 @@ export default async function handler(req, res) {
     return res.status(200).json(data || {});
   } catch (error) {
     console.error("create-order error:", error);
-    return res.status(500).json({
+    return res.status(error?.status || 500).json({
       ok: false,
       error: error?.message || "Server error",
     });
