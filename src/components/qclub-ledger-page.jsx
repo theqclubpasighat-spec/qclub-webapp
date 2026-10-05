@@ -130,6 +130,33 @@ function elapsedLabel(session) {
   return hours ? hours + "h " + rest + "m" : rest + "m";
 }
 
+function activeSessionSeconds(session, nowMs) {
+  if (!session) return 0;
+  let seconds = Number(session.accumulated_seconds || 0);
+  if (session.timer_running && session.timer_started_at) {
+    const started = Date.parse(session.timer_started_at);
+    const now = Number(nowMs || Date.now());
+    if (Number.isFinite(started) && now > started) seconds += Math.floor((now - started) / 1000);
+  }
+  return Math.max(0, seconds);
+}
+
+function clockLabel(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return hours
+    ? String(hours).padStart(2, "0") + ":" + String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0")
+    : String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
+}
+
+function currentLoserPaysFrameSeconds(detail, nowMs) {
+  if (!detail || detail.game_type !== "NORMAL_SNOOKER" || detail.payment_rule !== "LOSER_PAYS") return 0;
+  const base = Number(detail.loser_pays_frame_base_session_seconds || 0);
+  return Math.max(0, activeSessionSeconds(detail, nowMs) - base);
+}
+
 function sharedHourlyLiveShare(session, people) {
   if (!session || session.payment_rule !== "HOURLY_SHARED" || !session.timer_running) return 0;
   const active = (people || []).filter(function(person) { return person.status === "ACTIVE"; });
@@ -287,15 +314,15 @@ export default function QclubLedgerPage() {
   const [ledgerStatus, setLedgerStatus] = useState("ALL");
   const [ledgerDate, setLedgerDate] = useState("");
   const [showExcludedBills, setShowExcludedBills] = useState(false);
+  const [liveClock, setLiveClock] = useState(Date.now());
   const [startForm, setStartForm] = useState({
     gameType: "NORMAL_SNOOKER",
     matchFormat: "FLEX",
     paymentRule: "HOURLY",
-    frameRate: "",
     isMember: false,
     players: [
-      { name: "", phone: "", customerId: null, teamNo: null },
-      { name: "", phone: "", teamNo: null },
+      { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
+      { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
     ],
   });
 
@@ -548,6 +575,13 @@ export default function QclubLedgerPage() {
     const timer = window.setInterval(refreshLiveState, 10000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
+
+  useEffect(function() {
+    if (!token) return undefined;
+    setLiveClock(Date.now());
+    const timer = window.setInterval(function() { setLiveClock(Date.now()); }, 1000);
+    return function() { window.clearInterval(timer); };
+  }, [token]);
 
   useEffect(function() {
     if (!showUpiQrModal || !upiOrder || !upiOrder.payment_id) return undefined;
@@ -867,7 +901,13 @@ export default function QclubLedgerPage() {
 
   function applyCustomerToStartPlayer(index, customer) {
     const players = (startForm.players || []).map(function(player, i) {
-      return i === index ? { ...player, customerId: customer.customer_id || customer.id || null, name: String(customer.name || "").toUpperCase(), phone: customer.phone || "" } : player;
+      return i === index ? {
+        ...player,
+        customerId: customer.customer_id || customer.id || null,
+        name: String(customer.name || "").toUpperCase(),
+        phone: customer.phone || "",
+        isMember: Boolean(customer.is_member),
+      } : player;
     });
     setMemberCheck(null);
     setStartForm({ ...startForm, players, isMember: index === 0 ? Boolean(customer.is_member) : startForm.isMember });
@@ -890,11 +930,10 @@ export default function QclubLedgerPage() {
         gameType,
         matchFormat: "FLEX",
         paymentRule: "PER_PLAYER",
-        frameRate: "",
         isMember: false,
         players: [
-          { name: "", phone: "", customerId: null, teamNo: null },
-          { name: "", phone: "", customerId: null, teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
+          { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
         ],
       };
     }
@@ -903,11 +942,10 @@ export default function QclubLedgerPage() {
         gameType,
         matchFormat: "SINGLES",
         paymentRule: "LOSER_PAYS",
-        frameRate: "",
         isMember: false,
         players: [
-          { name: "", phone: "", teamNo: null },
-          { name: "", phone: "", teamNo: null },
+          { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
+          { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
         ],
       };
     }
@@ -915,11 +953,10 @@ export default function QclubLedgerPage() {
       gameType,
       matchFormat: "FLEX",
       paymentRule: "HOURLY",
-      frameRate: "",
       isMember: false,
       players: [
-        { name: "", phone: "", customerId: null, teamNo: null },
-        { name: "", phone: "", customerId: null, teamNo: null },
+        { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
+        { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
       ],
     };
   }
@@ -929,7 +966,7 @@ export default function QclubLedgerPage() {
       return {
         name: String(player.name || "").trim().toUpperCase(),
         phone: String(player.phone || "").replace(/\D/g, "").slice(-10),
-        is_member: index === 0 ? Boolean(form.isMember) : false,
+        is_member: Boolean(player.isMember || (index === 0 && form.isMember)),
         customer_id: player.customerId || null,
         team_no: form.matchFormat === "DOUBLES" ? (index < 2 ? 1 : 2) : null,
       };
@@ -939,7 +976,7 @@ export default function QclubLedgerPage() {
   function resizeStartPlayers(matchFormat) {
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     const current = (startForm.players || []).slice(0, wanted);
-    while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null });
+    while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null, isMember: false });
     return current;
   }
 
@@ -960,7 +997,7 @@ export default function QclubLedgerPage() {
     const next = { ...startForm, matchFormat };
     const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
     next.players = (startForm.players || []).slice(0, wanted);
-    while (next.players.length < wanted) next.players.push({ name: "", phone: "", customerId: null, teamNo: null });
+    while (next.players.length < wanted) next.players.push({ name: "", phone: "", customerId: null, teamNo: null, isMember: false });
     setStartForm(next);
   }
 
@@ -976,20 +1013,31 @@ export default function QclubLedgerPage() {
 
     const players = (startForm.players || []).map(function(player, i) {
       if (i !== index) return player;
-      if (matched) return { ...player, customerId: matched.customer_id || matched.id || null, name: matched.name || player.name, phone: matched.phone || value };
-      return { ...player, [field]: nextValue, ...(field === "name" ? { customerId: null } : {}) };
+      if (matched) return {
+        ...player,
+        customerId: matched.customer_id || matched.id || null,
+        name: matched.name || player.name,
+        phone: matched.phone || value,
+        isMember: Boolean(matched.is_member),
+      };
+      return {
+        ...player,
+        [field]: nextValue,
+        ...(field === "name" ? { customerId: null, isMember: false } : {}),
+        ...(field === "phone" ? { isMember: false } : {}),
+      };
     });
     setMemberCheck(null);
     setStartForm({
       ...startForm,
       players,
-      isMember: index === 0 && matched ? Boolean(matched.is_member) : (index === 0 && (field === "phone" || field === "name") ? false : startForm.isMember),
+      isMember: index === 0 ? Boolean(players[0]?.isMember) : startForm.isMember,
     });
   }
 
   function addStartPlayer() {
     if ((startForm.players || []).length >= 6) return;
-    setStartForm({ ...startForm, players: [...(startForm.players || []), { name: "", phone: "", teamNo: null }] });
+    setStartForm({ ...startForm, players: [...(startForm.players || []), { name: "", phone: "", customerId: null, teamNo: null, isMember: false }] });
   }
 
   function removeStartPlayer(index) {
@@ -997,24 +1045,31 @@ export default function QclubLedgerPage() {
     setStartForm({ ...startForm, players: (startForm.players || []).filter(function(_, i) { return i !== index; }) });
   }
 
-  async function verifyStartMember() {
-    const first = (startForm.players || [])[0] || {};
-    if (!String(first.name || "").trim() && !String(first.phone || "").trim()) {
-      flash("Enter Player 1 name or mobile number first.", true);
+  async function verifyStartMember(index) {
+    const playerIndex = Number.isInteger(index) ? index : 0;
+    const player = (startForm.players || [])[playerIndex] || {};
+    if (!String(player.name || "").trim() && !String(player.phone || "").trim()) {
+      flash("Enter the player name or mobile number first.", true);
       return;
     }
     setBusy(true);
     try {
       const result = await protectedCall(
-        "members/verify?phone=" + encodeURIComponent(String(first.phone || "").trim()) +
-        "&name=" + encodeURIComponent(String(first.name || "").trim())
+        "members/verify?phone=" + encodeURIComponent(String(player.phone || "").trim()) +
+        "&name=" + encodeURIComponent(String(player.name || "").trim())
       );
       setMemberCheck(result);
-      setStartForm({ ...startForm, isMember: Boolean(result && result.verified) });
-      flash(result && result.verified ? "Player 1 membership verified." : "No active matching membership. Walk-in rate applies.", !(result && result.verified));
+      const players = (startForm.players || []).map(function(row, i) {
+        return i === playerIndex ? { ...row, isMember: Boolean(result && result.verified) } : row;
+      });
+      setStartForm({ ...startForm, players, isMember: playerIndex === 0 ? Boolean(result && result.verified) : startForm.isMember });
+      flash(result && result.verified ? (player.name || ("Player " + (playerIndex + 1))) + " membership verified." : "No active matching membership. Walk-in rate applies.", !(result && result.verified));
     } catch (error) {
       setMemberCheck(null);
-      setStartForm({ ...startForm, isMember: false });
+      const players = (startForm.players || []).map(function(row, i) {
+        return i === playerIndex ? { ...row, isMember: false } : row;
+      });
+      setStartForm({ ...startForm, players, isMember: playerIndex === 0 ? false : startForm.isMember });
       flash(error.message || "Unable to verify membership.", true);
     } finally {
       setBusy(false);
@@ -1029,9 +1084,6 @@ export default function QclubLedgerPage() {
     if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
     if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
     if (startForm.gameType === "KITTY" && (players.length < 2 || players.length > 6)) return flash("Kitty requires 2 to 6 players.", true);
-    if (startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" && !(Number(startForm.frameRate) > 0)) {
-      return flash("Enter the total frame charge for Normal Snooker loser-pays.", true);
-    }
     setBusy(true);
     try {
       await protectedCall("sessions", {
@@ -1042,7 +1094,7 @@ export default function QclubLedgerPage() {
           account_mode: "INDIVIDUAL",
           match_format: startForm.matchFormat,
           payment_rule: startForm.paymentRule,
-          frame_rate_override_inr: startForm.frameRate === "" ? null : Number(startForm.frameRate),
+          frame_rate_override_inr: null,
           people: players,
           idempotency_key: makeKey("session"),
         },
@@ -1196,8 +1248,8 @@ export default function QclubLedgerPage() {
       session,
       people: activePeople,
       selectedIds: activePeople.map(function(person) { return person.person_id; }),
-      loserPersonId: "",
-      losingTeam: "",
+      winnerPersonId: "",
+      winningTeam: "",
       payerMode: "SPLIT",
       payerPersonId: "",
       kittyResult: "WINNER",
@@ -1211,18 +1263,27 @@ export default function QclubLedgerPage() {
     const people = gameEntry.people || [];
     let selectedIds = gameEntry.selectedIds || [];
     let loserIds = [];
+    let winnerIds = [];
     if (!selectedIds.length) return flash("Select the players in this game.", true);
     if (session.game_type === "KITTY") {
       if (gameEntry.kittyResult !== "NO_WINNER" && !gameEntry.kittyWinnerId) return flash("Select the Kitty winner or choose No Winner / Kitty.", true);
     } else if (session.payment_rule === "LOSER_PAYS") {
       if (session.match_format === "DOUBLES") {
-        if (!gameEntry.losingTeam) return flash("Select the losing team.", true);
-        loserIds = people.filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam) && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
-        if (loserIds.length !== 2) return flash("The losing doubles team must have 2 selected players.", true);
+        if (!gameEntry.winningTeam) return flash("Tap the winning team.", true);
+        const losingTeam = String(gameEntry.winningTeam) === "1" ? "2" : "1";
+        winnerIds = people.filter(function(person) { return String(person.team_no) === String(gameEntry.winningTeam) && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
+        loserIds = people.filter(function(person) { return String(person.team_no) === losingTeam && selectedIds.includes(person.person_id); }).map(function(person) { return person.person_id; });
+        if (winnerIds.length !== 2 || loserIds.length !== 2) return flash("Both doubles teams must have 2 selected players.", true);
       } else {
-        if (!gameEntry.loserPersonId) return flash("Select the losing player.", true);
-        loserIds = [gameEntry.loserPersonId];
+        if (!gameEntry.winnerPersonId) return flash("Tap the frame winner.", true);
+        if (!selectedIds.includes(gameEntry.winnerPersonId)) return flash("The winner must be one of the selected players.", true);
+        winnerIds = [gameEntry.winnerPersonId];
+        loserIds = selectedIds.filter(function(id) { return id !== gameEntry.winnerPersonId; });
+        if (loserIds.length !== 1) return flash("Singles loser-pays requires exactly 2 selected players.", true);
       }
+    }
+    if (session.payment_rule === "LOSER_PAYS" && session.match_format === "DOUBLES" && gameEntry.payerMode === "ONE" && !gameEntry.payerPersonId) {
+      return flash("Select which losing player will pay the full charge.", true);
     }
     setBusy(true);
     try {
@@ -1230,6 +1291,7 @@ export default function QclubLedgerPage() {
         method: "POST",
         body: {
           player_ids: selectedIds,
+          winner_person_ids: winnerIds,
           loser_person_ids: loserIds,
           payer_person_id: gameEntry.payerMode === "ONE" ? gameEntry.payerPersonId : null,
           kitty_no_winner: session.game_type === "KITTY" && gameEntry.kittyResult === "NO_WINNER",
@@ -1238,7 +1300,7 @@ export default function QclubLedgerPage() {
         },
       });
       setGameEntry(null);
-      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "HOURLY_SHARED" ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players." : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
+      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "HOURLY_SHARED" ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players." : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "Frame recorded. Actual active frame time was charged to the loser at their member/non-member table rate. Next frame timer is now zero." : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
@@ -2429,6 +2491,23 @@ export default function QclubLedgerPage() {
 
                         {session.account_mode === "INDIVIDUAL" ? (
                           <>
+                            {session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? (() => {
+                              const frameSeconds = currentLoserPaysFrameSeconds(detail, liveClock);
+                              return (
+                                <div className="ql-line" style={{ marginTop: 10 }}>
+                                  <div className="ql-space">
+                                    <div>
+                                      <strong>FRAME TIMER • {clockLabel(frameSeconds)}</strong>
+                                      <div className="ql-muted">Only active table time counts. Pause stops this timer. When the frame ends, tap the winner; the loser is charged automatically.</div>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <div className="ql-muted">Member {money(table.member_price_per_hour_inr)}/hr</div>
+                                      <div className="ql-muted">Walk-in {money(table.price_per_hour_inr)}/hr</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })() : null}
                             <div className="ql-list" style={{ marginTop: 10 }}>
                               {((detail && detail.people) || []).map(function(person) {
                                 return (
@@ -2437,6 +2516,7 @@ export default function QclubLedgerPage() {
                                       <div>
                                         <strong>{person.name}</strong>
                                         {person.team_no ? <span className="ql-badge" style={{ marginLeft: 7 }}>TEAM {person.team_no}</span> : null}
+                                        <span className={"ql-badge " + (person.is_member ? "gold" : "")} style={{ marginLeft: 7 }}>{person.is_member ? "MEMBER" : "WALK-IN"}</span>
                                         <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : person.status === "SETTLED" ? "gold" : "")} style={{ marginLeft: 7 }}>{person.status}</span>
                                         <div className="ql-muted">
                                           Game {money(person.game_charges_inr)} • F&B {money(person.fnb_charges_inr)} • Table {money(person.table_charges_inr)}
@@ -2497,7 +2577,7 @@ export default function QclubLedgerPage() {
                             </div>
                             <div className="ql-row" style={{ marginTop: 12 }}>
                               <button className="ql-btn" onClick={function() { joinPlayer(session); }}>+ Join Player</button>
-                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>✓ Complete Frame/Game</button> : null}
+                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>{session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button> : null}
                               {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
                               {session.status === "ACTIVE" && ((rule && rule.timer_required) || session.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                               {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
@@ -3506,7 +3586,7 @@ export default function QclubLedgerPage() {
                       setStartForm(next);
                     }}>
                       {startForm.gameType === "NORMAL_SNOOKER" || startForm.gameType === "NORMAL_POOL" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
-                      {startForm.gameType !== "NORMAL_POOL" ? <option value="LOSER_PAYS">Loser pays the frame</option> : null}
+                      {startForm.gameType !== "NORMAL_POOL" ? <option value="LOSER_PAYS">{startForm.gameType === "NORMAL_SNOOKER" ? "Loser pays by frame time" : "Loser pays the game"}</option> : null}
                     </select>
                   </div>
                 </>
@@ -3540,9 +3620,13 @@ export default function QclubLedgerPage() {
               )}
 
               {startForm.gameType === "NORMAL_SNOOKER" && startForm.paymentRule === "LOSER_PAYS" ? (
-                <div className="full">
-                  <label className="ql-label">Total charge per completed frame ₹</label>
-                  <input className="ql-input" type="number" min="1" value={startForm.frameRate} onChange={function(e) { setStartForm({ ...startForm, frameRate: e.target.value }); }} placeholder="Enter your Normal Snooker frame charge" />
+                <div className="full ql-line">
+                  <strong>Loser pays actual frame time</strong>
+                  <div className="ql-muted" style={{ marginTop: 5 }}>
+                    Tap the winner when the frame ends. The other player/team is marked as loser automatically.
+                    Paused time is excluded. Verified members use {money(startTable && startTable.member_price_per_hour_inr)}/hr;
+                    non-members use {money(startTable && startTable.price_per_hour_inr)}/hr.
+                  </div>
                 </div>
               ) : null}
 
@@ -3563,19 +3647,17 @@ export default function QclubLedgerPage() {
                       </label>
                       <label><span className="ql-label">Mobile (optional)</span><input className="ql-input" inputMode="numeric" value={player.phone} onChange={function(e) { updateStartPlayer(index, "phone", e.target.value.replace(/\D/g,"").slice(0,10)); }} placeholder="For UPI / receipt" /></label>
                     </div>
+                    <div className="ql-row" style={{ marginTop: 8 }}>
+                      <span className={"ql-badge " + (player.isMember ? "gold" : "")}>{player.isMember ? "MEMBER RATE" : "WALK-IN RATE"}</span>
+                      <button type="button" className="ql-btn" disabled={busy} onClick={function() { verifyStartMember(index); }}>Verify Member</button>
+                    </div>
                   </div>
                 );
               })}
               {startForm.matchFormat === "FLEX" && (startForm.players || []).length < 6 ? <div className="full"><button className="ql-btn" type="button" onClick={addStartPlayer}>+ Add Player</button></div> : null}
 
-              <div className="full ql-line">
-                <div className="ql-space">
-                  <div>
-                    <strong>{startForm.isMember ? "✓ Player 1 is a verified member" : "Player 1 membership"}</strong>
-                    <div className="ql-muted">Only needed for hourly member-rate sessions. Other player accounts remain independent.</div>
-                  </div>
-                  <button type="button" className={startForm.isMember ? "ql-btn gold" : "ql-btn"} disabled={busy} onClick={verifyStartMember}>Verify Member</button>
-                </div>
+              <div className="full ql-muted">
+                Membership is verified per player. In Loser Pays, the losing player's own verified member rate is used. For ordinary hourly table billing, Player 1 remains the rate-holder for the table.
               </div>
             </div>
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -3707,30 +3789,75 @@ export default function QclubLedgerPage() {
 
             {gameEntry.session.payment_rule === "LOSER_PAYS" ? (
               <>
-                <div className="ql-section">Who lost?</div>
+                <div className="ql-section">Who won?</div>
                 {gameEntry.session.match_format === "DOUBLES" ? (
                   <div className="ql-row">
-                    <button className={"ql-btn " + (gameEntry.losingTeam === "1" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, losingTeam: "1", payerPersonId: "" }); }}>Team 1 lost</button>
-                    <button className={"ql-btn " + (gameEntry.losingTeam === "2" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, losingTeam: "2", payerPersonId: "" }); }}>Team 2 lost</button>
+                    <button className={"ql-btn " + (gameEntry.winningTeam === "1" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, winningTeam: "1", payerPersonId: "" }); }}>✓ TEAM 1 WON</button>
+                    <button className={"ql-btn " + (gameEntry.winningTeam === "2" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, winningTeam: "2", payerPersonId: "" }); }}>✓ TEAM 2 WON</button>
                   </div>
                 ) : (
-                  <select className="ql-select" value={gameEntry.loserPersonId} onChange={function(e) { setGameEntry({ ...gameEntry, loserPersonId: e.target.value, payerPersonId: "" }); }}>
-                    <option value="">Select losing player</option>
-                    {(gameEntry.people || []).filter(function(p) { return gameEntry.selectedIds.includes(p.person_id); }).map(function(person) { return <option key={person.person_id} value={person.person_id}>{person.name}</option>; })}
-                  </select>
+                  <div className="ql-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    {(gameEntry.people || []).filter(function(p) { return gameEntry.selectedIds.includes(p.person_id); }).map(function(person) {
+                      const active = gameEntry.winnerPersonId === person.person_id;
+                      return (
+                        <button
+                          key={person.person_id}
+                          type="button"
+                          className={"ql-btn " + (active ? "primary" : "")}
+                          onClick={function() { setGameEntry({ ...gameEntry, winnerPersonId: person.person_id, payerPersonId: "" }); }}
+                        >
+                          ✓ {person.name} WON
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
+
+                {gameEntry.session.game_type === "NORMAL_SNOOKER" ? (() => {
+                  const detail = sessionDetails[gameEntry.session.session_id] || gameEntry.session;
+                  const frameSeconds = currentLoserPaysFrameSeconds(detail, liveClock);
+                  const table = tables.find(function(row) { return row.table_id === gameEntry.session.table_id; }) || {};
+                  let losingPeople = [];
+                  if (gameEntry.session.match_format === "DOUBLES" && gameEntry.winningTeam) {
+                    const losingTeam = String(gameEntry.winningTeam) === "1" ? "2" : "1";
+                    losingPeople = (gameEntry.people || []).filter(function(person) { return String(person.team_no) === losingTeam && gameEntry.selectedIds.includes(person.person_id); });
+                  } else if (gameEntry.winnerPersonId) {
+                    losingPeople = (gameEntry.people || []).filter(function(person) { return gameEntry.selectedIds.includes(person.person_id) && person.person_id !== gameEntry.winnerPersonId; });
+                  }
+                  const needsPayer = gameEntry.session.match_format === "DOUBLES" && gameEntry.payerMode === "ONE";
+                  const estimated = needsPayer && !gameEntry.payerPersonId ? 0 : losingPeople.reduce(function(sum, person) {
+                    const rate = Number(person.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
+                    const fraction = gameEntry.session.match_format === "DOUBLES" && gameEntry.payerMode !== "ONE" ? 0.5 : 1;
+                    if (gameEntry.payerMode === "ONE" && person.person_id !== gameEntry.payerPersonId) return sum;
+                    return sum + (frameSeconds / 3600) * rate * fraction;
+                  }, 0);
+                  const estimateLabel = !losingPeople.length
+                    ? "Tap winner"
+                    : (needsPayer && !gameEntry.payerPersonId ? "Select payer" : "≈ " + money(estimated));
+                  return (
+                    <div className="ql-line" style={{ marginTop: 12 }}>
+                      <div className="ql-space">
+                        <div><strong>Frame time {clockLabel(frameSeconds)}</strong><div className="ql-muted">Paused time excluded • server recalculates before posting.</div></div>
+                        <strong>{estimateLabel}</strong>
+                      </div>
+                    </div>
+                  );
+                })() : null}
 
                 {gameEntry.session.match_format === "DOUBLES" ? (
                   <>
                     <div className="ql-section">Losing-team payment</div>
                     <div className="ql-row">
-                      <button className={"ql-btn " + (gameEntry.payerMode === "SPLIT" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "SPLIT", payerPersonId: "" }); }}>Split equally</button>
-                      <button className={"ql-btn " + (gameEntry.payerMode === "ONE" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "ONE" }); }}>One player pays all</button>
+                      <button className={"ql-btn " + (gameEntry.payerMode === "SPLIT" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "SPLIT", payerPersonId: "" }); }}>Split between losing players</button>
+                      <button className={"ql-btn " + (gameEntry.payerMode === "ONE" ? "primary" : "")} onClick={function() { setGameEntry({ ...gameEntry, payerMode: "ONE" }); }}>One losing player pays all</button>
                     </div>
-                    {gameEntry.payerMode === "ONE" && gameEntry.losingTeam ? (
+                    {gameEntry.payerMode === "ONE" && gameEntry.winningTeam ? (
                       <select className="ql-select" style={{ marginTop: 8 }} value={gameEntry.payerPersonId} onChange={function(e) { setGameEntry({ ...gameEntry, payerPersonId: e.target.value }); }}>
                         <option value="">Select payer</option>
-                        {(gameEntry.people || []).filter(function(person) { return String(person.team_no) === String(gameEntry.losingTeam); }).map(function(person) { return <option key={person.person_id} value={person.person_id}>{person.name}</option>; })}
+                        {(gameEntry.people || []).filter(function(person) {
+                          const losingTeam = String(gameEntry.winningTeam) === "1" ? "2" : "1";
+                          return String(person.team_no) === losingTeam;
+                        }).map(function(person) { return <option key={person.person_id} value={person.person_id}>{person.name} • {person.is_member ? "Member rate" : "Walk-in rate"}</option>; })}
                       </select>
                     ) : null}
                   </>
