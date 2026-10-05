@@ -16,9 +16,9 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 
 ## Current totals
 
-- Named/recognized routes: **111**
-- Canonical: **90**
-- Aliases: **15**
+- Named/recognized routes: **115**
+- Canonical: **91**
+- Aliases: **18**
 - Bridges: **4**
 - Legacy: **1**
 - Route handlers: **1**
@@ -40,7 +40,9 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 | `/tournaments` | Tournament | Public | Main | Canonical | Tournaments |
 | `/tournament-register` | Tournament | Public | Hidden | Canonical | Tournament registration |
 | `/fixtures` | Tournament | Public | Main | Canonical | Fixtures/results |
+| `/fictures` | Alias | Public | Hidden | Alias | → /fixtures (common typo compatibility) |
 | `/leaderboard` | Tournament | Public | Main | Canonical | Leaderboard |
+| `/leaderboards` | Alias | Public | Hidden | Alias | Mirrors /leaderboard |
 | `/players` | Tournament | Public | Main | Canonical | Players |
 | `/handicap` | Tournament | Public | Main | Canonical | Handicap/classification |
 | `/halloffame` | Tournament | Public | Main | Canonical | Hall of Fame |
@@ -82,7 +84,9 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 | `/review-panel` | Operations | Committee/Admin | Ops | Canonical | Classification review |
 | `/match-ledger` | Operations | Staff/Committee/Admin | Ops | Canonical | Match ledger |
 | `/food-print-bridge` | Operations | Staff/Admin | Hidden | Canonical | Printer bridge |
-| `/tv` | Operations | Staff/Admin | Ops | Canonical | Club TV control/display mode |
+| `/tv` | Operations | Staff/Admin | Ops | Canonical | Club TV control mode |
+| `/tvdisplay` | Tournament Display | Display | Hidden | Canonical | Full-screen read-only tournament/fixture broadcast |
+| `/tv-display` | Alias | Display | Hidden | Alias | → /tvdisplay |
 | `/admin/orders` | Operations | Staff/Admin | Ops | Canonical | Live Q Lounge orders |
 | `/admin/orders-archive` | Operations | Staff/Admin | Ops | Canonical | Order archive |
 | `/admin-panel` | Admin | Admin | Ops | Legacy | Old production admin retained for compatibility |
