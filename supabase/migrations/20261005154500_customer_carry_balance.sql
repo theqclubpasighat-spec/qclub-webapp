@@ -11,20 +11,23 @@ create table if not exists public.snooker_customer_balance_entries (
   bill_id uuid references public.snooker_bills(id) on delete restrict,
   payment_id uuid references public.snooker_bill_payments(id) on delete restrict,
   entry_type text not null check (entry_type in (
-    'CREDIT_CREATED',
+    'CREDIT_CARRY',
+    'DEBIT_CARRY',
     'CREDIT_APPLIED',
-    'DEBIT_CREATED',
     'DEBIT_SETTLED',
-    'ADMIN_ADJUSTMENT'
+    'MANUAL_ADJUSTMENT'
   )),
-  delta_inr numeric(12,2) not null check (delta_inr <> 0),
-  balance_after_inr numeric(12,2) not null,
+  balance_delta_inr numeric(12,2) not null check (balance_delta_inr <> 0),
   payment_method text check (payment_method is null or payment_method in ('CASH','UPI','ONLINE','BALANCE')),
-  reason text not null,
+  reference_text text,
+  note text,
   created_by text,
   idempotency_key text unique,
   created_at timestamptz not null default now()
 );
+
+alter table public.snooker_customer_balance_entries
+  add column if not exists balance_after_inr numeric(12,2) not null default 0;
 
 create index if not exists snooker_customer_balance_entries_customer_idx
   on public.snooker_customer_balance_entries(customer_id, created_at desc);
@@ -263,40 +266,40 @@ begin
   if v_credit_applied > 0 then
     v_running_balance := round(v_running_balance-v_credit_applied,2);
     insert into public.snooker_customer_balance_entries(
-      customer_id,bill_id,payment_id,entry_type,delta_inr,balance_after_inr,payment_method,reason,created_by,idempotency_key,created_at
+      customer_id,bill_id,payment_id,entry_type,balance_delta_inr,balance_after_inr,payment_method,reference_text,note,created_by,idempotency_key,created_at
     ) values (
       p_customer_id,p_bill_id,v_balance_payment_id,'CREDIT_APPLIED',-v_credit_applied,v_running_balance,'BALANCE',
-      'Previous customer credit applied to bill',p_staff_id,p_idempotency_key || ':credit-applied',v_now
+      'Bill ' || p_bill_id::text,'Previous customer credit applied to bill',p_staff_id,p_idempotency_key || ':credit-applied',v_now
     );
   end if;
 
   if v_shortfall > 0 then
     v_running_balance := round(v_running_balance-v_shortfall,2);
     insert into public.snooker_customer_balance_entries(
-      customer_id,bill_id,payment_id,entry_type,delta_inr,balance_after_inr,payment_method,reason,created_by,idempotency_key,created_at
+      customer_id,bill_id,payment_id,entry_type,balance_delta_inr,balance_after_inr,payment_method,reference_text,note,created_by,idempotency_key,created_at
     ) values (
-      p_customer_id,p_bill_id,v_balance_payment_id,'DEBIT_CREATED',-v_shortfall,v_running_balance,v_method,
-      'Short payment carried forward as customer debit',p_staff_id,p_idempotency_key || ':debit-created',v_now
+      p_customer_id,p_bill_id,v_balance_payment_id,'DEBIT_CARRY',-v_shortfall,v_running_balance,v_method,
+      'Bill ' || p_bill_id::text,'Short payment carried forward as customer debit',p_staff_id,p_idempotency_key || ':debit-created',v_now
     );
   end if;
 
   if v_debit_settled > 0 then
     v_running_balance := round(v_running_balance+v_debit_settled,2);
     insert into public.snooker_customer_balance_entries(
-      customer_id,bill_id,payment_id,entry_type,delta_inr,balance_after_inr,payment_method,reason,created_by,idempotency_key,created_at
+      customer_id,bill_id,payment_id,entry_type,balance_delta_inr,balance_after_inr,payment_method,reference_text,note,created_by,idempotency_key,created_at
     ) values (
       p_customer_id,p_bill_id,v_payment_id,'DEBIT_SETTLED',v_debit_settled,v_running_balance,v_method,
-      'Previous customer debit settled from current payment',p_staff_id,p_idempotency_key || ':debit-settled',v_now
+      'Bill ' || p_bill_id::text,'Previous customer debit settled from current payment',p_staff_id,p_idempotency_key || ':debit-settled',v_now
     );
   end if;
 
   if v_new_credit > 0 then
     v_running_balance := round(v_running_balance+v_new_credit,2);
     insert into public.snooker_customer_balance_entries(
-      customer_id,bill_id,payment_id,entry_type,delta_inr,balance_after_inr,payment_method,reason,created_by,idempotency_key,created_at
+      customer_id,bill_id,payment_id,entry_type,balance_delta_inr,balance_after_inr,payment_method,reference_text,note,created_by,idempotency_key,created_at
     ) values (
-      p_customer_id,p_bill_id,v_payment_id,'CREDIT_CREATED',v_new_credit,v_running_balance,v_method,
-      'Extra payment carried forward as customer credit',p_staff_id,p_idempotency_key || ':credit-created',v_now
+      p_customer_id,p_bill_id,v_payment_id,'CREDIT_CARRY',v_new_credit,v_running_balance,v_method,
+      'Bill ' || p_bill_id::text,'Extra payment carried forward as customer credit',p_staff_id,p_idempotency_key || ':credit-created',v_now
     );
   end if;
 
