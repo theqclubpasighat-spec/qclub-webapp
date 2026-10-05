@@ -1,5 +1,6 @@
 import { PageShell } from "./page-helpers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { tournamentGameKey, tournamentDisplay } from "../lib/qclub-utils";
 import { calcLeaderboard, playersForTournament } from "../lib/qclub-utils";
 
@@ -194,54 +195,64 @@ function buildRevealCards(tournament, allPlayers = []) {
   const participantIds = Array.isArray(tournament?.participantIds)
     ? tournament.participantIds.filter(Boolean)
     : [];
+  const matches = Array.isArray(tournament?.matches) ? tournament.matches : [];
+  if (!matches.length) return [];
 
-  const pool = shuffle(
-    participantIds
-      .map((id) => allPlayers.find((p) => p.id === id))
-      .filter(Boolean)
-  );
+  const firstRound = Math.min(...matches.map((m) => Number(m?.round || 1)));
+  const openingMatches = matches
+    .filter((m) => Number(m?.round || 1) === firstRound)
+    .sort((a, b) => Number(a?.matchNo || 0) - Number(b?.matchNo || 0));
 
-  if (pool.length < 2) return [];
-
-  const bracketSize = nextPowerOfTwo(pool.length);
-  const byes = bracketSize - pool.length;
+  const realId = (value) => value && !String(value).startsWith("WINNER_");
+  const used = new Set();
   const cards = [];
 
-  for (let i = 0; i < byes; i += 1) {
-    const player = pool[i];
-    if (!player) continue;
+  openingMatches.forEach((match, index) => {
+    const p1 = realId(match?.p1) ? allPlayers.find((p) => p.id === match.p1) || null : null;
+    const p2 = realId(match?.p2) ? allPlayers.find((p) => p.id === match.p2) || null : null;
+    if (p1?.id) used.add(p1.id);
+    if (p2?.id) used.add(p2.id);
     cards.push({
-      id: `bye_${player.id}_${i}`,
-      type: "bye",
-      round: 1,
-      matchNo: cards.length + 1,
-      p1: player,
-      p2: null,
-    });
-  }
-
-  const remaining = pool.slice(byes);
-  for (let i = 0; i < remaining.length; i += 2) {
-    const p1 = remaining[i];
-    const p2 = remaining[i + 1];
-    if (!p1 || !p2) continue;
-    cards.push({
-      id: `pair_${p1.id}_${p2.id}_${i}`,
-      type: "match",
-      round: 1,
-      matchNo: cards.length + 1,
+      id: match?.id || `fixture_${index}`,
+      type: p1 && p2 ? "match" : "bye",
+      round: Number(match?.round || firstRound),
+      matchNo: Number(match?.matchNo || index + 1),
       p1,
       p2,
     });
-  }
+  });
+
+  participantIds
+    .filter((id) => !used.has(id))
+    .map((id) => allPlayers.find((p) => p.id === id))
+    .filter(Boolean)
+    .forEach((player, index) => {
+      cards.push({
+        id: `bye_${player.id}_${index}`,
+        type: "bye",
+        round: firstRound,
+        matchNo: cards.length + 1,
+        p1: player,
+        p2: null,
+      });
+    });
 
   return cards;
 }
 
-export function TVMode({ data, activeTournament, players, admin, staffAdmin, commit }) {
+export function TVMode({ data, activeTournament, players, admin, staffAdmin, commit, displayOnly = false }) {
+  const location = useLocation();
+  const tvParams = new URLSearchParams(location.search);
+  const queryTournamentId = tvParams.get("id") || "";
   const [selectedTvTournamentId, setSelectedTvTournamentId] = useState(
-    activeTournament?.id || data.tournaments?.[0]?.id || ""
+    queryTournamentId || activeTournament?.id || data.tournaments?.[0]?.id || ""
   );
+
+  useEffect(() => {
+    if (!queryTournamentId) return;
+    if (!(data.tournaments || []).some((t) => t.id === queryTournamentId)) return;
+    setSelectedTvTournamentId(queryTournamentId);
+  }, [queryTournamentId, data.tournaments]);
 
   const tvTournament =
     (data.tournaments || []).find((t) => t.id === selectedTvTournamentId) ||
@@ -252,7 +263,7 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
   const matches = tvMatches;
   const isSnooker = tournamentGameKey(tvTournament?.game) === "snooker";
 
-  const [tvMode, setTvMode] = useState("showcase"); // showcase | fixtures | auto
+  const [tvMode, setTvMode] = useState(displayOnly ? "auto" : "showcase"); // showcase | fixtures | auto
   const [slideIndex, setSlideIndex] = useState(0);
   const [fixturePage, setFixturePage] = useState(0);
   const [autoPhase, setAutoPhase] = useState("showcase");
@@ -277,15 +288,30 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
     [tvTournament, data.players]
   );
 
-  const nextMatches = matches.filter((m) => m.status !== "done");
-  const doneMatches = matches.filter((m) => m.status === "done");
+  const nextMatches = matches
+    .filter((m) => m.status !== "done")
+    .sort((a, b) => {
+      const liveDiff = (b.status === "live" ? 1 : 0) - (a.status === "live" ? 1 : 0);
+      if (liveDiff) return liveDiff;
+      const roundDiff = Number(a?.round || 0) - Number(b?.round || 0);
+      if (roundDiff) return roundDiff;
+      return Number(a?.matchNo || 0) - Number(b?.matchNo || 0);
+    });
+  const doneMatches = matches
+    .filter((m) => m.status === "done")
+    .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
+  const liveMatches = nextMatches.filter((m) => m.status === "live");
+  const upcomingMatches = nextMatches.filter((m) => m.status !== "live");
 
   function playerById(id) {
     return (players || []).find((x) => x.id === id) || null;
   }
 
   function playerName(id) {
-    return playerById(id)?.name || "Player";
+    const token = String(id || "");
+    const winnerMatch = token.match(/^WINNER_R(\d+)_M(\d+)$/);
+    if (winnerMatch) return `Winner R${winnerMatch[1]} M${winnerMatch[2]}`;
+    return playerById(id)?.name || "TBD";
   }
 
   function scoreText(m) {
@@ -352,7 +378,7 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
         }
         return "showcase";
       });
-    }, 15000);
+    }, 30000);
 
     return () => clearInterval(t);
   }, [tvMode, matches.length]);
@@ -704,7 +730,7 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
     return (
       <div key={m.id} style={{ borderRadius: 22, padding: 20, background: "linear-gradient(180deg, rgba(14,22,38,.96), rgba(8,12,22,.96))", border: "1px solid rgba(255,255,255,.08)", boxShadow: "0 12px 34px rgba(0,0,0,.22)" }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 16, gap: 8 }}>
-          <span className="badge"><span className="dot" />Round {m.round || 1}</span>
+          <span className="badge"><span className="dot" />Round {m.round || 1} · Match {m.matchNo || "—"}</span>
           <span className="badge"><span className={m.status === "live" ? "dot warn" : "dot"} />{m.status === "done" ? "Completed" : m.status === "live" ? "Live" : "Upcoming"}</span>
         </div>
         <div style={{ display: "grid", gap: 16 }}>
@@ -723,12 +749,17 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
             </div>
           ))}
         </div>
+        <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+          {isSnooker ? <span className="badge">Handicap {Number(m.handicap1 || 0)} - {Number(m.handicap2 || 0)}</span> : null}
+          {m.bestOf ? <span className="badge">Best of {m.bestOf}</span> : null}
+          {String(m.notes || "").trim() ? <span className="badge">{String(m.notes).trim()}</span> : null}
+        </div>
       </div>
     );
   }
 
   function renderFixtureView() {
-    const focusMatch = nextMatches[0] || doneMatches[0] || null;
+    const focusMatch = liveMatches[0] || upcomingMatches[0] || doneMatches[0] || null;
     return (
       <div style={{ display: "grid", gap: 18 }}>
         <div style={{ borderRadius: 24, padding: 24, background: "linear-gradient(135deg, rgba(7,13,24,.98), rgba(15,28,52,.98))", border: "1px solid rgba(255,255,255,.08)", boxShadow: "0 20px 60px rgba(0,0,0,.28)" }}>
@@ -740,7 +771,8 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
             </div>
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
               <span className="badge"><span className="dot" />Total: {matches.length}</span>
-              <span className="badge"><span className="dot warn" />Pending: {nextMatches.length}</span>
+              <span className="badge"><span className="dot warn" />Live: {liveMatches.length}</span>
+              <span className="badge"><span className="dot" />Upcoming: {upcomingMatches.length}</span>
               <span className="badge"><span className="dot" />Done: {doneMatches.length}</span>
               {fixturePages.length > 1 ? <span className="badge"><span className="dot" />Page {fixturePage + 1} / {fixturePages.length}</span> : null}
             </div>
@@ -902,6 +934,25 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
     );
   }
 
+  if (displayOnly) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#050b08", color: "#f5f3e8", padding: "clamp(10px, 1.5vw, 22px)" }}>
+        {(data.announcements || []).length > 0 ? (
+          <div style={{ overflow: "hidden", whiteSpace: "nowrap", marginBottom: 12, borderRadius: 12, background: "rgba(0,0,0,.72)", padding: "4px 12px", border: "1px solid rgba(255,255,255,.08)" }}>
+            <div className="announceTickerTrack" style={{ animationDuration: `${data.club?.tickerSpeed || 40}s`, fontSize: "clamp(16px, 1.6vw, 26px)", fontWeight: 800, padding: "10px 0" }}>
+              {(data.announcements || []).map((a) => <span key={a.id} style={{ marginRight: 80 }}>{a.text}</span>)}
+            </div>
+          </div>
+        ) : null}
+        {fixtureRevealStage !== "idle" && fixtureRevealStage !== "done"
+          ? renderFixtureReveal()
+          : showFixtureView
+          ? renderFixtureView()
+          : renderSlide(activeSlide)}
+      </div>
+    );
+  }
+
   return (
     <>
       <PageShell
@@ -915,29 +966,8 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
                   <option key={t.id} value={t.id}>{tournamentDisplay(t)}</option>
                 ))}
               </select>
-
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => {
-                  if (!tvTournament) {
-                    alert("Please select a tournament first.");
-                    return;
-                  }
-
-                  const ok = generateKnockoutForTournamentSilently(data, commit, tvTournament.id);
-                  if (!ok) {
-                    alert("Need at least 2 registered players to generate fixtures.");
-                    return;
-                  }
-
-                  setTimeout(() => {
-                    triggerFixtureReveal();
-                  }, 80);
-                }}
-              >
-                Generate Fixtures
-              </button>
+              <a className="btn" href={tvTournament ? `/fixtures?id=${tvTournament.id}` : "/fixtures"}>Fixtures Manager</a>
+              <a className="btn primary" href={tvTournament ? `/tvdisplay?id=${tvTournament.id}` : "/tvdisplay"} target="_blank" rel="noopener noreferrer">Open TV Display</a>
             </div>
           ) : null
         }
