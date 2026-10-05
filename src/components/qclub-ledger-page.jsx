@@ -3124,7 +3124,19 @@ export default function QclubLedgerPage() {
                 <button className="ql-btn ghost" onClick={function() { setLedgerSearch(""); setLedgerStatus("ALL"); setLedgerDate(""); }}>Clear</button>
                 {isAdmin ? (
                   <label className="ql-line" style={{ display: "inline-flex", alignItems: "center", gap: 8, margin: 0, padding: "8px 10px" }}>
-                    <input type="checkbox" checked={showExcludedBills} onChange={function(e) { setShowExcludedBills(e.target.checked); }} />
+                    <input
+                      type="checkbox"
+                      checked={showExcludedBills}
+                      onChange={function(e) {
+                        const next = e.target.checked;
+                        setShowExcludedBills(next);
+                        if (!next && billDetail && billDetail.accounting_excluded) {
+                          setBillDetail(null);
+                          setUpiOrder(null);
+                          setShowUpiQrModal(false);
+                        }
+                      }}
+                    />
                     <span>Show TEST / excluded bills</span>
                   </label>
                 ) : null}
