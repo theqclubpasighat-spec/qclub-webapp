@@ -10293,11 +10293,9 @@ function TournamentRegister({ data, admin, commit, startPayment, activeTournamen
                   <button
                     className="btn primary"
                     type="button"
-                    onClick={() =>
-                      generateKnockoutForTournamentNow(data, commit, currentTournament.id)
-                    }
+                    onClick={() => navigate(`/fixtures?id=${currentTournament.id}`)}
                   >
-                    Generate Knockout Now
+                    Open Fixtures Manager
                   </button>
                 ) : null}
 
