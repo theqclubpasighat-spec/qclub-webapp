@@ -107,84 +107,45 @@ async function login(req, res) {
 
   const supabase = getSupabaseAdmin();
   const deviceId = safeText(req.body?.device_id || "", 200);
-  const forwarded = safeText(req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || "", 300)
-    .split(",")[0]
-    .trim();
-  const ipHash = forwarded ? hashToken(`ip:${forwarded}`) : null;
-  const deviceHash = deviceId ? hashToken(`device:${deviceId}`) : null;
-  const cutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  const forwarded = safeText(req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || req.socket?.remoteAddress || "", 300)
+    .split(",")[0].trim();
+  if (!forwarded) return json(res, 503, { ok: false, error: "LOGIN_UNAVAILABLE" });
+  const networkHash = hashToken("ip:" + forwarded);
 
-  let recentFailures = 0;
-  if (ipHash) {
-    const { count } = await supabase
-      .from("snooker_auth_login_attempts")
-      .select("id", { head: true, count: "exact" })
-      .eq("ip_hash", ipHash)
-      .eq("success", false)
-      .gte("created_at", cutoff);
-    recentFailures = Math.max(recentFailures, Number(count || 0));
-  }
-  if (deviceHash) {
-    const { count } = await supabase
-      .from("snooker_auth_login_attempts")
-      .select("id", { head: true, count: "exact" })
-      .eq("device_hash", deviceHash)
-      .eq("success", false)
-      .gte("created_at", cutoff);
-    recentFailures = Math.max(recentFailures, Number(count || 0));
-  }
-
-  if (recentFailures >= 5) {
-    return json(res, 429, {
-      ok: false,
-      error: "LOGIN_RATE_LIMITED",
-      message: "Too many failed login attempts. Try again later.",
-      retry_after_seconds: 900,
-    });
-  }
-
-  const admin = await legacyAdminConfig(supabase);
-  const candidates = [
-    { pin: admin.mainPin || admin.pin, role: "ADMIN", staffId: "admin-main", displayName: admin.adminName || "Q Club Admin" },
-    { pin: admin.committeePin, role: "COMMITTEE", staffId: "admin-committee", displayName: admin.committeeName || "Committee Admin" },
-    { pin: admin.staffPin, role: "STAFF", staffId: "staff-game-marshall", displayName: admin.staffName || "Game Marshall" },
-  ].filter((candidate) => candidate.pin);
-
-  const matched = candidates.find((candidate) => secureEqual(pin, String(candidate.pin))) || null;
-  const role = matched?.role || "";
-
-  await supabase.from("snooker_auth_login_attempts").insert({
-    ip_hash: ipHash,
-    device_hash: deviceHash,
-    success: Boolean(role),
-    role: role || null,
+  const { data: verified, error: verifyError } = await supabase.rpc("qclub_security_login_pin", {
+    p_network_hash: networkHash,
+    p_pin: pin,
   });
+  if (verifyError) return json(res, 503, { ok: false, error: "LOGIN_UNAVAILABLE" });
+  if (verified?.rate_limited) return json(res, 429, { ok: false, error: "LOGIN_RATE_LIMITED", retry_after_seconds: 900 });
+  if (!verified?.ok) return json(res, 401, { ok: false, error: "INVALID_PIN" });
 
-  if (!matched) return json(res, 401, { ok: false, error: "INVALID_PIN" });
+  const identities = {
+    main: { role: "ADMIN", staffId: "admin-main", displayName: "Q Club Admin" },
+    staff: { role: "STAFF", staffId: "staff-game-marshall", displayName: "Game Marshall" },
+    committee: { role: "COMMITTEE", staffId: "admin-committee", displayName: "Committee Admin" },
+  };
+  const matched = identities[verified.credential_id];
+  if (!matched) return json(res, 503, { ok: false, error: "LOGIN_UNAVAILABLE" });
 
-  const rawToken = `snk_${randomBytes(32).toString("base64url")}`;
-  const ttlHours = Math.min(720, Math.max(1, number(env("SNOOKER_AUTH_TTL_HOURS"), 72)));
-  const expiresAt = new Date(Date.now() + ttlHours * 3600_000).toISOString();
-  const displayName = matched.displayName;
-  const staffId = matched.staffId;
-
-  const { error } = await supabase.from("snooker_auth_sessions").insert({
-    token_hash: hashToken(rawToken),
-    role,
-    staff_id: staffId,
-    display_name: displayName,
-    device_id: deviceId || null,
-    client_version: safeText(req.body?.client_version || req.headers?.["x-qclub-client-version"] || "", 100) || null,
-    expires_at: expiresAt,
+  const rawToken = "snk_" + randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 72 * 3600_000).toISOString();
+  const { data: stored, error: storeError } = await supabase.rpc("qclub_security_create_session", {
+    p_credential_id: verified.credential_id,
+    p_version: Number(verified.version),
+    p_token_hash: hashToken(rawToken),
+    p_expires_at: expiresAt,
+    p_device_id: deviceId || null,
+    p_client_version: safeText(req.body?.client_version || req.headers?.["x-qclub-client-version"] || "", 100) || null,
   });
-  if (error) throw error;
+  if (storeError || stored !== true) return json(res, 503, { ok: false, error: "LOGIN_UNAVAILABLE" });
 
   return json(res, 200, {
     access_token: rawToken,
     expires_at: expiresAt,
-    role,
-    staff_id: staffId,
-    display_name: displayName,
+    role: matched.role,
+    staff_id: matched.staffId,
+    display_name: matched.displayName,
   });
 }
 
@@ -4198,6 +4159,21 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
+    if (method === "POST" && path === "auth/rotate-pin") {
+      const auth = await requireAuth(req, res, ["ADMIN"]);
+      if (!auth) return;
+      if (auth.staff_id !== "admin-main") return json(res, 403, { ok: false, error: "FORBIDDEN" });
+      const credentialId = safeText(req.body?.credential_id || "", 20);
+      const newPin = safeText(req.body?.new_pin || "", 100);
+      const { data: rotated, error: rotateError } = await getSupabaseAdmin().rpc("qclub_security_rotate_pin", {
+        p_actor_token_hash: hashToken(bearer(req)),
+        p_credential_id: credentialId,
+        p_new_pin: newPin,
+      });
+      if (rotateError) return json(res, 503, { ok: false, error: "CREDENTIAL_CHANGE_FAILED" });
+      if (!rotated?.ok) return json(res, rotated?.forbidden ? 403 : 400, { ok: false, error: rotated?.invalid ? "INVALID_PIN_FORMAT" : "CREDENTIAL_CHANGE_FAILED" });
+      return json(res, 200, rotated);
+    }
     if (method === "GET" && path === "cms/session") {
       const auth = await requireAuth(req, res, ["ADMIN", "STAFF", "COMMITTEE"]);
       if (!auth) return;
