@@ -1732,7 +1732,7 @@ export default function QclubLedgerPage() {
     const session = sessionLookup[billDetail.session_id];
     const phone = String(paymentPhone || (session && session.customer_phone) || billDetail.customer_phone || "").replace(/\D/g, "").slice(-10);
     if (!/^\d{10}$/.test(phone)) {
-      flash("Enter the customer's 10-digit mobile number to generate the Cashfree UPI QR.", true);
+      flash("Enter the customer's 10-digit mobile number to generate the Cashfree Online QR.", true);
       return;
     }
     setPaymentPhone(phone);
@@ -1756,7 +1756,7 @@ export default function QclubLedgerPage() {
       setBillDetail(function(current) {
         return current ? { ...current, customer_phone: phone } : current;
       });
-      flash("Cashfree UPI order created. The secure QR is loading.");
+      flash("Cashfree Online order created. The secure QR is loading.");
       runInBackground(refreshBillingOverview());
     } catch (error) {
       flash(error.message, true);
@@ -3242,7 +3242,7 @@ export default function QclubLedgerPage() {
                   {upiOrder && upiOrder.qr_payload ? (
                     <div className="ql-line" style={{ marginTop: 12 }}>
                       <div className="ql-space">
-                        <div><strong>Cashfree UPI Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
+                        <div><strong>Cashfree Online Payment</strong><div className="ql-muted">{money(upiOrder.amount_inr)} • {upiOrder.status}</div><div className="ql-muted">Payment ID: {upiOrder.payment_id}</div></div>
                         <div className="ql-qr"><QRCodeSVG value={upiOrder.qr_payload} size={170} /></div>
                       </div>
                       <div className="ql-row" style={{ marginTop: 10 }}>
@@ -3253,6 +3253,25 @@ export default function QclubLedgerPage() {
                     </div>
                   ) : null}
 
+                  {(billDetail.balance_history || []).length ? (
+                    <>
+                      <div className="ql-section">Player credit / debit history</div>
+                      <div className="ql-list">
+                        {(billDetail.balance_history || []).slice(0, 8).map(function(entry) {
+                          return (
+                            <div className="ql-line ql-space" key={entry.id}>
+                              <div>
+                                <strong>{Number(entry.delta_inr) > 0 ? "CREDIT +" : "DEBIT / USE "}{money(Math.abs(Number(entry.delta_inr || 0)))}</strong>
+                                <div className="ql-muted">{entry.note || entry.entry_type} • {dateTime(entry.created_at)}</div>
+                              </div>
+                              <div className="ql-muted">Balance {money(entry.balance_after_inr)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
+
                   <div className="ql-section">Recorded payments</div>
                   <div className="ql-list">
                     {(billDetail.payments || []).length ? (billDetail.payments || []).map(function(payment) {
@@ -3261,7 +3280,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-line ql-space" key={paymentId}>
                           <div><strong>{payment.method} • {money(payment.amount_inr)}</strong><div className="ql-muted">{payment.status} • {paymentId}</div></div>
                           <div className="ql-row">
-                            {payment.method === "UPI" && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
+                            {(payment.method === "ONLINE" || (payment.method === "UPI" && payment.cashfree_order_id)) && payment.status === "PENDING" ? <button className="ql-btn" disabled={busy} onClick={function() { verifyPayment(paymentId); }}>Verify Payment</button> : null}
                           </div>
                         </div>
                       );
