@@ -18,7 +18,7 @@
     "src/components/qclub-ledger-page.jsx": "bf6786db87bbc60108eb967df13dc46d78987eb5",
     "src/components/qclub-pay-page.jsx": "5367285b86f767946e7abf25776e1ac3bcb5c8c9",
     "src/components/qclub-qr-page.jsx": "beda5858d8b728912881cf5d9b6d5147f3ad05b3",
-    "src/server/snooker-v1.js": "366e1836dc8b14d6e2f36b0f6c7defb7317614b9",
+    "src/server/snooker-v1.js": "b29205d6e0965eac56f004553173856d6642bdd1",
     "src/styles.css": "ab1c25928976755f2bfe3648135c010eb6f715da",
     "src/supabase.js": "8417af4e4122eaa6f55e1cba71b3f3f3c9ad3741",
     "supabase/migrations/20260926_consolidate_qclub_fnb_master_catalogue.sql": "aca28fc00daa2ea5e825ce5ec38a89e2308e7ccb",
