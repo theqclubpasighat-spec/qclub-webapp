@@ -188,7 +188,13 @@ function receiptHtml(bill, session) {
     escapeHtml(customerPhone) + "</div><table><thead><tr><th>Item</th><th style='text-align:right'>Qty</th><th style='text-align:right'>Amount</th></tr></thead><tbody>" +
     rows + "</tbody></table><div class='totals'><div>Game/Table: " + money(bill.game_total_inr) + "</div><div>F&B: " + money(bill.fnb_total_inr) +
     "</div><div>Discount: " + money(bill.discount_inr) + "</div><div class='grand'>Total: " + money(bill.total_inr) +
-    "</div><div>Paid: " + money(bill.paid_inr) + "</div><div>Due: " + money(bill.due_inr) + "</div></div><script>window.onload=function(){window.print();}</script></body></html>";
+    "</div><div>Paid: " + money(bill.paid_inr) + "</div><div>Due: " + money(bill.due_inr) + "</div>" +
+    (Number(bill.customer_balance_inr || 0) > 0.009
+      ? "<div><b>Customer CREDIT: " + money(bill.customer_balance_inr) + "</b></div>"
+      : Number(bill.customer_balance_inr || 0) < -0.009
+        ? "<div><b>Customer DEBIT: " + money(Math.abs(Number(bill.customer_balance_inr))) + "</b></div>"
+        : "") +
+    "</div><script>window.onload=function(){window.print();}</script></body></html>";
 }
 
 function csvCell(value) {
@@ -3729,7 +3735,7 @@ export default function QclubLedgerPage() {
                   const session = sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; });
                   setPlayerAccountView(null);
                   if (session) finalizePerson(session, playerAccountPerson);
-                }}>Pay {money(playerAccountPerson.current_due_inr)}</button>
+                }}>Settle {money(playerAccountPerson.net_after_carry_inr == null ? playerAccountPerson.current_due_inr : playerAccountPerson.net_after_carry_inr)}</button>
               ) : <span className="ql-badge good">PAID UP</span>}
               <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>Close</button>
             </div>
