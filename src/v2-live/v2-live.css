@@ -863,3 +863,30 @@ body.qclub-v2-live .player-link {
 .v2-live-ticker-controls button { display:grid; place-items:center; padding:0; }
 @keyframes qclub-announcements-scroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
 @media(prefers-reduced-motion:reduce) { .v2-live-ticker-track { animation:none; } }
+
+/* Q Shop customer storefront */
+body.qclub-v2-live .shopStorefrontGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;align-items:stretch}
+body.qclub-v2-live .shopStorefrontCard{display:flex;flex-direction:column;min-height:330px;padding:12px;overflow:hidden}
+body.qclub-v2-live .shopStorefrontOpen{appearance:none;border:0;background:transparent;color:inherit;padding:0;text-align:left;cursor:pointer;display:flex;flex-direction:column;flex:1}
+body.qclub-v2-live .shopStorefrontImageBox{width:100%;aspect-ratio:1/1;border-radius:14px;overflow:hidden;background:#0b1510}
+body.qclub-v2-live .shopStorefrontImage{width:100%;height:100%;display:block;object-fit:cover}
+body.qclub-v2-live .shopStorefrontCardBody{padding:12px 2px 8px}
+body.qclub-v2-live .shopStorefrontCardBody h3{font-size:1rem;line-height:1.25;margin:0 0 10px;min-height:2.5em}
+body.qclub-v2-live .shopStorefrontPrice{font-weight:800;font-size:1.05rem}
+body.qclub-v2-live .shopStorefrontStock{font-size:.82rem;margin-top:4px}
+body.qclub-v2-live .shopStorefrontAdd{width:100%;margin-top:auto}
+body.qclub-v2-live .shopDetailOverlay{position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px}
+body.qclub-v2-live .shopDetailPanel{width:min(920px,100%);max-height:92vh;overflow:auto;background:#0c2117;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+body.qclub-v2-live .shopDetailHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+body.qclub-v2-live .shopDetailLayout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.85fr);gap:24px}
+body.qclub-v2-live .shopDetailMainImageButton{border:0;padding:0;background:transparent;width:100%;cursor:zoom-in}
+body.qclub-v2-live .shopDetailMainImage{width:100%;aspect-ratio:1/1;object-fit:contain;background:#07110c;border-radius:18px;display:block}
+body.qclub-v2-live .shopGalleryThumbRow{display:flex;gap:8px;overflow-x:auto;margin-top:10px}
+body.qclub-v2-live .shopGalleryThumbBtn{width:58px;height:58px;flex:0 0 58px;padding:3px;border:1px solid rgba(255,255,255,.18);border-radius:10px;background:transparent}
+body.qclub-v2-live .shopGalleryThumbBtn img{width:100%;height:100%;object-fit:cover;border-radius:7px}
+body.qclub-v2-live .shopDetailInfo h2{margin:0;font-size:1.55rem}
+body.qclub-v2-live .shopDetailPrice{font-size:1.5rem;font-weight:900;margin-top:20px}
+body.qclub-v2-live .shopDetailOptions{display:grid;gap:8px;margin-top:18px}
+body.qclub-v2-live .shopDetailCart,body.qclub-v2-live .shopDetailAdmin{gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+body.qclub-v2-live .shopDetailExternal{display:inline-block;margin-top:22px;font-size:.9rem}
+@media(max-width:640px){body.qclub-v2-live .shopStorefrontGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}body.qclub-v2-live .shopStorefrontCard{min-height:270px;padding:9px}body.qclub-v2-live .shopStorefrontCardBody h3{font-size:.9rem}body.qclub-v2-live .shopDetailOverlay{padding:0;align-items:stretch}body.qclub-v2-live .shopDetailPanel{max-height:100vh;border-radius:0;padding:14px}body.qclub-v2-live .shopDetailLayout{grid-template-columns:1fr;gap:16px}}
