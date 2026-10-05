@@ -79,6 +79,13 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
   const tvMatches = tvTournament?.matches || [];
   const matches = tvMatches;
   const isSnooker = tournamentGameKey(tvTournament?.game) === "snooker";
+  const isKnockout = tvTournament?.format === "knockout";
+
+  function effectiveMatchStatus(match) {
+    if (match?.status === "done") return "done";
+    if (isKnockout && String(match?.winner || "").trim()) return "done";
+    return match?.status || "scheduled";
+  }
 
   const [tvMode, setTvMode] = useState(displayOnly ? "auto" : "showcase"); // showcase | fixtures | auto
   const [slideIndex, setSlideIndex] = useState(0);
@@ -106,19 +113,19 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
   );
 
   const nextMatches = matches
-    .filter((m) => m.status !== "done")
+    .filter((m) => effectiveMatchStatus(m) !== "done")
     .sort((a, b) => {
-      const liveDiff = (b.status === "live" ? 1 : 0) - (a.status === "live" ? 1 : 0);
+      const liveDiff = (effectiveMatchStatus(b) === "live" ? 1 : 0) - (effectiveMatchStatus(a) === "live" ? 1 : 0);
       if (liveDiff) return liveDiff;
       const roundDiff = Number(a?.round || 0) - Number(b?.round || 0);
       if (roundDiff) return roundDiff;
       return Number(a?.matchNo || 0) - Number(b?.matchNo || 0);
     });
   const doneMatches = matches
-    .filter((m) => m.status === "done")
+    .filter((m) => effectiveMatchStatus(m) === "done")
     .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
-  const liveMatches = nextMatches.filter((m) => m.status === "live");
-  const upcomingMatches = nextMatches.filter((m) => m.status !== "live");
+  const liveMatches = nextMatches.filter((m) => effectiveMatchStatus(m) === "live");
+  const upcomingMatches = nextMatches.filter((m) => effectiveMatchStatus(m) !== "live");
 
   function playerById(id) {
     return (players || []).find((x) => x.id === id) || null;
@@ -508,7 +515,9 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
   }
 
   const showFixtureView =
-    tvMode === "fixtures" || (tvMode === "auto" && autoPhase === "fixtures");
+    (displayOnly && liveMatches.length > 0) ||
+    tvMode === "fixtures" ||
+    (tvMode === "auto" && autoPhase === "fixtures");
 
   function renderSlide(slide) {
     const bgImage = slide?.image || "";
@@ -543,12 +552,13 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
   function renderFixtureCard(m) {
     const p1 = playerById(m.p1);
     const p2 = playerById(m.p2);
+    const matchStatus = effectiveMatchStatus(m);
 
     return (
       <div key={m.id} style={{ borderRadius: 22, padding: 20, background: "linear-gradient(180deg, rgba(14,22,38,.96), rgba(8,12,22,.96))", border: "1px solid rgba(255,255,255,.08)", boxShadow: "0 12px 34px rgba(0,0,0,.22)" }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 16, gap: 8 }}>
           <span className="badge"><span className="dot" />Round {m.round || 1} · Match {m.matchNo || "—"}</span>
-          <span className="badge"><span className={m.status === "live" ? "dot warn" : "dot"} />{m.status === "done" ? "Completed" : m.status === "live" ? "Live" : "Upcoming"}</span>
+          <span className="badge"><span className={matchStatus === "live" ? "dot warn" : "dot"} />{matchStatus === "done" ? "Completed" : matchStatus === "live" ? "Live" : "Upcoming"}</span>
         </div>
         <div style={{ display: "grid", gap: 16 }}>
           {[
@@ -584,7 +594,7 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
             <div>
               <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 6 }}>Fixture Broadcast</div>
               <div style={{ fontSize: "clamp(26px, 4vw, 48px)", fontWeight: 900, lineHeight: 1.05 }}>{tvTournament ? tournamentDisplay(tvTournament) : "No Selected Tournament"}</div>
-              <div className="muted" style={{ marginTop: 8, fontSize: 16 }}>{focusMatch ? `Showing ${nextMatches.length ? "upcoming/live" : "completed"} fixtures` : "No fixtures available yet"}</div>
+              <div className="muted" style={{ marginTop: 8, fontSize: 16 }}>{focusMatch ? `Showing ${liveMatches.length ? "live" : nextMatches.length ? "upcoming" : "completed"} fixtures` : "No fixtures available yet"}</div>
             </div>
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
               <span className="badge"><span className="dot" />Total: {matches.length}</span>
@@ -598,7 +608,7 @@ export function TVMode({ data, activeTournament, players, admin, staffAdmin, com
 
         {focusMatch ? (
           <div style={{ borderRadius: 24, padding: 22, background: "linear-gradient(180deg, rgba(12,19,34,.96), rgba(8,12,22,.96))", border: "1px solid rgba(255,255,255,.08)" }}>
-            <div style={{ fontSize: 14, opacity: 0.82, marginBottom: 10 }}>{focusMatch.status === "live" ? "Now Playing" : "Next Featured Match"}</div>
+            <div style={{ fontSize: 14, opacity: 0.82, marginBottom: 10 }}>{effectiveMatchStatus(focusMatch) === "live" ? "Now Playing" : effectiveMatchStatus(focusMatch) === "done" ? "Latest Result" : "Next Featured Match"}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "center" }}><div style={{ fontSize: "clamp(24px, 3vw, 44px)", fontWeight: 900 }}>{playerName(focusMatch.p1)}</div></div>
               <div style={{ fontSize: "clamp(28px, 4vw, 56px)", fontWeight: 900 }}>{scoreText(focusMatch)}</div>
