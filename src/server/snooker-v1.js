@@ -1447,10 +1447,10 @@ async function customerBalanceHistory(supabase, customerId, limit = 20) {
   return (data || []).map((row) => ({
     balance_entry_id: row.id,
     entry_type: row.entry_type,
-    delta_inr: money(row.delta_inr),
+    delta_inr: money(row.balance_delta_inr),
     balance_after_inr: money(row.balance_after_inr),
     payment_method: row.payment_method || null,
-    reason: row.reason,
+    reason: row.note || row.reference_text || "Balance adjustment",
     bill_id: row.bill_id || null,
     bill_no: row.bill_id ? billMap.get(row.bill_id) || null : null,
     created_at: row.created_at,
