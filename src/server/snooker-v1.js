@@ -1115,6 +1115,16 @@ async function individualSessionSnapshot(supabase, sessionId) {
     supabase.from("snooker_bills").select("*").eq("source_session_id", sessionId).eq("bill_source", "PLAYER_ACCOUNT").order("finalized_at"),
   ]);
   const activeCharges = (charges || []).filter((x) => x.status === "ACTIVE");
+  const customerIds = [...new Set((people || []).map((person) => person.customer_id).filter(Boolean))];
+  let customerMap = new Map();
+  if (customerIds.length) {
+    const { data: customers, error: customerError } = await supabase
+      .from("snooker_customers")
+      .select("id,balance_inr")
+      .in("id", customerIds);
+    if (customerError) throw customerError;
+    customerMap = new Map((customers || []).map((customer) => [customer.id, customer]));
+  }
   const now = new Date();
   return (people || []).map((person) => {
     const own = activeCharges.filter((x) => x.person_id === person.id);
@@ -1150,6 +1160,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       name: person.name,
       phone: person.phone,
       is_member: person.is_member,
+      carry_balance_inr: money(customerMap.get(person.customer_id)?.balance_inr),
       team_no: person.team_no,
       status: person.status,
       joined_at: person.joined_at,
@@ -1163,6 +1174,7 @@ async function individualSessionSnapshot(supabase, sessionId) {
       billed_due_inr: billedDue,
       paid_inr: billedPaid,
       current_due_inr: money(unbilledTotal + billedDue),
+      net_after_carry_inr: money(Math.max(0, unbilledTotal + billedDue - number(customerMap.get(person.customer_id)?.balance_inr))),
       account_entries: accountEntries,
       bills: ownBills.map((b)=>({bill_id:b.id,bill_no:b.bill_no,status:b.status,total_inr:money(b.total_inr),paid_inr:money(b.paid_inr),due_inr:money(b.due_inr)})),
     };
