@@ -16872,7 +16872,7 @@ saveMembershipReceiptOperationalRecord(membershipOperationalRecord).catch((error
   // shop receipt + stock adjustment was missed, run the same idempotent
   // Q Shop fulfilment logic again. Existing receipt with stockAdjusted=true
   // prevents double stock deduction.
-  if (fulfilledContext === "shop") {
+  if (fulfilledContext === "shop" && !orderData.serverFulfilled) {
     try {
       fulfilTrustedPayment(orderData);
     } catch (error) {
