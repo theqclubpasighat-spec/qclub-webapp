@@ -1343,22 +1343,50 @@ async function rememberCustomer(supabase, { name, phone, isMember = false, membe
   const normalizedName = normalizeCustomerName(cleanName);
   const normalizedPhone = normalizePhone(phone || "") || null;
 
-  const { data: existing, error: readError } = await supabase
-    .from("snooker_customers")
-    .select("*")
-    .eq("normalized_name", normalizedName)
+  // Merged/legacy names are resolved through an explicit alias map first.
+  // Do not dedupe by phone alone: the club legitimately has test/staff/customer
+  // records sharing a contact number.
+  let existing = null;
+  let matchedByAlias = false;
+  const { data: alias, error: aliasError } = await supabase
+    .from("snooker_customer_aliases")
+    .select("customer_id")
+    .eq("normalized_alias", normalizedName)
     .maybeSingle();
-  if (readError) throw readError;
+  if (aliasError && aliasError.code !== "42P01") throw aliasError;
+  if (alias?.customer_id) {
+    const { data: aliasedCustomer, error: aliasedCustomerError } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("id", alias.customer_id)
+      .maybeSingle();
+    if (aliasedCustomerError) throw aliasedCustomerError;
+    if (aliasedCustomer) {
+      existing = aliasedCustomer;
+      matchedByAlias = true;
+    }
+  }
+
+  if (!existing) {
+    const { data: namedCustomer, error: readError } = await supabase
+      .from("snooker_customers")
+      .select("*")
+      .eq("normalized_name", normalizedName)
+      .maybeSingle();
+    if (readError) throw readError;
+    existing = namedCustomer || null;
+  }
 
   const now = new Date().toISOString();
   if (existing) {
     const patch = {
-      name: cleanName,
+      // An alias must never rename the canonical merged profile back to the alias.
+      name: matchedByAlias ? existing.name : cleanName,
       phone: normalizedPhone || existing.phone || null,
       normalized_phone: normalizedPhone || existing.normalized_phone || null,
       is_member: Boolean(existing.is_member || isMember),
-      member_tier: memberTier || existing.member_tier || null,
-      source: safeText(source || existing.source || "qclub_ledger", 80),
+      member_tier: existing.member_tier || memberTier || null,
+      source: existing.source === "member_registry" ? existing.source : safeText(source || existing.source || "qclub_ledger", 80),
       visit_count: Math.max(1, number(existing.visit_count, 0) + 1),
       last_seen_at: now,
       active: true,
