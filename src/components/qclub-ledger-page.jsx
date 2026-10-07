@@ -3077,7 +3077,7 @@ export default function QclubLedgerPage() {
                         <div className="ql-row">
                           <span className="ql-badge">{(rule && rule.display_name) || session.game_type}</span>
                           {session.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{session.match_format || "FLEX"} • {String(session.payment_rule || "").replaceAll("_"," ")}</span> : null}
-                          <span className="ql-badge">Completed {recordedGames.length}</span>
+                          <span className="ql-badge">{continuousPerPlayerGame ? "Completed " + recordedGames.length : "Games " + recordedGames.length}</span>
                           {continuousPerPlayerGame ? <span className="ql-badge gold">GAME {currentGameNumber} IN PROGRESS</span> : null}
                         </div>
                         {session.account_mode === "INDIVIDUAL" ? (
