@@ -1779,7 +1779,7 @@ is_winner: key === winnerKey,
     }));
   }
 
-  function startGame() {
+  async function startGame() {
     const names = order.length ? order : cleanPlayers();
 
     if (names.length < 2) {
@@ -1792,18 +1792,37 @@ is_winner: key === winnerKey,
       if (!ok) return;
     }
 
+    const accessToken = await ensureGameAccessToken();
+    if (!accessToken) return;
+
+    try {
+      const response = await fetch(`/api/snooker/v1/qchase/table/${tableKey}/start-next`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ engine_game_no: state.gameNo, players: names }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(payload.message || "QChase Ledger could not start this numbered game. The scorer has NOT started.");
+        return;
+      }
+    } catch {
+      alert("QChase cloud/Ledger is unreachable. The scorer has NOT started, preventing a billing mismatch.");
+      return;
+    }
+
     if (!order.length) {
       setOrder(names);
       ensureScores(names);
     }
-        savePlayerPhonesToPhonebook();
+    savePlayerPhonesToPhonebook();
 
     setState((prev) => ({
-  ...prev,
-  orderLocked: true,
-  started: true,
-  startedAt: prev.startedAt || nowText(),
-}));
+      ...prev,
+      orderLocked: true,
+      started: true,
+      startedAt: prev.startedAt || nowText(),
+    }));
   }
 
   function resetGame() {
