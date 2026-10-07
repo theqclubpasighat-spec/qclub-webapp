@@ -3158,6 +3158,16 @@ async function recordGame(req,res,sessionId){
     return json(res,201,response);
   }
   if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    const {data:runningGame,error:runningGameError}=await supabase
+      .from("snooker_completed_games")
+      .select("id,game_number,status")
+      .eq("session_id",sessionId)
+      .eq("game_type","QCHASE_RUMMY")
+      .eq("status","IN_PROGRESS")
+      .limit(1)
+      .maybeSingle();
+    if(runningGameError)throw runningGameError;
+    if(runningGame)return json(res,409,{ok:false,error:"QCHASE_GAME_STILL_IN_PROGRESS",game_number:runningGame.game_number,message:"Finish the current game in the QChase/Rummy engine before starting the next game."});
     const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
     if(selectedIds.length<2 || selectedIds.length>6)return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
     const {data:people,error:peopleError}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
