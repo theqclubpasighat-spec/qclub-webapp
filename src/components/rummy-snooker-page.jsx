@@ -184,6 +184,40 @@ function saveDisplayState(tableKey = "table1", snapshot) {
   } catch {}
 }
 
+function qchaseTokenKey(kind = "access") {
+  return `qclub_qchase_game_token_${kind}`;
+}
+
+function readQchaseGameToken(kind = "access") {
+  try { return sessionStorage.getItem(qchaseTokenKey(kind)) || ""; } catch { return ""; }
+}
+
+function saveQchaseGameToken(kind = "access", token = "") {
+  try {
+    if (token) sessionStorage.setItem(qchaseTokenKey(kind), token);
+    else sessionStorage.removeItem(qchaseTokenKey(kind));
+  } catch {}
+}
+
+async function publishQchaseDisplayState(tableKey = "table1", snapshot) {
+  const token = readQchaseGameToken("access") || readQchaseGameToken("final_lock");
+  if (!token) return false;
+  try {
+    const response = await fetch(`/api/snooker/v1/qchase-live/${encodeURIComponent(tableKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-qclub-game-token": token },
+      body: JSON.stringify({ snapshot }),
+    });
+    if (response.status === 401) {
+      saveQchaseGameToken("access", "");
+      return false;
+    }
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 const FOULS = [
   { key: "foul4", label: "Foul -4", short: "F4", points: -4, type: "foul" },
   { key: "foul5", label: "Foul -5", short: "F5", points: -5, type: "foul" },
@@ -1056,11 +1090,28 @@ const [logs, setLogs] = useState([]);
   ]);
   const [reckonerMultiplier, setReckonerMultiplier] = useState(100);
 
+  async function requestGameToken(kind, promptText) {
+    const existing = readQchaseGameToken(kind);
+    if (existing) return existing;
+    const pin = prompt(promptText);
+    if (pin === null) return "";
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({kind,pin:String(pin).trim()})
+    });
+    if (!response.ok) {
+      alert(kind === "final_lock" ? "Wrong FINAL LOCK PIN." : "Wrong PAGE PIN.");
+      return "";
+    }
+    const result = await response.json().catch(()=>({}));
+    if (result.game_token) saveQchaseGameToken(kind,result.game_token);
+    return result.game_token || "";
+  }
+
   async function unlockWithPin() {
-    const pin = prompt("Enter Q CHASE PAGE PIN");
-    if (pin === null) return;
-    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(pin).trim()})});
-    if (!response.ok) return alert("Wrong PAGE PIN.");
+    const token = await requestGameToken("access","Enter Q CHASE PAGE PIN");
+    if (!token) return;
     setAllowed(true); try { sessionStorage.setItem("qclub_rummy_access","yes"); } catch {}
   }
 
@@ -1733,7 +1784,7 @@ is_winner: key === winnerKey,
     }));
   }
 
-  function startGame() {
+  async function startGame() {
     const names = order.length ? order : cleanPlayers();
 
     if (names.length < 2) {
@@ -1746,18 +1797,47 @@ is_winner: key === winnerKey,
       if (!ok) return;
     }
 
+    const accessToken = await requestGameToken("access","Enter Q CHASE PAGE PIN to start and sync billing");
+    if (!accessToken) return;
+
+    let ledgerBridge = null;
+    try {
+      const response = await fetch(`/api/snooker/v1/qchase-live/${encodeURIComponent(tableKey)}/start`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-qclub-game-token":accessToken},
+        body:JSON.stringify({
+          engine_game_id: state.gameId || "",
+          engine_game_no: state.gameNo || "",
+          player_names: names,
+        })
+      });
+      ledgerBridge = await response.json().catch(()=>({}));
+      if (!response.ok) throw new Error(ledgerBridge.message || ledgerBridge.error || "Unable to start QChase billing.");
+    } catch (error) {
+      alert("Game was NOT started. QclubLedger sync failed: " + (error.message || "Connection error"));
+      return;
+    }
+
     if (!order.length) {
       setOrder(names);
       ensureScores(names);
     }
-        savePlayerPhonesToPhonebook();
+    savePlayerPhonesToPhonebook();
 
     setState((prev) => ({
-  ...prev,
-  orderLocked: true,
-  started: true,
-  startedAt: prev.startedAt || nowText(),
-}));
+      ...prev,
+      orderLocked: true,
+      started: true,
+      startedAt: prev.startedAt || nowText(),
+    }));
+
+    if (ledgerBridge?.linked && !ledgerBridge?.already_started) {
+      const charged = Array.isArray(ledgerBridge.charged_players) ? ledgerBridge.charged_players : [];
+      const total = charged.reduce((sum,row)=>sum+Number(row.amount_inr||0),0);
+      alert(`Game ${ledgerBridge.game?.game_number || ""} started. QclubLedger charged ${charged.length} player(s) • ₹${total.toFixed(0)}.`);
+    } else if (!ledgerBridge?.linked) {
+      alert("QChase scorer started. No active QChase/Rummy session was found in QclubLedger, so no Ledger charge was created.");
+    }
   }
 
   function resetGame() {
@@ -2195,39 +2275,93 @@ breakAfter,
     return;
   }
 
-  if (!admin && !staffAdmin) {
-    const pin = prompt("Enter FINAL LOCK PIN");
-    if (pin === null) return;
-    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"final_lock",pin:String(pin).trim()})});
-    if (!response.ok) { alert("Wrong FINAL LOCK PIN."); return; }
-  }
+  const finalToken = await requestGameToken("final_lock","Enter FINAL LOCK PIN");
+  if (!finalToken) return;
 
   const ok = confirm(
-    "Final Lock will freeze the result and enable print/New Game. Continue?"
+    "Final Lock will finish this game in the Rummy engine and QclubLedger. Continue?"
   );
 
   if (!ok) return;
 
   const endedAt = nowText();
-const startedAt = state.startedAt || state.createdAt;
-const finalState = {
-  ...state,
-  locked: true,
-  startedAt,
-  endedAt,
-  duration: minutesBetween(startedAt, endedAt),
-};
+  const startedAt = state.startedAt || state.createdAt;
+  const finalState = {
+    ...state,
+    locked: true,
+    startedAt,
+    endedAt,
+    duration: minutesBetween(startedAt, endedAt),
+  };
 
-setState(finalState);
-saveFinalScoreSheet(finalState);
+  const displaySnapshot = {
+    tableKey,
+    gameNo: finalState.gameNo,
+    createdAt: finalState.createdAt,
+    tableName: finalState.tableName,
+    multiplier: Number(finalState.multiplier || 0),
+    locked: true,
+    started: true,
+    orderLocked: Boolean(finalState.orderLocked),
+    currentPlayer,
+    redsLeft,
+    turnMode,
+    nextBallText,
+    tryAgainMode,
+    rows: rows.map((r) => ({
+      order: r.order,
+      name: r.name,
+      playedSnooker: r.playedSnooker || 0,
+      manualHandicap: r.manualHandicap || 0,
+      handicap: r.handicap || 0,
+      reds: redSummary(r.score),
+      colours: colourSummary(r.score),
+      fouls: foulSummary(r.score),
+      currentBreak: r.currentBreak || 0,
+      highestBreak: r.highestBreak || 0,
+      snooker: r.snooker,
+      rummy: r.rummy,
+      nextName: r.nextName,
+      final: r.final,
+    })),
+    ranking: ranking.map((r) => ({ name: r.name, final: r.final })),
+    updatedAt: Date.now(),
+  };
 
-const cloudSaved = await saveQChasePlayerResultsToCloud(finalState);
+  let ledgerFinish = null;
+  try {
+    const response = await fetch(`/api/snooker/v1/qchase-live/${encodeURIComponent(tableKey)}/finish`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-qclub-game-token":finalToken},
+      body:JSON.stringify({
+        engine_game_id: finalState.gameId || "",
+        engine_game_no: finalState.gameNo || "",
+        snapshot: displaySnapshot,
+      })
+    });
+    ledgerFinish = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(ledgerFinish.message || ledgerFinish.error || "Unable to finish QclubLedger game.");
+  } catch (error) {
+    alert("Final Lock was NOT completed. QclubLedger sync failed: " + (error.message || "Connection error"));
+    return;
+  }
 
-alert(
-  cloudSaved
-    ? "Final locked, local scoresheet saved, and cloud player records saved."
-    : "Final locked and local scoresheet saved. Cloud save was not completed."
-);
+  setState(finalState);
+  saveDisplayState(tableKey,displaySnapshot);
+  publishQchaseDisplayState(tableKey,displaySnapshot);
+  saveFinalScoreSheet(finalState);
+
+  const cloudSaved = await saveQChasePlayerResultsToCloud(finalState);
+
+  if (ledgerFinish?.linked) {
+    alert(`Game ${ledgerFinish.game?.game_number || ""} finished. QclubLedger is ready for Game ${ledgerFinish.next_game_number || ""}.`);
+  } else {
+    alert(
+      cloudSaved
+        ? "Final locked and cloud player records saved. No active QclubLedger QChase session was linked."
+        : "Final locked locally. No active QclubLedger QChase session was linked, and cloud player-record save was not completed."
+    );
+  }
 }
   const currentPlayer = order[currentIndex] || "";
     const lastLog = logs[logs.length - 1];
@@ -2415,6 +2549,7 @@ alert(
     };
 
     saveDisplayState(tableKey, displaySnapshot);
+    publishQchaseDisplayState(tableKey, displaySnapshot);
   }, [
     tableKey,
     state.gameNo,
@@ -4937,25 +5072,52 @@ export function RummySnookerDisplayPage({
   tableLabel = "Snooker Table 1",
 }) {
   const [snapshot, setSnapshot] = useState(() => loadDisplayState(tableKey));
+  const [cloudOnline, setCloudOnline] = useState(false);
 
   useEffect(() => {
     document.body.classList.add("qchase-display-mode");
+    let alive = true;
+    let busy = false;
 
-    function refresh() {
-      setSnapshot(loadDisplayState(tableKey));
+    async function refresh() {
+      if (busy) return;
+      busy = true;
+      try {
+        const response = await fetch(`/api/snooker/v1/qchase-live/${encodeURIComponent(tableKey)}`,{cache:"no-store"});
+        if (!response.ok) throw new Error("cloud unavailable");
+        const result = await response.json();
+        if (!alive) return;
+        if (result?.snapshot) {
+          setSnapshot(result.snapshot);
+          saveDisplayState(tableKey,result.snapshot);
+        } else {
+          setSnapshot(loadDisplayState(tableKey));
+        }
+        setCloudOnline(true);
+      } catch {
+        if (alive) {
+          setSnapshot(loadDisplayState(tableKey));
+          setCloudOnline(false);
+        }
+      } finally {
+        busy = false;
+      }
+    }
+
+    function localRefresh() {
+      if (!cloudOnline) setSnapshot(loadDisplayState(tableKey));
     }
 
     refresh();
-
-    window.addEventListener("storage", refresh);
-    window.addEventListener(`qclub-rummy-display-update-${tableKey}`, refresh);
-
+    window.addEventListener("storage", localRefresh);
+    window.addEventListener(`qclub-rummy-display-update-${tableKey}`, localRefresh);
     const timer = setInterval(refresh, 1000);
 
     return () => {
+      alive = false;
       document.body.classList.remove("qchase-display-mode");
-      window.removeEventListener("storage", refresh);
-      window.removeEventListener(`qclub-rummy-display-update-${tableKey}`, refresh);
+      window.removeEventListener("storage", localRefresh);
+      window.removeEventListener(`qclub-rummy-display-update-${tableKey}`, localRefresh);
       clearInterval(timer);
     };
   }, [tableKey]);
