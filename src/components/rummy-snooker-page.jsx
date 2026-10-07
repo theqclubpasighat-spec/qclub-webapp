@@ -982,6 +982,7 @@ export function RummySnookerPage({
   });
 
   const hasAccess = admin || staffAdmin || allowed;
+  const [gameAccessToken, setGameAccessToken] = useState(() => loadGameAccessToken(tableKey));
 
   const [playerInputs, setPlayerInputs] = useState([
     "KAMIN",
@@ -1076,12 +1077,37 @@ const [logs, setLogs] = useState([]);
   ]);
   const [reckonerMultiplier, setReckonerMultiplier] = useState(100);
 
+  async function requestGameAccessToken(kind = "access", promptLabel = "Enter Q CHASE PAGE PIN") {
+    const pin = prompt(promptLabel);
+    if (pin === null) return "";
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({kind,table_key:tableKey,pin:String(pin).trim()})
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      alert(kind === "final_lock" ? "Wrong FINAL LOCK PIN." : "Wrong PAGE PIN.");
+      return "";
+    }
+    const token = String(payload.access_token || "");
+    if (token) {
+      saveGameAccessToken(tableKey, token);
+      setGameAccessToken(token);
+    }
+    return token;
+  }
+
+  async function ensureGameAccessToken() {
+    if (gameAccessToken) return gameAccessToken;
+    return requestGameAccessToken("access", "Enter Q CHASE PAGE PIN to connect scorer, TV and Ledger");
+  }
+
   async function unlockWithPin() {
-    const pin = prompt("Enter Q CHASE PAGE PIN");
-    if (pin === null) return;
-    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"access",pin:String(pin).trim()})});
-    if (!response.ok) return alert("Wrong PAGE PIN.");
-    setAllowed(true); try { sessionStorage.setItem("qclub_rummy_access","yes"); } catch {}
+    const token = await requestGameAccessToken("access", "Enter Q CHASE PAGE PIN");
+    if (!token) return;
+    setAllowed(true);
+    try { sessionStorage.setItem("qclub_rummy_access","yes"); } catch {}
   }
 
   function changeRummyPin() { alert("Game PIN changes are now managed by the secure server credential store."); }
