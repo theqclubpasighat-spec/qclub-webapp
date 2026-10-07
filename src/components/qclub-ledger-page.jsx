@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, supabaseReady } from "../supabase";
 import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
+import { QRCodeSVG } from "qrcode.react";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -222,6 +223,8 @@ const CSS = [
   ".ql-input,.ql-select{width:100%;border:1px solid #294638;background:#08150f;color:#f7fbf8;border-radius:11px;padding:11px 12px;outline:none}.ql-label{display:block;font-size:12px;color:#abc0b3;margin:0 0 5px;font-weight:700}.ql-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ql-form-grid .full{grid-column:1/-1}",
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
   ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;top:82px;z-index:70;margin:0 0 14px;border:1px solid #3b6b50;background:rgba(7,20,13,.97);backdrop-filter:blur(16px);box-shadow:0 14px 34px rgba(0,0,0,.42);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar.has-items{border-color:#79e7aa;box-shadow:0 14px 34px rgba(0,0,0,.42),0 0 0 1px rgba(121,231,170,.16)}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
+  ".ql-table-qr-print{background:#fff;color:#111;padding:22px;border-radius:18px}.ql-table-qr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.ql-table-qr-card{border:2px solid #111;border-radius:18px;padding:18px;text-align:center;background:#fff;color:#111}.ql-table-qr-card h2{margin:8px 0 2px}.ql-table-qr-url{font-size:11px;overflow-wrap:anywhere;margin-top:8px}.ql-table-qr-instructions{font-weight:800;margin-top:8px}.ql-table-qr-print svg{max-width:100%;height:auto}",
+  "@media print{body *{visibility:hidden!important}.ql-table-qr-print,.ql-table-qr-print *{visibility:visible!important}.ql-table-qr-print{position:absolute;left:0;top:0;width:100%;padding:8mm;border-radius:0}.ql-table-qr-grid{grid-template-columns:repeat(2,1fr);gap:8mm}.ql-table-qr-card{break-inside:avoid;min-height:125mm;display:flex;flex-direction:column;align-items:center;justify-content:center}}",
   ".ql-autocomplete{position:relative}.ql-autocomplete-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:135;max-height:360px;overflow:auto;border:1px solid #315242;background:#07150f;border-radius:12px;box-shadow:0 18px 42px rgba(0,0,0,.48);padding:5px}.ql-autocomplete-option{width:100%;display:block;border:0;border-radius:9px;background:transparent;color:#f7fbf8;padding:9px 10px;text-align:left;cursor:pointer}.ql-autocomplete-option:hover,.ql-autocomplete-option.active{background:#163526;outline:1px solid #4a8b68}.ql-autocomplete-name{display:block;font-weight:900;font-size:14px}.ql-autocomplete-meta{display:flex;justify-content:space-between;gap:12px;margin-top:3px;color:#9eb2a5;font-size:12px}.ql-autocomplete-price{color:#f0d06f;font-weight:900}.ql-autocomplete-empty{padding:10px;color:#809488;font-size:12px}",
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
@@ -265,6 +268,7 @@ export default function QclubLedgerPage() {
   const [openClubTabsSearch, setOpenClubTabsSearch] = useState("");
   const [qrInbox, setQrInbox] = useState({ requests: [], orders: [] });
   const [showQrInbox, setShowQrInbox] = useState(false);
+  const [showTableQrPrint, setShowTableQrPrint] = useState(false);
   const [startQrRequestId, setStartQrRequestId] = useState("");
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
   const [clubTabDetail, setClubTabDetail] = useState(null);
@@ -3880,6 +3884,37 @@ export default function QclubLedgerPage() {
         ) : null}
       </div>
 
+      {showTableQrPrint ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setShowTableQrPrint(false); }}>
+          <div className="ql-modal" style={{ maxWidth: 980 }}>
+            <div className="ql-space" style={{ marginBottom: 12 }}>
+              <div><h3 style={{ margin: 0 }}>Permanent Table QR Cards</h3><div className="ql-muted">Print and place one card on each physical table. These URLs identify the table, never a bill or one-time session.</div></div>
+              <div className="ql-row"><button className="ql-btn gold" onClick={function() { window.print(); }}>Print</button><button className="ql-btn ghost" onClick={function() { setShowTableQrPrint(false); }}>✕</button></div>
+            </div>
+            <div className="ql-table-qr-print">
+              <div style={{ textAlign: "center", marginBottom: 16 }}><strong style={{ fontSize: 24 }}>THE Q CLUB PASIGHAT</strong><div>SCAN TO START / JOIN / ORDER / VIEW YOUR CLUB TAB</div></div>
+              <div className="ql-table-qr-grid">
+                {tables.slice().sort(function(a,b){return Number(a.table_no)-Number(b.table_no);}).map(function(table) {
+                  const url = (typeof window !== "undefined" ? window.location.origin : "https://www.theqclubpasighat.com") + "/table/T" + table.table_no;
+                  return (
+                    <div className="ql-table-qr-card" key={table.table_id}>
+                      <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: ".12em" }}>THE Q CLUB PASIGHAT</div>
+                      <h2>TABLE {table.table_no}</h2>
+                      <div style={{ marginBottom: 12 }}>{table.display_name}</div>
+                      <QRCodeSVG value={url} size={240} level="H" marginSize={2} title={"Q Club Table " + table.table_no} />
+                      <div className="ql-table-qr-instructions">SCAN THIS TABLE QR</div>
+                      <div style={{ fontSize: 12 }}>Start / Join • Live table status • Order F&B • View your charges</div>
+                      <div className="ql-table-qr-url">{url}</div>
+                      <div style={{ fontSize: 10, marginTop: 8 }}>Scanning does not start billing by itself. The Q Club server controls the active session.</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showQrInbox ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setShowQrInbox(false); }}>
           <div className="ql-modal" style={{ maxWidth: 1040 }}>
@@ -3957,6 +3992,7 @@ export default function QclubLedgerPage() {
               {[1,2,3,4].map(function(no) {
                 return <a key={no} className="ql-btn ghost" href={"/table/T" + no} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open T{no} QR page</a>;
               })}
+              <button className="ql-btn gold" onClick={function() { setShowQrInbox(false); setShowTableQrPrint(true); }}>Print 4 Table QR Cards</button>
             </div>
           </div>
         </div>
