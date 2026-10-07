@@ -1515,16 +1515,19 @@ async function customerTabDetailPayload(supabase,customerId){
   if(customerError)throw customerError;
   if(!customer)return null;
 
-  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:openBills,error:billError}] = await Promise.all([
+  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:openBills,error:billError},{data:recentBills,error:recentBillError}] = await Promise.all([
     supabase.from("snooker_session_people").select("*").eq("customer_id",customerId).order("joined_at"),
     supabase.from("snooker_fnb_tabs").select("*").eq("customer_id",customerId).eq("status","OPEN").order("last_order_at",{ascending:false}),
     supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").gt("due_inr",0).order("finalized_at",{ascending:true}),
+    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").order("finalized_at",{ascending:false}).limit(10),
   ]);
-  if(peopleError||fnbTabError||billError)throw peopleError||fnbTabError||billError;
+  if(peopleError||fnbTabError||billError||recentBillError)throw peopleError||fnbTabError||billError||recentBillError;
 
   const personIds=(people||[]).map(p=>p.id);
   const tabIds=(openFnbTabs||[]).map(t=>t.id);
-  const billIds=(openBills||[]).map(b=>b.id);
+  const relevantBills=[...(openBills||[])];
+  for(const bill of recentBills||[]){if(!relevantBills.some(x=>x.id===bill.id))relevantBills.push(bill);}
+  const billIds=relevantBills.map(b=>b.id);
 
   let charges=[],runningFnb=[],billItems=[],billPayments=[],settlements=[];
   if(personIds.length){
@@ -1559,7 +1562,7 @@ async function customerTabDetailPayload(supabase,customerId){
   }
   const sessionMap=new Map(sessions.map(x=>[x.id,x]));
   const personMap=new Map((people||[]).map(x=>[x.id,x]));
-  const billMap=new Map((openBills||[]).map(x=>[x.id,x]));
+  const billMap=new Map(relevantBills.map(x=>[x.id,x]));
 
   const activity=[];
   for(const charge of charges){
@@ -1601,7 +1604,7 @@ async function customerTabDetailPayload(supabase,customerId){
     activity.push({
       id:"billitem:"+item.id,
       kind:item.item_type==="TABLE_TIME"?"TABLE":item.item_type,
-      status:"BILLED",
+      status:number(bill?.due_inr)>0.009?"BILLED":"PAID",
       description:item.description||String(item.item_type||"Charge").replaceAll("_"," "),
       quantity:number(item.quantity,1),
       unit_price_inr:money(item.unit_price_inr),
@@ -1649,6 +1652,12 @@ async function customerTabDetailPayload(supabase,customerId){
     billed_due_inr:billedDue,
     current_due_inr:money(unbilled+billedDue),
     outstanding_bills:(openBills||[]).map(b=>({
+      bill_id:b.id,bill_no:b.bill_no,bill_source:b.bill_source,total_inr:money(b.total_inr),
+      paid_inr:money(b.paid_inr),due_inr:money(b.due_inr),status:b.status,finalized_at:b.finalized_at,
+      items:billItems.filter(x=>x.bill_id===b.id),
+      payments:billPayments.filter(x=>x.bill_id===b.id),
+    })),
+    recent_bills:(recentBills||[]).map(b=>({
       bill_id:b.id,bill_no:b.bill_no,bill_source:b.bill_source,total_inr:money(b.total_inr),
       paid_inr:money(b.paid_inr),due_inr:money(b.due_inr),status:b.status,finalized_at:b.finalized_at,
       items:billItems.filter(x=>x.bill_id===b.id),
@@ -1704,8 +1713,8 @@ async function customerTabOnlinePayment(req,res,customerId){
       return json(res,200,{
         payment_id:existing.id,settlement_id:existing.id,settlement_no:existing.settlement_no,
         customer_id:existing.customer_id,amount_inr:money(existing.amount_inr),order_id:existing.cashfree_order_id,
-        payment_session_id:existing.payment_session_id,qr_payload:null,qr_element_url:qrElementUrl(existing),
-        payment_url:paymentLinkUrl(existing),status:existing.status,expires_at:existing.expires_at,
+        payment_session_id:existing.payment_session_id,qr_payload:null,qr_element_url:null,
+        payment_url:null,status:existing.status,expires_at:existing.expires_at,
         integration:"CASHFREE_ELEMENT_UPI_QR",scope:"CLUB_TAB",reused:true,
       });
     }
@@ -1786,8 +1795,8 @@ async function customerTabOnlinePayment(req,res,customerId){
 
   return json(res,201,{
     payment_id:paymentId,settlement_id:settlementId,settlement_no:settlementNo,customer_id:customerId,
-    amount_inr:amount,order_id:orderId,payment_session_id:sessionId,qr_payload:null,qr_element_url:qrElementUrl(updated),
-    payment_url:paymentLinkUrl(updated),status:"PENDING",expires_at:expiresAt,integration:"CASHFREE_ELEMENT_UPI_QR",scope:"CLUB_TAB"
+    amount_inr:amount,order_id:orderId,payment_session_id:sessionId,qr_payload:null,qr_element_url:null,
+    payment_url:null,status:"PENDING",expires_at:expiresAt,integration:"CASHFREE_ELEMENT_UPI_QR",scope:"CLUB_TAB"
   });
 }
 
