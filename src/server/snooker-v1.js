@@ -1280,6 +1280,248 @@ async function createQchaseGameStart(supabase, { sessionId, playerRows, rate, st
   return { ...game, game_id: game.id, charge_allocations: allocations };
 }
 
+
+async function qchaseGameAuditRow(supabase, sessionId, gameNumber) {
+  const { data, error } = await supabase
+    .from("snooker_completed_games")
+    .select("*")
+    .eq("session_id", sessionId)
+    .eq("game_type", "QCHASE_RUMMY")
+    .eq("game_number", gameNumber)
+    .neq("status", "VOIDED")
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function attachQchasePlayerToCurrentGame(supabase, { session, person, rate, staffId, reason = "JOIN_CURRENT" }) {
+  const gameNumber = number(session?.qchase_game_number, 0);
+  if (!(gameNumber > 0) || session?.qchase_game_state !== "ACTIVE") {
+    const err = new Error("There is no active QChase/Rummy game to join.");
+    err.status = 409;
+    err.code = "QCHASE_GAME_NOT_ACTIVE";
+    throw err;
+  }
+  const game = await qchaseGameAuditRow(supabase, session.id, gameNumber);
+  if (!game) {
+    const err = new Error("The current QChase/Rummy billing game could not be found.");
+    err.status = 409;
+    err.code = "QCHASE_GAME_AUDIT_MISSING";
+    throw err;
+  }
+
+  const currentIds = Array.isArray(game.player_ids) ? game.player_ids.map(String) : [];
+  const currentNames = Array.isArray(game.player_names) ? game.player_names : [];
+  const currentAllocations = Array.isArray(game.charge_allocations) ? game.charge_allocations : [];
+  if (currentIds.includes(String(person.id))) {
+    const { data: existing } = await supabase
+      .from("snooker_person_charges")
+      .select("*")
+      .eq("session_id", session.id)
+      .eq("person_id", person.id)
+      .eq("charge_type", "GAME")
+      .eq("status", "ACTIVE")
+      .eq("reference_id", game.id)
+      .maybeSingle();
+    return { game, charge: existing || null, game_number: gameNumber, duplicate: true };
+  }
+
+  const { data: priorCharges, error: priorError } = await supabase
+    .from("snooker_person_charges")
+    .select("*")
+    .eq("session_id", session.id)
+    .eq("person_id", person.id)
+    .eq("charge_type", "GAME")
+    .eq("status", "ACTIVE")
+    .order("created_at", { ascending: false });
+  if (priorError) throw priorError;
+  let charge = (priorCharges || []).find((row) => number(row.metadata?.game_number, 0) === gameNumber) || null;
+
+  if (charge) {
+    const { data: updated, error } = await supabase.from("snooker_person_charges").update({
+      reference_id: game.id,
+      description: `QChase / Rummy — Game ${gameNumber} entry`,
+      metadata: {
+        ...(charge.metadata || {}),
+        game_number: gameNumber,
+        settlement_rule: "PER_PLAYER",
+        qchase_applied_to_game: true,
+        qchase_prepaid: false,
+        qchase_entry_reason: reason,
+        person_name: person.name,
+      },
+    }).eq("id", charge.id).select("*").single();
+    if (error) throw error;
+    charge = updated;
+  } else {
+    charge = await createPersonCharge(supabase, {
+      sessionId: session.id,
+      personId: person.id,
+      type: "GAME",
+      referenceId: game.id,
+      description: `QChase / Rummy — Game ${gameNumber} entry`,
+      amount: rate,
+      staffId,
+      metadata: {
+        game_number: gameNumber,
+        settlement_rule: "PER_PLAYER",
+        qchase_applied_to_game: true,
+        qchase_entry_reason: reason,
+        charged_on_current_game_join: true,
+        person_name: person.name,
+      },
+    });
+  }
+
+  const ids = [...currentIds, String(person.id)];
+  const names = [...currentNames, person.name];
+  const allocations = [...currentAllocations, { person_id: person.id, amount_inr: money(rate) }];
+  const total = money(allocations.reduce((sum, row) => sum + number(row.amount_inr), 0));
+  const { data: updatedGame, error: updateError } = await supabase
+    .from("snooker_completed_games")
+    .update({
+      player_ids: ids,
+      player_names: names,
+      player_count_snapshot: ids.length,
+      calculated_charge_inr: total,
+      charge_allocations: allocations,
+      pricing_snapshot: {
+        ...(game.pricing_snapshot || {}),
+        roster_last_changed_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", game.id)
+    .select("*")
+    .single();
+  if (updateError) throw updateError;
+  return { game: updatedGame, charge, game_number: gameNumber, duplicate: false };
+}
+
+async function finishCurrentQchaseGame(supabase, session, staffId) {
+  if (!session || session.game_type !== "QCHASE_RUMMY" || session.payment_rule !== "PER_PLAYER") {
+    const err = new Error("This is not a per-game QChase/Rummy session.");
+    err.status = 409; err.code = "QCHASE_PER_GAME_SESSION_REQUIRED"; throw err;
+  }
+  const gameNumber = number(session.qchase_game_number, 0);
+  if (!(gameNumber > 0)) {
+    const err = new Error("QChase/Rummy game number is unavailable.");
+    err.status = 409; err.code = "QCHASE_GAME_NUMBER_MISSING"; throw err;
+  }
+  if (session.qchase_game_state === "READY") {
+    return { ok: true, duplicate: true, game_number: gameNumber, state: "READY", finished_at: session.qchase_game_finished_at };
+  }
+  if (session.qchase_game_state !== "ACTIVE") {
+    const err = new Error("There is no active QChase/Rummy game to finish.");
+    err.status = 409; err.code = "QCHASE_GAME_NOT_ACTIVE"; throw err;
+  }
+  const now = new Date().toISOString();
+  const game = await qchaseGameAuditRow(supabase, session.id, gameNumber);
+  if (game) {
+    const { error: gameError } = await supabase.from("snooker_completed_games").update({
+      completed_at: now,
+      completed_by: staffId || game.completed_by,
+      pricing_snapshot: {
+        ...(game.pricing_snapshot || {}),
+        game_started_at: session.qchase_game_started_at || game.pricing_snapshot?.game_started_at || null,
+        game_finished_at: now,
+      },
+    }).eq("id", game.id);
+    if (gameError) throw gameError;
+  }
+  const { data: updated, error } = await supabase.from("snooker_sessions").update({
+    qchase_game_state: "READY",
+    qchase_game_finished_at: now,
+    updated_at: now,
+    updated_by: staffId || session.updated_by,
+  }).eq("id", session.id).eq("qchase_game_state", "ACTIVE").select("*").maybeSingle();
+  if (error) throw error;
+  if (!updated) {
+    const { data: latest } = await supabase.from("snooker_sessions").select("*").eq("id", session.id).maybeSingle();
+    if (latest?.qchase_game_state === "READY") {
+      return { ok: true, duplicate: true, game_number: gameNumber, state: "READY", finished_at: latest.qchase_game_finished_at };
+    }
+    const err = new Error("QChase/Rummy game state changed. Refresh and try again.");
+    err.status = 409; err.code = "QCHASE_STATE_CHANGED"; throw err;
+  }
+  return { ok: true, game_number: gameNumber, state: "READY", finished_at: now };
+}
+
+async function startNextQchaseGame(supabase, session, selectedIds, staffId, key = null) {
+  if (!session || session.game_type !== "QCHASE_RUMMY" || session.payment_rule !== "PER_PLAYER") {
+    const err = new Error("This is not a per-game QChase/Rummy session.");
+    err.status = 409; err.code = "QCHASE_PER_GAME_SESSION_REQUIRED"; throw err;
+  }
+  if (session.qchase_game_state === "ACTIVE") {
+    const err = new Error(`Game ${number(session.qchase_game_number,1)} is still active. Finish it before starting the next game.`);
+    err.status = 409; err.code = "QCHASE_FINISH_CURRENT_FIRST"; throw err;
+  }
+  const ids = Array.isArray(selectedIds) ? selectedIds.map(String) : [];
+  if (ids.length < 2 || ids.length > 6) {
+    const err = new Error("QChase/Rummy requires 2 to 6 players.");
+    err.status = 400; err.code = "QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"; throw err;
+  }
+  const { data: people, error: peopleError } = await supabase
+    .from("snooker_session_people")
+    .select("*")
+    .eq("session_id", session.id)
+    .in("id", ids)
+    .in("status", ["ACTIVE","WAITING"]);
+  if (peopleError) throw peopleError;
+  if ((people || []).length !== ids.length) {
+    const err = new Error("One or more selected players are not available for the next game.");
+    err.status = 400; err.code = "INVALID_PLAYER_SELECTION"; throw err;
+  }
+  const { data: rule, error: ruleError } = await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
+  if (ruleError) throw ruleError;
+  const rate = money(rule?.rate_inr);
+  if (!(rate > 0)) {
+    const err = new Error("QChase/Rummy rate is not configured.");
+    err.status = 409; err.code = "GAME_RATE_NOT_CONFIGURED"; throw err;
+  }
+  const gameNumber = Math.max(1, number(session.qchase_game_number, 0) + 1);
+  const now = new Date().toISOString();
+  const waitingIds = (people || []).filter((person) => person.status === "WAITING").map((person) => person.id);
+  if (waitingIds.length) {
+    const { error: activateError } = await supabase.from("snooker_session_people").update({
+      status: "ACTIVE",
+      joined_at: now,
+      left_at: null,
+      updated_at: now,
+      updated_by: staffId,
+    }).in("id", waitingIds);
+    if (activateError) throw activateError;
+    for (const person of people || []) if (waitingIds.includes(person.id)) {
+      person.status = "ACTIVE"; person.joined_at = now; person.left_at = null;
+    }
+  }
+
+  const game = await createQchaseGameStart(supabase, {
+    sessionId: session.id,
+    playerRows: people || [],
+    rate,
+    staffId,
+    gameNumber,
+    key,
+  });
+
+  const { data: updatedSession, error: sessionError } = await supabase.from("snooker_sessions").update({
+    qchase_game_number: gameNumber,
+    qchase_game_state: "ACTIVE",
+    qchase_game_started_at: now,
+    qchase_game_finished_at: null,
+    participant_ids: (people || []).map((person) => person.id),
+    participant_names: (people || []).map((person) => person.name),
+    updated_at: now,
+    updated_by: staffId,
+  }).eq("id", session.id).select("*").single();
+  if (sessionError) {
+    await supabase.from("snooker_person_charges").delete().eq("reference_id", game.game_id).is("bill_id", null);
+    await supabase.from("snooker_completed_games").delete().eq("id", game.game_id);
+    throw sessionError;
+  }
+  return { ...game, qchase_state: "ACTIVE", session: sessionDto(updatedSession) };
+}
+
 async function syncActivePersonTimers(supabase, sessionId, action, at = new Date()) {
   const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id", sessionId).eq("status", "ACTIVE");
   for (const person of people || []) {
@@ -2433,6 +2675,10 @@ function sessionDto(row) {
     frame_rate_override_inr: row.frame_rate_override_inr == null ? null : money(row.frame_rate_override_inr),
     shared_hourly_rate_inr: row.shared_hourly_rate_inr == null ? null : money(row.shared_hourly_rate_inr),
     shared_hourly_last_at: row.shared_hourly_last_at || null,
+    qchase_game_number: row.qchase_game_number == null ? null : number(row.qchase_game_number),
+    qchase_game_state: row.qchase_game_state || null,
+    qchase_game_started_at: row.qchase_game_started_at || null,
+    qchase_game_finished_at: row.qchase_game_finished_at || null,
     started_at: row.started_at,
     ended_at: row.ended_at,
     timer_running: row.timer_running,
@@ -2558,6 +2804,10 @@ async function createSession(req, res) {
     frame_rate_override_inr:frameRate,
     shared_hourly_rate_inr:sharedHourlyRate,
     shared_hourly_last_at:sharedHourly?now:null,
+    qchase_game_number:gameType==="QCHASE_RUMMY"&&paymentRule==="PER_PLAYER"?1:null,
+    qchase_game_state:gameType==="QCHASE_RUMMY"&&paymentRule==="PER_PLAYER"?"ACTIVE":null,
+    qchase_game_started_at:gameType==="QCHASE_RUMMY"&&paymentRule==="PER_PLAYER"?now:null,
+    qchase_game_finished_at:null,
     started_at:now,timer_started_at:now,timer_running:sessionRunsOnTime,
     created_by:auth.staff_id,updated_by:auth.staff_id,client_revision:safeText(req.body?.client_revision||"",120)||null,idempotency_key:key||null,
   }).select("*").single();
