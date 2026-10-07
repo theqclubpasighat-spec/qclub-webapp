@@ -856,6 +856,7 @@ export default function QclubLedgerPage() {
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
     if (!pin.trim()) return;
+    armOrderAlertAudio();
     setLoginBusy(true);
     try {
       const result = await apiRequest("auth/login", {
