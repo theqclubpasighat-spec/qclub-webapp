@@ -1535,9 +1535,11 @@ export default function QclubLedgerPage() {
   function openGameEntry(session) {
     const detail = sessionDetails[session.session_id] || {};
     const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
+    const recordedGames = (detail.games || []).filter(function(game) { return game.status !== "VOIDED"; });
     setGameEntry({
       session,
       people: activePeople,
+      currentGameNumber: recordedGames.length + 1,
       selectedIds: activePeople.map(function(person) { return person.person_id; }),
       winnerPersonId: "",
       winningTeam: "",
