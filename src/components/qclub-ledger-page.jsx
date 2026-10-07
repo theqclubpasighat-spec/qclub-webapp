@@ -1341,15 +1341,37 @@ export default function QclubLedgerPage() {
       teamNo = Number(team);
       if (![1,2].includes(teamNo)) return flash("Team must be 1 or 2.", true);
     }
+    let qchaseJoinMode = null;
+    if (session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER") {
+      const gameNo = Number(session.qchase_game_number || 1);
+      if (session.qchase_game_state === "ACTIVE") {
+        const choice = window.prompt(
+          canonicalJoinName + " joining QChase/Rummy:\n\n1 = Join Game " + gameNo + " NOW — charge ₹100\n2 = Wait for Game " + (gameNo + 1) + " — no charge yet",
+          "1"
+        );
+        if (choice == null) return;
+        qchaseJoinMode = String(choice).trim() === "2" ? "NEXT" : "CURRENT";
+      } else {
+        qchaseJoinMode = "NEXT";
+      }
+    }
     setBusy(true);
     try {
       const joined = await protectedCall("sessions/" + session.session_id + "/people", {
         method: "POST",
-        body: { name: canonicalJoinName, phone: phone || null, team_no: teamNo },
+        body: {
+          name: canonicalJoinName,
+          phone: phone || null,
+          customer_id: knownCustomer?.customer_id || knownCustomer?.id || null,
+          team_no: teamNo,
+          qchase_join_mode: qchaseJoinMode,
+        },
       });
-      flash(joined && joined.qchase_charged_on_join
-        ? canonicalJoinName + " joined QChase/Rummy and was charged " + money(joined.entry_charge_inr) + " immediately for Game " + joined.entry_game_number + "."
-        : canonicalJoinName + " joined the table.");
+      flash(joined && joined.qchase_waiting_for_next
+        ? canonicalJoinName + " is waiting for Game " + joined.entry_game_number + ". No QChase charge yet."
+        : joined && joined.qchase_charged_on_join
+          ? canonicalJoinName + " joined Game " + joined.entry_game_number + " and was charged " + money(joined.entry_charge_inr) + "."
+          : canonicalJoinName + " joined the table.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to add player.", true);
@@ -1359,17 +1381,33 @@ export default function QclubLedgerPage() {
   }
 
   async function setPersonPresence(session, person, action) {
+    let qchaseJoinMode = null;
+    if (action === "REJOIN" && session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER") {
+      const gameNo = Number(session.qchase_game_number || 1);
+      if (session.qchase_game_state === "ACTIVE") {
+        const choice = window.prompt(
+          person.name + " returning to QChase/Rummy:\n\n1 = Rejoin Game " + gameNo + " NOW — charge ₹100 if not already charged\n2 = Wait for Game " + (gameNo + 1) + " — no charge yet",
+          "1"
+        );
+        if (choice == null) return;
+        qchaseJoinMode = String(choice).trim() === "2" ? "NEXT" : "CURRENT";
+      } else {
+        qchaseJoinMode = "NEXT";
+      }
+    }
     setBusy(true);
     try {
       const result = await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
         method: "PATCH",
-        body: { action },
+        body: { action, qchase_join_mode: qchaseJoinMode },
       });
       flash(action === "LEAVE"
         ? person.name + " left the game/table. Historical games and charges are preserved."
-        : (result && result.qchase_charged_on_rejoin
-          ? person.name + " rejoined QChase/Rummy and was charged " + money(result.entry_charge_inr) + " immediately for Game " + result.entry_game_number + "."
-          : person.name + " rejoined the table."));
+        : (result && result.qchase_waiting_for_next
+          ? person.name + " is waiting for Game " + result.entry_game_number + ". No QChase charge yet."
+          : result && result.qchase_charged_on_rejoin
+            ? person.name + " rejoined Game " + result.entry_game_number + " and was charged " + money(result.entry_charge_inr) + "."
+            : person.name + " rejoined the table."));
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
