@@ -2386,18 +2386,31 @@ async function updateSessionPerson(req,res,sessionId,personId){
   let rejoinCharge=null;
   let rejoinGameNumber=null;
   if(action==="REJOIN" && session?.game_type==="QCHASE_RUMMY" && session?.payment_rule==="PER_PLAYER"){
-    const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
-    const rate=money(rule?.rate_inr);
-    if(!(rate>0)) return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
-    rejoinGameNumber=await qchaseNextGameNumber(supabase,sessionId);
-    rejoinCharge=await ensureQchasePrepaidEntryCharge(supabase,{
-      sessionId,
-      person:data,
-      gameNumber:rejoinGameNumber,
-      rate,
-      staffId:auth.staff_id,
-      reason:"REJOIN",
-    });
+    try {
+      const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
+      const rate=money(rule?.rate_inr);
+      if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
+      rejoinGameNumber=await qchaseNextGameNumber(supabase,sessionId);
+      rejoinCharge=await ensureQchasePrepaidEntryCharge(supabase,{
+        sessionId,
+        person:data,
+        gameNumber:rejoinGameNumber,
+        rate,
+        staffId:auth.staff_id,
+        reason:"REJOIN",
+      });
+    } catch (chargeError) {
+      await supabase.from("snooker_session_people").update({
+        status: person.status,
+        left_at: person.left_at,
+        accumulated_seconds: person.accumulated_seconds,
+        timer_running: person.timer_running,
+        timer_started_at: person.timer_started_at,
+        updated_at: new Date().toISOString(),
+        updated_by: auth.staff_id,
+      }).eq("id",personId);
+      throw chargeError;
+    }
   }
   try {
     await rememberCustomer(supabase, { name: data.name, phone: data.phone, isMember: data.is_member, source: "player_update" });
