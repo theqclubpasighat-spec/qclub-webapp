@@ -228,8 +228,9 @@ const CSS = [
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
   ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}",
   ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
-  "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
-  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}}"
+  ".ql-table-card{min-height:222px;display:flex;flex-direction:column}.ql-table-card.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-table-card.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}.ql-table-card .ql-table-open-hint{margin-top:auto;padding-top:14px;color:#79e7aa;font-size:12px;font-weight:850}.ql-player-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-player-card{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-width:0}.ql-club-tab-card{cursor:pointer;padding:12px;min-height:118px}.ql-club-tab-card:hover{border-color:#4c8d69}.ql-compact-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
+  "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-player-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
+  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-player-grid,.ql-compact-stat{grid-template-columns:1fr}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}}"
 ].join("");
 
 export default function QclubLedgerPage() {
@@ -259,6 +260,8 @@ export default function QclubLedgerPage() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedFnbPersonId, setSelectedFnbPersonId] = useState("");
   const [gameEntry, setGameEntry] = useState(null);
+  const [tableViewSessionId, setTableViewSessionId] = useState("");
+  const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
   const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
@@ -780,6 +783,21 @@ export default function QclubLedgerPage() {
     : null;
   const playerAccountPerson = playerAccountView
     ? ((((sessionDetails[playerAccountView.sessionId] || {}).people) || []).find(function(person) { return person.person_id === playerAccountView.personId; }) || null)
+    : null;
+  const tableViewSession = tableViewSessionId
+    ? sessions.find(function(row) { return row.session_id === tableViewSessionId; }) || null
+    : null;
+  const tableViewDetail = tableViewSession
+    ? (sessionDetails[tableViewSession.session_id] || tableViewSession)
+    : null;
+  const tableViewTable = tableViewSession
+    ? tables.find(function(row) { return row.table_id === tableViewSession.table_id; }) || null
+    : null;
+  const tableViewRule = tableViewSession
+    ? rules.find(function(row) { return row.game_type === tableViewSession.game_type; }) || null
+    : null;
+  const clubTabView = clubTabViewCustomerId
+    ? playerTabs.find(function(row) { return row.customer_id === clubTabViewCustomerId; }) || null
     : null;
 
   const sellableCatalogue = useMemo(function() {
@@ -1366,8 +1384,9 @@ export default function QclubLedgerPage() {
       setCashTendered(Number(bill.due_inr || 0).toFixed(2));
       setUpiAmount(Number(bill.due_inr || 0).toFixed(2));
       setPaymentPhone(String(bill.customer_phone || "").replace(/\D/g,"").slice(-10));
+      setClubTabViewCustomerId("");
       setTab("ledger");
-      flash(playerTab.name + " club tab finalized. Charges from every table are on one bill.");
+      flash(playerTab.name + " current charges moved to one bill. Their Club Tab can continue receiving new charges.");
       runInBackground(refreshBillingOverview());
       runInBackground(refreshLiveState());
     } catch (error) { flash(error.message || "Unable to finalize club tab.", true); }
@@ -2436,7 +2455,7 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{fnbTabs.length}</strong><div className="ql-muted">{fnbTabs.length ? "Open customer tabs" : "None open"}</div></div>
+              <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{playerTabs.length}</strong><div className="ql-muted">{playerTabs.length ? "Player accounts still open / active" : "None open"}</div></div>
             </div>
             <div className="ql-section">Open Club Tabs</div>
             {playerTabs.length ? (
@@ -2444,17 +2463,35 @@ export default function QclubLedgerPage() {
                 {playerTabs.map(function(playerTab) {
                   const locations=(playerTab.active_locations || []).map(function(x){ return String(x.table_id || "").replace("table_","T") + " " + String(x.game_type || "").replaceAll("_"," "); }).join(" • ");
                   return (
-                    <div className="ql-card" key={playerTab.customer_id}>
-                      <div className="ql-space"><div><h3>{playerTab.name}</h3><div className="ql-muted">{locations || "In club • not currently playing"}</div></div><strong>{money(playerTab.current_due_inr)}</strong></div>
-                      <div className="ql-muted" style={{ marginTop:8 }}>F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier billed due {money(playerTab.billed_due_inr)}</div>
-                      <div className="ql-row" style={{ marginTop:10 }}>
-                        {Number(playerTab.unbilled_inr || 0) > 0 ? <button className="ql-btn primary" onClick={function(){ finalizeClubTab(playerTab); }}>Pay / Close Tab</button> : <span className="ql-badge gold">Existing bill due</span>}
+                    <div
+                      className="ql-card ql-club-tab-card"
+                      key={playerTab.customer_id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={function() { setClubTabViewCustomerId(playerTab.customer_id); }}
+                      onKeyDown={function(event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setClubTabViewCustomerId(playerTab.customer_id); } }}
+                    >
+                      <div className="ql-space">
+                        <div style={{ minWidth: 0 }}>
+                          <h3>{playerTab.name}</h3>
+                          <div className="ql-muted">{locations || "In club • not currently playing"}</div>
+                        </div>
+                        <strong>{money(playerTab.current_due_inr)}</strong>
+                      </div>
+                      <div className="ql-muted" style={{ marginTop:8 }}>
+                        F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier due {money(playerTab.billed_due_inr)}
+                      </div>
+                      <div className="ql-row" style={{ marginTop: 9 }}>
+                        {(playerTab.active_locations || []).length ? <span className="ql-badge good">PLAYING</span> : <span className="ql-badge">TAB OPEN</span>}
+                        {Number(playerTab.unbilled_inr || 0) > 0 ? <span className="ql-badge gold">NEW {money(playerTab.unbilled_inr)}</span> : null}
+                        <span className="ql-muted">Tap to view / settle</span>
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open Club Tabs.</div>}
+
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
@@ -2464,9 +2501,18 @@ export default function QclubLedgerPage() {
                 const games = (detail && detail.games) || [];
                 const fnb = (detail && detail.fnb_lines) || [];
                 const liveFnb = fnb.filter(function(line) { return line.status !== "VOIDED"; }).reduce(function(sum, line) { return sum + Number(line.line_total_inr || 0); }, 0);
-                const gameTotal = games.filter(function(game) { return game.status !== "VOIDED"; }).reduce(function(sum, game) { return sum + Number(game.calculated_charge_inr || 0); }, 0);
+                const people = (detail && detail.people) || [];
+                const activePeople = people.filter(function(person) { return person.status === "ACTIVE"; });
+                const playerDue = people.reduce(function(sum, person) { return sum + Number(person.current_due_inr || 0); }, 0);
                 return (
-                  <div className="ql-card" key={table.table_id}>
+                  <div
+                    className={"ql-card ql-table-card " + (session ? "clickable" : "")}
+                    key={table.table_id}
+                    role={session ? "button" : undefined}
+                    tabIndex={session ? 0 : undefined}
+                    onClick={session ? function() { setTableViewSessionId(session.session_id); } : undefined}
+                    onKeyDown={session ? function(event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setTableViewSessionId(session.session_id); } } : undefined}
+                  >
                     <div className="ql-space">
                       <div>
                         <h3>Table {table.table_no} — {table.display_name}</h3>
@@ -2481,7 +2527,7 @@ export default function QclubLedgerPage() {
                     {!session ? (
                       <>
                         <div className="ql-muted" style={{ margin: "16px 0" }}>Ready for a new server-authoritative session.</div>
-                        <button className="ql-btn primary" onClick={function() { openStart(table); }}>+ Enter Customer in Ledger</button>
+                        <button className="ql-btn primary" onClick={function(event) { event.stopPropagation(); openStart(table); }}>+ Enter Customer in Ledger</button>
                       </>
                     ) : (
                       <>
@@ -2490,131 +2536,28 @@ export default function QclubLedgerPage() {
                           <span className="ql-badge">{(rule && rule.display_name) || session.game_type}</span>
                           {session.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{session.match_format || "FLEX"} • {String(session.payment_rule || "").replaceAll("_"," ")}</span> : null}
                           <span className="ql-badge">Games {games.filter(function(g) { return g.status !== "VOIDED"; }).length}</span>
-                          <span className="ql-badge">F&B {money(liveFnb)}</span>
                         </div>
-                        {session.payment_rule === "HOURLY_SHARED" ? (() => {
-                          const people = (detail && detail.people) || [];
-                          const activeCount = people.filter(function(person) { return person.status === "ACTIVE"; }).length;
-                          const liveShare = sharedHourlyLiveShare(session, people);
-                          return (
-                            <div className="ql-line" style={{ marginTop: 10 }}>
-                              <strong>Hourly Shared</strong>
-                              <div className="ql-muted">
-                                Table {money(session.shared_hourly_rate_inr)}/hr • {activeCount} active player{activeCount === 1 ? "" : "s"} • current slice ≈ {money(liveShare)} each.
-                                Roster changes automatically close the old slice and start a new equal split.
+                        {session.account_mode === "INDIVIDUAL" ? (
+                          <div style={{ marginTop: 12 }}>
+                            <div className="ql-space">
+                              <div>
+                                <strong>{activePeople.length} active player{activePeople.length === 1 ? "" : "s"}</strong>
+                                <div className="ql-muted">{people.length} player account{people.length === 1 ? "" : "s"} in this session</div>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <strong>{money(playerDue)}</strong>
+                                <div className="ql-muted">session player due</div>
                               </div>
                             </div>
-                          );
-                        })() : null}
-
-                        {session.account_mode === "INDIVIDUAL" ? (
-                          <>
-                            {session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? (() => {
-                              const frameSeconds = currentLoserPaysFrameSeconds(detail, liveClock);
-                              return (
-                                <div className="ql-line" style={{ marginTop: 10 }}>
-                                  <div className="ql-space">
-                                    <div>
-                                      <strong>FRAME TIMER • {clockLabel(frameSeconds)}</strong>
-                                      <div className="ql-muted">Only active table time counts. Pause stops this timer. When the frame ends, tap the winner; the loser is charged automatically.</div>
-                                    </div>
-                                    <div style={{ textAlign: "right" }}>
-                                      <div className="ql-muted">Member {money(table.member_price_per_hour_inr)}/hr</div>
-                                      <div className="ql-muted">Walk-in {money(table.price_per_hour_inr)}/hr</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })() : null}
-                            <div className="ql-list" style={{ marginTop: 10 }}>
-                              {((detail && detail.people) || []).map(function(person) {
-                                return (
-                                  <div className="ql-line" key={person.person_id}>
-                                    <div className="ql-space">
-                                      <div>
-                                        <strong>{person.name}</strong>
-                                        {person.team_no ? <span className="ql-badge" style={{ marginLeft: 7 }}>TEAM {person.team_no}</span> : null}
-                                        <span className={"ql-badge " + (person.is_member ? "gold" : "")} style={{ marginLeft: 7 }}>{person.is_member ? "MEMBER" : "WALK-IN"}</span>
-                                        <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : person.status === "SETTLED" ? "gold" : "")} style={{ marginLeft: 7 }}>{person.status}</span>
-                                        <div className="ql-muted">
-                                          Game {money(person.game_charges_inr)} • F&B {money(person.fnb_charges_inr)} • Table {money(person.table_charges_inr)}
-                                        </div>
-                                        {session.payment_rule === "HOURLY_SHARED" && person.status === "ACTIVE" ? (
-                                          <div className="ql-muted">
-                                            Running shared slice ≈ {money(sharedHourlyLiveShare(session, (detail && detail.people) || []))} • freezes when this player leaves
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                      <div style={{ textAlign: "right" }}>
-                                        <strong>{money(person.current_due_inr)}</strong>
-                                        <div className="ql-muted">current due</div>
-                                      </div>
-                                    </div>
-                                    {(person.account_entries || []).length ? (
-                                      <div style={{ marginTop: 9 }}>
-                                        <div className="ql-muted" style={{ marginBottom: 5 }}>Recent account activity</div>
-                                        {(person.account_entries || []).slice(-3).reverse().map(function(entry) {
-                                          return (
-                                            <div className="ql-space" key={entry.charge_id} style={{ gap: 8, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
-                                              <div style={{ minWidth: 0 }}>
-                                                <span className="ql-muted" style={{ marginRight: 7 }}>
-                                                  {entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-                                                </span>
-                                                <span>{entry.description}</span>
-                                              </div>
-                                              <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                                                <strong>{money(entry.amount_inr)}</strong>
-                                                <span className={"ql-badge " + (entry.settlement_status === "PAID" ? "good" : entry.settlement_status === "BILLED" ? "gold" : "")} style={{ marginLeft: 6 }}>
-                                                  {entry.settlement_status}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    ) : <div className="ql-muted" style={{ marginTop: 8 }}>No charges yet.</div>}
-                                    <div className="ql-row" style={{ marginTop: 8 }}>
-                                      <button className="ql-btn" onClick={function() { setPlayerAccountView({ sessionId: session.session_id, personId: person.person_id }); }}>View Account</button>
-                                      <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(person.person_id); setTab("fnb"); }}>+ F&B</button>
-                                      <button className="ql-btn" onClick={function() { editSessionPerson(session, person); }}>Edit</button>
-                                      {person.status === "ACTIVE" ? (
-                                        session.payment_rule === "HOURLY_SHARED" ? (
-                                          <>
-                                            <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave • Keep Tab Open</button>
-                                            <button className="ql-btn primary" onClick={function() { settleAndLeave(session, person); }}>Settle & Leave</button>
-                                          </>
-                                        ) : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "LEAVE"); }}>Leave Game/Table</button>
-                                      ) : <button className="ql-btn" onClick={function() { setPersonPresence(session, person, "REJOIN"); }}>Rejoin</button>}
-                                      {Number(person.current_due_inr || 0) > 0
-                                        ? <button className="ql-btn primary" onClick={function() { finalizePerson(session, person); }}>Pay {money(person.current_due_inr)}</button>
-                                        : <span className="ql-badge good">PAID UP</span>}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="ql-row" style={{ marginTop: 12 }}>
-                              <button className="ql-btn" onClick={function() { joinPlayer(session); }}>+ Join Player</button>
-                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>{session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER" ? "₹ Start Next Game" : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button> : null}
-                              {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
-                              {session.status === "ACTIVE" && ((rule && rule.timer_required) || session.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
-                              {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
-                              {session.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(session.session_id, "END"); }}>End Table</button> : <button className="ql-btn primary" onClick={function() { patchSession(session.session_id, "CLOSE"); }}>Close Table</button>}
-                            </div>
-                          </>
+                            <div className="ql-muted" style={{ marginTop: 8 }}>F&B on table {money(liveFnb)}</div>
+                          </div>
                         ) : (
-                          <>
-                            <div><strong>{session.customer_name || "Guest"}</strong> {session.is_member ? <span className="ql-badge gold">MEMBER</span> : <span className="ql-badge">NON-MEMBER</span>}</div>
+                          <div style={{ marginTop: 12 }}>
+                            <strong>{session.customer_name || "Guest"}</strong>
                             <div className="ql-muted">{session.customer_phone || "No phone"} • {elapsedLabel(session)}</div>
-                            <div className="ql-row" style={{ marginTop: 12 }}>
-                              {rule && rule.billing_mode === "PER_PLAYER_PER_GAME" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>✓ Game Complete</button> : null}
-                              {session.status === "ACTIVE" && rule && rule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
-                              {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
-                              <button className="ql-btn" onClick={function() { setSelectedSessionId(session.session_id); setSelectedFnbPersonId(""); setTab("fnb"); }}>+ F&B</button>
-                              <button className="ql-btn primary" onClick={function() { finalizeBill(session); }}>Settle & Pay</button>
-                            </div>
-                          </>
+                          </div>
                         )}
+                        <div className="ql-table-open-hint">Tap table to open players & controls →</div>
                       </>
                     )}
                   </div>
@@ -3561,12 +3504,196 @@ export default function QclubLedgerPage() {
         ) : null}
       </div>
 
+      {clubTabView ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setClubTabViewCustomerId(""); }}>
+          <div className="ql-modal" style={{ maxWidth: 760 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>{clubTabView.name} — Club Tab</h3>
+                <div className="ql-muted">One running customer account across tables. Leaving a table does not close this tab.</div>
+              </div>
+              <button className="ql-btn ghost" aria-label="Close Club Tab popup" onClick={function() { setClubTabViewCustomerId(""); }}>✕</button>
+            </div>
+
+            <div className="ql-row" style={{ marginTop: 12 }}>
+              {(clubTabView.active_locations || []).length ? (clubTabView.active_locations || []).map(function(location) {
+                return <span className="ql-badge good" key={location.session_id}>{String(location.table_id || "").replace("table_","T")} • {String(location.game_type || "").replaceAll("_"," ")}</span>;
+              }) : <span className="ql-badge">NOT CURRENTLY PLAYING</span>}
+            </div>
+
+            <div className="ql-compact-stat" style={{ marginTop: 14 }}>
+              <div className="ql-stat"><span className="ql-muted">CURRENT DUE</span><strong>{money(clubTabView.current_due_inr)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">NEW / UNBILLED</span><strong>{money(clubTabView.unbilled_inr)}</strong><div className="ql-muted">F&B {money(clubTabView.fnb_unbilled_inr)} • Games/Table {money(clubTabView.player_unbilled_inr)}</div></div>
+              <div className="ql-stat"><span className="ql-muted">EARLIER BILLED DUE</span><strong>{money(clubTabView.billed_due_inr)}</strong></div>
+            </div>
+
+            <div className="ql-line" style={{ marginTop: 14 }}>
+              <strong>Keep the Club Tab open as long as needed.</strong>
+              <div className="ql-muted" style={{ marginTop: 4 }}>
+                The player may leave one table, move to another table, order F&B, and settle later. Creating a bill for the current charges does not prevent future charges from continuing on the player account.
+              </div>
+            </div>
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              {Number(clubTabView.billed_due_inr || 0) > 0 ? (
+                <button className="ql-btn" onClick={function() {
+                  setLedgerSearch(clubTabView.name || "");
+                  setClubTabViewCustomerId("");
+                  setTab("ledger");
+                }}>Open Existing Bill</button>
+              ) : null}
+              {Number(clubTabView.unbilled_inr || 0) > 0 ? (
+                <button className="ql-btn primary" disabled={busy} onClick={function() { finalizeClubTab(clubTabView); }}>Settle Current Charges</button>
+              ) : null}
+              <button className="ql-btn ghost" onClick={function() { setClubTabViewCustomerId(""); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tableViewSession && tableViewDetail && tableViewTable ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setTableViewSessionId(""); }}>
+          <div className="ql-modal" style={{ maxWidth: 1120 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>Table {tableViewTable.table_no} — {tableViewTable.display_name}</h3>
+                <div className="ql-muted">{String(tableViewTable.table_type || "").replaceAll("_"," ")} • {tableViewSession.status}</div>
+              </div>
+              <button className="ql-btn ghost" aria-label="Close table popup" onClick={function() { setTableViewSessionId(""); }}>✕</button>
+            </div>
+
+            <div className="ql-row" style={{ marginTop: 12 }}>
+              <span className="ql-badge">{(tableViewRule && tableViewRule.display_name) || tableViewSession.game_type}</span>
+              {tableViewSession.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{tableViewSession.match_format || "FLEX"} • {String(tableViewSession.payment_rule || "").replaceAll("_"," ")}</span> : null}
+              <span className={"ql-table-status " + (tableViewSession.status === "PAUSED" ? "pause" : "busy")}>{tableViewSession.status}</span>
+            </div>
+
+            {tableViewSession.payment_rule === "HOURLY_SHARED" ? (() => {
+              const people = tableViewDetail.people || [];
+              const activeCount = people.filter(function(person) { return person.status === "ACTIVE"; }).length;
+              return (
+                <div className="ql-line" style={{ marginTop: 12 }}>
+                  <strong>Hourly Shared</strong>
+                  <div className="ql-muted">Table {money(tableViewSession.shared_hourly_rate_inr)}/hr • {activeCount} active player{activeCount === 1 ? "" : "s"} • current slice ≈ {money(sharedHourlyLiveShare(tableViewSession, people))} each.</div>
+                </div>
+              );
+            })() : null}
+
+            {tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS" ? (
+              <div className="ql-line" style={{ marginTop: 12 }}>
+                <div className="ql-space">
+                  <div><strong>FRAME TIMER • {clockLabel(currentLoserPaysFrameSeconds(tableViewDetail, liveClock))}</strong><div className="ql-muted">Paused time is excluded. Tap Complete Frame and select the winner.</div></div>
+                  <div style={{ textAlign: "right" }}><div className="ql-muted">Member {money(tableViewTable.member_price_per_hour_inr)}/hr</div><div className="ql-muted">Walk-in {money(tableViewTable.price_per_hour_inr)}/hr</div></div>
+                </div>
+              </div>
+            ) : null}
+
+            {tableViewSession.account_mode === "INDIVIDUAL" ? (
+              <>
+                <div className="ql-section">Players</div>
+                <div className="ql-player-grid">
+                  {(tableViewDetail.people || []).map(function(person) {
+                    return (
+                      <div className="ql-player-card" key={person.person_id}>
+                        <div className="ql-space">
+                          <div style={{ minWidth: 0 }}>
+                            <strong>{person.name}</strong>
+                            <div className="ql-row" style={{ marginTop: 6 }}>
+                              {person.team_no ? <span className="ql-badge">TEAM {person.team_no}</span> : null}
+                              <span className={"ql-badge " + (person.is_member ? "gold" : "")}>{person.is_member ? "MEMBER" : "WALK-IN"}</span>
+                              <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : person.status === "SETTLED" ? "gold" : "")}>{person.status}</span>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <strong>{money(person.current_due_inr)}</strong>
+                            <div className="ql-muted">due</div>
+                          </div>
+                        </div>
+
+                        <div className="ql-muted" style={{ marginTop: 10 }}>
+                          Game {money(person.game_charges_inr)} • F&B {money(person.fnb_charges_inr)} • Table {money(person.table_charges_inr)}
+                        </div>
+                        {tableViewSession.payment_rule === "HOURLY_SHARED" && person.status === "ACTIVE" ? (
+                          <div className="ql-muted" style={{ marginTop: 4 }}>Live shared slice ≈ {money(sharedHourlyLiveShare(tableViewSession, tableViewDetail.people || []))}</div>
+                        ) : null}
+
+                        <div className="ql-row" style={{ marginTop: 10 }}>
+                          <button className="ql-btn" onClick={function() {
+                            setTableViewSessionId("");
+                            setPlayerAccountView({ sessionId: tableViewSession.session_id, personId: person.person_id });
+                          }}>View</button>
+                          <button className="ql-btn" onClick={function() {
+                            setTableViewSessionId("");
+                            setSelectedSessionId(tableViewSession.session_id);
+                            setSelectedFnbPersonId(person.person_id);
+                            setTab("fnb");
+                          }}>+ F&B</button>
+                          <button className="ql-btn" onClick={function() { editSessionPerson(tableViewSession, person); }}>Edit</button>
+                        </div>
+                        <div className="ql-row" style={{ marginTop: 8 }}>
+                          {person.status === "ACTIVE" ? (
+                            <button className="ql-btn" onClick={function() { setPersonPresence(tableViewSession, person, "LEAVE"); }}>Leave Table • Keep Club Tab</button>
+                          ) : (
+                            <button className="ql-btn" onClick={function() { setPersonPresence(tableViewSession, person, "REJOIN"); }}>Rejoin</button>
+                          )}
+                          {Number(person.current_due_inr || 0) > 0 ? (
+                            <button className="ql-btn primary" onClick={function() {
+                              setTableViewSessionId("");
+                              finalizePerson(tableViewSession, person);
+                            }}>Pay {money(person.current_due_inr)}</button>
+                          ) : <span className="ql-badge good">PAID UP</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="ql-row" style={{ justifyContent: "space-between", marginTop: 16 }}>
+                  <div className="ql-row">
+                    <button className="ql-btn" onClick={function() { joinPlayer(tableViewSession); }}>+ Join Player</button>
+                    {tableViewSession.payment_rule !== "HOURLY" && tableViewSession.status !== "ENDED" ? (
+                      <button className="ql-btn gold" onClick={function() {
+                        setTableViewSessionId("");
+                        openGameEntry(tableViewSession);
+                      }}>{tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER" ? "₹ Start Next Game" : tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button>
+                    ) : null}
+                    {tableViewSession.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(tableViewSession); }}>Allocate Table Charge</button> : null}
+                  </div>
+                  <div className="ql-row">
+                    {tableViewSession.status === "ACTIVE" && ((tableViewRule && tableViewRule.timer_required) || tableViewSession.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "PAUSE"); }}>Pause</button> : null}
+                    {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
+                    {tableViewSession.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>End Table</button> : <button className="ql-btn primary" onClick={function() { setTableViewSessionId(""); patchSession(tableViewSession.session_id, "CLOSE"); }}>Close Table</button>}
+                    <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close</button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="ql-section">Customer</div>
+                <div className="ql-line">
+                  <strong>{tableViewSession.customer_name || "Guest"}</strong>
+                  <div className="ql-muted">{tableViewSession.customer_phone || "No phone"} • {elapsedLabel(tableViewSession)}</div>
+                </div>
+                <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+                  {tableViewRule && tableViewRule.billing_mode === "PER_PLAYER_PER_GAME" && tableViewSession.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { setTableViewSessionId(""); openGameEntry(tableViewSession); }}>✓ Game Complete</button> : null}
+                  {tableViewSession.status === "ACTIVE" && tableViewRule && tableViewRule.timer_required ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "PAUSE"); }}>Pause</button> : null}
+                  {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
+                  <button className="ql-btn" onClick={function() { setTableViewSessionId(""); setSelectedSessionId(tableViewSession.session_id); setSelectedFnbPersonId(""); setTab("fnb"); }}>+ F&B</button>
+                  <button className="ql-btn primary" onClick={function() { setTableViewSessionId(""); finalizeBill(tableViewSession); }}>Settle & Pay</button>
+                  <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {startTable ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setStartTable(null); }}>
           <div className="ql-modal" style={{ maxWidth: 820 }}>
             <div className="ql-space">
               <div><h3 style={{ margin: 0 }}>Start Table {startTable.table_no} — {startTable.display_name}</h3><div className="ql-muted">Individual player accounts • up to 6 players</div></div>
-              <button className="ql-btn ghost" onClick={function() { setStartTable(null); }}>✕</button>
+              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setStartTable(null); }}>✕</button>
             </div>
 
             <div className="ql-form-grid" style={{ marginTop: 15 }}>
@@ -3698,7 +3825,7 @@ export default function QclubLedgerPage() {
                   {" • "}{playerAccountPerson.status}
                 </div>
               </div>
-              <button className="ql-btn ghost" onClick={function() { setPlayerAccountView(null); }}>✕</button>
+              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setPlayerAccountView(null); }}>✕</button>
             </div>
 
             <div className="ql-grid" style={{ marginTop: 14 }}>
@@ -3789,7 +3916,7 @@ export default function QclubLedgerPage() {
                 <h3 style={{ margin: 0 }}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Start Next QChase / Rummy Game" : "Complete Frame / Game"}</h3>
                 <div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div>
               </div>
-              <button className="ql-btn ghost" onClick={function() { setGameEntry(null); }}>✕</button>
+              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setGameEntry(null); }}>✕</button>
             </div>
 
             <div className="ql-section">{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Who is starting this game?" : "Who played this game?"}</div>
@@ -3908,7 +4035,7 @@ export default function QclubLedgerPage() {
                 <div className="ql-pay-kicker">THE Q CLUB PASIGHAT</div>
                 <h2>UPI PAYMENT</h2>
               </div>
-              <button className="ql-btn ghost" onClick={function() { setShowUpiQrModal(false); }}>✕</button>
+              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setShowUpiQrModal(false); }}>✕</button>
             </div>
 
             <div className="ql-pay-amount">{money(upiOrder.amount_inr)}</div>
