@@ -2461,8 +2461,29 @@ alert(
     };
 
     saveDisplayState(tableKey, displaySnapshot);
+
+    if (!gameAccessToken) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch(`/api/snooker/v1/qchase/display/${tableKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${gameAccessToken}`,
+        },
+        body: JSON.stringify({ snapshot: displaySnapshot }),
+        signal: controller.signal,
+      }).catch(() => {
+        // Local scorer remains usable; the next state change will retry cloud TV sync.
+      });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [
     tableKey,
+    gameAccessToken,
     state.gameNo,
     state.createdAt,
     state.tableName,
