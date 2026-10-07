@@ -1057,9 +1057,34 @@ export default function QclubLedgerPage() {
   function openStart(table) {
     const options = allowedGames(table, rules);
     const gameType = (options[0] && options[0].game_type) || "NORMAL_SNOOKER";
+    setStartQrRequestId("");
     setStartTable(table);
     setMemberCheck(null);
     setStartForm(startDefaults(gameType));
+  }
+
+  function openQrStartRequest(request) {
+    const table = tables.find(function(row) { return row.table_id === request.table_id; });
+    if (!table) return flash("The requested table is unavailable.", true);
+    const options = allowedGames(table, rules);
+    let gameType = request.requested_game_type || ((options[0] && options[0].game_type) || "NORMAL_SNOOKER");
+    if (!options.some(function(rule) { return rule.game_type === gameType; })) gameType = (options[0] && options[0].game_type) || "NORMAL_SNOOKER";
+    const base = startDefaults(gameType);
+    const known = customers.find(function(customer) { return customer.customer_id === request.requested_customer_id || customer.id === request.requested_customer_id; }) || null;
+    base.players[0] = {
+      ...base.players[0],
+      name: String(known?.name || request.requested_name || "").toUpperCase(),
+      phone: known?.phone || request.requested_phone || "",
+      customerId: known?.customer_id || known?.id || request.requested_customer_id || null,
+      isMember: Boolean(known?.is_member),
+    };
+    base.isMember = Boolean(base.players[0].isMember);
+    setStartQrRequestId(request.request_id);
+    setStartTable(table);
+    setMemberCheck(null);
+    setStartForm(base);
+    setShowQrInbox(false);
+    flash("QR start request loaded. Confirm the game and starting roster, then tap Start Table.");
   }
 
   function changeStartGame(gameType) {
@@ -1170,10 +1195,12 @@ export default function QclubLedgerPage() {
           payment_rule: startForm.paymentRule,
           frame_rate_override_inr: null,
           people: players,
+          qr_request_id: startQrRequestId || null,
           idempotency_key: makeKey("session"),
         },
       });
       setStartTable(null);
+      setStartQrRequestId("");
       flash(startForm.gameType === "QCHASE_RUMMY" && startForm.paymentRule === "PER_PLAYER"
         ? "Table started. Game 1 entry charge was posted immediately to every starting player."
         : "Table started with individual player accounts.");
@@ -1234,6 +1261,64 @@ export default function QclubLedgerPage() {
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to update player.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewQrRequest(request, action) {
+    if (!request) return;
+    setBusy(true);
+    try {
+      if (action === "APPROVE") {
+        await protectedCall("qr/requests/" + request.request_id + "/approve", { method: "POST", body: {} });
+        flash(request.requested_name + " approved for " + String(request.request_type || "").replaceAll("_"," ").toLowerCase() + ".");
+      } else {
+        await protectedCall("qr/requests/" + request.request_id + "/reject", { method: "POST", body: {} });
+        flash(request.requested_name + " QR request rejected.");
+      }
+      await refreshLiveState();
+    } catch (error) {
+      if (error?.payload?.error === "USE_START_FORM") {
+        openQrStartRequest(request);
+      } else {
+        flash(error.message || "Unable to review QR request.", true);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewQrOrder(order, action) {
+    if (!order) return;
+    setBusy(true);
+    try {
+      await protectedCall("qr/orders/" + order.order_id + "/" + action.toLowerCase(), { method: "POST", body: {} });
+      flash(action === "ACCEPT" ? order.customer_name + " QR order accepted and added to their Club Tab." : action === "SERVED" ? order.customer_name + " order marked served." : order.customer_name + " QR order rejected.");
+      await refreshLiveState();
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to update QR order.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishQchaseGame(session) {
+    if (!session) return;
+    const gameNo = Number(session.qchase_game_number || 1);
+    const ok = window.confirm("Finish QChase/Rummy Game " + gameNo + "?\n\nThis freezes the game boundary. The table session stays open. The next game is charged only when it starts.");
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await protectedCall("sessions/" + session.session_id + "/games", {
+        method: "POST",
+        body: { qchase_action: "FINISH_CURRENT", idempotency_key: makeKey("qchase-finish-" + gameNo) },
+      });
+      flash("Game " + gameNo + " finished. Table remains active; start Game " + (gameNo + 1) + " when the next roster is ready.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to finish QChase/Rummy game.", true);
     } finally {
       setBusy(false);
     }
