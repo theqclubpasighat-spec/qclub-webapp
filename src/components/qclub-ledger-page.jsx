@@ -1554,6 +1554,8 @@ export default function QclubLedgerPage() {
     if (!gameEntry) return;
     const session = gameEntry.session;
     const people = gameEntry.people || [];
+    const currentGameNumber = Number(gameEntry.currentGameNumber || 1);
+    const continuousPerPlayerGame = ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(session.game_type) && session.payment_rule === "PER_PLAYER";
     let selectedIds = gameEntry.selectedIds || [];
     let loserIds = [];
     let winnerIds = [];
@@ -1593,17 +1595,19 @@ export default function QclubLedgerPage() {
         },
       });
       setGameEntry(null);
-      flash(session.game_type === "KITTY"
-        ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.")
-        : session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER"
-          ? "Next QChase/Rummy game started. Each selected player has been charged immediately; no charge waits for the game to finish."
-          : session.payment_rule === "HOURLY_SHARED"
-            ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players."
-            : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS"
-              ? "Frame recorded. Actual active frame time was charged to the loser at their member/non-member table rate. Next frame timer is now zero."
-              : session.payment_rule === "LOSER_PAYS"
-                ? "Frame recorded and charge posted to the loser(s)."
-                : "Game recorded to individual accounts.");
+      flash(continuousPerPlayerGame
+        ? "Game " + currentGameNumber + " recorded. Game " + (currentGameNumber + 1) + " is now in progress on the same table session."
+        : session.game_type === "KITTY"
+          ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.")
+          : session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER"
+            ? "Next QChase/Rummy game started. Each selected player has been charged immediately; no charge waits for the game to finish."
+            : session.payment_rule === "HOURLY_SHARED"
+              ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players."
+              : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS"
+                ? "Frame recorded. Actual active frame time was charged to the loser at their member/non-member table rate. Next frame timer is now zero."
+                : session.payment_rule === "LOSER_PAYS"
+                  ? "Frame recorded and charge posted to the loser(s)."
+                  : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
