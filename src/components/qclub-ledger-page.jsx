@@ -681,6 +681,32 @@ export default function QclubLedgerPage() {
   }, [auth, orderAlertsReady, armOrderAlertAudio]);
 
   useEffect(function() {
+    if (!token) return;
+    const fresh = (tableOrders || []).filter(function(row) {
+      return row && row.id && !seenOrderIdsRef.current.has(row.id);
+    });
+    if (!fresh.length) return;
+    fresh.forEach(function(row) { seenOrderIdsRef.current.add(row.id); });
+    setOrderAlertQueue(function(current) {
+      const existing = new Set((current || []).map(function(row) { return row.id; }));
+      return (current || []).concat(fresh.filter(function(row) { return !existing.has(row.id); }));
+    });
+    if (!playOrderAlertSound()) pendingOrderSoundRef.current = true;
+  }, [tableOrders, token, playOrderAlertSound]);
+
+  useEffect(function() {
+    const pendingIds = new Set((tableOrders || []).map(function(row) { return row.id; }));
+    setOrderAlertQueue(function(current) {
+      return (current || []).filter(function(row) { return pendingIds.has(row.id); });
+    });
+  }, [tableOrders]);
+
+  useEffect(function() {
+    if (!orderAlertsReady || !pendingOrderSoundRef.current || !orderAlertQueue.length) return;
+    if (playOrderAlertSound()) pendingOrderSoundRef.current = false;
+  }, [orderAlertsReady, orderAlertQueue.length, playOrderAlertSound]);
+
+  useEffect(function() {
     if (!token) return undefined;
     setLiveClock(Date.now());
     const timer = window.setInterval(function() { setLiveClock(Date.now()); }, 1000);
