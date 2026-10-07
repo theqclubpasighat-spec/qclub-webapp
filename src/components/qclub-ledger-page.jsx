@@ -4268,11 +4268,24 @@ export default function QclubLedgerPage() {
                 <div className="ql-row" style={{ justifyContent: "space-between", marginTop: 16 }}>
                   <div className="ql-row">
                     <button className="ql-btn" onClick={function() { joinPlayer(tableViewSession); }}>+ Join Player</button>
-                    {tableViewSession.payment_rule !== "HOURLY" && tableViewSession.status !== "ENDED" ? (
+                    {tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER" && tableViewSession.status !== "ENDED" ? (
+                      tableViewSession.qchase_game_state === "ACTIVE" ? (
+                        <button className="ql-btn gold" onClick={function() { finishQchaseGame(tableViewSession); }}>
+                          ✓ Finish Game {Number(tableViewSession.qchase_game_number || 1)}
+                        </button>
+                      ) : (
+                        <button className="ql-btn gold" onClick={function() {
+                          setTableViewSessionId("");
+                          openGameEntry(tableViewSession);
+                        }}>
+                          ₹ Start Game {Number(tableViewSession.qchase_game_number || 0) + 1}
+                        </button>
+                      )
+                    ) : tableViewSession.payment_rule !== "HOURLY" && tableViewSession.status !== "ENDED" ? (
                       <button className="ql-btn gold" onClick={function() {
                         setTableViewSessionId("");
                         openGameEntry(tableViewSession);
-                      }}>{tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER" ? "₹ Start Next Game" : tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button>
+                      }}>{tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button>
                     ) : null}
                     {tableViewSession.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(tableViewSession); }}>Allocate Table Charge</button> : null}
                   </div>
@@ -4532,17 +4545,17 @@ export default function QclubLedgerPage() {
           <div className="ql-modal" style={{ maxWidth: 720 }}>
             <div className="ql-space">
               <div>
-                <h3 style={{ margin: 0 }}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Start Next QChase / Rummy Game" : "Complete Frame / Game"}</h3>
+                <h3 style={{ margin: 0 }}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Start QChase / Rummy Game " + (Number(gameEntry.session.qchase_game_number || 0) + 1) : "Complete Frame / Game"}</h3>
                 <div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div>
               </div>
               <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setGameEntry(null); }}>✕</button>
             </div>
 
-            <div className="ql-section">{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Who is starting this game?" : "Who played this game?"}</div>
+            <div className="ql-section">{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Who is starting Game " + (Number(gameEntry.session.qchase_game_number || 0) + 1) + "?" : "Who played this game?"}</div>
             {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? (
               <div className="ql-line" style={{ marginBottom: 10 }}>
                 <strong>Charge first, then play.</strong>
-                <div className="ql-muted" style={{ marginTop: 4 }}>Each selected player is charged the per-player game rate now. The finish time does not affect the charge. A player who joins later is charged immediately on joining.</div>
+                <div className="ql-muted" style={{ marginTop: 4 }}>Each selected ACTIVE or WAITING player is charged now. Players who chose “Join next game” become ACTIVE here. A later arrival can still join the running game or wait for the following one.</div>
               </div>
             ) : null}
             <div className="ql-list">
@@ -4640,7 +4653,7 @@ export default function QclubLedgerPage() {
 
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setGameEntry(null); }}>Cancel</button>
-              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Charge & Start Game" : "Confirm Completed Game"}</button>
+              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Charge & Start Game " + (Number(gameEntry.session.qchase_game_number || 0) + 1) : "Confirm Completed Game"}</button>
             </div>
           </div>
         </div>
