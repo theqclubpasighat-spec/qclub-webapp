@@ -3029,6 +3029,9 @@ export default function QclubLedgerPage() {
                 const detail = session ? sessionDetails[session.session_id] || session : null;
                 const rule = rules.find(function(r) { return r.game_type === (session && session.game_type); });
                 const games = (detail && detail.games) || [];
+                const recordedGames = games.filter(function(game) { return game.status !== "VOIDED"; });
+                const continuousPerPlayerGame = Boolean(session && ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(session.game_type) && session.payment_rule === "PER_PLAYER");
+                const currentGameNumber = recordedGames.length + 1;
                 const fnb = (detail && detail.fnb_lines) || [];
                 const liveFnb = fnb.filter(function(line) { return line.status !== "VOIDED"; }).reduce(function(sum, line) { return sum + Number(line.line_total_inr || 0); }, 0);
                 const people = (detail && detail.people) || [];
@@ -3065,7 +3068,8 @@ export default function QclubLedgerPage() {
                         <div className="ql-row">
                           <span className="ql-badge">{(rule && rule.display_name) || session.game_type}</span>
                           {session.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{session.match_format || "FLEX"} • {String(session.payment_rule || "").replaceAll("_"," ")}</span> : null}
-                          <span className="ql-badge">Games {games.filter(function(g) { return g.status !== "VOIDED"; }).length}</span>
+                          <span className="ql-badge">Completed {recordedGames.length}</span>
+                          {continuousPerPlayerGame ? <span className="ql-badge gold">GAME {currentGameNumber} IN PROGRESS</span> : null}
                         </div>
                         {session.account_mode === "INDIVIDUAL" ? (
                           <div style={{ marginTop: 12 }}>
@@ -3087,6 +3091,30 @@ export default function QclubLedgerPage() {
                             <div className="ql-muted">{session.customer_phone || "No phone"} • {elapsedLabel(session)}</div>
                           </div>
                         )}
+                        {continuousPerPlayerGame ? (
+                          <div className="ql-line" style={{ marginTop: 12 }} onClick={function(event) { event.stopPropagation(); }}>
+                            <div className="ql-space">
+                              <div>
+                                <strong>GAME {currentGameNumber} IN PROGRESS</strong>
+                                <div className="ql-muted">
+                                  {recordedGames.length} completed • {(rule && rule.rate_inr != null) ? money(rule.rate_inr) + "/player/game" : "per-player billing"} • same table session stays open
+                                </div>
+                              </div>
+                              <span className="ql-badge gold">T{table.table_no}</span>
+                            </div>
+                            <button
+                              className="ql-btn gold"
+                              style={{ width: "100%", marginTop: 10 }}
+                              disabled={busy}
+                              onClick={function(event) {
+                                event.stopPropagation();
+                                openGameEntry(session);
+                              }}
+                            >
+                              ✓ FINISH GAME {currentGameNumber} → CONTINUE GAME {currentGameNumber + 1}
+                            </button>
+                          </div>
+                        ) : null}
                         <div className="ql-table-open-hint">Tap table to open players & controls →</div>
                       </>
                     )}
