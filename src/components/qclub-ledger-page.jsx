@@ -931,6 +931,12 @@ export default function QclubLedgerPage() {
     }) || null;
   }
 
+  function isReversedNameMatch(value, customerName) {
+    const typed = normalizeCustomerLookup(value).split(/\s+/).filter(Boolean);
+    const existing = normalizeCustomerLookup(customerName).split(/\s+/).filter(Boolean);
+    return typed.length === 2 && existing.length === 2 && typed[0] === existing[1] && typed[1] === existing[0];
+  }
+
   function renderCustomerMatches(value, onPick) {
     const matches = customerMatches(value, 5);
     const normalized = normalizeCustomerLookup(value);
@@ -938,15 +944,17 @@ export default function QclubLedgerPage() {
     return (
       <div className="ql-row" style={{ marginTop: 6, gap: 6 }}>
         {matches.map(function(customer) {
+          const reversed = isReversedNameMatch(value, customer.name);
           return (
             <button
               type="button"
-              className="ql-btn ghost"
+              className={reversed ? "ql-btn gold" : "ql-btn ghost"}
               key={customer.customer_id || customer.id}
               onClick={function() { onPick(customer); }}
               style={{ padding: "7px 9px" }}
+              title={reversed ? "Possible existing player with first/last name order reversed" : "Use existing player"}
             >
-              {customer.name}{customer.phone ? " • " + String(customer.phone).slice(-4) : ""}
+              {reversed ? "⚠ Possible existing: " : ""}{customer.name}{customer.phone ? " • " + String(customer.phone).slice(-4) : ""}{reversed ? " • Use Existing" : ""}
             </button>
           );
         })}
