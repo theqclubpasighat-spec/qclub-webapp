@@ -2636,7 +2636,7 @@ async function updateSession(req,res,sessionId){
     }
     patch.accumulated_seconds=elapsedSeconds(current,now);
     patch.timer_running=false;
-    patch.timer_started_at=null;
+    // snooker_sessions.timer_started_at is NOT NULL; keep its last timestamp as audit history.
     patch.status="FINALIZED";
     patch.ended_at=current.ended_at||now.toISOString();
 
@@ -2660,7 +2660,7 @@ async function updateSession(req,res,sessionId){
   }
   else if(action==="CLOSE"){
     patch.timer_running=false;
-    patch.timer_started_at=null;
+    // snooker_sessions.timer_started_at is NOT NULL; keep its last timestamp as audit history.
     patch.status="FINALIZED";
     patch.ended_at=current.ended_at||now.toISOString();
   }
