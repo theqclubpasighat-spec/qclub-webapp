@@ -417,6 +417,9 @@ export default function QclubLedgerPage() {
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setTableRequests([]);
     setTableOrders([]);
+    setOrderAlertQueue([]);
+    seenOrderIdsRef.current = new Set();
+    pendingOrderSoundRef.current = false;
     setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
