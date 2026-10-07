@@ -803,6 +803,9 @@ export default function QclubLedgerPage() {
   const todaySales = summary ? Number(summary.today_realized_sales_inr || 0) : todayBills.reduce(function(sum, bill) { return sum + Number(bill.paid_inr || 0); }, 0);
   const outstanding = summary ? Number(summary.outstanding_all_inr || 0) : bills.reduce(function(sum, bill) { return sum + Number(bill.due_inr || 0); }, 0);
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
+  const qrPendingRequestCount = (qrInbox.requests || []).filter(function(row) { return row.status === "PENDING"; }).length;
+  const qrPendingOrderCount = (qrInbox.orders || []).filter(function(row) { return row.status === "PENDING"; }).length;
+  const qrActionCount = qrPendingRequestCount + qrPendingOrderCount;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
   const selectedFnbTab = fnbTabs.find(function(row) { return row.tab_id === selectedFnbTabId; }) || null;
   const selectedFnbPerson = selectedSession && selectedSession.account_mode === "INDIVIDUAL"
@@ -2817,6 +2820,17 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
+              <div
+                className="ql-stat clickable"
+                role="button"
+                tabIndex={0}
+                onClick={function() { setShowQrInbox(true); }}
+                onKeyDown={function(event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setShowQrInbox(true); } }}
+              >
+                <span className="ql-muted">Table QR Requests</span>
+                <strong>{qrActionCount}</strong>
+                <div className="ql-muted">{qrPendingRequestCount} join/start • {qrPendingOrderCount} food order</div>
+              </div>
               <div
                 className={"ql-stat " + (playerTabs.length ? "clickable" : "")}
                 role={playerTabs.length ? "button" : undefined}
