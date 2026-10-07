@@ -4423,11 +4423,11 @@ export default function QclubLedgerPage() {
       ) : null}
 
       {startTable ? (
-        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setStartTable(null); }}>
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) { setStartTable(null); setStartQrRequestId(""); } }}>
           <div className="ql-modal" style={{ maxWidth: 820 }}>
             <div className="ql-space">
-              <div><h3 style={{ margin: 0 }}>Start Table {startTable.table_no} — {startTable.display_name}</h3><div className="ql-muted">Individual player accounts • up to 6 players</div></div>
-              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setStartTable(null); }}>✕</button>
+              <div><h3 style={{ margin: 0 }}>Start Table {startTable.table_no} — {startTable.display_name}</h3><div className="ql-muted">Individual player accounts • up to 6 players{startQrRequestId ? " • customer QR request loaded" : ""}</div></div>
+              <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setStartTable(null); setStartQrRequestId(""); }}>✕</button>
             </div>
 
             <div className="ql-form-grid" style={{ marginTop: 15 }}>
