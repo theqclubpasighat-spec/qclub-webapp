@@ -2074,7 +2074,8 @@ async function listSessions(req, res) {
     .limit(limit);
 
   if (scope === "active") {
-    query = query.in("status", ["ACTIVE", "PAUSED", "ENDED"]);
+    // An ended/finalized session no longer occupies the physical table.
+    query = query.in("status", ["ACTIVE", "PAUSED"]);
   } else if (scope === "open") {
     query = query.in("status", ["ACTIVE", "PAUSED"]);
   }
@@ -2501,26 +2502,82 @@ async function updateSession(req,res,sessionId){
   const auth=await requireAuth(req,res);if(!auth)return;
   const supabase=getSupabaseAdmin();const {data:current}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
   if(!current)return json(res,404,{ok:false,error:"SESSION_NOT_FOUND"});
-  const action=safeText(req.body?.action||"",50).toUpperCase(),patch={updated_by:auth.staff_id,updated_at:new Date().toISOString()};
+  const action=safeText(req.body?.action||"",50).toUpperCase();
+  const requestedStatus=safeText(req.body?.status||"",50).toUpperCase();
+  const patch={updated_by:auth.staff_id,updated_at:new Date().toISOString()};
   if(Array.isArray(req.body?.participant_ids))patch.participant_ids=req.body.participant_ids;
   if(Array.isArray(req.body?.participant_names))patch.participant_names=req.body.participant_names;
   if(req.body?.customer_name!==undefined)patch.customer_name=safeText(req.body.customer_name,160)||null;
   if(req.body?.customer_phone!==undefined)patch.customer_phone=normalizePhone(req.body.customer_phone)||null;
+
   const now=new Date();
-  if(current.payment_rule==="HOURLY_SHARED" && current.timer_running && (action==="PAUSE" || action==="END" || safeText(req.body?.status||"").toUpperCase()==="ENDED")){
+  const releaseIndividual=current.account_mode==="INDIVIDUAL" && (
+    action==="END" || action==="CLOSE" || requestedStatus==="ENDED" || requestedStatus==="FINALIZED"
+  );
+
+  if(current.status==="FINALIZED" && (action==="END" || action==="CLOSE")){
+    return json(res,200,{...sessionDto(current),table_available:true,club_tabs_preserved:true});
+  }
+
+  if(current.payment_rule==="HOURLY_SHARED" && current.timer_running && (action==="PAUSE" || releaseIndividual || action==="END")){
     await settleSharedHourlySlice(supabase,current,now,auth.staff_id,action==="PAUSE"?"TABLE_PAUSE":"TABLE_END");
     current.shared_hourly_last_at=now.toISOString();
   }
-  if(action==="PAUSE"&&current.timer_running){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="PAUSED";if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
-  else if(action==="RESUME"&&!current.timer_running){patch.timer_started_at=now.toISOString();patch.timer_running=true;patch.status="ACTIVE";if(current.payment_rule==="HOURLY_SHARED")patch.shared_hourly_last_at=now.toISOString();if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"RESUME",now);}
-  else if(action==="END"||safeText(req.body?.status||"").toUpperCase()==="ENDED"){patch.accumulated_seconds=elapsedSeconds(current,now);patch.timer_running=false;patch.status="ENDED";patch.ended_at=now.toISOString();if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);}
-  else if(action==="CLOSE" && current.account_mode==="INDIVIDUAL"){
-    const people=await individualSessionSnapshot(supabase,sessionId);
-    const due=people.filter(p=>number(p.current_due_inr)>0.009);
-    if(due.length)return json(res,409,{ok:false,error:"PLAYER_BALANCES_DUE",players:due.map(p=>({person_id:p.person_id,name:p.name,due_inr:p.current_due_inr}))});
-    patch.timer_running=false;patch.status="FINALIZED";patch.ended_at=current.ended_at||now.toISOString();
+
+  if(action==="PAUSE"&&current.timer_running){
+    patch.accumulated_seconds=elapsedSeconds(current,now);
+    patch.timer_running=false;
+    patch.status="PAUSED";
+    if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);
   }
-  const {data,error}=await supabase.from("snooker_sessions").update(patch).eq("id",sessionId).select("*").single();if(error)throw error;return json(res,200,sessionDto(data));
+  else if(action==="RESUME"&&!current.timer_running){
+    patch.timer_started_at=now.toISOString();
+    patch.timer_running=true;
+    patch.status="ACTIVE";
+    if(current.payment_rule==="HOURLY_SHARED")patch.shared_hourly_last_at=now.toISOString();
+    if(current.account_mode==="INDIVIDUAL")await syncActivePersonTimers(supabase,sessionId,"RESUME",now);
+  }
+  else if(releaseIndividual){
+    // Ending/closing the game releases the physical table immediately. Player balances
+    // are deliberately NOT required to be paid first; they remain on each Club Tab.
+    patch.accumulated_seconds=elapsedSeconds(current,now);
+    patch.timer_running=false;
+    patch.timer_started_at=null;
+    patch.status="FINALIZED";
+    patch.ended_at=current.ended_at||now.toISOString();
+
+    await syncActivePersonTimers(supabase,sessionId,"PAUSE",now);
+    const {error:peopleError}=await supabase.from("snooker_session_people").update({
+      status:"LEFT",
+      left_at:now.toISOString(),
+      timer_running:false,
+      timer_started_at:null,
+      updated_at:now.toISOString(),
+      updated_by:auth.staff_id,
+    }).eq("session_id",sessionId).eq("status","ACTIVE");
+    if(peopleError)throw peopleError;
+  }
+  else if(action==="END"||requestedStatus==="ENDED"){
+    // Legacy account sessions retain their historical END -> ENDED billing flow.
+    patch.accumulated_seconds=elapsedSeconds(current,now);
+    patch.timer_running=false;
+    patch.status="ENDED";
+    patch.ended_at=now.toISOString();
+  }
+  else if(action==="CLOSE"){
+    patch.timer_running=false;
+    patch.timer_started_at=null;
+    patch.status="FINALIZED";
+    patch.ended_at=current.ended_at||now.toISOString();
+  }
+
+  const {data,error}=await supabase.from("snooker_sessions").update(patch).eq("id",sessionId).select("*").single();
+  if(error)throw error;
+  return json(res,200,{
+    ...sessionDto(data),
+    table_available:data.status==="FINALIZED",
+    club_tabs_preserved:current.account_mode==="INDIVIDUAL"&&data.status==="FINALIZED",
+  });
 }
 async function recordGame(req,res,sessionId){
   const auth=await requireAuth(req,res);if(!auth)return;
