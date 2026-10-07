@@ -5007,22 +5007,44 @@ export function RummySnookerDisplayPage({
 
   useEffect(() => {
     document.body.classList.add("qchase-display-mode");
+    let disposed = false;
+    let inFlight = false;
 
-    function refresh() {
-      setSnapshot(loadDisplayState(tableKey));
+    function refreshLocal() {
+      const local = loadDisplayState(tableKey);
+      if (local && !disposed) setSnapshot((current) => {
+        const currentUpdated = Number(current?.cloudUpdatedAt || current?.updatedAt || 0);
+        const localUpdated = Number(local?.cloudUpdatedAt || local?.updatedAt || 0);
+        return localUpdated >= currentUpdated ? local : current;
+      });
     }
 
-    refresh();
+    async function refreshCloud() {
+      if (inFlight || disposed) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/snooker/v1/qchase/display/${tableKey}?v=${Date.now()}`, { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!disposed && response.ok && payload?.snapshot) setSnapshot(payload.snapshot);
+      } catch {
+        refreshLocal();
+      } finally {
+        inFlight = false;
+      }
+    }
 
-    window.addEventListener("storage", refresh);
-    window.addEventListener(`qclub-rummy-display-update-${tableKey}`, refresh);
+    refreshLocal();
+    refreshCloud();
 
-    const timer = setInterval(refresh, 1000);
+    window.addEventListener("storage", refreshLocal);
+    window.addEventListener(`qclub-rummy-display-update-${tableKey}`, refreshLocal);
+    const timer = setInterval(refreshCloud, 1000);
 
     return () => {
+      disposed = true;
       document.body.classList.remove("qchase-display-mode");
-      window.removeEventListener("storage", refresh);
-      window.removeEventListener(`qclub-rummy-display-update-${tableKey}`, refresh);
+      window.removeEventListener("storage", refreshLocal);
+      window.removeEventListener(`qclub-rummy-display-update-${tableKey}`, refreshLocal);
       clearInterval(timer);
     };
   }, [tableKey]);
