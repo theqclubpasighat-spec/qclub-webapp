@@ -4279,6 +4279,7 @@ export default function QclubLedgerPage() {
               <span className="ql-badge">{(tableViewRule && tableViewRule.display_name) || tableViewSession.game_type}</span>
               {tableViewSession.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{tableViewSession.match_format || "FLEX"} • {String(tableViewSession.payment_rule || "").replaceAll("_"," ")}</span> : null}
               <span className={"ql-table-status " + (tableViewSession.status === "PAUSED" ? "pause" : "busy")}>{tableViewSession.status}</span>
+              {tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER" ? <span className={"ql-badge " + (tableViewSession.qchase_game_state === "ACTIVE" ? "good" : "gold")}>GAME {Number(tableViewSession.qchase_game_number || 1)} • {tableViewSession.qchase_game_state || "ACTIVE"}</span> : null}
             </div>
 
             {tableViewSession.payment_rule === "HOURLY_SHARED" ? (() => {
@@ -4314,7 +4315,7 @@ export default function QclubLedgerPage() {
                             <div className="ql-row" style={{ marginTop: 6 }}>
                               {person.team_no ? <span className="ql-badge">TEAM {person.team_no}</span> : null}
                               <span className={"ql-badge " + (person.is_member ? "gold" : "")}>{person.is_member ? "MEMBER" : "WALK-IN"}</span>
-                              <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : person.status === "SETTLED" ? "gold" : "")}>{person.status}</span>
+                              <span className={"ql-badge " + (person.status === "ACTIVE" ? "good" : ["WAITING","SETTLED"].includes(person.status) ? "gold" : "")}>{person.status}</span>
                             </div>
                           </div>
                           <div style={{ textAlign: "right" }}>
@@ -4328,6 +4329,9 @@ export default function QclubLedgerPage() {
                         </div>
                         {tableViewSession.payment_rule === "HOURLY_SHARED" && person.status === "ACTIVE" ? (
                           <div className="ql-muted" style={{ marginTop: 4 }}>Live shared slice ≈ {money(sharedHourlyLiveShare(tableViewSession, tableViewDetail.people || []))}</div>
+                        ) : null}
+                        {person.status === "WAITING" && tableViewSession.game_type === "QCHASE_RUMMY" ? (
+                          <div className="ql-muted" style={{ marginTop: 4 }}>Waiting for Game {Number(tableViewSession.qchase_game_number || 0) + 1} • no next-game charge yet</div>
                         ) : null}
 
                         <div className="ql-row" style={{ marginTop: 10 }}>
@@ -4346,6 +4350,8 @@ export default function QclubLedgerPage() {
                         <div className="ql-row" style={{ marginTop: 8 }}>
                           {person.status === "ACTIVE" ? (
                             <button className="ql-btn" onClick={function() { setPersonPresence(tableViewSession, person, "LEAVE"); }}>Leave Table • Keep Club Tab</button>
+                          ) : person.status === "WAITING" ? (
+                            <button className="ql-btn" onClick={function() { setPersonPresence(tableViewSession, person, "LEAVE"); }}>Leave Waiting List</button>
                           ) : (
                             <button className="ql-btn" onClick={function() { setPersonPresence(tableViewSession, person, "REJOIN"); }}>Rejoin</button>
                           )}
