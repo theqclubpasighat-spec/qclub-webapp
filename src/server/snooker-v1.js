@@ -2498,6 +2498,95 @@ function elapsedSeconds(session, at = new Date()) {
   return Math.max(0, seconds);
 }
 
+async function settleIndividualHourlyOnRelease(supabase, session, staffId, at = new Date()) {
+  if (!session || session.account_mode !== "INDIVIDUAL" || session.payment_rule !== "HOURLY") {
+    return { total_inr: 0, added_inr: 0, allocations: [] };
+  }
+
+  const [{ data: table, error: tableError }, { data: people, error: peopleError }, { data: existing, error: existingError }] = await Promise.all([
+    supabase.from("snooker_tables").select("*").eq("id", session.table_id).maybeSingle(),
+    supabase.from("snooker_session_people").select("*").eq("session_id", session.id).order("joined_at"),
+    supabase.from("snooker_person_charges").select("*").eq("session_id", session.id).eq("charge_type", "TABLE").eq("status", "ACTIVE"),
+  ]);
+  if (tableError || peopleError || existingError) throw tableError || peopleError || existingError;
+
+  const seconds = elapsedSeconds(session, at);
+  const rate = money(session.is_member ? table?.member_price_per_hour_inr : table?.price_per_hour_inr);
+  if (!(rate > 0)) {
+    const err = new Error("Table hourly rate is not configured.");
+    err.status = 409;
+    err.code = "TABLE_RATE_NOT_CONFIGURED";
+    throw err;
+  }
+
+  const eligible = (people || []).map((person) => ({
+    person,
+    seconds: personElapsedSeconds(person, at),
+  })).filter((row) => row.seconds > 0);
+  if (!eligible.length || seconds <= 0) return { total_inr: 0, added_inr: 0, allocations: [] };
+
+  const targetTotal = money((seconds / 3600) * rate);
+  const existingByPerson = new Map();
+  let alreadyCharged = 0;
+  for (const charge of existing || []) {
+    const amount = money(charge.amount_inr);
+    alreadyCharged = money(alreadyCharged + amount);
+    existingByPerson.set(charge.person_id, money((existingByPerson.get(charge.person_id) || 0) + amount));
+  }
+  const remainingTotal = money(Math.max(0, targetTotal - alreadyCharged));
+  if (!(remainingTotal > 0.009)) return { total_inr: targetTotal, added_inr: 0, allocations: [] };
+
+  const weightTotal = eligible.reduce((sum, row) => sum + row.seconds, 0);
+  let desiredUsed = 0;
+  const deficits = eligible.map((row, index) => {
+    const desired = index === eligible.length - 1
+      ? money(targetTotal - desiredUsed)
+      : money(targetTotal * row.seconds / weightTotal);
+    desiredUsed = money(desiredUsed + desired);
+    const existingAmount = money(existingByPerson.get(row.person.id) || 0);
+    return {
+      person: row.person,
+      seconds: row.seconds,
+      desired,
+      existing: existingAmount,
+      deficit: money(Math.max(0, desired - existingAmount)),
+    };
+  });
+  const deficitTotal = money(deficits.reduce((sum, row) => sum + row.deficit, 0));
+  if (!(deficitTotal > 0.009)) return { total_inr: targetTotal, added_inr: 0, allocations: [] };
+
+  const allocations = [];
+  let added = 0;
+  const payable = deficits.filter((row) => row.deficit > 0.009);
+  for (let index = 0; index < payable.length; index++) {
+    const row = payable[index];
+    const amount = index === payable.length - 1
+      ? money(remainingTotal - added)
+      : money(remainingTotal * row.deficit / deficitTotal);
+    if (!(amount > 0.009)) continue;
+    added = money(added + amount);
+    const charge = await createPersonCharge(supabase, {
+      sessionId: session.id,
+      personId: row.person.id,
+      type: "TABLE",
+      referenceId: session.id,
+      description: "Table time — " + Math.max(1, Math.round(seconds / 60)) + " min • auto on table end",
+      amount,
+      staffId,
+      metadata: {
+        strategy: "BY_TIME",
+        auto_on_release: true,
+        hourly_rate_inr: rate,
+        elapsed_seconds: seconds,
+        person_elapsed_seconds: row.seconds,
+      },
+    });
+    allocations.push({ person_id: row.person.id, name: row.person.name, amount_inr: amount, charge_id: charge.id });
+  }
+
+  return { total_inr: targetTotal, added_inr: money(added), allocations };
+}
+
 async function updateSession(req,res,sessionId){
   const auth=await requireAuth(req,res);if(!auth)return;
   const supabase=getSupabaseAdmin();const {data:current}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
@@ -2540,6 +2629,11 @@ async function updateSession(req,res,sessionId){
   else if(releaseIndividual){
     // Ending/closing the game releases the physical table immediately. Player balances
     // are deliberately NOT required to be paid first; they remain on each Club Tab.
+    // Hourly individual sessions settle any remaining table-time delta before release,
+    // so staff cannot accidentally free a table without recording the time charge.
+    if(current.payment_rule==="HOURLY"){
+      await settleIndividualHourlyOnRelease(supabase,current,auth.staff_id,now);
+    }
     patch.accumulated_seconds=elapsedSeconds(current,now);
     patch.timer_running=false;
     patch.timer_started_at=null;
