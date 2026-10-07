@@ -1555,6 +1555,56 @@ export default function QclubLedgerPage() {
   }
 
 
+  async function advanceQchaseGame(session, runningGame) {
+    if (!session) return;
+    const detail = sessionDetails[session.session_id] || {};
+    const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
+    if (activePeople.length < 2 || activePeople.length > 6) {
+      return flash("QChase/Rummy needs 2 to 6 ACTIVE players before the next game can start.", true);
+    }
+    const recordedGames = (detail.games || []).filter(function(game) { return game.status !== "VOIDED"; });
+    const currentNumber = runningGame
+      ? Number(runningGame.game_number || 1)
+      : recordedGames.reduce(function(max, game) { return Math.max(max, Number(game.game_number || 0)); }, 0);
+    const nextNumber = currentNumber + 1;
+    const rule = rules.find(function(row) { return row.game_type === "QCHASE_RUMMY"; }) || {};
+    const rateLabel = rule.rate_inr != null ? money(rule.rate_inr) : "the configured rate";
+    const names = activePeople.map(function(person) { return person.name; }).join(", ");
+    const ok = window.confirm(
+      runningGame
+        ? "Finish QChase/Rummy Game " + currentNumber + " and immediately start Game " + nextNumber + "?\n\n" +
+          "Game " + currentNumber + " is already charged. Game " + nextNumber + " will charge " + rateLabel + " to each ACTIVE player:\n" + names + "\n\n" +
+          "If someone is leaving, mark Leave Table before continuing."
+        : "Start QChase/Rummy Game " + nextNumber + "?\n\n" +
+          "This will charge " + rateLabel + " to each ACTIVE player:\n" + names
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await protectedCall("sessions/" + session.session_id + "/games", {
+        method: "POST",
+        body: {
+          qchase_action: runningGame ? "FINISH_AND_CONTINUE" : "START_NEXT",
+          idempotency_key: makeKey(runningGame ? "qchase-finish-continue" : "qchase-start-next"),
+        },
+      });
+      const started = result && (result.next_game || result);
+      const startedNumber = Number(started?.game_number || nextNumber);
+      const charged = Array.isArray(result?.charged_players) ? result.charged_players.length : activePeople.length;
+      flash(
+        runningGame
+          ? "Game " + currentNumber + " completed. Game " + startedNumber + " is now in progress. " + charged + " active player(s) charged for the new game."
+          : "Game " + startedNumber + " is now in progress. " + charged + " active player(s) charged."
+      );
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to continue QChase/Rummy.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
   function openGameEntry(session) {
     const detail = sessionDetails[session.session_id] || {};
     const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
@@ -3161,35 +3211,24 @@ export default function QclubLedgerPage() {
                                 <strong>{qchaseRunningGame ? "GAME " + qchaseNextGameNumber + " IN PROGRESS" : "READY FOR GAME " + qchaseNextGameNumber}</strong>
                                 <div className="ql-muted">
                                   {qchaseCompletedGames.length} completed • {(rule && rule.rate_inr != null) ? money(rule.rate_inr) + "/player/game" : "per-player billing"}
-                                  {qchaseRunningGame ? " • finish with FINAL LOCK in the QChase scorer" : " • choose active players for the next game"}
+                                  {qchaseRunningGame ? " • finish here and continue on the same table session" : " • start the next game here"}
                                 </div>
                               </div>
                               <span className="ql-badge gold">QCHASE</span>
                             </div>
-                            {qchaseRunningGame ? (
-                              <button
-                                className="ql-btn"
-                                style={{ width: "100%", marginTop: 10 }}
-                                onClick={function(event) {
-                                  event.stopPropagation();
-                                  window.open("/rummy-snooker-table-" + table.table_no, "_blank", "noopener,noreferrer");
-                                }}
-                              >
-                                OPEN QCHASE SCORER • GAME {qchaseNextGameNumber}
-                              </button>
-                            ) : (
-                              <button
-                                className="ql-btn gold"
-                                style={{ width: "100%", marginTop: 10 }}
-                                disabled={busy}
-                                onClick={function(event) {
-                                  event.stopPropagation();
-                                  openGameEntry(session);
-                                }}
-                              >
-                                ₹ START GAME {qchaseNextGameNumber}
-                              </button>
-                            )}
+                            <button
+                              className="ql-btn gold"
+                              style={{ width: "100%", marginTop: 10 }}
+                              disabled={busy}
+                              onClick={function(event) {
+                                event.stopPropagation();
+                                advanceQchaseGame(session, qchaseRunningGame);
+                              }}
+                            >
+                              {qchaseRunningGame
+                                ? "✓ FINISH GAME " + qchaseNextGameNumber + " → CONTINUE GAME " + (qchaseNextGameNumber + 1)
+                                : "₹ START GAME " + qchaseNextGameNumber}
+                            </button>
                           </div>
                         ) : null}
                         <div className="ql-table-open-hint">Tap table to open players & controls →</div>
@@ -4518,7 +4557,7 @@ export default function QclubLedgerPage() {
                         <strong>{tableViewQchaseRunningGame ? "GAME " + tableViewQchaseNextGameNumber + " IN PROGRESS" : "READY FOR GAME " + tableViewQchaseNextGameNumber}</strong>
                         <div className="ql-muted">
                           {tableViewQchaseCompletedGames.length} completed • {(tableViewRule && tableViewRule.rate_inr != null) ? money(tableViewRule.rate_inr) + "/player/game" : "per-player billing"}
-                          {tableViewQchaseRunningGame ? " • Final Lock in the scorer completes this game" : " • start the next game without ending the table session"}
+                          {tableViewQchaseRunningGame ? " • finish and continue directly from this Ledger screen" : " • start the next game without ending the table session"}
                         </div>
                       </div>
                       <span className="ql-badge gold">QCHASE / RUMMY</span>
@@ -4588,13 +4627,17 @@ export default function QclubLedgerPage() {
                     <button className="ql-btn" onClick={function() { joinPlayer(tableViewSession); }}>+ Join Player</button>
                     {tableViewSession.payment_rule !== "HOURLY" && tableViewSession.status !== "ENDED" ? (
                       <button className="ql-btn gold" onClick={function() {
+                        if (tableViewQchasePerPlayer) {
+                          advanceQchaseGame(tableViewSession, tableViewQchaseRunningGame);
+                          return;
+                        }
                         setTableViewSessionId("");
                         openGameEntry(tableViewSession);
-                      }} disabled={busy || (tableViewQchasePerPlayer && Boolean(tableViewQchaseRunningGame))}>{tableViewContinuousPerPlayerGame
+                      }} disabled={busy}>{tableViewContinuousPerPlayerGame
                         ? "✓ FINISH GAME " + tableViewCurrentGameNumber + " → CONTINUE GAME " + (tableViewCurrentGameNumber + 1)
                         : tableViewQchasePerPlayer
                           ? (tableViewQchaseRunningGame
-                              ? "GAME " + tableViewQchaseNextGameNumber + " RUNNING • FINAL LOCK IN SCORER"
+                              ? "✓ FINISH GAME " + tableViewQchaseNextGameNumber + " → CONTINUE GAME " + (tableViewQchaseNextGameNumber + 1)
                               : "₹ START GAME " + tableViewQchaseNextGameNumber)
                           : tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS"
                             ? "✓ Complete Frame"
