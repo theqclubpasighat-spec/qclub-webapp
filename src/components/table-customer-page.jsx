@@ -78,12 +78,14 @@ export default function TableCustomerPage(){
   }).catch(()=>setMenu([]));},[requestState?.request?.status]);
 
   async function submit(action){
+    const whatsapp=phone.replace(/\D/g,"").slice(-10);
     if(!name.trim()){setError("Enter your name.");return;}
+    if(whatsapp.length!==10){setError("Enter your 10-digit WhatsApp number.");return;}
     setBusy(true);setError("");
     try{
       const data=await requestJson("table-public/"+encodeURIComponent(tableKey)+"/request",{
         method:"POST",
-        body:JSON.stringify({name:name.trim(),phone:phone.replace(/\D/g,"").slice(-10),action,game_type:gameType})
+        body:JSON.stringify({name:name.trim(),phone:whatsapp,action,game_type:gameType})
       });
       const next={request_id:data.request_id,request_token:data.request_token};
       localStorage.setItem(storageKey(tableKey),JSON.stringify(next));
@@ -198,8 +200,9 @@ export default function TableCustomerPage(){
       {!req?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16}}>
         <label style={labelStyle}>Your name</label>
         <input value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="Player name" style={inputStyle}/>
-        <label style={labelStyle}>Mobile (optional)</label>
-        <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit mobile" style={inputStyle}/>
+        <label style={labelStyle}>WhatsApp number (required)</label>
+        <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" required aria-required="true" style={inputStyle}/>
+        <div style={{marginTop:6,color:"#91a69a",fontSize:12}}>Required for WhatsApp order updates, bills and payment links.</div>
         {state?.state==="AVAILABLE"?<>
           <label style={labelStyle}>What do you want to play?</label>
           <select value={gameType} onChange={e=>setGameType(e.target.value)} style={inputStyle}>{choices.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select>
