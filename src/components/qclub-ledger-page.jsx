@@ -3880,6 +3880,88 @@ export default function QclubLedgerPage() {
         ) : null}
       </div>
 
+      {showQrInbox ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setShowQrInbox(false); }}>
+          <div className="ql-modal" style={{ maxWidth: 1040 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>Table QR Requests & Orders</h3>
+                <div className="ql-muted">Customer scans do not start billing by themselves. Approve the player request or food order here.</div>
+              </div>
+              <button className="ql-btn ghost" aria-label="Close QR inbox" onClick={function() { setShowQrInbox(false); }}>✕</button>
+            </div>
+
+            <div className="ql-section">Player requests • {qrPendingRequestCount}</div>
+            <div className="ql-list">
+              {(qrInbox.requests || []).filter(function(row) { return row.status === "PENDING"; }).length ? (qrInbox.requests || []).filter(function(row) { return row.status === "PENDING"; }).map(function(request) {
+                const table = request.table || {};
+                return (
+                  <div className="ql-line" key={request.request_id}>
+                    <div className="ql-space" style={{ alignItems: "flex-start" }}>
+                      <div>
+                        <strong>{request.requested_name}</strong>
+                        <div className="ql-muted">Table {table.table_no || "?"} • {String(request.request_type || "").replaceAll("_"," ")}{request.target_game_number ? " • Game " + request.target_game_number : ""}</div>
+                        <div className="ql-muted">{request.requested_phone || "No mobile"} • {request.request_no}</div>
+                      </div>
+                      <span className="ql-badge gold">PENDING</span>
+                    </div>
+                    <div className="ql-row" style={{ marginTop: 10 }}>
+                      {request.request_type === "START" ? (
+                        <button className="ql-btn primary" disabled={busy} onClick={function() { openQrStartRequest(request); }}>Open Start Table Form</button>
+                      ) : (
+                        <button className="ql-btn primary" disabled={busy} onClick={function() { reviewQrRequest(request, "APPROVE"); }}>
+                          {request.request_type === "JOIN_NEXT" ? "Approve • Wait for Next Game" : request.request_type === "RECONNECT" ? "Approve Reconnect" : "Approve Join"}
+                        </button>
+                      )}
+                      <button className="ql-btn danger" disabled={busy} onClick={function() { reviewQrRequest(request, "REJECT"); }}>Reject</button>
+                    </div>
+                  </div>
+                );
+              }) : <div className="ql-empty">No player QR requests waiting.</div>}
+            </div>
+
+            <div className="ql-section">Customer F&B orders • {qrPendingOrderCount}</div>
+            <div className="ql-list">
+              {(qrInbox.orders || []).length ? (qrInbox.orders || []).map(function(order) {
+                const table = order.table || {};
+                return (
+                  <div className="ql-line" key={order.order_id}>
+                    <div className="ql-space" style={{ alignItems: "flex-start" }}>
+                      <div>
+                        <strong>{order.customer_name} • Table {table.table_no || "?"}</strong>
+                        <div className="ql-muted">{(order.lines || []).map(function(line) { return (line.name || "Item") + " × " + Number(line.quantity || 0); }).join(", ")}</div>
+                        <div className="ql-muted">{order.order_no}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <strong className="ql-price">{money(order.total_inr)}</strong>
+                        <div><span className={"ql-badge " + (order.status === "PENDING" ? "gold" : "good")}>{order.status}</span></div>
+                      </div>
+                    </div>
+                    <div className="ql-row" style={{ marginTop: 10 }}>
+                      {order.status === "PENDING" ? (
+                        <>
+                          <button className="ql-btn primary" disabled={busy} onClick={function() { reviewQrOrder(order, "ACCEPT"); }}>Accept • Add to Club Tab</button>
+                          <button className="ql-btn danger" disabled={busy} onClick={function() { reviewQrOrder(order, "REJECT"); }}>Reject</button>
+                        </>
+                      ) : order.status === "ACCEPTED" ? (
+                        <button className="ql-btn gold" disabled={busy} onClick={function() { reviewQrOrder(order, "SERVED"); }}>Mark Served</button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              }) : <div className="ql-empty">No customer QR food/drink orders waiting.</div>}
+            </div>
+
+            <div className="ql-section">Permanent table QR destinations</div>
+            <div className="ql-row">
+              {[1,2,3,4].map(function(no) {
+                return <a key={no} className="ql-btn ghost" href={"/table/T" + no} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Open T{no} QR page</a>;
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {openClubTabsView ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setOpenClubTabsView(false); }}>
           <div className="ql-modal" style={{ maxWidth: 1120 }}>
