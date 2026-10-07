@@ -1322,6 +1322,25 @@ function normalizeCustomerName(value = "") {
   return canonicalCustomerName(value).toLowerCase();
 }
 
+const KNOWN_CUSTOMER_NAME_EQUIVALENTS = new Map([
+  ["wilson", "WILSON YOMSO"],
+  ["wilson pilot yomso", "WILSON YOMSO"],
+  ["yomso wilson", "WILSON YOMSO"],
+  ["wilson yomso", "WILSON YOMSO"],
+  ["kamin tali", "TALI KAMIN"],
+  ["tali kamin", "TALI KAMIN"],
+  ["tali kiron", "KIRON TALI"],
+  ["kiron tali", "KIRON TALI"],
+  ["kamin mize", "MIZE KAMIN"],
+  ["mize kamin", "MIZE KAMIN"],
+]);
+
+function confirmedCanonicalCustomerName(value = "") {
+  const clean = canonicalCustomerName(value);
+  const normalized = normalizeCustomerName(clean);
+  return KNOWN_CUSTOMER_NAME_EQUIVALENTS.get(normalized) || clean;
+}
+
 function customerDto(row) {
   return {
     customer_id: row.id,
@@ -1338,9 +1357,11 @@ function customerDto(row) {
 }
 
 async function rememberCustomer(supabase, { name, phone, isMember = false, memberTier = null, source = "qclub_ledger" } = {}) {
-  const cleanName = canonicalCustomerName(name || "");
-  if (!cleanName) return null;
+  const enteredName = canonicalCustomerName(name || "");
+  if (!enteredName) return null;
+  const cleanName = confirmedCanonicalCustomerName(enteredName);
   const normalizedName = normalizeCustomerName(cleanName);
+  const enteredNormalizedName = normalizeCustomerName(enteredName);
   const normalizedPhone = normalizePhone(phone || "") || null;
 
   // Merged/legacy names are resolved through an explicit alias map first.
@@ -1351,7 +1372,7 @@ async function rememberCustomer(supabase, { name, phone, isMember = false, membe
   const { data: alias, error: aliasError } = await supabase
     .from("snooker_customer_aliases")
     .select("customer_id")
-    .eq("normalized_alias", normalizedName)
+    .eq("normalized_alias", enteredNormalizedName)
     .maybeSingle();
   if (aliasError && aliasError.code !== "42P01") throw aliasError;
   if (alias?.customer_id) {
@@ -1379,9 +1400,10 @@ async function rememberCustomer(supabase, { name, phone, isMember = false, membe
 
   const now = new Date().toISOString();
   if (existing) {
+    const matchedByConfirmedEquivalent = enteredNormalizedName !== normalizedName;
     const patch = {
-      // An alias must never rename the canonical merged profile back to the alias.
-      name: matchedByAlias ? existing.name : cleanName,
+      // An alias or confirmed equivalent must never rename the canonical profile back.
+      name: (matchedByAlias || matchedByConfirmedEquivalent) ? existing.name : cleanName,
       phone: normalizedPhone || existing.phone || null,
       normalized_phone: normalizedPhone || existing.normalized_phone || null,
       is_member: Boolean(existing.is_member || isMember),
