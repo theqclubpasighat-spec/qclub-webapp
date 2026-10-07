@@ -5942,17 +5942,31 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     }
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
+    if (parts[0] === "public" && parts[1] === "table" && parts[2] && parts.length === 3 && method === "GET") return await publicTablePortal(req,res,parts[2]);
+    if (parts[0] === "public" && parts[1] === "table" && parts[2] && parts[3] === "requests" && parts.length === 4 && method === "POST") return await createPublicTableRequest(req,res,parts[2]);
+    if (parts[0] === "public" && parts[1] === "table" && parts[2] && parts[3] === "orders" && parts.length === 4 && method === "POST") return await createPublicFnbOrder(req,res,parts[2]);
+    if (parts[0] === "qchase" && parts[1] === "display" && parts[2] && parts.length === 3 && method === "GET") return await publicQchaseCloudDisplay(req,res,parts[2]);
+    if (parts[0] === "qchase" && parts[1] === "display" && parts[2] && parts.length === 3 && method === "POST") return await saveQchaseCloudDisplay(req,res,parts[2]);
+    if (parts[0] === "qchase" && parts[1] === "table" && parts[2] && parts[3] === "finish" && method === "POST") return await qchaseEngineLifecycle(req,res,parts[2],"FINISH");
+    if (parts[0] === "qchase" && parts[1] === "table" && parts[2] && parts[3] === "start-next" && method === "POST") return await qchaseEngineLifecycle(req,res,parts[2],"START_NEXT");
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "auth/verify-game-pin") {
       const pin = safeText(req.body?.pin || "", 100);
       const kind = safeText(req.body?.kind || "", 20);
+      const tableKey = normalizeQchaseTableKey(req.body?.table_key || "");
       const forwarded = safeText(req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || req.socket?.remoteAddress || "", 300).split(",")[0].trim();
       if (!pin || !forwarded) return json(res, 400, { ok: false, error: "INVALID_REQUEST" });
-      const { data: ok, error } = await getSupabaseAdmin().rpc("qclub_security_verify_game_pin", { p_network_hash: hashToken("ip:" + forwarded), p_kind: kind, p_pin: pin });
+      const supabase = getSupabaseAdmin();
+      const { data: ok, error } = await supabase.rpc("qclub_security_verify_game_pin", { p_network_hash: hashToken("ip:" + forwarded), p_kind: kind, p_pin: pin });
       if (error) return json(res, 503, { ok: false, error: "VERIFY_UNAVAILABLE" });
-      return json(res, ok ? 200 : 401, { ok: Boolean(ok) });
+      if (!ok) return json(res, 401, { ok: false });
+      if (["access","final_lock"].includes(kind)) {
+        const gameAccess = await issueGameAccessToken(supabase, tableKey || null);
+        return json(res, 200, { ok: true, ...gameAccess });
+      }
+      return json(res, 200, { ok: true });
     }
     if (method === "POST" && path === "auth/rotate-pin") {
       const auth = await requireAuth(req, res, ["ADMIN"]);
@@ -6065,6 +6079,13 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "PATCH" && path === "finance/reserve") return await updateFinanceReserve(req, res);
     if (method === "PATCH" && path === "finance/fnb-costs") return await updateFnbCostPrices(req, res);
     if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
+
+    if (method === "GET" && path === "qr/inbox") return await staffQrInbox(req,res);
+    if (parts[0] === "qr" && parts[1] === "requests" && parts[2] && parts[3] === "approve" && method === "POST") return await approveQrRequest(req,res,parts[2]);
+    if (parts[0] === "qr" && parts[1] === "requests" && parts[2] && parts[3] === "reject" && method === "POST") return await rejectQrRequest(req,res,parts[2]);
+    if (parts[0] === "qr" && parts[1] === "orders" && parts[2] && parts[3] === "accept" && method === "POST") return await updatePublicFnbOrder(req,res,parts[2],"ACCEPT");
+    if (parts[0] === "qr" && parts[1] === "orders" && parts[2] && parts[3] === "reject" && method === "POST") return await updatePublicFnbOrder(req,res,parts[2],"REJECT");
+    if (parts[0] === "qr" && parts[1] === "orders" && parts[2] && parts[3] === "served" && method === "POST") return await updatePublicFnbOrder(req,res,parts[2],"SERVED");
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
