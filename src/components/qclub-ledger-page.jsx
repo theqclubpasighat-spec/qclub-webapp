@@ -264,6 +264,11 @@ export default function QclubLedgerPage() {
   const [openClubTabsView, setOpenClubTabsView] = useState(false);
   const [openClubTabsSearch, setOpenClubTabsSearch] = useState("");
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
+  const [clubTabDetail, setClubTabDetail] = useState(null);
+  const [clubTabDetailLoading, setClubTabDetailLoading] = useState(false);
+  const [clubCheckoutMethod, setClubCheckoutMethod] = useState("CASH");
+  const [clubCheckoutAmount, setClubCheckoutAmount] = useState("");
+  const [clubCheckoutPhone, setClubCheckoutPhone] = useState("");
   const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
@@ -685,7 +690,7 @@ export default function QclubLedgerPage() {
 
     async function pollPayment() {
       try {
-        const result = await protectedCall("payments/" + upiOrder.payment_id);
+        const result = await protectedCall(upiOrder.scope === "CLUB_TAB" ? ("player-tab-payments/" + upiOrder.payment_id) : ("payments/" + upiOrder.payment_id));
         if (stopped) return;
         setUpiOrder(function(current) {
           if (!current || current.payment_id !== upiOrder.payment_id) return current;
@@ -694,7 +699,17 @@ export default function QclubLedgerPage() {
         const nextStatus = String(result.status || "PENDING").toUpperCase();
         if (nextStatus !== "PENDING") {
           flash(paymentStatusLabel(nextStatus) + ".", !["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(nextStatus));
-          if (billDetail && billDetail.bill_id) {
+          if (upiOrder.scope === "CLUB_TAB" && clubTabDetail && clubTabDetail.customer?.customer_id) {
+            try {
+              const detail = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+              if (!stopped) {
+                setClubTabDetail(detail);
+                setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+              }
+            } catch {
+              // Keep terminal payment state visible even if Club Tab refresh is temporarily unavailable.
+            }
+          } else if (billDetail && billDetail.bill_id) {
             try {
               const detail = await protectedCall("bills/" + billDetail.bill_id);
               if (!stopped) setBillDetail(detail);
@@ -715,7 +730,7 @@ export default function QclubLedgerPage() {
       stopped = true;
       window.clearInterval(pollTimer);
     };
-  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshBillingOverview, flash]);
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, upiOrder && upiOrder.scope, billDetail && billDetail.bill_id, clubTabDetail && clubTabDetail.customer && clubTabDetail.customer.customer_id, protectedCall, refreshBillingOverview, flash]);
 
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
@@ -1414,6 +1429,159 @@ export default function QclubLedgerPage() {
     }
   }
 
+
+  async function openClubTabDetail(playerTab, options) {
+    if (!playerTab || !playerTab.customer_id) return;
+    const opts = options || {};
+    if (!opts.silent) setClubTabDetailLoading(true);
+    try {
+      const detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
+      if (!opts.keepSummaryOpen) setClubTabViewCustomerId("");
+      return detail;
+    } catch (error) {
+      flash(error.message || "Unable to load Club Tab details.", true);
+      return null;
+    } finally {
+      if (!opts.silent) setClubTabDetailLoading(false);
+    }
+  }
+
+  async function addFnbForClubTab(playerTab) {
+    if (!playerTab || !playerTab.customer_id) return;
+    setBusy(true);
+    try {
+      let running = fnbTabs.find(function(row) { return row.customer_id === playerTab.customer_id && row.status === "OPEN"; }) || null;
+      if (!running) {
+        running = await protectedCall("fnb-tabs", {
+          method: "POST",
+          body: {
+            customer_id: playerTab.customer_id,
+            customer_name: playerTab.name,
+            customer_phone: playerTab.phone || null,
+            idempotency_key: makeKey("club-tab-fnb"),
+          },
+        });
+      }
+      setFnbTabs(function(current) {
+        const found = current.some(function(row) { return row.tab_id === running.tab_id; });
+        return found ? current.map(function(row) { return row.tab_id === running.tab_id ? running : row; }) : [running, ...current];
+      });
+      setSelectedFnbTabId(running.tab_id);
+      setFnbDestination("RUNNING_TAB");
+      setClubTabViewCustomerId("");
+      setClubTabDetail(null);
+      setOpenClubTabsView(false);
+      setTab("fnb");
+      setQuantities({});
+      setFnbSearch("");
+      flash("Add F&B directly to " + playerTab.name + "'s Club Tab. No table session is required.");
+      window.requestAnimationFrame(function() {
+        if (fnbSearchInputRef.current) fnbSearchInputRef.current.focus();
+      });
+    } catch (error) {
+      flash(error.message || "Unable to open F&B for this Club Tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareClubTabCheckout(playerTab) {
+    if (!playerTab || !playerTab.customer_id) return;
+    setBusy(true);
+    try {
+      let detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      if (Number(detail.unbilled?.total_inr || 0) > 0.009) {
+        await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", {
+          method: "POST",
+          body: { idempotency_key: makeKey("club-tab-checkout") },
+        });
+        detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      }
+      setClubTabViewCustomerId("");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
+      flash(Number(detail.current_due_inr || 0) > 0.009
+        ? "Checkout prepared. Review the itemized statement, then collect payment."
+        : "This Club Tab has no amount due.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to prepare Club Tab checkout.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payClubTabManual() {
+    if (!clubTabDetail || !clubTabDetail.customer?.customer_id) return;
+    const received = Number(clubCheckoutAmount || 0);
+    if (!(received > 0)) return flash("Enter the amount actually received.", true);
+    setBusy(true);
+    try {
+      const result = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/pay", {
+        method: "POST",
+        body: {
+          method: clubCheckoutMethod,
+          received_inr: received,
+          idempotency_key: makeKey("club-tab-payment"),
+        },
+      });
+      const detail = result.tab || await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      const carry = Number(result.carry_inr || 0);
+      if (result.closed) {
+        flash("Payment received. Club Tab settled and closed.");
+      } else if (carry > 0) {
+        flash("Payment received. " + money(carry) + " credit carried to the player's account.");
+      } else {
+        flash("Partial payment recorded. Remaining Club Tab due " + money(detail.current_due_inr) + ".");
+      }
+      await refreshAll();
+      if (result.closed && !(detail.active_locations || []).length && Number(detail.current_due_inr || 0) <= 0.009) {
+        setClubTabDetail(null);
+      }
+    } catch (error) {
+      flash(error.message || "Unable to record Club Tab payment.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createClubTabOnline() {
+    if (!clubTabDetail || !clubTabDetail.customer?.customer_id) return;
+    const phone = String(clubCheckoutPhone || clubTabDetail.customer.phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) return flash("Enter the customer's 10-digit mobile number for Cashfree Online.", true);
+    setBusy(true);
+    try {
+      const result = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/online", {
+        method: "POST",
+        body: { customer_phone: phone, idempotency_key: makeKey("club-tab-online") },
+      });
+      setClubCheckoutPhone(phone);
+      setUpiOrder(result);
+      setCashfreeQrError("");
+      cashfreeQrStartedRef.current = "";
+      setQrClock(Date.now());
+      setShowUpiQrModal(true);
+      flash("Cashfree Online QR created for the full Club Tab balance.");
+    } catch (error) {
+      flash(error.message || "Unable to create Club Tab Cashfree QR.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clubActivityAmount(entry) {
+    const value = Number(entry && entry.amount_inr || 0);
+    if (value < 0) return "−" + money(Math.abs(value));
+    return money(value);
+  }
+
   async function finalizeClubTab(playerTab) {
     if (!playerTab || !(Number(playerTab.unbilled_inr || 0) > 0)) return flash("No new unbilled charges for " + (playerTab?.name || "this player") + ".", true);
     setBusy(true);
@@ -1907,13 +2075,22 @@ export default function QclubLedgerPage() {
   async function verifyPayment(paymentId) {
     setBusy(true);
     try {
-      const result = await protectedCall("payments/" + paymentId);
+      const clubScope = upiOrder && upiOrder.scope === "CLUB_TAB";
+      const result = await protectedCall(clubScope ? ("player-tab-payments/" + paymentId) : ("payments/" + paymentId));
       const status = String(result.status || "PENDING").toUpperCase();
       if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder({ ...upiOrder, ...result });
 
       if (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(status)) {
         setShowUpiQrModal(false);
-        flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+        if (clubScope && clubTabDetail && clubTabDetail.customer?.customer_id) {
+          const detail = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+          setClubTabDetail(detail);
+          setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+          await refreshAll();
+          flash(Number(detail.current_due_inr || 0) <= 0.009 ? "Online payment received. Club Tab settled and closed." : "Online payment verified.");
+        } else {
+          flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+        }
       } else if (["FAILED", "EXPIRED", "CANCELLED"].includes(status)) {
         setShowUpiQrModal(false);
         if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder(null);
@@ -4139,7 +4316,7 @@ export default function QclubLedgerPage() {
 
             <div className="ql-pay-amount">{money(upiOrder.amount_inr)}</div>
             <div className="ql-muted">
-              {(billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill"} • Cashfree
+              {upiOrder.scope === "CLUB_TAB" ? ((clubTabDetail && clubTabDetail.customer && clubTabDetail.customer.name) ? clubTabDetail.customer.name + " • CLUB TAB" : "CLUB TAB") : ((billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill")} • Cashfree
             </div>
 
             <div
