@@ -718,6 +718,7 @@ export default function QclubLedgerPage() {
             }
           }
           runInBackground(refreshBillingOverview());
+          if (upiOrder.scope === "CLUB_TAB") runInBackground(refreshFnbFastState());
         }
       } catch {
         // A transient status-check failure must not close the QR or mark payment failed.
@@ -1542,9 +1543,6 @@ export default function QclubLedgerPage() {
         flash("Partial payment recorded. Remaining Club Tab due " + money(detail.current_due_inr) + ".");
       }
       await refreshAll();
-      if (result.closed && !(detail.active_locations || []).length && Number(detail.current_due_inr || 0) <= 0.009) {
-        setClubTabDetail(null);
-      }
     } catch (error) {
       flash(error.message || "Unable to record Club Tab payment.", true);
     } finally {
@@ -3981,7 +3979,7 @@ export default function QclubLedgerPage() {
               <div className="ql-line">
                 <strong>✓ CLUB TAB SETTLED</strong>
                 <div className="ql-muted" style={{ marginTop: 4 }}>
-                  No amount is currently due. If the player is still active on a table, the Club Tab remains available for new charges; otherwise it will drop from Open Club Tabs after refresh.
+                  No amount is currently due. This final statement stays visible until staff closes it. If the player is still active on a table, the Club Tab remains available for new charges; otherwise it drops from Open Club Tabs after refresh.
                 </div>
               </div>
             )}
