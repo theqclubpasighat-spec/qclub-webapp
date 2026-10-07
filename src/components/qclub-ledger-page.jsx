@@ -3981,6 +3981,17 @@ export default function QclubLedgerPage() {
                 <div className="ql-muted" style={{ marginTop: 4 }}>
                   No amount is currently due. This final statement stays visible until staff closes it. If the player is still active on a table, the Club Tab remains available for new charges; otherwise it drops from Open Club Tabs after refresh.
                 </div>
+                {(clubTabDetail.settlements || [])[0] ? (
+                  <div className="ql-line" style={{ marginTop: 10 }}>
+                    <div className="ql-space">
+                      <div>
+                        <strong>{clubTabDetail.settlements[0].settlement_no}</strong>
+                        <div className="ql-muted">{clubTabDetail.settlements[0].method} • {clubTabDetail.settlements[0].status} • {dateTime(clubTabDetail.settlements[0].verified_at || clubTabDetail.settlements[0].created_at)}</div>
+                      </div>
+                      <strong>{money(clubTabDetail.settlements[0].amount_inr)}</strong>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
 
