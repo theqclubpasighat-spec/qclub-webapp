@@ -1509,6 +1509,324 @@ async function listPlayerTabs(req,res){
   return json(res,200,{tabs});
 }
 
+
+async function customerTabDetailPayload(supabase,customerId){
+  const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(customerError)throw customerError;
+  if(!customer)return null;
+
+  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:openBills,error:billError}] = await Promise.all([
+    supabase.from("snooker_session_people").select("*").eq("customer_id",customerId).order("joined_at"),
+    supabase.from("snooker_fnb_tabs").select("*").eq("customer_id",customerId).eq("status","OPEN").order("last_order_at",{ascending:false}),
+    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").gt("due_inr",0).order("finalized_at",{ascending:true}),
+  ]);
+  if(peopleError||fnbTabError||billError)throw peopleError||fnbTabError||billError;
+
+  const personIds=(people||[]).map(p=>p.id);
+  const tabIds=(openFnbTabs||[]).map(t=>t.id);
+  const billIds=(openBills||[]).map(b=>b.id);
+
+  let charges=[],runningFnb=[],billItems=[],billPayments=[],settlements=[];
+  if(personIds.length){
+    const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");
+    if(q.error)throw q.error;charges=q.data||[];
+  }
+  if(tabIds.length){
+    const q=await supabase.from("snooker_fnb_lines").select("*").in("tab_id",tabIds).eq("status","ACTIVE").is("bill_id",null).order("added_at");
+    if(q.error)throw q.error;runningFnb=q.data||[];
+  }
+  if(billIds.length){
+    const [iq,pq]=await Promise.all([
+      supabase.from("snooker_bill_items").select("*").in("bill_id",billIds).order("created_at"),
+      supabase.from("snooker_bill_payments").select("*").in("bill_id",billIds).in("status",["RECEIVED","VERIFIED"]).order("created_at"),
+    ]);
+    if(iq.error||pq.error)throw iq.error||pq.error;
+    billItems=iq.data||[];billPayments=pq.data||[];
+  }
+  {
+    const q=await supabase.from("snooker_customer_settlements").select("*").eq("customer_id",customerId).order("created_at",{ascending:false}).limit(20);
+    if(q.error)throw q.error;settlements=q.data||[];
+  }
+
+  const sessionIds=[...new Set([
+    ...(people||[]).map(p=>p.session_id),
+    ...charges.map(c=>c.session_id),
+  ].filter(Boolean))];
+  let sessions=[];
+  if(sessionIds.length){
+    const q=await supabase.from("snooker_sessions").select("id,table_id,game_type,payment_rule,status,started_at,ended_at").in("id",sessionIds);
+    if(q.error)throw q.error;sessions=q.data||[];
+  }
+  const sessionMap=new Map(sessions.map(x=>[x.id,x]));
+  const personMap=new Map((people||[]).map(x=>[x.id,x]));
+  const billMap=new Map((openBills||[]).map(x=>[x.id,x]));
+
+  const activity=[];
+  for(const charge of charges){
+    const session=sessionMap.get(charge.session_id);
+    const person=personMap.get(charge.person_id);
+    activity.push({
+      id:"charge:"+charge.id,
+      kind:charge.charge_type==="TABLE"?"TABLE":"GAME",
+      status:"UNBILLED",
+      description:charge.description||String(charge.charge_type||"Charge").replaceAll("_"," "),
+      amount_inr:money(charge.amount_inr),
+      occurred_at:charge.created_at,
+      table_id:session?.table_id||null,
+      game_type:session?.game_type||null,
+      person_name:person?.name||customer.name,
+      bill_id:null,
+      bill_no:null,
+    });
+  }
+  for(const line of runningFnb){
+    activity.push({
+      id:"fnb:"+line.id,
+      kind:"FNB",
+      status:"UNBILLED",
+      description:line.item_name_snapshot||"F&B",
+      quantity:number(line.quantity,1),
+      unit_price_inr:money(line.unit_price_snapshot_inr),
+      amount_inr:money(line.line_total_inr),
+      occurred_at:line.added_at,
+      table_id:null,
+      game_type:null,
+      person_name:customer.name,
+      bill_id:null,
+      bill_no:null,
+    });
+  }
+  for(const item of billItems){
+    const bill=billMap.get(item.bill_id);
+    activity.push({
+      id:"billitem:"+item.id,
+      kind:item.item_type==="TABLE_TIME"?"TABLE":item.item_type,
+      status:"BILLED",
+      description:item.description||String(item.item_type||"Charge").replaceAll("_"," "),
+      quantity:number(item.quantity,1),
+      unit_price_inr:money(item.unit_price_inr),
+      amount_inr:money(item.line_total_inr),
+      occurred_at:item.created_at||bill?.finalized_at||bill?.updated_at,
+      table_id:item.metadata?.table_id||null,
+      game_type:item.metadata?.game_type||null,
+      person_name:customer.name,
+      bill_id:item.bill_id,
+      bill_no:bill?.bill_no||null,
+    });
+  }
+  for(const payment of billPayments){
+    const bill=billMap.get(payment.bill_id);
+    activity.push({
+      id:"payment:"+payment.id,
+      kind:"PAYMENT",
+      status:payment.status,
+      description:(payment.method||"PAYMENT")+" payment",
+      amount_inr:-money(payment.amount_inr),
+      occurred_at:payment.verified_at||payment.created_at,
+      table_id:null,
+      game_type:null,
+      person_name:customer.name,
+      bill_id:payment.bill_id,
+      bill_no:bill?.bill_no||null,
+    });
+  }
+  activity.sort((a,b)=>Date.parse(b.occurred_at||0)-Date.parse(a.occurred_at||0));
+
+  const playerUnbilled=money(charges.reduce((sum,row)=>sum+number(row.amount_inr),0));
+  const fnbUnbilled=money(runningFnb.reduce((sum,row)=>sum+number(row.line_total_inr),0));
+  const unbilled=money(playerUnbilled+fnbUnbilled);
+  const billedDue=money((openBills||[]).reduce((sum,row)=>sum+number(row.due_inr),0));
+  const activeLocations=(people||[]).filter(p=>p.status==="ACTIVE").map(p=>{
+    const x=sessionMap.get(p.session_id);
+    return x&&["ACTIVE","PAUSED"].includes(x.status)?{session_id:x.id,table_id:x.table_id,game_type:x.game_type}:null;
+  }).filter(Boolean);
+
+  return {
+    customer:{customer_id:customer.id,name:customer.name,phone:customer.phone||null,is_member:Boolean(customer.is_member),member_tier:customer.member_tier||null,balance_inr:money(customer.balance_inr||0)},
+    active_locations:activeLocations,
+    open_fnb_tabs:(openFnbTabs||[]).map(t=>({tab_id:t.id,tab_no:t.tab_no,last_order_at:t.last_order_at})),
+    unbilled:{games_table_inr:playerUnbilled,fnb_inr:fnbUnbilled,total_inr:unbilled},
+    billed_due_inr:billedDue,
+    current_due_inr:money(unbilled+billedDue),
+    outstanding_bills:(openBills||[]).map(b=>({
+      bill_id:b.id,bill_no:b.bill_no,bill_source:b.bill_source,total_inr:money(b.total_inr),
+      paid_inr:money(b.paid_inr),due_inr:money(b.due_inr),status:b.status,finalized_at:b.finalized_at,
+      items:billItems.filter(x=>x.bill_id===b.id),
+      payments:billPayments.filter(x=>x.bill_id===b.id),
+    })),
+    activity,
+    settlements:(settlements||[]).map(x=>({
+      settlement_id:x.id,settlement_no:x.settlement_no,method:x.method,amount_inr:money(x.amount_inr),
+      carry_inr:money(x.carry_inr),status:x.status,created_at:x.created_at,verified_at:x.verified_at,
+    })),
+  };
+}
+
+async function customerTabDetail(req,res,customerId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const payload=await customerTabDetailPayload(getSupabaseAdmin(),customerId);
+  if(!payload)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  return json(res,200,payload);
+}
+
+async function customerTabManualPayment(req,res,customerId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const key=idempotencyKey(req);
+  const method=safeText(req.body?.method||"CASH",20).toUpperCase();
+  const received=money(req.body?.received_inr??req.body?.amount_inr??0);
+  if(!(received>0))return json(res,400,{ok:false,error:"PAYMENT_AMOUNT_REQUIRED"});
+
+  const {data:result,error}=await supabase.rpc("qclub_snooker_record_customer_manual_settlement",{
+    p_customer_id:customerId,
+    p_method:method,
+    p_received_inr:received,
+    p_staff_id:auth.staff_id,
+    p_idempotency_key:key||null,
+  });
+  if(error)throw error;
+  const detail=await customerTabDetailPayload(supabase,customerId);
+  return json(res,201,{...(result||{}),tab:detail});
+}
+
+async function customerTabOnlinePayment(req,res,customerId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  if(!env("CASHFREE_APP_ID")||!env("CASHFREE_SECRET_KEY"))return json(res,503,{ok:false,error:"CASHFREE_NOT_CONFIGURED"});
+  const supabase=getSupabaseAdmin();
+  const key=idempotencyKey(req);
+
+  if(key){
+    const {data:existing}=await supabase.from("snooker_customer_settlements").select("*").eq("idempotency_key",key).maybeSingle();
+    if(existing){
+      return json(res,200,{
+        payment_id:existing.id,settlement_id:existing.id,settlement_no:existing.settlement_no,
+        customer_id:existing.customer_id,amount_inr:money(existing.amount_inr),order_id:existing.cashfree_order_id,
+        payment_session_id:existing.payment_session_id,qr_payload:null,qr_element_url:qrElementUrl(existing),
+        payment_url:paymentLinkUrl(existing),status:existing.status,expires_at:existing.expires_at,
+        integration:"CASHFREE_ELEMENT_UPI_QR",scope:"CLUB_TAB",reused:true,
+      });
+    }
+  }
+
+  const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(customerError)throw customerError;
+  if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+
+  const {data:bills,error:billError}=await supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").gt("due_inr",0).order("finalized_at",{ascending:true});
+  if(billError)throw billError;
+  if(!(bills||[]).length)return json(res,409,{ok:false,error:"NOTHING_TO_PAY"});
+
+  const billIds=(bills||[]).map(b=>b.id);
+  const [{data:pendingBills},{data:pendingSettlements}] = await Promise.all([
+    supabase.from("snooker_bill_payments").select("id,bill_id").in("bill_id",billIds).eq("status","PENDING").not("cashfree_order_id","is",null),
+    supabase.from("snooker_customer_settlements").select("id").eq("customer_id",customerId).eq("status","PENDING").not("cashfree_order_id","is",null),
+  ]);
+  if((pendingBills||[]).length||(pendingSettlements||[]).length)return json(res,409,{ok:false,error:"ONLINE_PAYMENT_PENDING_CANCEL_FIRST"});
+
+  const amount=money((bills||[]).reduce((sum,b)=>sum+number(b.due_inr),0));
+  if(!(amount>0))return json(res,409,{ok:false,error:"NOTHING_TO_PAY"});
+  const requestedPhone=normalizePhone(req.body?.customer_phone||"");
+  const phone=requestedPhone||normalizePhone(customer.phone||"");
+  if(!phone)return json(res,409,{ok:false,error:"CUSTOMER_PHONE_REQUIRED_FOR_UPI"});
+
+  const settlementId=randomUUID();
+  const settlementNo=`QS-${new Date().toISOString().slice(2,10).replace(/-/g,"")}-${settlementId.replace(/-/g,"").slice(0,6).toUpperCase()}`;
+  const paymentId=settlementId;
+  const orderId=`qct_${settlementId.replace(/-/g,"").slice(0,24)}`;
+  const requestedExpiryAt=new Date(Date.now()+20*60_000).toISOString();
+
+  const {data:settlement,error:settlementError}=await supabase.from("snooker_customer_settlements").insert({
+    id:settlementId,settlement_no:settlementNo,customer_id:customerId,method:"ONLINE",amount_inr:amount,received_inr:amount,
+    carry_inr:0,status:"PENDING",cashfree_order_id:orderId,expires_at:requestedExpiryAt,received_by:auth.staff_id,
+    idempotency_key:key||null,provider_payload:{integration:"cashfree_element_upi_qr",scope:"club_tab",planned:true}
+  }).select("*").single();
+  if(settlementError)throw settlementError;
+
+  const allocations=(bills||[]).map(b=>({settlement_id:settlementId,bill_id:b.id,amount_inr:money(b.due_inr)}));
+  const allocationInsert=await supabase.from("snooker_customer_settlement_allocations").insert(allocations);
+  if(allocationInsert.error){
+    await supabase.from("snooker_customer_settlements").delete().eq("id",settlementId);
+    throw allocationInsert.error;
+  }
+
+  const siteUrl=safeText(env("QCLUB_SITE_URL")||"https://theqclubpasighat.com",200).replace(/\/$/,"");
+  let order;
+  try{
+    order=await cashfreeJson("https://api.cashfree.com/pg/orders",{
+      method:"POST",
+      headers:{...cashfreeHeaders(),"x-idempotency-key":key||settlementId},
+      body:JSON.stringify({
+        order_id:orderId,order_amount:amount,order_currency:CURRENCY,order_expiry_time:requestedExpiryAt,
+        customer_details:{customer_id:`clubtab_${safeText(customerId,36)}`,customer_name:customer.name||"Q Club Customer",customer_phone:phone},
+        order_meta:{notify_url:`${siteUrl}/api/snooker/v1/cashfree-webhook`,return_url:`${siteUrl}/payment-status?order_id={order_id}`,payment_methods:"upi"},
+        order_note:`Q Club Club Tab ${customer.name||customerId}`,
+        order_tags:{context:"club_tab_settlement",customer_id:customerId,settlement_id:settlementId},
+      }),
+    });
+  }catch(error){
+    await supabase.from("snooker_customer_settlements").update({status:"FAILED",provider_payload:{cashfree_error:safeText(error?.message||"",500)},updated_at:new Date().toISOString()}).eq("id",settlementId);
+    throw error;
+  }
+
+  const sessionId=safeText(order.payment_session_id||"",2000);
+  if(!sessionId)return json(res,502,{ok:false,error:"CASHFREE_SESSION_MISSING"});
+  const providerExpiryMs=Date.parse(order.order_expiry_time||"");
+  const requestedExpiryMs=Date.parse(requestedExpiryAt);
+  const effectiveExpiryMs=Number.isFinite(providerExpiryMs)?Math.min(providerExpiryMs,requestedExpiryMs):requestedExpiryMs;
+  const expiresAt=new Date(effectiveExpiryMs).toISOString();
+
+  const {data:updated,error:updateError}=await supabase.from("snooker_customer_settlements").update({
+    payment_session_id:sessionId,expires_at:expiresAt,provider_payload:{order,integration:"cashfree_element_upi_qr",scope:"club_tab"},updated_at:new Date().toISOString()
+  }).eq("id",settlementId).select("*").single();
+  if(updateError)throw updateError;
+
+  return json(res,201,{
+    payment_id:paymentId,settlement_id:settlementId,settlement_no:settlementNo,customer_id:customerId,
+    amount_inr:amount,order_id:orderId,payment_session_id:sessionId,qr_payload:null,qr_element_url:qrElementUrl(updated),
+    payment_url:paymentLinkUrl(updated),status:"PENDING",expires_at:expiresAt,integration:"CASHFREE_ELEMENT_UPI_QR",scope:"CLUB_TAB"
+  });
+}
+
+async function fulfillCustomerSettlementOnline(supabase,settlement,providerPayload){
+  const cfPaymentId=safeText(providerPayload?.cf_payment_id||providerPayload?.data?.payment?.cf_payment_id||"",160)||null;
+  const {data:result,error}=await supabase.rpc("qclub_snooker_fulfill_customer_settlement",{
+    p_settlement_id:settlement.id,
+    p_cashfree_payment_id:cfPaymentId,
+    p_provider_payload:providerPayload||{},
+  });
+  if(error)throw error;
+  return result||{};
+}
+
+async function customerSettlementStatus(req,res,settlementId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  let {data:settlement,error}=await supabase.from("snooker_customer_settlements").select("*").eq("id",settlementId).maybeSingle();
+  if(error)throw error;
+  if(!settlement)return json(res,404,{ok:false,error:"PAYMENT_NOT_FOUND"});
+
+  if(settlement.status==="PENDING"&&settlement.cashfree_order_id){
+    const order=await cashfreeJson(`https://api.cashfree.com/pg/orders/${encodeURIComponent(settlement.cashfree_order_id)}`,{method:"GET",headers:cashfreeHeaders()});
+    const orderStatus=safeText(order.order_status||"",40).toUpperCase();
+    if(orderStatus==="PAID"){
+      await fulfillCustomerSettlementOnline(supabase,settlement,{verification_order:order});
+      ({data:settlement}=await supabase.from("snooker_customer_settlements").select("*").eq("id",settlementId).single());
+    }else if(orderStatus==="EXPIRED"){
+      ({data:settlement}=await supabase.from("snooker_customer_settlements").update({status:"EXPIRED",provider_payload:{...(settlement.provider_payload||{}),verification_order:order},updated_at:new Date().toISOString()}).eq("id",settlementId).select("*").single());
+    }else if(["TERMINATED","FAILED"].includes(orderStatus)){
+      ({data:settlement}=await supabase.from("snooker_customer_settlements").update({status:"FAILED",provider_payload:{...(settlement.provider_payload||{}),verification_order:order},updated_at:new Date().toISOString()}).eq("id",settlementId).select("*").single());
+    }
+  }
+
+  const detail=await customerTabDetailPayload(supabase,settlement.customer_id);
+  return json(res,200,{
+    payment_id:settlement.id,settlement_id:settlement.id,settlement_no:settlement.settlement_no,customer_id:settlement.customer_id,
+    method:settlement.method,amount_inr:money(settlement.amount_inr),order_id:settlement.cashfree_order_id,status:settlement.status,
+    expires_at:settlement.expires_at,verified_at:settlement.verified_at,due_inr:detail?.current_due_inr??null,
+    closed:Boolean(detail&&number(detail.current_due_inr)<=0.009),scope:"CLUB_TAB"
+  });
+}
+
 async function finalizePlayerTab(req,res,customerId){
   const auth=await requireAuth(req,res);if(!auth)return;
   const supabase=getSupabaseAdmin();
@@ -4678,7 +4996,27 @@ async function cashfreeWebhook(req, res) {
 
   const supabase = getSupabaseAdmin();
   const { data: payment } = await supabase.from("snooker_bill_payments").select("*").eq("cashfree_order_id", orderId).maybeSingle();
-  if (!payment) return json(res, 200, { ok: true, ignored: true });
+  if (!payment) {
+    const {data:settlement,error:settlementError}=await supabase.from("snooker_customer_settlements").select("*").eq("cashfree_order_id",orderId).maybeSingle();
+    if(settlementError)throw settlementError;
+    if(!settlement)return json(res,200,{ok:true,ignored:true});
+    if(paymentAmount&&Math.abs(paymentAmount-number(settlement.amount_inr))>=0.01){
+      return json(res,200,{ok:true,ignored:true,reason:"AMOUNT_MISMATCH"});
+    }
+
+    if(paymentStatusValue==="SUCCESS"){
+      const result=await fulfillCustomerSettlementOnline(supabase,settlement,{webhook:body,cf_payment_id:safeText(body?.data?.payment?.cf_payment_id||"",160)});
+      return json(res,200,{ok:true,received:true,scope:"CLUB_TAB",settlement:result});
+    }
+    const settlementStatus=["FAILED","USER_DROPPED","CANCELLED","CANCELED"].includes(paymentStatusValue)?"FAILED":"PENDING";
+    await supabase.from("snooker_customer_settlements").update({
+      status:settlementStatus,
+      cashfree_payment_id:safeText(body?.data?.payment?.cf_payment_id||"",160)||settlement.cashfree_payment_id,
+      provider_payload:{...(settlement.provider_payload||{}),webhook:body},
+      updated_at:new Date().toISOString(),
+    }).eq("id",settlement.id);
+    return json(res,200,{ok:true,received:true,scope:"CLUB_TAB",status:settlementStatus});
+  }
 
   if (paymentAmount && Math.abs(paymentAmount - number(payment.amount_inr)) >= 0.01) {
     return json(res, 200, { ok: true, ignored: true, reason: "AMOUNT_MISMATCH" });
@@ -4864,7 +5202,11 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (method === "GET" && path === "customers") return await listCustomers(req, res);
     if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "detail" && method === "GET") return await customerTabDetail(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "pay" && method === "POST") return await customerTabManualPayment(req,res,parts[1]);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "online" && method === "POST") return await customerTabOnlinePayment(req,res,parts[1]);
+    if (parts[0] === "player-tab-payments" && parts[1] && parts.length === 2 && method === "GET") return await customerSettlementStatus(req,res,parts[1]);
     if (method === "POST" && path === "customers") return await upsertCustomer(req, res);
     if (method === "GET" && path === "fnb-tabs") return await listFnbTabs(req, res);
     if (method === "POST" && path === "fnb-tabs") return await createFnbTab(req, res);
