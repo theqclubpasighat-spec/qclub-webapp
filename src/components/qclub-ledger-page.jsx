@@ -254,6 +254,11 @@ export default function QclubLedgerPage() {
   const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
   const [tableRequests, setTableRequests] = useState([]);
   const [tableOrders, setTableOrders] = useState([]);
+  const [orderAlertQueue, setOrderAlertQueue] = useState([]);
+  const [orderAlertsReady, setOrderAlertsReady] = useState(false);
+  const orderAlertAudioRef = useRef(null);
+  const seenOrderIdsRef = useRef(new Set());
+  const pendingOrderSoundRef = useRef(false);
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
