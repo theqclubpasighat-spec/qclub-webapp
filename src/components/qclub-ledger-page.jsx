@@ -4775,13 +4775,25 @@ export default function QclubLedgerPage() {
           <div className="ql-modal" style={{ maxWidth: 720 }}>
             <div className="ql-space">
               <div>
-                <h3 style={{ margin: 0 }}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Start Next QChase / Rummy Game" : "Complete Frame / Game"}</h3>
+                <h3 style={{ margin: 0 }}>
+                  {["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(gameEntry.session.game_type) && gameEntry.session.payment_rule === "PER_PLAYER"
+                    ? "Finish Game " + gameEntry.currentGameNumber + " • Continue Game " + (Number(gameEntry.currentGameNumber || 1) + 1)
+                    : gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER"
+                      ? "Start Next QChase / Rummy Game"
+                      : "Complete Frame / Game"}
+                </h3>
                 <div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div>
               </div>
               <button className="ql-btn ghost" aria-label="Close popup" onClick={function() { setGameEntry(null); }}>✕</button>
             </div>
 
-            <div className="ql-section">{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Who is starting this game?" : "Who played this game?"}</div>
+            <div className="ql-section">
+              {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER"
+                ? "Who is starting this game?"
+                : ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(gameEntry.session.game_type) && gameEntry.session.payment_rule === "PER_PLAYER"
+                  ? "Who played Game " + gameEntry.currentGameNumber + "?"
+                  : "Who played this game?"}
+            </div>
             {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? (
               <div className="ql-line" style={{ marginBottom: 10 }}>
                 <strong>Charge first, then play.</strong>
@@ -4883,7 +4895,13 @@ export default function QclubLedgerPage() {
 
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setGameEntry(null); }}>Cancel</button>
-              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Charge & Start Game" : "Confirm Completed Game"}</button>
+              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>
+                {["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(gameEntry.session.game_type) && gameEntry.session.payment_rule === "PER_PLAYER"
+                  ? "CONFIRM GAME " + gameEntry.currentGameNumber + " → CONTINUE GAME " + (Number(gameEntry.currentGameNumber || 1) + 1)
+                  : gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER"
+                    ? "Charge & Start Game"
+                    : "Confirm Completed Game"}
+              </button>
             </div>
           </div>
         </div>
