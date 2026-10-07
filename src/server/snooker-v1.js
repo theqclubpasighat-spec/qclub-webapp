@@ -5554,14 +5554,14 @@ async function publicTablePortal(req, res, tableKey) {
         if (detail) {
           tab = {
             current_due_inr: money(detail.current_due_inr),
-            unbilled_inr: money(detail.unbilled_inr),
+            unbilled_inr: money(detail.unbilled?.total_inr || 0),
             billed_due_inr: money(detail.billed_due_inr),
             activity: (detail.activity || []).slice(0, 20).map((item) => ({
               type: item.type || item.kind || null,
               description: item.description || item.label || "",
               amount_inr: money(item.amount_inr || item.line_total_inr || 0),
               status: item.status || item.settlement_status || null,
-              at: item.at || item.created_at || item.added_at || item.finalized_at || null,
+              at: item.occurred_at || item.at || item.created_at || item.added_at || item.finalized_at || null,
             })),
           };
         }
