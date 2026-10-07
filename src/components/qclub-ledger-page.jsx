@@ -263,6 +263,9 @@ export default function QclubLedgerPage() {
   const [tableViewSessionId, setTableViewSessionId] = useState("");
   const [openClubTabsView, setOpenClubTabsView] = useState(false);
   const [openClubTabsSearch, setOpenClubTabsSearch] = useState("");
+  const [qrInbox, setQrInbox] = useState({ requests: [], orders: [] });
+  const [showQrInbox, setShowQrInbox] = useState(false);
+  const [startQrRequestId, setStartQrRequestId] = useState("");
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
   const [clubTabDetail, setClubTabDetail] = useState(null);
   const [clubTabDetailLoading, setClubTabDetailLoading] = useState(false);
@@ -467,6 +470,7 @@ export default function QclubLedgerPage() {
         protectedCall("fnb-tabs"),
         protectedCall("customers?limit=300"),
         protectedCall("player-tabs"),
+        protectedCall("qr/inbox"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -481,6 +485,7 @@ export default function QclubLedgerPage() {
       const fnbTabPayload = values[10];
       const customerPayload = values[11];
       const playerTabPayload = values[12];
+      const qrInboxPayload = values[13];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -495,6 +500,7 @@ export default function QclubLedgerPage() {
       setFnbTabs(openFnbTabs);
       setCustomers((customerPayload && customerPayload.customers) || []);
       setPlayerTabs((playerTabPayload && playerTabPayload.tabs) || []);
+      setQrInbox(qrInboxPayload || { requests: [], orders: [] });
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
       });
@@ -544,12 +550,14 @@ export default function QclubLedgerPage() {
         protectedCall("operations/inbox"),
         protectedCall("fnb-tabs"),
         protectedCall("player-tabs"),
+        protectedCall("qr/inbox"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
       setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       const openFnbTabs = (values[2] && values[2].tabs) || [];
       setPlayerTabs((values[3] && values[3].tabs) || []);
+      setQrInbox(values[4] || { requests: [], orders: [] });
       setFnbTabs(openFnbTabs);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
@@ -582,7 +590,7 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     if (!token) return undefined;
-    const timer = window.setInterval(refreshLiveState, 10000);
+    const timer = window.setInterval(refreshLiveState, 5000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
 
