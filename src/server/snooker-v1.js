@@ -1676,6 +1676,9 @@ async function customerTabManualPayment(req,res,customerId){
   const method=safeText(req.body?.method||"CASH",20).toUpperCase();
   const received=money(req.body?.received_inr??req.body?.amount_inr??0);
   if(!(received>0))return json(res,400,{ok:false,error:"PAYMENT_AMOUNT_REQUIRED"});
+  const before=await customerTabDetailPayload(supabase,customerId);
+  if(!before)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  if(number(before.unbilled?.total_inr)>0.009)return json(res,409,{ok:false,error:"CHECKOUT_NOT_PREPARED",message:"Prepare checkout first so current table/game/F&B charges are frozen into the final statement."});
 
   const {data:result,error}=await supabase.rpc("qclub_snooker_record_customer_manual_settlement",{
     p_customer_id:customerId,
@@ -1708,9 +1711,10 @@ async function customerTabOnlinePayment(req,res,customerId){
     }
   }
 
-  const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
-  if(customerError)throw customerError;
-  if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  const before=await customerTabDetailPayload(supabase,customerId);
+  if(!before)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+  if(number(before.unbilled?.total_inr)>0.009)return json(res,409,{ok:false,error:"CHECKOUT_NOT_PREPARED",message:"Prepare checkout first so current table/game/F&B charges are frozen into the final statement."});
+  const customer=before.customer;
 
   const {data:bills,error:billError}=await supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").gt("due_inr",0).order("finalized_at",{ascending:true});
   if(billError)throw billError;
