@@ -1178,6 +1178,9 @@ export default function QclubLedgerPage() {
       flash(decision === "ACCEPT"
         ? "QR order accepted and added to " + ((orderRow.access && orderRow.access.customer_name) || "player") + "'s Club Tab."
         : "QR order rejected.");
+      setOrderAlertQueue(function(current) {
+        return (current || []).filter(function(row) { return row.id !== orderRow.id; });
+      });
       await Promise.all([refreshLiveState(), refreshFnbFastState()]);
     } catch (error) {
       flash(error.message || "Unable to process QR order.", true);
