@@ -1467,11 +1467,15 @@ export default function QclubLedgerPage() {
 
   function openGameEntry(session) {
     const detail = sessionDetails[session.session_id] || {};
-    const activePeople = (detail.people || []).filter(function(person) { return person.status === "ACTIVE"; });
+    const eligiblePeople = (detail.people || []).filter(function(person) {
+      return session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER"
+        ? ["ACTIVE","WAITING"].includes(person.status)
+        : person.status === "ACTIVE";
+    });
     setGameEntry({
       session,
-      people: activePeople,
-      selectedIds: activePeople.map(function(person) { return person.person_id; }),
+      people: eligiblePeople,
+      selectedIds: eligiblePeople.map(function(person) { return person.person_id; }),
       winnerPersonId: "",
       winningTeam: "",
       payerMode: "SPLIT",
@@ -1515,6 +1519,7 @@ export default function QclubLedgerPage() {
         method: "POST",
         body: {
           player_ids: selectedIds,
+          qchase_action: session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER" ? "START_NEXT" : null,
           winner_person_ids: winnerIds,
           loser_person_ids: loserIds,
           payer_person_id: gameEntry.payerMode === "ONE" ? gameEntry.payerPersonId : null,
@@ -1527,7 +1532,7 @@ export default function QclubLedgerPage() {
       flash(session.game_type === "KITTY"
         ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.")
         : session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER"
-          ? "Next QChase/Rummy game started. Each selected player has been charged immediately; no charge waits for the game to finish."
+          ? "QChase/Rummy Game " + (Number(session.qchase_game_number || 0) + 1) + " started. Selected players were charged immediately and waiting players are now active."
           : session.payment_rule === "HOURLY_SHARED"
             ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players."
             : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS"
