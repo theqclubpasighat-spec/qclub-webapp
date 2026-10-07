@@ -2260,39 +2260,68 @@ breakAfter,
     return;
   }
 
+  let accessToken = await ensureGameAccessToken();
+  if (!accessToken) return;
+
   if (!admin && !staffAdmin) {
     const pin = prompt("Enter FINAL LOCK PIN");
     if (pin === null) return;
-    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"final_lock",pin:String(pin).trim()})});
-    if (!response.ok) { alert("Wrong FINAL LOCK PIN."); return; }
+    const response = await fetch("/api/snooker/v1/auth/verify-game-pin",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({kind:"final_lock",table_key:tableKey,pin:String(pin).trim()})
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) { alert("Wrong FINAL LOCK PIN."); return; }
+    if (payload.access_token) {
+      accessToken = String(payload.access_token);
+      saveGameAccessToken(tableKey, accessToken);
+      setGameAccessToken(accessToken);
+    }
   }
 
   const ok = confirm(
-    "Final Lock will freeze the result and enable print/New Game. Continue?"
+    "Final Lock will freeze the result, mark the current numbered game finished in Ledger, and enable New Game. Continue?"
   );
 
   if (!ok) return;
 
+  try {
+    const response = await fetch(`/api/snooker/v1/qchase/table/${tableKey}/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ engine_game_no: state.gameNo }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(payload.message || "Ledger could not mark this QChase/Rummy game finished. Final Lock was stopped to prevent a billing mismatch.");
+      return;
+    }
+  } catch {
+    alert("QChase cloud/Ledger is unreachable. Final Lock was stopped to prevent a billing mismatch.");
+    return;
+  }
+
   const endedAt = nowText();
-const startedAt = state.startedAt || state.createdAt;
-const finalState = {
-  ...state,
-  locked: true,
-  startedAt,
-  endedAt,
-  duration: minutesBetween(startedAt, endedAt),
-};
+  const startedAt = state.startedAt || state.createdAt;
+  const finalState = {
+    ...state,
+    locked: true,
+    startedAt,
+    endedAt,
+    duration: minutesBetween(startedAt, endedAt),
+  };
 
-setState(finalState);
-saveFinalScoreSheet(finalState);
+  setState(finalState);
+  saveFinalScoreSheet(finalState);
 
-const cloudSaved = await saveQChasePlayerResultsToCloud(finalState);
+  const cloudSaved = await saveQChasePlayerResultsToCloud(finalState);
 
-alert(
-  cloudSaved
-    ? "Final locked, local scoresheet saved, and cloud player records saved."
-    : "Final locked and local scoresheet saved. Cloud save was not completed."
-);
+  alert(
+    cloudSaved
+      ? "Final locked. Ledger game finished, TV state updated, local scoresheet saved and cloud player records saved."
+      : "Final locked and Ledger game finished. Local scoresheet saved; player-result cloud archive needs attention."
+  );
 }
   const currentPlayer = order[currentIndex] || "";
     const lastLog = logs[logs.length - 1];
