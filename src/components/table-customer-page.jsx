@@ -44,6 +44,9 @@ export default function TableCustomerPage(){
   const [gameType,setGameType]=useState("NORMAL_SNOOKER");
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  const [menu,setMenu]=useState([]);
+  const [cart,setCart]=useState({});
+  const [orderBusy,setOrderBusy]=useState(false);
 
   const choices=useMemo(()=>gameChoices(state?.table?.table_type),[state?.table?.table_type]);
   useEffect(()=>{if(choices.length&&!choices.some(x=>x[0]===gameType))setGameType(choices[0][0]);},[choices,gameType]);
@@ -66,6 +69,13 @@ export default function TableCustomerPage(){
   }
   useEffect(()=>{refreshTable();const timer=setInterval(refreshTable,2500);return()=>clearInterval(timer);},[tableKey]);
   useEffect(()=>{if(!link)return;refreshRequest(link);const timer=setInterval(()=>refreshRequest(link),2500);return()=>clearInterval(timer);},[link?.request_id,link?.request_token]);
+  useEffect(()=>{if(requestState?.request?.status!=="APPROVED")return;requestJson("public-catalogue").then(data=>{
+    const rows=[];
+    Object.entries(data.menuCatalog||{}).forEach(([key,group])=>(group.items||[]).forEach(item=>{
+      if(item.onlineOrderEnabled&&item.inStock)rows.push({...item,category:group.title||key});
+    }));
+    setMenu(rows);
+  }).catch(()=>setMenu([]));},[requestState?.request?.status]);
 
   async function submit(action){
     if(!name.trim()){setError("Enter your name.");return;}
@@ -85,6 +95,28 @@ export default function TableCustomerPage(){
   function clearRequest(){
     try{localStorage.removeItem(storageKey(tableKey));}catch{}
     setLink(null);setRequestState(null);setError("");
+  }
+
+  function changeQty(itemId,delta){
+    setCart(current=>{
+      const next={...current};
+      const value=Math.max(0,Number(next[itemId]||0)+delta);
+      if(value)next[itemId]=value;else delete next[itemId];
+      return next;
+    });
+  }
+  async function sendOrder(){
+    const lines=Object.entries(cart).map(([item_id,quantity])=>({item_id,quantity:Number(quantity)})).filter(x=>x.quantity>0);
+    if(!lines.length)return;
+    setOrderBusy(true);setError("");
+    try{
+      await requestJson("table-public/request-status/"+encodeURIComponent(link.request_id)+"/orders?token="+encodeURIComponent(link.request_token),{
+        method:"POST",body:JSON.stringify({lines})
+      });
+      setCart({});
+      await refreshRequest(link);
+    }catch(e){setError(e.message||"Unable to send order.");}
+    finally{setOrderBusy(false);}
   }
 
   const session=state?.session;
@@ -137,6 +169,32 @@ export default function TableCustomerPage(){
         {rejected?<button onClick={clearRequest} style={buttonStyle("ghost")}>Make a new request</button>:null}
       </div>:null}
 
+      {approved?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div><div style={{fontSize:12,color:"#9fb3a6"}}>ORDER FROM YOUR TABLE</div><strong style={{fontSize:22}}>Food & Drinks</strong></div>
+          <div style={{textAlign:"right",color:"#f0d06f",fontWeight:900}}>{money(menu.reduce((sum,item)=>sum+Number(item.price||0)*Number(cart[item.id]||0),0))}</div>
+        </div>
+        {menu.length?<div style={{display:"grid",gap:8,marginTop:12,maxHeight:360,overflow:"auto"}}>
+          {menu.map(item=>{
+            const qty=Number(cart[item.id]||0);
+            return <div key={item.id} style={{border:"1px solid #1c382a",borderRadius:12,padding:10,display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
+              <div><strong>{item.name}</strong><div style={{color:"#91a69a",fontSize:12}}>{item.category} • {money(item.price)}</div></div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <button onClick={()=>changeQty(item.id,-1)} disabled={!qty} style={qtyButton}>−</button><strong>{qty}</strong><button onClick={()=>changeQty(item.id,1)} style={qtyButton}>+</button>
+              </div>
+            </div>;
+          })}
+        </div>:<div style={{color:"#91a69a",marginTop:10}}>No online-order items are available right now.</div>}
+        {Object.keys(cart).length?<button disabled={orderBusy} onClick={sendOrder} style={buttonStyle("primary")}>{orderBusy?"Sending…":"Send Order • "+money(menu.reduce((sum,item)=>sum+Number(item.price||0)*Number(cart[item.id]||0),0))}</button>:null}
+        {(requestState?.orders||[]).length?<div style={{marginTop:14}}>
+          <div style={{fontSize:12,color:"#9fb3a6",fontWeight:800}}>YOUR RECENT ORDERS</div>
+          {(requestState.orders||[]).slice(0,5).map(order=><div key={order.id} style={{marginTop:7,padding:9,borderRadius:10,background:"#10271b"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10}}><strong>{money(order.total_inr)}</strong><span style={{color:order.status==="SERVED"?"#79e7aa":order.status==="REJECTED"?"#ffb0b0":"#f0d06f"}}>{order.status}</span></div>
+            <div style={{fontSize:12,color:"#a9b9af"}}>{(order.priced_lines||[]).map(x=>x.name+" × "+x.quantity).join(", ")}</div>
+          </div>)}
+        </div>:null}
+      </div>:null}
+
       {!req?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16}}>
         <label style={labelStyle}>Your name</label>
         <input value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="Player name" style={inputStyle}/>
@@ -163,6 +221,7 @@ export default function TableCustomerPage(){
   </div>;
 }
 
+const qtyButton={width:32,height:32,borderRadius:9,border:"1px solid #315242",background:"#11261b",color:"white",fontWeight:900,fontSize:18};
 const labelStyle={display:"block",fontSize:12,color:"#abc0b3",fontWeight:800,margin:"12px 0 6px"};
 const inputStyle={width:"100%",border:"1px solid #294638",background:"#07110c",color:"#f7fbf8",borderRadius:12,padding:"12px 13px",fontSize:16,boxSizing:"border-box"};
 function buttonStyle(kind){
