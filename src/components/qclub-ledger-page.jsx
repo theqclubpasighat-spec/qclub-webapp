@@ -253,6 +253,7 @@ export default function QclubLedgerPage() {
   const [bills, setBills] = useState([]);
   const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
   const [tableRequests, setTableRequests] = useState([]);
+  const [tableOrders, setTableOrders] = useState([]);
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -366,6 +367,7 @@ export default function QclubLedgerPage() {
     setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setTableRequests([]);
+    setTableOrders([]);
     setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
@@ -470,6 +472,7 @@ export default function QclubLedgerPage() {
         protectedCall("customers?limit=300"),
         protectedCall("player-tabs"),
         protectedCall("table-requests?status=PENDING"),
+        protectedCall("table-orders?status=SENT"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -485,6 +488,7 @@ export default function QclubLedgerPage() {
       const customerPayload = values[11];
       const playerTabPayload = values[12];
       const tableRequestPayload = values[13];
+      const tableOrderPayload = values[14];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -500,6 +504,7 @@ export default function QclubLedgerPage() {
       setCustomers((customerPayload && customerPayload.customers) || []);
       setPlayerTabs((playerTabPayload && playerTabPayload.tabs) || []);
       setTableRequests((tableRequestPayload && tableRequestPayload.requests) || []);
+      setTableOrders((tableOrderPayload && tableOrderPayload.orders) || []);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
       });
@@ -550,6 +555,7 @@ export default function QclubLedgerPage() {
         protectedCall("fnb-tabs"),
         protectedCall("player-tabs"),
         protectedCall("table-requests?status=PENDING"),
+        protectedCall("table-orders?status=SENT"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
@@ -557,6 +563,7 @@ export default function QclubLedgerPage() {
       const openFnbTabs = (values[2] && values[2].tabs) || [];
       setPlayerTabs((values[3] && values[3].tabs) || []);
       setTableRequests((values[4] && values[4].requests) || []);
+      setTableOrders((values[5] && values[5].orders) || []);
       setFnbTabs(openFnbTabs);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
@@ -1051,6 +1058,25 @@ export default function QclubLedgerPage() {
     const current = (startForm.players || []).slice(0, wanted);
     while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null, isMember: false });
     return current;
+  }
+
+  async function decideQrOrder(orderRow, decision) {
+    if (!orderRow) return;
+    setBusy(true);
+    try {
+      await protectedCall("table-orders/" + orderRow.id, {
+        method: "PATCH",
+        body: { decision: decision },
+      });
+      flash(decision === "ACCEPT"
+        ? "QR order accepted and added to " + ((orderRow.access && orderRow.access.customer_name) || "player") + "'s Club Tab."
+        : "QR order rejected.");
+      await Promise.all([refreshLiveState(), refreshFnbFastState()]);
+    } catch (error) {
+      flash(error.message || "Unable to process QR order.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function prepareQrStart(requestRow) {
@@ -2771,7 +2797,50 @@ export default function QclubLedgerPage() {
                 <strong>{tableRequests.length}</strong>
                 <div className="ql-muted">{tableRequests.length ? "Needs Game Marshall action" : "None waiting"}</div>
               </div>
+              <div
+                className={"ql-stat " + (tableOrders.length ? "clickable" : "")}
+                role={tableOrders.length ? "button" : undefined}
+                onClick={tableOrders.length ? function() {
+                  const el = document.getElementById("qclub-qr-orders");
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                } : undefined}
+              >
+                <span className="ql-muted">QR Food Orders</span>
+                <strong>{tableOrders.length}</strong>
+                <div className="ql-muted">{tableOrders.length ? "Tap to accept / reject" : "None waiting"}</div>
+              </div>
             </div>
+            {tableOrders.length ? (
+              <>
+                <div className="ql-section" id="qclub-qr-orders">Customer QR food orders</div>
+                <div className="ql-grid">
+                  {tableOrders.map(function(orderRow) {
+                    const customerName = (orderRow.access && orderRow.access.customer_name) || "Player";
+                    const table = orderRow.table || {};
+                    return (
+                      <div className="ql-card" key={orderRow.id} style={{ borderColor: "#4c8d69" }}>
+                        <div className="ql-space">
+                          <div>
+                            <h3>{customerName}</h3>
+                            <div className="ql-muted">Table {table.table_no || "?"} — {table.display_name || orderRow.table_id}</div>
+                          </div>
+                          <strong className="ql-price">{money(orderRow.total_inr)}</strong>
+                        </div>
+                        <div className="ql-list" style={{ marginTop: 10 }}>
+                          {(orderRow.priced_lines || []).map(function(line, index) {
+                            return <div className="ql-line" key={line.item_id || index}><div className="ql-space"><span>{line.name} × {Number(line.quantity || 0)}</span><strong>{money(line.line_total_inr)}</strong></div></div>;
+                          })}
+                        </div>
+                        <div className="ql-row" style={{ marginTop: 12 }}>
+                          <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrOrder(orderRow,"ACCEPT"); }}>Accept • Add to Player Account</button>
+                          <button className="ql-btn danger" disabled={busy} onClick={function() { decideQrOrder(orderRow,"REJECT"); }}>Reject</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
             {tableRequests.length ? (
               <>
                 <div className="ql-section" id="qclub-qr-requests">Customer QR requests</div>
