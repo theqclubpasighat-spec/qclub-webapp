@@ -1100,7 +1100,9 @@ export default function QclubLedgerPage() {
         },
       });
       setStartTable(null);
-      flash("Table started with individual player accounts.");
+      flash(startForm.gameType === "QCHASE_RUMMY" && startForm.paymentRule === "PER_PLAYER"
+        ? "Table started. Game 1 entry charge was posted immediately to every starting player."
+        : "Table started with individual player accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to start table.", true);
@@ -1163,11 +1165,13 @@ export default function QclubLedgerPage() {
     }
     setBusy(true);
     try {
-      await protectedCall("sessions/" + session.session_id + "/people", {
+      const joined = await protectedCall("sessions/" + session.session_id + "/people", {
         method: "POST",
         body: { name: canonicalJoinName, phone: phone || null, team_no: teamNo },
       });
-      flash(canonicalJoinName + " joined the table.");
+      flash(joined && joined.qchase_charged_on_join
+        ? canonicalJoinName + " joined QChase/Rummy and was charged " + money(joined.entry_charge_inr) + " immediately for Game " + joined.entry_game_number + "."
+        : canonicalJoinName + " joined the table.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to add player.", true);
@@ -1179,11 +1183,15 @@ export default function QclubLedgerPage() {
   async function setPersonPresence(session, person, action) {
     setBusy(true);
     try {
-      await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
+      const result = await protectedCall("sessions/" + session.session_id + "/people/" + person.person_id, {
         method: "PATCH",
         body: { action },
       });
-      flash(person.name + (action === "LEAVE" ? " left the game/table. Historical games and charges are preserved." : " rejoined the table."));
+      flash(action === "LEAVE"
+        ? person.name + " left the game/table. Historical games and charges are preserved."
+        : (result && result.qchase_charged_on_rejoin
+          ? person.name + " rejoined QChase/Rummy and was charged " + money(result.entry_charge_inr) + " immediately for Game " + result.entry_game_number + "."
+          : person.name + " rejoined the table."));
       await refreshAll();
     } catch (error) {
       flash(error.message, true);
@@ -1300,7 +1308,17 @@ export default function QclubLedgerPage() {
         },
       });
       setGameEntry(null);
-      flash(session.game_type === "KITTY" ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.") : session.payment_rule === "HOURLY_SHARED" ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players." : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "Frame recorded. Actual active frame time was charged to the loser at their member/non-member table rate. Next frame timer is now zero." : session.payment_rule === "LOSER_PAYS" ? "Frame recorded and charge posted to the loser(s)." : "Game recorded to individual accounts.");
+      flash(session.game_type === "KITTY"
+        ? (gameEntry.kittyResult === "NO_WINNER" ? "Kitty recorded. Time carries forward to the next game." : "Kitty winner recorded and timed charge posted to the winner.")
+        : session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER"
+          ? "Next QChase/Rummy game started. Each selected player has been charged immediately; no charge waits for the game to finish."
+          : session.payment_rule === "HOURLY_SHARED"
+            ? "Game recorded. No ₹100 game charge — table time continues to be shared by active players."
+            : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS"
+              ? "Frame recorded. Actual active frame time was charged to the loser at their member/non-member table rate. Next frame timer is now zero."
+              : session.payment_rule === "LOSER_PAYS"
+                ? "Frame recorded and charge posted to the loser(s)."
+                : "Game recorded to individual accounts.");
       await refreshAll();
     } catch (error) {
       flash(error.message || "Unable to record game.", true);
@@ -2577,7 +2595,7 @@ export default function QclubLedgerPage() {
                             </div>
                             <div className="ql-row" style={{ marginTop: 12 }}>
                               <button className="ql-btn" onClick={function() { joinPlayer(session); }}>+ Join Player</button>
-                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>{session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button> : null}
+                              {session.payment_rule !== "HOURLY" && session.status !== "ENDED" ? <button className="ql-btn gold" onClick={function() { openGameEntry(session); }}>{session.game_type === "QCHASE_RUMMY" && session.payment_rule === "PER_PLAYER" ? "₹ Start Next Game" : session.game_type === "NORMAL_SNOOKER" && session.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button> : null}
                               {session.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(session); }}>Allocate Table Charge</button> : null}
                               {session.status === "ACTIVE" && ((rule && rule.timer_required) || session.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "PAUSE"); }}>Pause</button> : null}
                               {session.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(session.session_id, "RESUME"); }}>Resume</button> : null}
@@ -3767,11 +3785,20 @@ export default function QclubLedgerPage() {
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setGameEntry(null); }}>
           <div className="ql-modal" style={{ maxWidth: 720 }}>
             <div className="ql-space">
-              <div><h3 style={{ margin: 0 }}>Complete Frame / Game</h3><div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div></div>
+              <div>
+                <h3 style={{ margin: 0 }}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Start Next QChase / Rummy Game" : "Complete Frame / Game"}</h3>
+                <div className="ql-muted">{String(gameEntry.session.game_type || "").replaceAll("_"," ")} • {String(gameEntry.session.payment_rule || "").replaceAll("_"," ")}</div>
+              </div>
               <button className="ql-btn ghost" onClick={function() { setGameEntry(null); }}>✕</button>
             </div>
 
-            <div className="ql-section">Who played this game?</div>
+            <div className="ql-section">{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Who is starting this game?" : "Who played this game?"}</div>
+            {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? (
+              <div className="ql-line" style={{ marginBottom: 10 }}>
+                <strong>Charge first, then play.</strong>
+                <div className="ql-muted" style={{ marginTop: 4 }}>Each selected player is charged the per-player game rate now. The finish time does not affect the charge. A player who joins later is charged immediately on joining.</div>
+              </div>
+            ) : null}
             <div className="ql-list">
               {(gameEntry.people || []).map(function(person) {
                 const checked = (gameEntry.selectedIds || []).includes(person.person_id);
@@ -3867,7 +3894,7 @@ export default function QclubLedgerPage() {
 
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="ql-btn" onClick={function() { setGameEntry(null); }}>Cancel</button>
-              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>Confirm Completed Game</button>
+              <button className="ql-btn primary" disabled={busy} onClick={submitGameEntry}>{gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? "Charge & Start Game" : "Confirm Completed Game"}</button>
             </div>
           </div>
         </div>
