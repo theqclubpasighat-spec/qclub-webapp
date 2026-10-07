@@ -2762,8 +2762,10 @@ subtitle="Self-scoring • Serial order draw • Live display • A4 + 80mm prin
               type="button"
               onClick={() => {
                 setAllowed(false);
+                setGameAccessToken("");
+                saveGameAccessToken(tableKey, "");
                 try {
-                  localStorage.removeItem("qclub_rummy_access");
+                  sessionStorage.removeItem("qclub_rummy_access");
                 } catch {}
               }}
             >
