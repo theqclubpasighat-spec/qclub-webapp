@@ -18,7 +18,7 @@ export default function TableQrPrintPage(){
         const url=origin+"/table/"+table.key;
         return <div className="qrprint-card" key={table.key}>
           <div className="qrprint-title">{table.name}</div>
-          <div className="qrprint-sub">Permanent table QR — do not replace between games.</div>
+          <div className="qrprint-sub">One permanent QR for this table — use the same QR every day.</div>
           <QRCodeSVG value={url} size={240} level="H" includeMargin />
           <div className="qrprint-scan">SCAN TO START • JOIN • ORDER • VIEW TAB</div>
           <div className="qrprint-url">{url}</div>
