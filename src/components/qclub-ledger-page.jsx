@@ -264,6 +264,11 @@ export default function QclubLedgerPage() {
   const [openClubTabsView, setOpenClubTabsView] = useState(false);
   const [openClubTabsSearch, setOpenClubTabsSearch] = useState("");
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
+  const [clubTabDetail, setClubTabDetail] = useState(null);
+  const [clubTabDetailLoading, setClubTabDetailLoading] = useState(false);
+  const [clubCheckoutMethod, setClubCheckoutMethod] = useState("CASH");
+  const [clubCheckoutAmount, setClubCheckoutAmount] = useState("");
+  const [clubCheckoutPhone, setClubCheckoutPhone] = useState("");
   const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
   const [upiOrder, setUpiOrder] = useState(null);
@@ -685,7 +690,7 @@ export default function QclubLedgerPage() {
 
     async function pollPayment() {
       try {
-        const result = await protectedCall("payments/" + upiOrder.payment_id);
+        const result = await protectedCall(upiOrder.scope === "CLUB_TAB" ? ("player-tab-payments/" + upiOrder.payment_id) : ("payments/" + upiOrder.payment_id));
         if (stopped) return;
         setUpiOrder(function(current) {
           if (!current || current.payment_id !== upiOrder.payment_id) return current;
@@ -694,7 +699,17 @@ export default function QclubLedgerPage() {
         const nextStatus = String(result.status || "PENDING").toUpperCase();
         if (nextStatus !== "PENDING") {
           flash(paymentStatusLabel(nextStatus) + ".", !["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(nextStatus));
-          if (billDetail && billDetail.bill_id) {
+          if (upiOrder.scope === "CLUB_TAB" && clubTabDetail && clubTabDetail.customer?.customer_id) {
+            try {
+              const detail = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+              if (!stopped) {
+                setClubTabDetail(detail);
+                setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+              }
+            } catch {
+              // Keep terminal payment state visible even if Club Tab refresh is temporarily unavailable.
+            }
+          } else if (billDetail && billDetail.bill_id) {
             try {
               const detail = await protectedCall("bills/" + billDetail.bill_id);
               if (!stopped) setBillDetail(detail);
@@ -703,6 +718,7 @@ export default function QclubLedgerPage() {
             }
           }
           runInBackground(refreshBillingOverview());
+          if (upiOrder.scope === "CLUB_TAB") runInBackground(refreshFnbFastState());
         }
       } catch {
         // A transient status-check failure must not close the QR or mark payment failed.
@@ -715,7 +731,7 @@ export default function QclubLedgerPage() {
       stopped = true;
       window.clearInterval(pollTimer);
     };
-  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, billDetail && billDetail.bill_id, protectedCall, refreshBillingOverview, flash]);
+  }, [showUpiQrModal, upiOrder && upiOrder.payment_id, upiOrder && upiOrder.status, upiOrder && upiOrder.scope, billDetail && billDetail.bill_id, clubTabDetail && clubTabDetail.customer && clubTabDetail.customer.customer_id, protectedCall, refreshBillingOverview, flash]);
 
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
@@ -1414,6 +1430,156 @@ export default function QclubLedgerPage() {
     }
   }
 
+
+  async function openClubTabDetail(playerTab, options) {
+    if (!playerTab || !playerTab.customer_id) return;
+    const opts = options || {};
+    if (!opts.silent) setClubTabDetailLoading(true);
+    try {
+      const detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
+      if (!opts.keepSummaryOpen) setClubTabViewCustomerId("");
+      return detail;
+    } catch (error) {
+      flash(error.message || "Unable to load Club Tab details.", true);
+      return null;
+    } finally {
+      if (!opts.silent) setClubTabDetailLoading(false);
+    }
+  }
+
+  async function addFnbForClubTab(playerTab) {
+    if (!playerTab || !playerTab.customer_id) return;
+    setBusy(true);
+    try {
+      let running = fnbTabs.find(function(row) { return row.customer_id === playerTab.customer_id && row.status === "OPEN"; }) || null;
+      if (!running) {
+        running = await protectedCall("fnb-tabs", {
+          method: "POST",
+          body: {
+            customer_id: playerTab.customer_id,
+            customer_name: playerTab.name,
+            customer_phone: playerTab.phone || null,
+            idempotency_key: makeKey("club-tab-fnb"),
+          },
+        });
+      }
+      setFnbTabs(function(current) {
+        const found = current.some(function(row) { return row.tab_id === running.tab_id; });
+        return found ? current.map(function(row) { return row.tab_id === running.tab_id ? running : row; }) : [running, ...current];
+      });
+      setSelectedFnbTabId(running.tab_id);
+      setFnbDestination("RUNNING_TAB");
+      setClubTabViewCustomerId("");
+      setClubTabDetail(null);
+      setOpenClubTabsView(false);
+      setTab("fnb");
+      setQuantities({});
+      setFnbSearch("");
+      flash("Add F&B directly to " + playerTab.name + "'s Club Tab. No table session is required.");
+      window.requestAnimationFrame(function() {
+        if (fnbSearchInputRef.current) fnbSearchInputRef.current.focus();
+      });
+    } catch (error) {
+      flash(error.message || "Unable to open F&B for this Club Tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareClubTabCheckout(playerTab) {
+    if (!playerTab || !playerTab.customer_id) return;
+    setBusy(true);
+    try {
+      let detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      if (Number(detail.unbilled?.total_inr || 0) > 0.009) {
+        await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", {
+          method: "POST",
+          body: { idempotency_key: makeKey("club-tab-checkout") },
+        });
+        detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      }
+      setClubTabViewCustomerId("");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
+      flash(Number(detail.current_due_inr || 0) > 0.009
+        ? "Checkout prepared. Review the itemized statement, then collect payment."
+        : "This Club Tab has no amount due.");
+      runInBackground(refreshBillingOverview());
+      runInBackground(refreshFnbFastState());
+    } catch (error) {
+      flash(error.message || "Unable to prepare Club Tab checkout.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payClubTabManual() {
+    if (!clubTabDetail || !clubTabDetail.customer?.customer_id) return;
+    const received = Number(clubCheckoutAmount || 0);
+    if (!(received > 0)) return flash("Enter the amount actually received.", true);
+    setBusy(true);
+    try {
+      const result = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/pay", {
+        method: "POST",
+        body: {
+          method: clubCheckoutMethod,
+          received_inr: received,
+          idempotency_key: makeKey("club-tab-payment"),
+        },
+      });
+      const detail = result.tab || await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+      setClubTabDetail(detail);
+      setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+      const carry = Number(result.carry_inr || 0);
+      if (result.closed) {
+        flash("Payment received. Club Tab settled and closed.");
+      } else if (carry > 0) {
+        flash("Payment received. " + money(carry) + " credit carried to the player's account.");
+      } else {
+        flash("Partial payment recorded. Remaining Club Tab due " + money(detail.current_due_inr) + ".");
+      }
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to record Club Tab payment.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createClubTabOnline() {
+    if (!clubTabDetail || !clubTabDetail.customer?.customer_id) return;
+    const phone = String(clubCheckoutPhone || clubTabDetail.customer.phone || "").replace(/\D/g, "").slice(-10);
+    if (!/^\d{10}$/.test(phone)) return flash("Enter the customer's 10-digit mobile number for Cashfree Online.", true);
+    setBusy(true);
+    try {
+      const result = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/online", {
+        method: "POST",
+        body: { customer_phone: phone, idempotency_key: makeKey("club-tab-online") },
+      });
+      setClubCheckoutPhone(phone);
+      setUpiOrder(result);
+      setCashfreeQrError("");
+      cashfreeQrStartedRef.current = "";
+      setQrClock(Date.now());
+      setShowUpiQrModal(true);
+      flash("Cashfree Online QR created for the full Club Tab balance.");
+    } catch (error) {
+      flash(error.message || "Unable to create Club Tab Cashfree QR.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clubActivityAmount(entry) {
+    const value = Number(entry && entry.amount_inr || 0);
+    if (value < 0) return "−" + money(Math.abs(value));
+    return money(value);
+  }
+
   async function finalizeClubTab(playerTab) {
     if (!playerTab || !(Number(playerTab.unbilled_inr || 0) > 0)) return flash("No new unbilled charges for " + (playerTab?.name || "this player") + ".", true);
     setBusy(true);
@@ -1907,13 +2073,22 @@ export default function QclubLedgerPage() {
   async function verifyPayment(paymentId) {
     setBusy(true);
     try {
-      const result = await protectedCall("payments/" + paymentId);
+      const clubScope = upiOrder && upiOrder.scope === "CLUB_TAB";
+      const result = await protectedCall(clubScope ? ("player-tab-payments/" + paymentId) : ("payments/" + paymentId));
       const status = String(result.status || "PENDING").toUpperCase();
       if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder({ ...upiOrder, ...result });
 
       if (["VERIFIED", "SUCCESS", "PAID", "RECEIVED"].includes(status)) {
         setShowUpiQrModal(false);
-        flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+        if (clubScope && clubTabDetail && clubTabDetail.customer?.customer_id) {
+          const detail = await protectedCall("player-tabs/" + clubTabDetail.customer.customer_id + "/detail");
+          setClubTabDetail(detail);
+          setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
+          await refreshAll();
+          flash(Number(detail.current_due_inr || 0) <= 0.009 ? "Online payment received. Club Tab settled and closed." : "Online payment verified.");
+        } else {
+          flash(result.bill_status === "PAID" ? "Payment received. Bill closed automatically." : "Payment verified successfully.");
+        }
       } else if (["FAILED", "EXPIRED", "CANCELLED"].includes(status)) {
         setShowUpiQrModal(false);
         if (upiOrder && upiOrder.payment_id === paymentId) setUpiOrder(null);
@@ -3603,11 +3778,11 @@ export default function QclubLedgerPage() {
 
       {clubTabView ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setClubTabViewCustomerId(""); }}>
-          <div className="ql-modal" style={{ maxWidth: 760 }}>
+          <div className="ql-modal" style={{ maxWidth: 820 }}>
             <div className="ql-space">
               <div>
                 <h3 style={{ margin: 0 }}>{clubTabView.name} — Club Tab</h3>
-                <div className="ql-muted">One running customer account across tables. Leaving a table does not close this tab.</div>
+                <div className="ql-muted">Customer account stays open across tables, games and F&B orders until checkout.</div>
               </div>
               <button className="ql-btn ghost" aria-label="Close Club Tab popup" onClick={function() { setClubTabViewCustomerId(""); }}>✕</button>
             </div>
@@ -3619,30 +3794,209 @@ export default function QclubLedgerPage() {
             </div>
 
             <div className="ql-compact-stat" style={{ marginTop: 14 }}>
-              <div className="ql-stat"><span className="ql-muted">CURRENT DUE</span><strong>{money(clubTabView.current_due_inr)}</strong></div>
+              <div
+                className="ql-stat clickable"
+                role="button"
+                tabIndex={0}
+                onClick={function() { openClubTabDetail(clubTabView); }}
+                onKeyDown={function(event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openClubTabDetail(clubTabView); } }}
+              >
+                <span className="ql-muted">CURRENT DUE • TAP FOR DETAILS</span>
+                <strong>{money(clubTabView.current_due_inr)}</strong>
+              </div>
               <div className="ql-stat"><span className="ql-muted">NEW / UNBILLED</span><strong>{money(clubTabView.unbilled_inr)}</strong><div className="ql-muted">F&B {money(clubTabView.fnb_unbilled_inr)} • Games/Table {money(clubTabView.player_unbilled_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">EARLIER BILLED DUE</span><strong>{money(clubTabView.billed_due_inr)}</strong></div>
             </div>
 
             <div className="ql-line" style={{ marginTop: 14 }}>
-              <strong>Keep the Club Tab open as long as needed.</strong>
+              <strong>One Club Tab, even when the player is not on a table.</strong>
               <div className="ql-muted" style={{ marginTop: 4 }}>
-                The player may leave one table, move to another table, order F&B, and settle later. Creating a bill for the current charges does not prevent future charges from continuing on the player account.
+                Add food or drinks here, move between tables, and keep every game/table/F&B charge under the same customer account. Checkout only when the customer is ready to settle.
               </div>
             </div>
 
             <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
-              {Number(clubTabView.billed_due_inr || 0) > 0 ? (
-                <button className="ql-btn" onClick={function() {
-                  setLedgerSearch(clubTabView.name || "");
-                  setClubTabViewCustomerId("");
-                  setTab("ledger");
-                }}>Open Existing Bill</button>
-              ) : null}
-              {Number(clubTabView.unbilled_inr || 0) > 0 ? (
-                <button className="ql-btn primary" disabled={busy} onClick={function() { finalizeClubTab(clubTabView); }}>Settle Current Charges</button>
+              <button className="ql-btn primary" disabled={busy} onClick={function() { addFnbForClubTab(clubTabView); }}>+ Add F&B</button>
+              <button className="ql-btn" disabled={clubTabDetailLoading} onClick={function() { openClubTabDetail(clubTabView); }}>{clubTabDetailLoading ? "Loading…" : "View Activity"}</button>
+              {Number(clubTabView.current_due_inr || 0) > 0.009 ? (
+                <button className="ql-btn gold" disabled={busy} onClick={function() { prepareClubTabCheckout(clubTabView); }}>Checkout</button>
               ) : null}
               <button className="ql-btn ghost" onClick={function() { setClubTabViewCustomerId(""); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clubTabDetail ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setClubTabDetail(null); }}>
+          <div className="ql-modal" style={{ maxWidth: 1080 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>{clubTabDetail.customer?.name || "Customer"} — Club Tab Activity</h3>
+                <div className="ql-muted">Live running check • tables, games, F&B, previous bills and payments in one place</div>
+              </div>
+              <button className="ql-btn ghost" aria-label="Close Club Tab activity popup" onClick={function() { setClubTabDetail(null); }}>✕</button>
+            </div>
+
+            <div className="ql-row" style={{ marginTop: 12 }}>
+              {(clubTabDetail.active_locations || []).length ? (clubTabDetail.active_locations || []).map(function(location) {
+                return <span className="ql-badge good" key={location.session_id}>{String(location.table_id || "").replace("table_","T")} • {String(location.game_type || "").replaceAll("_"," ")}</span>;
+              }) : <span className="ql-badge">NOT CURRENTLY PLAYING</span>}
+              {clubTabDetail.customer?.is_member ? <span className="ql-badge gold">MEMBER</span> : null}
+            </div>
+
+            <div className="ql-compact-stat" style={{ marginTop: 14 }}>
+              <div className="ql-stat"><span className="ql-muted">CURRENT DUE</span><strong>{money(clubTabDetail.current_due_inr)}</strong></div>
+              <div className="ql-stat"><span className="ql-muted">NEW / UNBILLED</span><strong>{money(clubTabDetail.unbilled?.total_inr)}</strong><div className="ql-muted">F&B {money(clubTabDetail.unbilled?.fnb_inr)} • Games/Table {money(clubTabDetail.unbilled?.games_table_inr)}</div></div>
+              <div className="ql-stat"><span className="ql-muted">EARLIER BILLED DUE</span><strong>{money(clubTabDetail.billed_due_inr)}</strong></div>
+            </div>
+
+            <div className="ql-row" style={{ marginTop: 14 }}>
+              <button className="ql-btn primary" disabled={busy} onClick={function() {
+                addFnbForClubTab({
+                  customer_id: clubTabDetail.customer.customer_id,
+                  name: clubTabDetail.customer.name,
+                  phone: clubTabDetail.customer.phone,
+                });
+              }}>+ Add F&B</button>
+              <button className="ql-btn" disabled={clubTabDetailLoading} onClick={function() {
+                openClubTabDetail({
+                  customer_id: clubTabDetail.customer.customer_id,
+                  name: clubTabDetail.customer.name,
+                  phone: clubTabDetail.customer.phone,
+                }, { silent: false });
+              }}>↻ Refresh Activity</button>
+            </div>
+
+            <div className="ql-section">Account Activity</div>
+            <div className="ql-list" style={{ maxHeight: "38vh", overflow: "auto" }}>
+              {(clubTabDetail.activity || []).length ? (clubTabDetail.activity || []).map(function(entry) {
+                const meta = [
+                  entry.table_id ? String(entry.table_id).replace("table_","T") : "",
+                  entry.game_type ? String(entry.game_type).replaceAll("_"," ") : "",
+                  entry.bill_no || "",
+                  dateTime(entry.occurred_at),
+                ].filter(Boolean).join(" • ");
+                return (
+                  <div className="ql-line ql-space" key={entry.id}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="ql-row">
+                        <span className={"ql-badge " + (entry.kind === "PAYMENT" ? "good" : entry.status === "BILLED" ? "gold" : "")}>{entry.kind}</span>
+                        <span className="ql-badge">{entry.status}</span>
+                      </div>
+                      <strong style={{ display: "block", marginTop: 6 }}>{entry.description}</strong>
+                      <div className="ql-muted">
+                        {entry.quantity && Number(entry.quantity) !== 1 ? entry.quantity + " × " + money(entry.unit_price_inr) + " • " : ""}{meta}
+                      </div>
+                    </div>
+                    <strong style={{ whiteSpace: "nowrap" }}>{clubActivityAmount(entry)}</strong>
+                  </div>
+                );
+              }) : <div className="ql-empty">No charge activity on this Club Tab yet.</div>}
+            </div>
+
+            {(clubTabDetail.outstanding_bills || []).length ? (
+              <>
+                <div className="ql-section">Outstanding Bills</div>
+                <div className="ql-list">
+                  {(clubTabDetail.outstanding_bills || []).map(function(bill) {
+                    return (
+                      <div className="ql-line ql-space" key={bill.bill_id}>
+                        <div>
+                          <strong>{bill.bill_no}</strong>
+                          <div className="ql-muted">{bill.status} • {dateTime(bill.finalized_at)} • total {money(bill.total_inr)} • paid {money(bill.paid_inr)}</div>
+                        </div>
+                        <div className="ql-row">
+                          <strong>{money(bill.due_inr)} due</strong>
+                          <button className="ql-btn" onClick={async function() {
+                            await loadBill(bill.bill_id);
+                            setClubTabDetail(null);
+                            setTab("ledger");
+                          }}>Open Bill</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            <div className="ql-section">Checkout</div>
+            {Number(clubTabDetail.unbilled?.total_inr || 0) > 0.009 ? (
+              <div className="ql-line">
+                <strong>Prepare the final checkout first.</strong>
+                <div className="ql-muted" style={{ marginTop: 4 }}>
+                  This freezes all current game/table/F&B charges into an auditable bill. Earlier unpaid bills remain intact but are included in the one Club Tab balance below.
+                </div>
+                <button className="ql-btn gold" style={{ marginTop: 10 }} disabled={busy} onClick={function() {
+                  prepareClubTabCheckout({
+                    customer_id: clubTabDetail.customer.customer_id,
+                    name: clubTabDetail.customer.name,
+                    phone: clubTabDetail.customer.phone,
+                  });
+                }}>Prepare Checkout • {money(clubTabDetail.current_due_inr)}</button>
+              </div>
+            ) : Number(clubTabDetail.current_due_inr || 0) > 0.009 ? (
+              <div className="ql-line">
+                <div className="ql-space">
+                  <div>
+                    <strong>FINAL CLUB TAB BALANCE</strong>
+                    <div className="ql-muted">Payment is allocated oldest-bill-first without rewriting old bills.</div>
+                  </div>
+                  <strong style={{ fontSize: 24 }}>{money(clubTabDetail.current_due_inr)}</strong>
+                </div>
+
+                <div className="ql-form-grid" style={{ marginTop: 12 }}>
+                  <label>
+                    <span className="ql-label">Cash / static QR</span>
+                    <select className="ql-select" value={clubCheckoutMethod} onChange={function(event) { setClubCheckoutMethod(event.target.value); }}>
+                      <option value="CASH">Cash</option>
+                      <option value="UPI">UPI — shop/static QR</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span className="ql-label">Amount actually received</span>
+                    <input className="ql-input" type="number" min="0" step="0.01" value={clubCheckoutAmount} onChange={function(event) { setClubCheckoutAmount(event.target.value); }} />
+                  </label>
+                </div>
+                <div className="ql-row" style={{ marginTop: 10 }}>
+                  <button className="ql-btn primary" disabled={busy} onClick={payClubTabManual}>
+                    {Number(clubCheckoutAmount || 0) + 0.009 >= Number(clubTabDetail.current_due_inr || 0) ? "Pay & Close Tab" : "Record Partial Payment"}
+                  </button>
+                  <span className="ql-muted">Overpayment becomes player credit. A short payment remains due instead of silently closing the tab.</span>
+                </div>
+
+                <div className="ql-section">Online • Cashfree dynamic QR</div>
+                <div className="ql-form-grid">
+                  <label className="full">
+                    <span className="ql-label">Customer mobile</span>
+                    <input className="ql-input" inputMode="numeric" value={clubCheckoutPhone} onChange={function(event) { setClubCheckoutPhone(event.target.value.replace(/\D/g,"").slice(0,10)); }} placeholder="10-digit mobile number" />
+                  </label>
+                </div>
+                <button className="ql-btn gold" style={{ marginTop: 10 }} disabled={busy} onClick={createClubTabOnline}>Generate Cashfree QR • {money(clubTabDetail.current_due_inr)}</button>
+              </div>
+            ) : (
+              <div className="ql-line">
+                <strong>✓ CLUB TAB SETTLED</strong>
+                <div className="ql-muted" style={{ marginTop: 4 }}>
+                  No amount is currently due. This final statement stays visible until staff closes it. If the player is still active on a table, the Club Tab remains available for new charges; otherwise it drops from Open Club Tabs after refresh.
+                </div>
+                {(clubTabDetail.settlements || [])[0] ? (
+                  <div className="ql-line" style={{ marginTop: 10 }}>
+                    <div className="ql-space">
+                      <div>
+                        <strong>{clubTabDetail.settlements[0].settlement_no}</strong>
+                        <div className="ql-muted">{clubTabDetail.settlements[0].method} • {clubTabDetail.settlements[0].status} • {dateTime(clubTabDetail.settlements[0].verified_at || clubTabDetail.settlements[0].created_at)}</div>
+                      </div>
+                      <strong>{money(clubTabDetail.settlements[0].amount_inr)}</strong>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="ql-btn ghost" onClick={function() { setClubTabDetail(null); }}>Close</button>
             </div>
           </div>
         </div>
@@ -4139,7 +4493,7 @@ export default function QclubLedgerPage() {
 
             <div className="ql-pay-amount">{money(upiOrder.amount_inr)}</div>
             <div className="ql-muted">
-              {(billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill"} • Cashfree
+              {upiOrder.scope === "CLUB_TAB" ? ((clubTabDetail && clubTabDetail.customer && clubTabDetail.customer.name) ? clubTabDetail.customer.name + " • CLUB TAB" : "CLUB TAB") : ((billDetail && billDetail.bill_no) ? billDetail.bill_no : "Bill")} • Cashfree
             </div>
 
             <div
