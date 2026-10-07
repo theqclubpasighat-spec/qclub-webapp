@@ -940,6 +940,15 @@ export default function QclubLedgerPage() {
   const tableViewRule = tableViewSession
     ? rules.find(function(row) { return row.game_type === tableViewSession.game_type; }) || null
     : null;
+  const tableViewRecordedGames = tableViewDetail && Array.isArray(tableViewDetail.games)
+    ? tableViewDetail.games.filter(function(game) { return game.status !== "VOIDED"; })
+    : [];
+  const tableViewContinuousPerPlayerGame = Boolean(
+    tableViewSession &&
+    ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(tableViewSession.game_type) &&
+    tableViewSession.payment_rule === "PER_PLAYER"
+  );
+  const tableViewCurrentGameNumber = tableViewRecordedGames.length + 1;
   const clubTabView = clubTabViewCustomerId
     ? playerTabs.find(function(row) { return row.customer_id === clubTabViewCustomerId; }) || null
     : null;
@@ -4422,6 +4431,19 @@ export default function QclubLedgerPage() {
 
             {tableViewSession.account_mode === "INDIVIDUAL" ? (
               <>
+                {tableViewContinuousPerPlayerGame ? (
+                  <div className="ql-line" style={{ marginTop: 12, borderColor: "#8c742a" }}>
+                    <div className="ql-space">
+                      <div>
+                        <strong>GAME {tableViewCurrentGameNumber} IN PROGRESS</strong>
+                        <div className="ql-muted">
+                          {tableViewRecordedGames.length} completed • {(tableViewRule && tableViewRule.rate_inr != null) ? money(tableViewRule.rate_inr) + "/player/game" : "per-player billing"} • do not end the table between games
+                        </div>
+                      </div>
+                      <span className="ql-badge gold">CONTINUOUS SESSION</span>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="ql-section">Players</div>
                 <div className="ql-player-grid">
                   {(tableViewDetail.people || []).map(function(person) {
@@ -4487,7 +4509,13 @@ export default function QclubLedgerPage() {
                       <button className="ql-btn gold" onClick={function() {
                         setTableViewSessionId("");
                         openGameEntry(tableViewSession);
-                      }}>{tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER" ? "₹ Start Next Game" : tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS" ? "✓ Complete Frame" : "✓ Complete Frame/Game"}</button>
+                      }}>{tableViewContinuousPerPlayerGame
+                        ? "✓ FINISH GAME " + tableViewCurrentGameNumber + " → CONTINUE GAME " + (tableViewCurrentGameNumber + 1)
+                        : tableViewSession.game_type === "QCHASE_RUMMY" && tableViewSession.payment_rule === "PER_PLAYER"
+                          ? "₹ Start Next Game"
+                          : tableViewSession.game_type === "NORMAL_SNOOKER" && tableViewSession.payment_rule === "LOSER_PAYS"
+                            ? "✓ Complete Frame"
+                            : "✓ Complete Frame/Game"}</button>
                     ) : null}
                     {tableViewSession.payment_rule === "HOURLY" ? <button className="ql-btn gold" onClick={function() { allocateHourly(tableViewSession); }}>Allocate Table Charge</button> : null}
                   </div>
@@ -4495,7 +4523,7 @@ export default function QclubLedgerPage() {
                     {tableViewSession.status === "ACTIVE" && ((tableViewRule && tableViewRule.timer_required) || tableViewSession.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "PAUSE"); }}>Pause</button> : null}
                     {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
                     <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>
-                      {["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Game • Free Table"}
+                      {["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Session • Free Table"}
                     </button>
                     <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close Popup</button>
                   </div>
