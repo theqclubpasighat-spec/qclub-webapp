@@ -2842,6 +2842,35 @@ export default function QclubLedgerPage() {
   return (
     <div className="qledger">
       <style>{CSS}</style>
+      {activeOrderAlert ? (
+        <div className="ql-order-alert" role="alertdialog" aria-live="assertive" aria-label="New table order">
+          <div className="ql-order-alert-kicker">🔔 NEW TABLE ORDER</div>
+          <div className="ql-space">
+            <div>
+              <h2>{(activeOrderAlert.access && activeOrderAlert.access.customer_name) || "Player"}</h2>
+              <div className="ql-order-table">
+                Table {(activeOrderAlert.table && activeOrderAlert.table.table_no) || "?"} — {(activeOrderAlert.table && activeOrderAlert.table.display_name) || activeOrderAlert.table_id}
+              </div>
+            </div>
+            <div className="ql-order-alert-total">{money(activeOrderAlert.total_inr)}</div>
+          </div>
+          <div className="ql-order-alert-lines">
+            {(activeOrderAlert.priced_lines || []).map(function(line, index) {
+              return (
+                <div className="ql-order-alert-line" key={line.item_id || index}>
+                  <strong>{line.name} × {Number(line.quantity || 0)}</strong>
+                  <span>{money(line.line_total_inr)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="ql-order-alert-actions">
+            <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrOrder(activeOrderAlert, "ACCEPT"); }}>ACCEPT • ADD TO PLAYER ACCOUNT</button>
+            <button className="ql-btn danger" disabled={busy} onClick={function() { decideQrOrder(activeOrderAlert, "REJECT"); }}>REJECT</button>
+          </div>
+          {orderAlertQueue.length > 1 ? <div className="ql-order-alert-count">{orderAlertQueue.length} QR food orders are waiting.</div> : null}
+        </div>
+      ) : null}
       <div className="ql-wrap">
         <div className="ql-top">
           <div className="ql-brand">
