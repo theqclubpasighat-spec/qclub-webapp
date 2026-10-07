@@ -626,6 +626,16 @@ export default function QclubLedgerPage() {
     }
   }, [loadSessionDetails, protectedCall, token]);
 
+  const refreshQrOrders = useCallback(async function() {
+    if (!token) return;
+    try {
+      const payload = await protectedCall("table-orders?status=SENT");
+      setTableOrders((payload && payload.orders) || []);
+    } catch {
+      // Keep the last known QR orders visible; the normal live refresh can reconcile.
+    }
+  }, [protectedCall, token]);
+
   useEffect(function() {
     apiRequest("health").then(setHealth).catch(function() { setHealth(null); });
   }, []);
