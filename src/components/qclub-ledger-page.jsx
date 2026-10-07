@@ -252,6 +252,8 @@ export default function QclubLedgerPage() {
   const [sessionDetails, setSessionDetails] = useState({});
   const [bills, setBills] = useState([]);
   const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+  const [tableRequests, setTableRequests] = useState([]);
+  const [tableOrders, setTableOrders] = useState([]);
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -364,6 +366,8 @@ export default function QclubLedgerPage() {
     setCustomers([]);
     setSelectedFnbTabId("");
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
+    setTableRequests([]);
+    setTableOrders([]);
     setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
@@ -467,6 +471,8 @@ export default function QclubLedgerPage() {
         protectedCall("fnb-tabs"),
         protectedCall("customers?limit=300"),
         protectedCall("player-tabs"),
+        protectedCall("table-requests?status=PENDING"),
+        protectedCall("table-orders?status=SENT"),
       ]);
       const h = values[0];
       const boot = values[1];
@@ -481,6 +487,8 @@ export default function QclubLedgerPage() {
       const fnbTabPayload = values[10];
       const customerPayload = values[11];
       const playerTabPayload = values[12];
+      const tableRequestPayload = values[13];
+      const tableOrderPayload = values[14];
       setHealth(h);
       setSummary(summaryPayload);
       setBootstrap(boot);
@@ -495,6 +503,8 @@ export default function QclubLedgerPage() {
       setFnbTabs(openFnbTabs);
       setCustomers((customerPayload && customerPayload.customers) || []);
       setPlayerTabs((playerTabPayload && playerTabPayload.tabs) || []);
+      setTableRequests((tableRequestPayload && tableRequestPayload.requests) || []);
+      setTableOrders((tableOrderPayload && tableOrderPayload.orders) || []);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
       });
@@ -544,12 +554,16 @@ export default function QclubLedgerPage() {
         protectedCall("operations/inbox"),
         protectedCall("fnb-tabs"),
         protectedCall("player-tabs"),
+        protectedCall("table-requests?status=PENDING"),
+        protectedCall("table-orders?status=SENT"),
       ]);
       const openRows = (values[0] && values[0].sessions) || [];
       setSessions(openRows);
       setOperations(values[1] || { counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
       const openFnbTabs = (values[2] && values[2].tabs) || [];
       setPlayerTabs((values[3] && values[3].tabs) || []);
+      setTableRequests((values[4] && values[4].requests) || []);
+      setTableOrders((values[5] && values[5].orders) || []);
       setFnbTabs(openFnbTabs);
       setSelectedFnbTabId(function(current) {
         return current && openFnbTabs.some(function(row) { return row.tab_id === current; }) ? current : "";
@@ -1044,6 +1058,79 @@ export default function QclubLedgerPage() {
     const current = (startForm.players || []).slice(0, wanted);
     while (current.length < wanted) current.push({ name: "", phone: "", customerId: null, teamNo: null, isMember: false });
     return current;
+  }
+
+  async function decideQrOrder(orderRow, decision) {
+    if (!orderRow) return;
+    setBusy(true);
+    try {
+      await protectedCall("table-orders/" + orderRow.id, {
+        method: "PATCH",
+        body: { decision: decision },
+      });
+      flash(decision === "ACCEPT"
+        ? "QR order accepted and added to " + ((orderRow.access && orderRow.access.customer_name) || "player") + "'s Club Tab."
+        : "QR order rejected.");
+      await Promise.all([refreshLiveState(), refreshFnbFastState()]);
+    } catch (error) {
+      flash(error.message || "Unable to process QR order.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function prepareQrStart(requestRow) {
+    const table = tables.find(function(row) { return row.table_id === requestRow.table_id; });
+    if (!table) return flash("QR request table was not found.", true);
+    const options = allowedGames(table, rules);
+    const requested = String(requestRow.requested_game_type || "").toUpperCase();
+    const gameType = options.some(function(rule) { return rule.game_type === requested; })
+      ? requested
+      : ((options[0] && options[0].game_type) || "NORMAL_SNOOKER");
+    const form = startDefaults(gameType);
+    const first = {
+      name: String(requestRow.customer_name || "").toUpperCase(),
+      phone: String(requestRow.phone || "").replace(/\D/g, "").slice(-10),
+      customerId: requestRow.customer_id || null,
+      teamNo: null,
+      isMember: false,
+    };
+    form.players = [first, ...(form.players || []).slice(1)];
+    setStartTable(table);
+    setMemberCheck(null);
+    setStartForm(form);
+    flash("QR start request loaded. Add any other players, verify membership if needed, then Start Table.");
+  }
+
+  async function decideQrRequest(requestRow, decision) {
+    if (!requestRow) return;
+    if (decision === "START_FORM") {
+      prepareQrStart(requestRow);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await protectedCall("table-requests/" + requestRow.id, {
+        method: "PATCH",
+        body: { decision: decision },
+      });
+      if (decision === "APPROVE") {
+        flash(result && result.waiting_next_game
+          ? requestRow.customer_name + " will join from the next QChase/Rummy game."
+          : requestRow.customer_name + " connected to the table.");
+      } else {
+        flash(requestRow.customer_name + " request rejected.");
+      }
+      await refreshLiveState();
+    } catch (error) {
+      if (error && error.status === 409 && String(error.message || "").includes("Start Table")) {
+        prepareQrStart(requestRow);
+      } else {
+        flash(error.message || "Unable to update QR request.", true);
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function openStart(table) {
@@ -2671,6 +2758,7 @@ export default function QclubLedgerPage() {
           ].map(function(entry) {
             return <button key={entry[0]} className={"ql-tab " + (tab === entry[0] ? "active" : "")} onClick={function() { setTab(entry[0]); }}>{entry[1]}</button>;
           })}
+          <button className="ql-tab" onClick={function() { window.open("/table-qr-print","_blank","noopener"); }}>▦ Print Table QRs</button>
           <button className="ql-tab" onClick={refreshAll}>{busy ? "Refreshing…" : "↻ Refresh"}</button>
         </div>
 
@@ -2698,7 +2786,94 @@ export default function QclubLedgerPage() {
                 <strong>{playerTabs.length}</strong>
                 <div className="ql-muted">{playerTabs.length ? "Tap to view all player tabs" : "None open"}</div>
               </div>
+              <div
+                className={"ql-stat " + (tableRequests.length ? "clickable" : "")}
+                role={tableRequests.length ? "button" : undefined}
+                onClick={tableRequests.length ? function() {
+                  const el = document.getElementById("qclub-qr-requests");
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                } : undefined}
+              >
+                <span className="ql-muted">QR Join / Start Requests</span>
+                <strong>{tableRequests.length}</strong>
+                <div className="ql-muted">{tableRequests.length ? "Needs Game Marshall action" : "None waiting"}</div>
+              </div>
+              <div
+                className={"ql-stat " + (tableOrders.length ? "clickable" : "")}
+                role={tableOrders.length ? "button" : undefined}
+                onClick={tableOrders.length ? function() {
+                  const el = document.getElementById("qclub-qr-orders");
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                } : undefined}
+              >
+                <span className="ql-muted">QR Food Orders</span>
+                <strong>{tableOrders.length}</strong>
+                <div className="ql-muted">{tableOrders.length ? "Tap to accept / reject" : "None waiting"}</div>
+              </div>
             </div>
+            {tableOrders.length ? (
+              <>
+                <div className="ql-section" id="qclub-qr-orders">Customer QR food orders</div>
+                <div className="ql-grid">
+                  {tableOrders.map(function(orderRow) {
+                    const customerName = (orderRow.access && orderRow.access.customer_name) || "Player";
+                    const table = orderRow.table || {};
+                    return (
+                      <div className="ql-card" key={orderRow.id} style={{ borderColor: "#4c8d69" }}>
+                        <div className="ql-space">
+                          <div>
+                            <h3>{customerName}</h3>
+                            <div className="ql-muted">Table {table.table_no || "?"} — {table.display_name || orderRow.table_id}</div>
+                          </div>
+                          <strong className="ql-price">{money(orderRow.total_inr)}</strong>
+                        </div>
+                        <div className="ql-list" style={{ marginTop: 10 }}>
+                          {(orderRow.priced_lines || []).map(function(line, index) {
+                            return <div className="ql-line" key={line.item_id || index}><div className="ql-space"><span>{line.name} × {Number(line.quantity || 0)}</span><strong>{money(line.line_total_inr)}</strong></div></div>;
+                          })}
+                        </div>
+                        <div className="ql-row" style={{ marginTop: 12 }}>
+                          <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrOrder(orderRow,"ACCEPT"); }}>Accept • Add to Player Account</button>
+                          <button className="ql-btn danger" disabled={busy} onClick={function() { decideQrOrder(orderRow,"REJECT"); }}>Reject</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+            {tableRequests.length ? (
+              <>
+                <div className="ql-section" id="qclub-qr-requests">Customer QR requests</div>
+                <div className="ql-grid">
+                  {tableRequests.map(function(requestRow) {
+                    const table = requestRow.table || tables.find(function(row) { return row.table_id === requestRow.table_id; });
+                    const isStart = requestRow.action === "START";
+                    return (
+                      <div className="ql-card" key={requestRow.id} style={{ borderColor: "#8c742a" }}>
+                        <div className="ql-space">
+                          <div>
+                            <h3>{requestRow.customer_name}</h3>
+                            <div className="ql-muted">{requestRow.phone || "No mobile"}</div>
+                          </div>
+                          <span className="ql-badge gold">{requestRow.action === "JOIN_NEXT" ? "NEXT GAME" : requestRow.action.replaceAll("_"," ")}</span>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <strong>Table {table && table.table_no ? table.table_no : "?"} — {(table && table.display_name) || requestRow.table_id}</strong>
+                          <div className="ql-muted">{requestRow.requested_game_type ? String(requestRow.requested_game_type).replaceAll("_"," ") : "Current table game"}</div>
+                        </div>
+                        <div className="ql-row" style={{ marginTop: 12 }}>
+                          {isStart
+                            ? <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrRequest(requestRow,"START_FORM"); }}>Open Start Form</button>
+                            : <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrRequest(requestRow,"APPROVE"); }}>{requestRow.action === "JOIN_NEXT" ? "Approve Next Game" : "Approve Join"}</button>}
+                          <button className="ql-btn danger" disabled={busy} onClick={function() { decideQrRequest(requestRow,"REJECT"); }}>Reject</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {

@@ -5204,6 +5204,548 @@ async function cashfreeWebhook(req, res) {
 }
 
 
+
+function publicTableNo(tableKey = "") {
+  const match = /^T([1-4])$/i.exec(safeText(tableKey, 20));
+  return match ? Number(match[1]) : null;
+}
+
+async function tableByPublicKey(supabase, tableKey) {
+  const tableNo = publicTableNo(tableKey);
+  if (!tableNo) return null;
+  const { data, error } = await supabase
+    .from("snooker_tables")
+    .select("*")
+    .eq("table_no", tableNo)
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function activeSessionForTable(supabase, tableId) {
+  const { data, error } = await supabase
+    .from("snooker_sessions")
+    .select("*")
+    .eq("table_id", tableId)
+    .in("status", ["ACTIVE","PAUSED"])
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function lookupCustomerForPublicRequest(supabase, enteredName = "", phone = "") {
+  const entered = canonicalCustomerName(enteredName);
+  if (!entered) return null;
+  const normalized = normalizeCustomerName(entered);
+  const { data: alias, error: aliasError } = await supabase
+    .from("snooker_customer_aliases")
+    .select("customer_id")
+    .eq("normalized_alias", normalized)
+    .maybeSingle();
+  if (aliasError && aliasError.code !== "42P01") throw aliasError;
+  if (alias?.customer_id) {
+    const { data, error } = await supabase.from("snooker_customers").select("*").eq("id", alias.customer_id).eq("active", true).maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+  const canonical = confirmedCanonicalCustomerName(entered);
+  const { data, error } = await supabase
+    .from("snooker_customers")
+    .select("*")
+    .eq("normalized_name", normalizeCustomerName(canonical))
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const requestedPhone = normalizePhone(phone || "");
+  if (requestedPhone && data.phone && normalizePhone(data.phone) !== requestedPhone) return data;
+  return data;
+}
+
+async function maybeAutoLinkTableRequest(supabase, requestRow) {
+  if (!requestRow || requestRow.status !== "PENDING") return requestRow;
+  const session = await activeSessionForTable(supabase, requestRow.table_id);
+  if (!session || session.account_mode !== "INDIVIDUAL") return requestRow;
+  const { data: people, error } = await supabase
+    .from("snooker_session_people")
+    .select("*")
+    .eq("session_id", session.id)
+    .eq("status", "ACTIVE");
+  if (error) throw error;
+  const wantedName = normalizeCustomerName(confirmedCanonicalCustomerName(requestRow.customer_name || ""));
+  const wantedPhone = normalizePhone(requestRow.phone || "");
+  const person = (people || []).find((row) => {
+    if (requestRow.customer_id && row.customer_id === requestRow.customer_id) return true;
+    const sameName = normalizeCustomerName(confirmedCanonicalCustomerName(row.name || "")) === wantedName;
+    if (!sameName) return false;
+    const rowPhone = normalizePhone(row.phone || "");
+    return !wantedPhone || !rowPhone || rowPhone === wantedPhone;
+  });
+  if (!person) return requestRow;
+  const { data: linked, error: updateError } = await supabase
+    .from("qclub_table_access_requests")
+    .update({
+      status: "APPROVED",
+      target_session_id: session.id,
+      person_id: person.id,
+      customer_id: person.customer_id || requestRow.customer_id || null,
+      decided_at: new Date().toISOString(),
+      decided_by: "auto-session-link",
+      last_seen_at: new Date().toISOString(),
+    })
+    .eq("id", requestRow.id)
+    .select("*")
+    .single();
+  if (updateError) throw updateError;
+  return linked;
+}
+
+async function publicTablePortal(req, res, tableKey) {
+  const supabase = getSupabaseAdmin();
+  const table = await tableByPublicKey(supabase, tableKey);
+  if (!table) return json(res, 404, { ok: false, error: "TABLE_NOT_FOUND" });
+  const session = await activeSessionForTable(supabase, table.id);
+  let sessionPayload = null;
+  if (session) {
+    const [{ data: rule }, { data: people }, { data: game }] = await Promise.all([
+      supabase.from("snooker_game_rules").select("game_type,display_name,billing_mode,rate_inr,max_players").eq("game_type", session.game_type).maybeSingle(),
+      supabase.from("snooker_session_people").select("id,name,status,joined_at").eq("session_id", session.id).eq("status", "ACTIVE").order("joined_at"),
+      supabase.from("snooker_completed_games").select("id,game_number,status,started_at,completed_at").eq("session_id",session.id).neq("status","VOIDED").order("game_number",{ascending:false}).limit(1).maybeSingle(),
+    ]);
+    sessionPayload = {
+      session_id: session.id,
+      status: session.status,
+      game_type: session.game_type,
+      game_label: rule?.display_name || session.game_type,
+      payment_rule: session.payment_rule || null,
+      account_mode: session.account_mode,
+      started_at: session.started_at,
+      elapsed_seconds: elapsedSeconds(session),
+      timer_running: Boolean(session.timer_running),
+      active_players: (people || []).map((p) => ({ name: p.name, joined_at: p.joined_at })),
+      player_count: (people || []).length,
+      max_players: number(rule?.max_players, 6),
+      current_game: game || null,
+    };
+  }
+
+  return json(res, 200, {
+    ok: true,
+    table: {
+      table_id: table.id,
+      table_no: table.table_no,
+      display_name: table.display_name,
+      table_type: table.table_type,
+      walkin_rate_inr: money(table.price_per_hour_inr),
+      member_rate_inr: money(table.member_price_per_hour_inr),
+    },
+    state: session ? "PLAYING" : "AVAILABLE",
+    session: sessionPayload,
+  });
+}
+
+async function createPublicTableRequest(req, res, tableKey) {
+  const supabase = getSupabaseAdmin();
+  const table = await tableByPublicKey(supabase, tableKey);
+  if (!table) return json(res, 404, { ok: false, error: "TABLE_NOT_FOUND" });
+
+  const name = canonicalCustomerName(req.body?.name || "");
+  const phone = normalizePhone(req.body?.phone || "") || null;
+  if (!name) return json(res, 400, { ok: false, error: "PLAYER_NAME_REQUIRED" });
+  if (phone && phone.length !== 10) return json(res, 400, { ok: false, error: "INVALID_PHONE" });
+
+  const session = await activeSessionForTable(supabase, table.id);
+  let action = safeText(req.body?.action || (session ? "JOIN_CURRENT" : "START"), 30).toUpperCase();
+  if (!["START","JOIN_CURRENT","JOIN_NEXT","RESUME"].includes(action)) action = session ? "JOIN_CURRENT" : "START";
+  if (!session && action !== "START") action = "START";
+  if (session && action === "START") action = "JOIN_CURRENT";
+  if (action === "JOIN_NEXT" && session?.game_type !== "QCHASE_RUMMY") action = "JOIN_CURRENT";
+
+  const requestedGameType = safeText(req.body?.game_type || "", 80).toUpperCase() || null;
+  const customer = await lookupCustomerForPublicRequest(supabase, name, phone);
+
+  if (session?.account_mode === "INDIVIDUAL") {
+    const { data: currentPeople, error: currentPeopleError } = await supabase
+      .from("snooker_session_people")
+      .select("*")
+      .eq("session_id", session.id)
+      .eq("status", "ACTIVE");
+    if (currentPeopleError) throw currentPeopleError;
+    const wantedName = normalizeCustomerName(confirmedCanonicalCustomerName(name));
+    const existing = (currentPeople || []).find((row) => {
+      if (customer?.id && row.customer_id === customer.id) return true;
+      const sameName = normalizeCustomerName(confirmedCanonicalCustomerName(row.name || "")) === wantedName;
+      const samePhone = !phone || !row.phone || normalizePhone(row.phone) === phone;
+      return sameName && samePhone;
+    });
+    if (existing) {
+      const secret = randomBytes(24).toString("base64url");
+      const { data: linked, error } = await supabase.from("qclub_table_access_requests").insert({
+        table_id: table.id,
+        customer_id: existing.customer_id || customer?.id || null,
+        customer_name: existing.name || name,
+        phone: existing.phone || phone,
+        action: "RESUME",
+        requested_game_type: session.game_type,
+        status: "APPROVED",
+        target_session_id: session.id,
+        person_id: existing.id,
+        request_secret_hash: hashToken(secret),
+        decided_at: new Date().toISOString(),
+        decided_by: "auto-resume",
+        metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase() },
+      }).select("*").single();
+      if (error) throw error;
+      return json(res, 201, { ok: true, request_id: linked.id, request_token: secret, status: linked.status, resumed: true });
+    }
+  }
+
+  await supabase.from("qclub_table_access_requests")
+    .update({ status: "CANCELLED", decided_at: new Date().toISOString(), decided_by: "superseded" })
+    .eq("table_id", table.id)
+    .eq("status", "PENDING")
+    .eq("customer_name", name);
+
+  const secret = randomBytes(24).toString("base64url");
+  const { data, error } = await supabase.from("qclub_table_access_requests").insert({
+    table_id: table.id,
+    customer_id: customer?.id || null,
+    customer_name: customer?.name || confirmedCanonicalCustomerName(name),
+    phone: phone || customer?.phone || null,
+    action,
+    requested_game_type: requestedGameType || session?.game_type || null,
+    status: "PENDING",
+    target_session_id: session?.id || null,
+    request_secret_hash: hashToken(secret),
+    metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase() },
+  }).select("*").single();
+  if (error) throw error;
+  return json(res, 201, { ok: true, request_id: data.id, request_token: secret, status: data.status, action: data.action });
+}
+
+
+async function validatePublicAccessRequest(supabase, requestId, secret) {
+  const { data: row, error } = await supabase
+    .from("qclub_table_access_requests")
+    .select("*")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row || !secret || !secureEqual(row.request_secret_hash, hashToken(secret))) return null;
+  return maybeAutoLinkTableRequest(supabase, row);
+}
+
+async function createPublicTableOrder(req,res,requestId){
+  const secret=safeText(req.query?.token||req.headers?.["x-qclub-table-token"]||"",300);
+  if(!secret)return json(res,401,{ok:false,error:"REQUEST_TOKEN_REQUIRED"});
+  const supabase=getSupabaseAdmin();
+  const access=await validatePublicAccessRequest(supabase,requestId,secret);
+  if(!access)return json(res,404,{ok:false,error:"REQUEST_NOT_FOUND"});
+  if(access.status!=="APPROVED"||!access.target_session_id||!access.person_id){
+    return json(res,409,{ok:false,error:"PLAYER_NOT_CONNECTED",message:"Join/start approval is required before ordering."});
+  }
+  const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",access.target_session_id).maybeSingle();
+  if(!session||!["ACTIVE","PAUSED"].includes(session.status))return json(res,409,{ok:false,error:"SESSION_NOT_ACTIVE"});
+  const {data:person}=await supabase.from("snooker_session_people").select("*").eq("id",access.person_id).eq("session_id",session.id).maybeSingle();
+  if(!person)return json(res,409,{ok:false,error:"PLAYER_NOT_IN_SESSION"});
+
+  const raw=Array.isArray(req.body?.lines)?req.body.lines:[];
+  if(!raw.length||raw.length>30)return json(res,400,{ok:false,error:"FNB_LINES_REQUIRED"});
+  const requested=[];
+  const priced=[];
+  let total=0;
+  for(const input of raw){
+    const itemId=safeText(input?.item_id||input?.itemId||"",160);
+    const qty=Math.floor(number(input?.quantity??input?.qty,0));
+    if(!itemId||qty<=0||qty>25)return json(res,400,{ok:false,error:"INVALID_FNB_LINE"});
+    const {data:item,error:itemError}=await supabase.from("snooker_catalogue_items").select("*").eq("id",itemId).eq("active",true).maybeSingle();
+    if(itemError)throw itemError;
+    if(!item||item.sell_in_ledger===false)return json(res,404,{ok:false,error:"ITEM_NOT_FOUND"});
+    const unit=money(item.selling_price_inr);
+    if(!(unit>0))return json(res,409,{ok:false,error:"PRICE_NOT_CONFIGURED",item_id:itemId});
+    if(item.track_inventory&&number(item.current_stock)<qty)return json(res,409,{ok:false,error:"INSUFFICIENT_STOCK",item_id:itemId,available:number(item.current_stock)});
+    requested.push({item_id:itemId,quantity:qty});
+    priced.push({item_id:itemId,name:item.name,quantity:qty,unit_price_inr:unit,line_total_inr:money(unit*qty)});
+    total=money(total+unit*qty);
+  }
+  const {data:order,error}=await supabase.from("qclub_table_order_requests").insert({
+    access_request_id:access.id,customer_id:access.customer_id||person.customer_id||null,session_id:session.id,person_id:person.id,table_id:session.table_id,
+    status:"SENT",requested_lines:requested,priced_lines:priced,total_inr:total,metadata:{source:"TABLE_QR"}
+  }).select("*").single();
+  if(error)throw error;
+  return json(res,201,{ok:true,order});
+}
+
+async function listPublicTableOrders(supabase,accessId){
+  const {data,error}=await supabase.from("qclub_table_order_requests").select("*").eq("access_request_id",accessId).order("requested_at",{ascending:false}).limit(25);
+  if(error)throw error;
+  return data||[];
+}
+
+async function listTableOrders(req,res){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const status=safeText(req.query?.status||"SENT",30).toUpperCase();
+  const supabase=getSupabaseAdmin();
+  let query=supabase.from("qclub_table_order_requests").select("*").order("requested_at",{ascending:false}).limit(100);
+  if(status!=="ALL")query=query.eq("status",status);
+  const {data,error}=await query;if(error)throw error;
+  const accessIds=[...new Set((data||[]).map(x=>x.access_request_id).filter(Boolean))];
+  const tableIds=[...new Set((data||[]).map(x=>x.table_id).filter(Boolean))];
+  let accesses=[],tables=[];
+  if(accessIds.length){const q=await supabase.from("qclub_table_access_requests").select("id,customer_name,phone,action").in("id",accessIds);if(q.error)throw q.error;accesses=q.data||[];}
+  if(tableIds.length){const q=await supabase.from("snooker_tables").select("id,table_no,display_name").in("id",tableIds);if(q.error)throw q.error;tables=q.data||[];}
+  const accessMap=new Map(accesses.map(x=>[x.id,x])),tableMap=new Map(tables.map(x=>[x.id,x]));
+  return json(res,200,{orders:(data||[]).map(row=>({...row,access:accessMap.get(row.access_request_id)||null,table:tableMap.get(row.table_id)||null}))});
+}
+
+async function acceptQrOrder(supabase,order,auth){
+  if(order.status!=="SENT")return order;
+  const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",order.session_id).maybeSingle();
+  const {data:person}=await supabase.from("snooker_session_people").select("*").eq("id",order.person_id).eq("session_id",order.session_id).maybeSingle();
+  if(!session||!person||!["ACTIVE","PAUSED"].includes(session.status))throw Object.assign(new Error("Player session is no longer active."),{status:409,code:"PLAYER_SESSION_NOT_ACTIVE"});
+  const priced=[];
+  for(const line of Array.isArray(order.requested_lines)?order.requested_lines:[]){
+    const itemId=safeText(line.item_id||"",160),qty=Math.floor(number(line.quantity,0));
+    const {data:item,error}=await supabase.from("snooker_catalogue_items").select("*").eq("id",itemId).eq("active",true).maybeSingle();
+    if(error)throw error;if(!item||item.sell_in_ledger===false)throw Object.assign(new Error("Item is no longer available."),{status:409,code:"ITEM_NOT_AVAILABLE"});
+    const unit=money(item.selling_price_inr);
+    if(!(unit>0))throw Object.assign(new Error("Item price is not configured."),{status:409,code:"PRICE_NOT_CONFIGURED"});
+    if(item.track_inventory&&number(item.current_stock)<qty)throw Object.assign(new Error("Insufficient stock for "+item.name),{status:409,code:"INSUFFICIENT_STOCK"});
+    priced.push({item,qty,unit,total:money(unit*qty)});
+  }
+
+  const created=[];
+  try{
+    for(const row of priced){
+      const {data:line,error}=await supabase.from("snooker_fnb_lines").insert({
+        session_id:session.id,person_id:person.id,item_id:row.item.id,item_name_snapshot:row.item.name,
+        unit_price_snapshot_inr:row.unit,quantity:row.qty,line_total_inr:row.total,added_by:auth.staff_id,
+        idempotency_key:"qr-order:"+order.id+":"+row.item.id
+      }).select("*").single();
+      if(error)throw error;
+      await createPersonCharge(supabase,{sessionId:session.id,personId:person.id,type:"FNB",referenceId:line.id,description:row.item.name+" x "+row.qty,amount:row.total,staffId:auth.staff_id,metadata:{item_id:row.item.id,quantity:row.qty,qr_order_id:order.id}});
+      if(row.item.track_inventory)await applyStockMovement(supabase,{item:row.item,delta:-row.qty,type:"SALE",referenceType:"FNB_LINE",referenceId:line.id,reason:"Customer QR F&B order",staffId:auth.staff_id,key:"sale:"+line.id});
+      created.push(line);
+    }
+  }catch(error){
+    for(const line of created){
+      await supabase.from("snooker_person_charges").delete().eq("reference_id",line.id).eq("charge_type","FNB").is("bill_id",null);
+      await supabase.from("snooker_fnb_lines").delete().eq("id",line.id).is("bill_id",null);
+    }
+    throw error;
+  }
+
+  const total=money(priced.reduce((sum,row)=>sum+row.total,0));
+  const {data:updated,error:updateError}=await supabase.from("qclub_table_order_requests").update({
+    status:"ACCEPTED",priced_lines:priced.map(row=>({item_id:row.item.id,name:row.item.name,quantity:row.qty,unit_price_inr:row.unit,line_total_inr:row.total})),
+    total_inr:total,accepted_at:new Date().toISOString(),accepted_by:auth.staff_id,metadata:{...(order.metadata||{}),fnb_line_ids:created.map(x=>x.id)}
+  }).eq("id",order.id).select("*").single();
+  if(updateError)throw updateError;
+  return updated;
+}
+
+async function decideTableOrder(req,res,orderId){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const {data:order,error}=await supabase.from("qclub_table_order_requests").select("*").eq("id",orderId).maybeSingle();
+  if(error)throw error;if(!order)return json(res,404,{ok:false,error:"ORDER_NOT_FOUND"});
+  const decision=safeText(req.body?.decision||"",30).toUpperCase();
+  if(decision==="ACCEPT"){
+    const updated=await acceptQrOrder(supabase,order,auth);
+    return json(res,200,{ok:true,order:updated});
+  }
+  if(decision==="SERVED"){
+    if(!["ACCEPTED","SERVED"].includes(order.status))return json(res,409,{ok:false,error:"ORDER_NOT_ACCEPTED"});
+    const {data:updated,error:updateError}=await supabase.from("qclub_table_order_requests").update({status:"SERVED",served_at:new Date().toISOString(),served_by:auth.staff_id}).eq("id",order.id).select("*").single();
+    if(updateError)throw updateError;return json(res,200,{ok:true,order:updated});
+  }
+  if(decision==="REJECT"){
+    if(order.status!=="SENT")return json(res,409,{ok:false,error:"ORDER_ALREADY_PROCESSED"});
+    const {data:updated,error:updateError}=await supabase.from("qclub_table_order_requests").update({status:"REJECTED",rejected_at:new Date().toISOString(),rejected_by:auth.staff_id,rejection_reason:safeText(req.body?.reason||"",300)||null}).eq("id",order.id).select("*").single();
+    if(updateError)throw updateError;return json(res,200,{ok:true,order:updated});
+  }
+  return json(res,400,{ok:false,error:"INVALID_DECISION"});
+}
+
+async function publicTableRequestStatus(req, res, requestId) {
+  const secret = safeText(req.query?.token || req.headers?.["x-qclub-table-token"] || "", 300);
+  if (!secret) return json(res, 401, { ok: false, error: "REQUEST_TOKEN_REQUIRED" });
+  const supabase = getSupabaseAdmin();
+  const { data: found, error } = await supabase.from("qclub_table_access_requests").select("*").eq("id",requestId).maybeSingle();
+  if (error) throw error;
+  if (!found || !secureEqual(found.request_secret_hash, hashToken(secret))) return json(res, 404, { ok: false, error: "REQUEST_NOT_FOUND" });
+
+  let requestRow = await maybeAutoLinkTableRequest(supabase, found);
+  await supabase.from("qclub_table_access_requests").update({ last_seen_at: new Date().toISOString() }).eq("id",requestRow.id);
+
+  let sessionPayload = null;
+  let own = null;
+  if (requestRow.target_session_id) {
+    const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id",requestRow.target_session_id).maybeSingle();
+    if (session) {
+      const { data: latestGame } = await supabase.from("snooker_completed_games").select("game_number,status,started_at,completed_at").eq("session_id",session.id).neq("status","VOIDED").order("game_number",{ascending:false}).limit(1).maybeSingle();
+      sessionPayload = {
+        session_id: session.id,
+        table_id: session.table_id,
+        game_type: session.game_type,
+        status: session.status,
+        payment_rule: session.payment_rule,
+        started_at: session.started_at,
+        elapsed_seconds: elapsedSeconds(session),
+        timer_running: Boolean(session.timer_running),
+        current_game: latestGame || null,
+      };
+    }
+  }
+  if (requestRow.customer_id && ["APPROVED","WAITING_NEXT_GAME"].includes(requestRow.status)) {
+    const detail = await customerTabDetailPayload(supabase, requestRow.customer_id);
+    if (detail) {
+      own = {
+        customer_id: detail.customer?.customer_id || requestRow.customer_id,
+        name: detail.customer?.name || requestRow.customer_name,
+        current_due_inr: money(detail.current_due_inr || 0),
+        unbilled_inr: money(detail.unbilled_inr || 0),
+        billed_due_inr: money(detail.billed_due_inr || 0),
+        fnb_unbilled_inr: money(detail.fnb_unbilled_inr || 0),
+        player_unbilled_inr: money(detail.player_unbilled_inr || 0),
+      };
+    }
+  }
+  const orders=await listPublicTableOrders(supabase,requestRow.id);
+  return json(res, 200, {
+    ok: true,
+    request: {
+      id: requestRow.id,
+      status: requestRow.status,
+      action: requestRow.action,
+      customer_name: requestRow.customer_name,
+      table_id: requestRow.table_id,
+      requested_game_type: requestRow.requested_game_type,
+      requested_at: requestRow.requested_at,
+      decided_at: requestRow.decided_at,
+    },
+    session: sessionPayload,
+    own,
+    orders,
+  });
+}
+
+async function listTableAccessRequests(req, res) {
+  const auth = await requireAuth(req,res);
+  if (!auth) return;
+  const status = safeText(req.query?.status || "PENDING",30).toUpperCase();
+  const supabase = getSupabaseAdmin();
+  let query = supabase.from("qclub_table_access_requests").select("*").order("requested_at",{ascending:false}).limit(100);
+  if (status !== "ALL") query = query.eq("status",status);
+  const { data, error } = await query;
+  if (error) throw error;
+  const tableIds=[...new Set((data||[]).map(r=>r.table_id).filter(Boolean))];
+  let tables=[];
+  if(tableIds.length){
+    const q=await supabase.from("snooker_tables").select("id,table_no,display_name").in("id",tableIds);
+    if(q.error)throw q.error;tables=q.data||[];
+  }
+  const map=new Map(tables.map(t=>[t.id,t]));
+  return json(res,200,{requests:(data||[]).map(row=>({...row,table:map.get(row.table_id)||null}))});
+}
+
+async function resolveTableRequestCustomer(supabase, row) {
+  if (row.customer_id) {
+    const { data } = await supabase.from("snooker_customers").select("*").eq("id",row.customer_id).eq("active",true).maybeSingle();
+    if (data) return data;
+  }
+  return rememberCustomer(supabase,{name:row.customer_name,phone:row.phone,source:"table_qr"});
+}
+
+async function addRequestPlayerToSession(supabase, row, session, auth, { chargeCurrent = true } = {}) {
+  const customer=await resolveTableRequestCustomer(supabase,row);
+  const {data:existingRows,error:existingError}=await supabase.from("snooker_session_people").select("*").eq("session_id",session.id);
+  if(existingError)throw existingError;
+  const wantedName=normalizeCustomerName(confirmedCanonicalCustomerName(row.customer_name||""));
+  const existing=(existingRows||[]).find(p=>(customer?.id&&p.customer_id===customer.id)||normalizeCustomerName(confirmedCanonicalCustomerName(p.name||""))===wantedName);
+  const now=new Date().toISOString();
+  let person=existing||null;
+  if(person && person.status!=="ACTIVE"){
+    const {data,error}=await supabase.from("snooker_session_people").update({
+      status:"ACTIVE",left_at:null,timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,
+      updated_at:now,updated_by:auth.staff_id
+    }).eq("id",person.id).select("*").single();
+    if(error)throw error;person=data;
+  }else if(!person){
+    const activeCount=(existingRows||[]).filter(p=>p.status==="ACTIVE").length;
+    if(activeCount>=6)throw Object.assign(new Error("Maximum six active players."),{status:409,code:"MAX_SIX_ACTIVE_PLAYERS"});
+    let isMember=false;
+    try{const verified=await verifyMemberRecord(supabase,{phone:row.phone,name:row.customer_name});isMember=Boolean(verified?.verified);}catch{}
+    const {data,error}=await supabase.from("snooker_session_people").insert({
+      session_id:session.id,customer_id:customer?.id||null,name:customer?.name||confirmedCanonicalCustomerName(row.customer_name),
+      phone:normalizePhone(row.phone||customer?.phone||"")||null,is_member:isMember,team_no:null,status:"ACTIVE",joined_at:now,
+      timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,created_by:auth.staff_id,updated_by:auth.staff_id
+    }).select("*").single();
+    if(error)throw error;person=data;
+  }
+  const {data:all}=await supabase.from("snooker_session_people").select("id,name").eq("session_id",session.id).order("joined_at");
+  await supabase.from("snooker_sessions").update({participant_ids:(all||[]).map(p=>p.id),participant_names:(all||[]).map(p=>p.name),updated_at:now}).eq("id",session.id);
+
+  if(chargeCurrent && session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
+    const rate=money(rule?.rate_inr);
+    if(!(rate>0))throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
+    const gameNumber=await qchaseEntryGameNumber(supabase,session.id);
+    await ensureQchasePrepaidEntryCharge(supabase,{sessionId:session.id,person,gameNumber,rate,staffId:auth.staff_id,reason:"QR JOIN"});
+  }
+  return {person,customer};
+}
+
+async function decideTableAccessRequest(req,res,requestId){
+  const auth=await requireAuth(req,res);
+  if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const {data:row,error}=await supabase.from("qclub_table_access_requests").select("*").eq("id",requestId).maybeSingle();
+  if(error)throw error;
+  if(!row)return json(res,404,{ok:false,error:"REQUEST_NOT_FOUND"});
+  const decision=safeText(req.body?.decision||"",30).toUpperCase();
+  if(decision==="REJECT"){
+    const {data:updated,error:updateError}=await supabase.from("qclub_table_access_requests").update({
+      status:"REJECTED",decided_at:new Date().toISOString(),decided_by:auth.staff_id
+    }).eq("id",requestId).select("*").single();
+    if(updateError)throw updateError;
+    return json(res,200,{ok:true,request:updated});
+  }
+  if(decision!=="APPROVE")return json(res,400,{ok:false,error:"INVALID_DECISION"});
+
+  const table=await tableByPublicKey(supabase,row.metadata?.public_table_key||"");
+  const resolvedTable=table || (await supabase.from("snooker_tables").select("*").eq("id",row.table_id).maybeSingle()).data;
+  if(!resolvedTable)return json(res,404,{ok:false,error:"TABLE_NOT_FOUND"});
+  const session=await activeSessionForTable(supabase,resolvedTable.id);
+
+  if(row.action==="START" && !session){
+    return json(res,409,{ok:false,error:"START_IN_LEDGER_REQUIRED",message:"Open the Start Table form with this player, then the QR page will reconnect automatically."});
+  }
+  if(!session)return json(res,409,{ok:false,error:"NO_ACTIVE_SESSION"});
+  if(session.account_mode!=="INDIVIDUAL")return json(res,409,{ok:false,error:"INDIVIDUAL_SESSION_REQUIRED"});
+
+  if(row.action==="JOIN_NEXT" && session.game_type==="QCHASE_RUMMY"){
+    const customer=await resolveTableRequestCustomer(supabase,row);
+    const {data:updated,error:updateError}=await supabase.from("qclub_table_access_requests").update({
+      status:"WAITING_NEXT_GAME",customer_id:customer?.id||row.customer_id||null,target_session_id:session.id,
+      decided_at:new Date().toISOString(),decided_by:auth.staff_id
+    }).eq("id",row.id).select("*").single();
+    if(updateError)throw updateError;
+    return json(res,200,{ok:true,request:updated,waiting_next_game:true});
+  }
+
+  const linked=await addRequestPlayerToSession(supabase,row,session,auth,{chargeCurrent:true});
+  const {data:updated,error:updateError}=await supabase.from("qclub_table_access_requests").update({
+    status:"APPROVED",customer_id:linked.customer?.id||row.customer_id||null,target_session_id:session.id,person_id:linked.person.id,
+    decided_at:new Date().toISOString(),decided_by:auth.staff_id
+  }).eq("id",row.id).select("*").single();
+  if(updateError)throw updateError;
+  return json(res,200,{ok:true,request:updated,person:linked.person});
+}
+
 function qchaseTableNo(tableKey = "") {
   const match = /^table([1-3])$/i.exec(safeText(tableKey, 20));
   return match ? Number(match[1]) : null;
@@ -5310,6 +5852,25 @@ async function qchaseEngineStart(req, res, tableKey) {
   if (inProgressError) throw inProgressError;
   if (inProgress) return json(res, 200, { ok: true, linked: true, already_started: true, session_id: session.id, game: inProgress });
 
+  const { data: waitingRequests, error: waitingError } = await supabase
+    .from("qclub_table_access_requests")
+    .select("*")
+    .eq("target_session_id", session.id)
+    .eq("status", "WAITING_NEXT_GAME")
+    .order("requested_at");
+  if (waitingError) throw waitingError;
+  for (const waiting of waitingRequests || []) {
+    const engineAuth = { staff_id: "qchase-engine" };
+    const linked = await addRequestPlayerToSession(supabase, waiting, session, engineAuth, { chargeCurrent: false });
+    await supabase.from("qclub_table_access_requests").update({
+      status: "APPROVED",
+      customer_id: linked.customer?.id || waiting.customer_id || null,
+      person_id: linked.person.id,
+      decided_at: new Date().toISOString(),
+      decided_by: "qchase-engine-next-game",
+    }).eq("id",waiting.id);
+  }
+
   const [{ data: people, error: peopleError }, { data: rule, error: ruleError }] = await Promise.all([
     supabase.from("snooker_session_people").select("*").eq("session_id", session.id).eq("status", "ACTIVE").order("joined_at"),
     supabase.from("snooker_game_rules").select("*").eq("game_type", "QCHASE_RUMMY").eq("active", true).maybeSingle(),
@@ -5394,6 +5955,10 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
+    if (parts[0] === "table-public" && parts[1] && parts.length === 2 && method === "GET") return await publicTablePortal(req,res,parts[1]);
+    if (parts[0] === "table-public" && parts[1] && parts[2] === "request" && parts.length === 3 && method === "POST") return await createPublicTableRequest(req,res,parts[1]);
+    if (parts[0] === "table-public" && parts[1] === "request-status" && parts[2] && parts.length === 3 && method === "GET") return await publicTableRequestStatus(req,res,parts[2]);
+    if (parts[0] === "table-public" && parts[1] === "request-status" && parts[2] && parts[3] === "orders" && parts.length === 4 && method === "POST") return await createPublicTableOrder(req,res,parts[2]);
     if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "GET") return await publicQchaseLive(req, res, parts[1]);
     if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "POST") return await publishQchaseLive(req, res, parts[1]);
     if (parts[0] === "qchase-live" && parts[1] && parts[2] === "start" && parts.length === 3 && method === "POST") return await qchaseEngineStart(req, res, parts[1]);
@@ -5522,6 +6087,10 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "PATCH" && path === "finance/reserve") return await updateFinanceReserve(req, res);
     if (method === "PATCH" && path === "finance/fnb-costs") return await updateFnbCostPrices(req, res);
     if (method === "GET" && path === "operations/inbox") return await operationalInbox(req, res);
+    if (method === "GET" && path === "table-requests") return await listTableAccessRequests(req,res);
+    if (parts[0] === "table-requests" && parts[1] && parts.length === 2 && method === "PATCH") return await decideTableAccessRequest(req,res,parts[1]);
+    if (method === "GET" && path === "table-orders") return await listTableOrders(req,res);
+    if (parts[0] === "table-orders" && parts[1] && parts.length === 2 && method === "PATCH") return await decideTableOrder(req,res,parts[1]);
 
     if (method === "GET" && path === "sessions") return await listSessions(req, res);
     if (method === "POST" && path === "sessions") return await createSession(req, res);
