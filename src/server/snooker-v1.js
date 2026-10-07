@@ -3158,33 +3158,109 @@ async function recordGame(req,res,sessionId){
     return json(res,201,response);
   }
   if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    const action=safeText(req.body?.qchase_action||"",40).toUpperCase();
     const {data:runningGame,error:runningGameError}=await supabase
       .from("snooker_completed_games")
-      .select("id,game_number,status")
+      .select("*")
       .eq("session_id",sessionId)
       .eq("game_type","QCHASE_RUMMY")
       .eq("status","IN_PROGRESS")
+      .order("game_number",{ascending:false})
       .limit(1)
       .maybeSingle();
     if(runningGameError)throw runningGameError;
-    if(runningGame)return json(res,409,{ok:false,error:"QCHASE_GAME_STILL_IN_PROGRESS",game_number:runningGame.game_number,message:"Finish the current game in the QChase/Rummy engine before starting the next game."});
-    const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
-    if(selectedIds.length<2 || selectedIds.length>6)return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
-    const {data:people,error:peopleError}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
+
+    if(runningGame && action!=="FINISH_AND_CONTINUE"){
+      return json(res,409,{
+        ok:false,
+        error:"QCHASE_GAME_STILL_IN_PROGRESS",
+        game_number:runningGame.game_number,
+        message:"Game "+runningGame.game_number+" is still in progress. Use Finish Game → Continue in QclubLedger, or Final Lock if you are using the scorer."
+      });
+    }
+
+    if(action==="FINISH_AND_CONTINUE" && !runningGame){
+      return json(res,409,{ok:false,error:"QCHASE_NO_RUNNING_GAME",message:"There is no QChase/Rummy game currently in progress. Start the next game instead."});
+    }
+
+    // Players waiting from the table QR join the roster exactly at the next-game boundary.
+    if(action==="FINISH_AND_CONTINUE" || action==="START_NEXT"){
+      const {data:waitingRequests,error:waitingError}=await supabase
+        .from("qclub_table_access_requests")
+        .select("*")
+        .eq("target_session_id",sessionId)
+        .eq("status","WAITING_NEXT_GAME")
+        .order("requested_at");
+      if(waitingError)throw waitingError;
+      for(const waiting of waitingRequests||[]){
+        const engineAuth={staff_id:auth.staff_id||"qclub-ledger"};
+        const linked=await addRequestPlayerToSession(supabase,waiting,session,engineAuth,{chargeCurrent:false});
+        await supabase.from("qclub_table_access_requests").update({
+          status:"APPROVED",
+          customer_id:linked.customer?.id||waiting.customer_id||null,
+          person_id:linked.person.id,
+          decided_at:new Date().toISOString(),
+          decided_by:auth.staff_id||"qclub-ledger",
+        }).eq("id",waiting.id);
+      }
+    }
+
+    const {data:people,error:peopleError}=await supabase
+      .from("snooker_session_people")
+      .select("*")
+      .eq("session_id",sessionId)
+      .eq("status","ACTIVE")
+      .order("joined_at");
     if(peopleError)throw peopleError;
-    if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
+    if((people||[]).length<2 || (people||[]).length>6)return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
     const rate=money(rule?.rate_inr);
     if(!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
-    const gameNumber=await qchaseNextGameNumber(supabase,sessionId);
-    const response=await createQchaseGameStart(supabase,{
-      sessionId,
-      playerRows:people||[],
-      rate,
-      staffId:auth.staff_id,
-      gameNumber,
-      key:key||null,
-    });
-    await rememberIdempotent(supabase,key,"record_game",response.game_id,response);
+
+    let completedGame=null;
+    if(runningGame && action==="FINISH_AND_CONTINUE"){
+      const finishedAt=new Date().toISOString();
+      const {data:completed,error:completeError}=await supabase.from("snooker_completed_games").update({
+        status:"COMPLETED",
+        completed_at:finishedAt,
+        completed_by:auth.staff_id,
+      }).eq("id",runningGame.id).eq("status","IN_PROGRESS").select("*").single();
+      if(completeError)throw completeError;
+      completedGame=completed;
+    }
+
+    const gameNumber=runningGame && action==="FINISH_AND_CONTINUE"
+      ? number(runningGame.game_number,0)+1
+      : await qchaseNextGameNumber(supabase,sessionId);
+
+    let started;
+    try{
+      started=await createQchaseGameStart(supabase,{
+        sessionId,
+        playerRows:people||[],
+        rate,
+        staffId:auth.staff_id,
+        gameNumber,
+        key:key||null,
+      });
+    }catch(startError){
+      if(completedGame){
+        await supabase.from("snooker_completed_games").update({
+          status:"IN_PROGRESS",
+          completed_at:runningGame.completed_at,
+          completed_by:runningGame.completed_by,
+        }).eq("id",runningGame.id).eq("status","COMPLETED");
+      }
+      throw startError;
+    }
+
+    const response={
+      ...started,
+      completed_game:completedGame,
+      next_game:started,
+      qchase_action:action||"START_NEXT",
+      charged_players:(people||[]).map((person)=>({person_id:person.id,name:person.name,amount_inr:rate})),
+    };
+    await rememberIdempotent(supabase,key,"record_game",started.game_id,response);
     return json(res,201,response);
   }
 
