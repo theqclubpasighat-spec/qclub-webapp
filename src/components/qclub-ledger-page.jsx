@@ -2758,6 +2758,7 @@ export default function QclubLedgerPage() {
           ].map(function(entry) {
             return <button key={entry[0]} className={"ql-tab " + (tab === entry[0] ? "active" : "")} onClick={function() { setTab(entry[0]); }}>{entry[1]}</button>;
           })}
+          <button className="ql-tab" onClick={function() { window.open("/table-qr-print","_blank","noopener"); }}>▦ Print Table QRs</button>
           <button className="ql-tab" onClick={refreshAll}>{busy ? "Refreshing…" : "↻ Refresh"}</button>
         </div>
 
