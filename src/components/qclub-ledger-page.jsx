@@ -226,11 +226,12 @@ const CSS = [
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
+  ".ql-order-alert{position:fixed;top:18px;right:18px;z-index:320;width:min(460px,calc(100vw - 36px));border:2px solid #e9c766;background:linear-gradient(155deg,#173524,#08140e 58%,#050a07);border-radius:20px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12);animation:qlOrderPulse 1.1s ease-in-out 2}.ql-order-alert-kicker{font-size:13px;letter-spacing:.12em;color:#f4d979;font-weight:950}.ql-order-alert h2{margin:5px 0 2px;font-size:27px}.ql-order-alert .ql-order-table{color:#b8c9bf;font-weight:750}.ql-order-alert-lines{margin-top:12px;border-top:1px solid #294638;border-bottom:1px solid #294638;padding:8px 0}.ql-order-alert-line{display:flex;justify-content:space-between;gap:12px;padding:6px 0}.ql-order-alert-total{font-size:28px;color:#79e7aa;font-weight:950}.ql-order-alert-actions{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:14px}.ql-order-alert-count{margin-top:9px;color:#f0d06f;font-size:12px;font-weight:800}@keyframes qlOrderPulse{0%,100%{transform:translateY(0);box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12)}50%{transform:translateY(-3px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 7px rgba(233,199,102,.2)}}",
   ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}.ql-stat.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-stat.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}",
   ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
   ".ql-table-card{min-height:222px;display:flex;flex-direction:column}.ql-table-card.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-table-card.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}.ql-table-card .ql-table-open-hint{margin-top:auto;padding-top:14px;color:#79e7aa;font-size:12px;font-weight:850}.ql-player-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-player-card{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-width:0}.ql-club-tab-card{cursor:pointer;padding:12px;min-height:118px}.ql-club-tab-card:hover{border-color:#4c8d69}.ql-compact-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
   "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-player-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
-  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-player-grid,.ql-compact-stat{grid-template-columns:1fr}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}}"
+  "@media(max-width:620px){.ql-wrap{padding:12px 10px 72px}.ql-top{align-items:flex-start}.ql-title{font-size:17px}.ql-server{max-width:52%}.ql-card,.ql-card.wide{grid-column:1/-1!important}.ql-form-grid{grid-template-columns:1fr}.ql-fnb-tools{grid-template-columns:1fr}.ql-fnb-grid{grid-template-columns:1fr}.ql-paybox{grid-template-columns:1fr}.ql-stat-grid{grid-template-columns:1fr 1fr}.ql-modal{padding:14px}.ql-player-grid,.ql-compact-stat{grid-template-columns:1fr}.ql-fnb-actionbar{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));margin:0;padding:11px;z-index:120}.ql-fnb-actionbar .ql-space{align-items:center}.ql-fnb-actionbar .ql-btn{min-width:0;flex:1}.ql-fnb-actionbar .ql-muted{display:none}.ql-fnb-spacer{display:block;height:108px}.ql-order-alert{top:10px;left:10px;right:10px;width:auto;padding:15px}.ql-order-alert h2{font-size:23px}.ql-order-alert-actions{grid-template-columns:1fr}.ql-order-alert-actions .ql-btn{width:100%}}"
 ].join("");
 
 export default function QclubLedgerPage() {
@@ -254,6 +255,11 @@ export default function QclubLedgerPage() {
   const [operations, setOperations] = useState({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
   const [tableRequests, setTableRequests] = useState([]);
   const [tableOrders, setTableOrders] = useState([]);
+  const [orderAlertQueue, setOrderAlertQueue] = useState([]);
+  const [orderAlertsReady, setOrderAlertsReady] = useState(false);
+  const orderAlertAudioRef = useRef(null);
+  const seenOrderIdsRef = useRef(new Set());
+  const pendingOrderSoundRef = useRef(false);
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -342,6 +348,50 @@ export default function QclubLedgerPage() {
   const role = (auth && auth.role) || "";
   const isAdmin = role === "ADMIN";
 
+  const armOrderAlertAudio = useCallback(async function() {
+    try {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return false;
+      let context = orderAlertAudioRef.current;
+      if (!context || context.state === "closed") {
+        context = new AudioContextCtor();
+        orderAlertAudioRef.current = context;
+      }
+      if (context.state === "suspended") await context.resume();
+      const ready = context.state === "running";
+      setOrderAlertsReady(ready);
+      return ready;
+    } catch {
+      setOrderAlertsReady(false);
+      return false;
+    }
+  }, []);
+
+  const playOrderAlertSound = useCallback(function() {
+    try {
+      const context = orderAlertAudioRef.current;
+      if (!context || context.state !== "running") return false;
+      const now = context.currentTime;
+      [880, 1047, 880].forEach(function(frequency, index) {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const start = now + (index * 0.18);
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.15);
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const flash = useCallback(function(message, isError) {
     setNotice(message);
     setNoticeError(Boolean(isError));
@@ -368,6 +418,9 @@ export default function QclubLedgerPage() {
     setOperations({ counts: {}, bookings: [], food_orders: [], shop_receipts: [] });
     setTableRequests([]);
     setTableOrders([]);
+    setOrderAlertQueue([]);
+    seenOrderIdsRef.current = new Set();
+    pendingOrderSoundRef.current = false;
     setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
@@ -574,6 +627,16 @@ export default function QclubLedgerPage() {
     }
   }, [loadSessionDetails, protectedCall, token]);
 
+  const refreshQrOrders = useCallback(async function() {
+    if (!token) return;
+    try {
+      const payload = await protectedCall("table-orders?status=SENT");
+      setTableOrders((payload && payload.orders) || []);
+    } catch {
+      // Keep the last known QR orders visible; the normal live refresh can reconcile.
+    }
+  }, [protectedCall, token]);
+
   useEffect(function() {
     apiRequest("health").then(setHealth).catch(function() { setHealth(null); });
   }, []);
@@ -599,6 +662,50 @@ export default function QclubLedgerPage() {
     const timer = window.setInterval(refreshLiveState, 10000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
+
+  useEffect(function() {
+    if (!token) return undefined;
+    refreshQrOrders();
+    const timer = window.setInterval(refreshQrOrders, 3000);
+    return function() { window.clearInterval(timer); };
+  }, [token, refreshQrOrders]);
+
+  useEffect(function() {
+    if (!auth || orderAlertsReady) return undefined;
+    function arm() { armOrderAlertAudio(); }
+    window.addEventListener("pointerdown", arm, { once: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return function() {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, [auth, orderAlertsReady, armOrderAlertAudio]);
+
+  useEffect(function() {
+    if (!token) return;
+    const fresh = (tableOrders || []).filter(function(row) {
+      return row && row.id && !seenOrderIdsRef.current.has(row.id);
+    });
+    if (!fresh.length) return;
+    fresh.forEach(function(row) { seenOrderIdsRef.current.add(row.id); });
+    setOrderAlertQueue(function(current) {
+      const existing = new Set((current || []).map(function(row) { return row.id; }));
+      return (current || []).concat(fresh.filter(function(row) { return !existing.has(row.id); }));
+    });
+    if (!playOrderAlertSound()) pendingOrderSoundRef.current = true;
+  }, [tableOrders, token, playOrderAlertSound]);
+
+  useEffect(function() {
+    const pendingIds = new Set((tableOrders || []).map(function(row) { return row.id; }));
+    setOrderAlertQueue(function(current) {
+      return (current || []).filter(function(row) { return pendingIds.has(row.id); });
+    });
+  }, [tableOrders]);
+
+  useEffect(function() {
+    if (!orderAlertsReady || !pendingOrderSoundRef.current || !orderAlertQueue.length) return;
+    if (playOrderAlertSound()) pendingOrderSoundRef.current = false;
+  }, [orderAlertsReady, orderAlertQueue.length, playOrderAlertSound]);
 
   useEffect(function() {
     if (!token) return undefined;
@@ -750,6 +857,7 @@ export default function QclubLedgerPage() {
   async function login(event) {
     if (event && event.preventDefault) event.preventDefault();
     if (!pin.trim()) return;
+    armOrderAlertAudio();
     setLoginBusy(true);
     try {
       const result = await apiRequest("auth/login", {
@@ -1071,6 +1179,9 @@ export default function QclubLedgerPage() {
       flash(decision === "ACCEPT"
         ? "QR order accepted and added to " + ((orderRow.access && orderRow.access.customer_name) || "player") + "'s Club Tab."
         : "QR order rejected.");
+      setOrderAlertQueue(function(current) {
+        return (current || []).filter(function(row) { return row.id !== orderRow.id; });
+      });
       await Promise.all([refreshLiveState(), refreshFnbFastState()]);
     } catch (error) {
       flash(error.message || "Unable to process QR order.", true);
@@ -2688,6 +2799,8 @@ export default function QclubLedgerPage() {
     }
   }
 
+  const activeOrderAlert = orderAlertQueue.length ? orderAlertQueue[0] : null;
+
   if (!auth) {
     return (
       <div className="qledger">
@@ -2729,6 +2842,35 @@ export default function QclubLedgerPage() {
   return (
     <div className="qledger">
       <style>{CSS}</style>
+      {activeOrderAlert ? (
+        <div className="ql-order-alert" role="alertdialog" aria-live="assertive" aria-label="New table order">
+          <div className="ql-order-alert-kicker">🔔 NEW TABLE ORDER</div>
+          <div className="ql-space">
+            <div>
+              <h2>{(activeOrderAlert.access && activeOrderAlert.access.customer_name) || "Player"}</h2>
+              <div className="ql-order-table">
+                Table {(activeOrderAlert.table && activeOrderAlert.table.table_no) || "?"} — {(activeOrderAlert.table && activeOrderAlert.table.display_name) || activeOrderAlert.table_id}
+              </div>
+            </div>
+            <div className="ql-order-alert-total">{money(activeOrderAlert.total_inr)}</div>
+          </div>
+          <div className="ql-order-alert-lines">
+            {(activeOrderAlert.priced_lines || []).map(function(line, index) {
+              return (
+                <div className="ql-order-alert-line" key={line.item_id || index}>
+                  <strong>{line.name} × {Number(line.quantity || 0)}</strong>
+                  <span>{money(line.line_total_inr)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="ql-order-alert-actions">
+            <button className="ql-btn primary" disabled={busy} onClick={function() { decideQrOrder(activeOrderAlert, "ACCEPT"); }}>ACCEPT • ADD TO PLAYER ACCOUNT</button>
+            <button className="ql-btn danger" disabled={busy} onClick={function() { decideQrOrder(activeOrderAlert, "REJECT"); }}>REJECT</button>
+          </div>
+          {orderAlertQueue.length > 1 ? <div className="ql-order-alert-count">{orderAlertQueue.length} QR food orders are waiting.</div> : null}
+        </div>
+      ) : null}
       <div className="ql-wrap">
         <div className="ql-top">
           <div className="ql-brand">
