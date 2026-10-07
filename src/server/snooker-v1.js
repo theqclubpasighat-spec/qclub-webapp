@@ -2930,14 +2930,15 @@ async function addSessionPerson(req,res,sessionId){
   const supabase=getSupabaseAdmin();
   const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
   if(!session||session.account_mode!=="INDIVIDUAL"||!["ACTIVE","PAUSED"].includes(session.status)) return json(res,409,{ok:false,error:"INDIVIDUAL_SESSION_NOT_ACTIVE"});
-  const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).eq("status","ACTIVE");
+  const {count}=await supabase.from("snooker_session_people").select("*",{count:"exact",head:true}).eq("session_id",sessionId).in("status",["ACTIVE","WAITING"]);
   if(number(count)>=6)return json(res,409,{ok:false,error:"MAX_SIX_ACTIVE_PLAYERS"});
-  const name=canonicalCustomerName(req.body?.name||""); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
+  const name=confirmedCanonicalCustomerName(req.body?.name||""); if(!name)return json(res,400,{ok:false,error:"PLAYER_NAME_REQUIRED"});
   const phone=normalizePhone(req.body?.phone||"")||null;
   const teamNo=req.body?.team_no==null?null:number(req.body.team_no);
   if(teamNo!=null && ![1,2].includes(teamNo))return json(res,400,{ok:false,error:"INVALID_TEAM"});
   const now=new Date().toISOString();
   if(session.payment_rule==="HOURLY_SHARED") await settleSharedHourlySlice(supabase,session,now,auth.staff_id,"PLAYER_JOIN");
+
   let linkedCustomer=null;
   const requestedCustomerId=safeText(req.body?.customer_id || "",100) || null;
   try {
@@ -2948,50 +2949,53 @@ async function addSessionPerson(req,res,sessionId){
     if(!linkedCustomer) linkedCustomer=await rememberCustomer(supabase,{name,phone,source:"joined_player"});
   } catch {}
   if(linkedCustomer?.id){
-    const {data:activeElsewhere}=await supabase.from("snooker_session_people").select("id,session_id").eq("customer_id",linkedCustomer.id).eq("status","ACTIVE").neq("session_id",sessionId).limit(1);
-    if((activeElsewhere||[]).length)return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"This player is still active on another table. Use Leave Game/Table there first."});
+    const {data:activeElsewhere}=await supabase.from("snooker_session_people").select("id,session_id,status").eq("customer_id",linkedCustomer.id).in("status",["ACTIVE","WAITING"]).neq("session_id",sessionId).limit(1);
+    if((activeElsewhere||[]).length)return json(res,409,{ok:false,error:"PLAYER_ALREADY_ACTIVE",message:"This player is still active or waiting on another table. Leave that table first."});
   }
+
+  const isQchasePerGame=session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER";
+  let joinMode=safeText(req.body?.qchase_join_mode||req.body?.join_mode||"CURRENT",20).toUpperCase();
+  if(!["CURRENT","NEXT"].includes(joinMode)) joinMode="CURRENT";
+  if(isQchasePerGame && session.qchase_game_state!=="ACTIVE") joinMode="NEXT";
+  const initialStatus=isQchasePerGame && joinMode==="NEXT" ? "WAITING" : "ACTIVE";
+
   const {data,error}=await supabase.from("snooker_session_people").insert({
-    session_id:sessionId,customer_id:linkedCustomer?.id||null,name,phone,is_member:false,team_no:teamNo,status:"ACTIVE",joined_at:now,
-    timer_running:Boolean(session.timer_running),timer_started_at:session.timer_running?now:null,
+    session_id:sessionId,customer_id:linkedCustomer?.id||null,name:linkedCustomer?.name||name,phone:phone||linkedCustomer?.phone||null,
+    is_member:Boolean(linkedCustomer?.is_member),team_no:teamNo,status:initialStatus,joined_at:now,
+    timer_running:initialStatus==="ACTIVE"&&Boolean(session.timer_running),timer_started_at:initialStatus==="ACTIVE"&&session.timer_running?now:null,
     created_by:auth.staff_id,updated_by:auth.staff_id
   }).select("*").single();
   if(error)throw error;
 
   let entryCharge=null;
   let entryGameNumber=null;
-  if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+  if(isQchasePerGame){
     try {
       const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
       const rate=money(rule?.rate_inr);
       if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
-      entryGameNumber=await qchaseNextGameNumber(supabase,sessionId);
-      entryCharge=await ensureQchasePrepaidEntryCharge(supabase,{
-        sessionId,
-        person:data,
-        gameNumber:entryGameNumber,
-        rate,
-        staffId:auth.staff_id,
-        reason:"JOIN",
-      });
+      if(joinMode==="CURRENT"){
+        const attached=await attachQchasePlayerToCurrentGame(supabase,{session,person:data,rate,staffId:auth.staff_id,reason:"JOIN_CURRENT"});
+        entryCharge=attached.charge;
+        entryGameNumber=attached.game_number;
+      }else{
+        entryGameNumber=Math.max(1,number(session.qchase_game_number,0)+1);
+      }
     } catch (chargeError) {
       await supabase.from("snooker_session_people").delete().eq("id",data.id);
       throw chargeError;
     }
   }
 
-  const {data:all}=await supabase.from("snooker_session_people").select("id,name").eq("session_id",sessionId).order("joined_at");
+  const {data:all}=await supabase.from("snooker_session_people").select("id,name,status").eq("session_id",sessionId).in("status",["ACTIVE","WAITING"]).order("joined_at");
   await supabase.from("snooker_sessions").update({participant_ids:(all||[]).map(p=>p.id),participant_names:(all||[]).map(p=>p.name),updated_at:now}).eq("id",sessionId);
-  try {
-    await rememberCustomer(supabase, { name, phone, source: "joined_player" });
-  } catch (customerError) {
-    console.error("customer directory remember failed", { source: "joined_player", name, message: customerError?.message });
-  }
   return json(res,201,{
     ...data,
     entry_charge_inr: entryCharge ? money(entryCharge.amount_inr) : 0,
     entry_game_number: entryGameNumber,
-    qchase_charged_on_join: Boolean(entryCharge),
+    qchase_join_mode:isQchasePerGame?joinMode:null,
+    qchase_charged_on_join:Boolean(entryCharge),
+    qchase_waiting_for_next:Boolean(isQchasePerGame&&joinMode==="NEXT"),
   });
 }
 
@@ -3001,43 +3005,54 @@ async function updateSessionPerson(req,res,sessionId,personId){
   const {data:person}=await supabase.from("snooker_session_people").select("*").eq("id",personId).eq("session_id",sessionId).maybeSingle();
   if(!person)return json(res,404,{ok:false,error:"PLAYER_NOT_FOUND"});
   const {data:session}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
+  if(!session)return json(res,404,{ok:false,error:"SESSION_NOT_FOUND"});
   const action=safeText(req.body?.action||"",30).toUpperCase();
   const now=new Date();
   if(session?.payment_rule==="HOURLY_SHARED" && (action==="LEAVE" || action==="REJOIN")){
     await settleSharedHourlySlice(supabase,session,now,auth.staff_id,action==="LEAVE"?"PLAYER_LEAVE":"PLAYER_REJOIN");
     session.shared_hourly_last_at=now.toISOString();
   }
+
+  const isQchasePerGame=session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER";
+  let joinMode=safeText(req.body?.qchase_join_mode||req.body?.join_mode||"CURRENT",20).toUpperCase();
+  if(!["CURRENT","NEXT"].includes(joinMode)) joinMode="CURRENT";
+  if(isQchasePerGame && session.qchase_game_state!=="ACTIVE") joinMode="NEXT";
+
   const patch={updated_by:auth.staff_id,updated_at:now.toISOString()};
-  if(req.body?.name!==undefined)patch.name=canonicalCustomerName(req.body.name)||person.name;
+  if(req.body?.name!==undefined)patch.name=confirmedCanonicalCustomerName(req.body.name)||person.name;
   if(req.body?.phone!==undefined)patch.phone=normalizePhone(req.body.phone)||null;
   if(req.body?.team_no!==undefined)patch.team_no=req.body.team_no==null?null:number(req.body.team_no);
   if(action==="LEAVE"){
     patch.accumulated_seconds=personElapsedSeconds(person,now);patch.timer_running=false;patch.timer_started_at=null;patch.status="LEFT";patch.left_at=now.toISOString();
   }else if(action==="REJOIN"){
-    patch.status="ACTIVE";patch.left_at=null;patch.timer_running=Boolean(session?.timer_running);patch.timer_started_at=session?.timer_running?now.toISOString():null;
+    patch.status=isQchasePerGame&&joinMode==="NEXT"?"WAITING":"ACTIVE";
+    patch.left_at=null;
+    patch.timer_running=patch.status==="ACTIVE"&&Boolean(session?.timer_running);
+    patch.timer_started_at=patch.timer_running?now.toISOString():null;
+    if(patch.status==="ACTIVE") patch.joined_at=now.toISOString();
   }
   const {data,error}=await supabase.from("snooker_session_people").update(patch).eq("id",personId).select("*").single();
   if(error)throw error;
+
   let rejoinCharge=null;
   let rejoinGameNumber=null;
-  if(action==="REJOIN" && session?.game_type==="QCHASE_RUMMY" && session?.payment_rule==="PER_PLAYER"){
+  if(action==="REJOIN" && isQchasePerGame){
     try {
       const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
       const rate=money(rule?.rate_inr);
       if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
-      rejoinGameNumber=await qchaseNextGameNumber(supabase,sessionId);
-      rejoinCharge=await ensureQchasePrepaidEntryCharge(supabase,{
-        sessionId,
-        person:data,
-        gameNumber:rejoinGameNumber,
-        rate,
-        staffId:auth.staff_id,
-        reason:"REJOIN",
-      });
+      if(joinMode==="CURRENT"){
+        const attached=await attachQchasePlayerToCurrentGame(supabase,{session,person:data,rate,staffId:auth.staff_id,reason:"REJOIN_CURRENT"});
+        rejoinCharge=attached.charge;
+        rejoinGameNumber=attached.game_number;
+      }else{
+        rejoinGameNumber=Math.max(1,number(session.qchase_game_number,0)+1);
+      }
     } catch (chargeError) {
       await supabase.from("snooker_session_people").update({
         status: person.status,
         left_at: person.left_at,
+        joined_at: person.joined_at,
         accumulated_seconds: person.accumulated_seconds,
         timer_running: person.timer_running,
         timer_started_at: person.timer_started_at,
@@ -3047,6 +3062,14 @@ async function updateSessionPerson(req,res,sessionId,personId){
       throw chargeError;
     }
   }
+
+  const {data:all}=await supabase.from("snooker_session_people").select("id,name,status").eq("session_id",sessionId).in("status",["ACTIVE","WAITING"]).order("joined_at");
+  await supabase.from("snooker_sessions").update({
+    participant_ids:(all||[]).map(p=>p.id),
+    participant_names:(all||[]).map(p=>p.name),
+    updated_at:new Date().toISOString(),
+  }).eq("id",sessionId);
+
   try {
     await rememberCustomer(supabase, { name: data.name, phone: data.phone, isMember: data.is_member, source: "player_update" });
   } catch (customerError) {
@@ -3056,7 +3079,9 @@ async function updateSessionPerson(req,res,sessionId,personId){
     ...data,
     entry_charge_inr: rejoinCharge ? money(rejoinCharge.amount_inr) : 0,
     entry_game_number: rejoinGameNumber,
-    qchase_charged_on_rejoin: Boolean(rejoinCharge),
+    qchase_join_mode:isQchasePerGame?joinMode:null,
+    qchase_charged_on_rejoin:Boolean(rejoinCharge),
+    qchase_waiting_for_next:Boolean(isQchasePerGame&&joinMode==="NEXT"),
   });
 }
 
