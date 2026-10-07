@@ -2828,6 +2828,13 @@ subtitle="Self-scoring • Serial order draw • Live display • A4 + 80mm prin
               >
                 Open Player Display
               </a>
+              <button
+                className={gameAccessToken ? "btn primary" : "btn warn"}
+                type="button"
+                onClick={async () => { if (!gameAccessToken) await ensureGameAccessToken(); }}
+              >
+                {gameAccessToken ? "TV Cloud Connected" : "Connect TV Cloud"}
+              </button>
               <button className="btn" type="button" onClick={openSavedScoreSheets}>
   Saved Score Sheets
 </button>
