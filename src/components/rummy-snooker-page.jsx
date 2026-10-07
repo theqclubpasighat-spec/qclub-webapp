@@ -184,6 +184,26 @@ function saveDisplayState(tableKey = "table1", snapshot) {
   } catch {}
 }
 
+function gameAccessStorageKey(tableKey = "table1") {
+  return `qclub_qchase_game_access_${tableKey || "table1"}`;
+}
+
+function loadGameAccessToken(tableKey = "table1") {
+  try {
+    return sessionStorage.getItem(gameAccessStorageKey(tableKey)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveGameAccessToken(tableKey = "table1", token = "") {
+  try {
+    if (token) sessionStorage.setItem(gameAccessStorageKey(tableKey), token);
+    else sessionStorage.removeItem(gameAccessStorageKey(tableKey));
+  } catch {}
+}
+
+
 const FOULS = [
   { key: "foul4", label: "Foul -4", short: "F4", points: -4, type: "foul" },
   { key: "foul5", label: "Foul -5", short: "F5", points: -5, type: "foul" },
