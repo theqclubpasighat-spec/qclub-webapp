@@ -2892,6 +2892,23 @@ async function createSession(req, res) {
     }
   }
 
+  const qrRequestId=safeText(req.body?.qr_request_id||"",100)||null;
+  if(qrRequestId){
+    const {data:qrRequest,error:qrReadError}=await supabase.from("snooker_table_qr_requests").select("*").eq("id",qrRequestId).eq("table_id",tableId).eq("status","PENDING").maybeSingle();
+    if(qrReadError)throw qrReadError;
+    if(qrRequest&&qrRequest.request_type==="START"){
+      let approvedPerson=null;
+      if(qrRequest.requested_customer_id)approvedPerson=insertedPeople.find(person=>person.customer_id===qrRequest.requested_customer_id)||null;
+      if(!approvedPerson)approvedPerson=insertedPeople.find(person=>normalizeCustomerName(person.name)===normalizeCustomerName(qrRequest.requested_name))||insertedPeople[0]||null;
+      const reviewedAt=new Date().toISOString();
+      const {error:qrUpdateError}=await supabase.from("snooker_table_qr_requests").update({
+        session_id:data.id,status:"APPROVED",approved_person_id:approvedPerson?.id||null,
+        reviewed_at:reviewedAt,reviewed_by:auth.staff_id,updated_at:reviewedAt,
+      }).eq("id",qrRequest.id);
+      if(qrUpdateError)throw qrUpdateError;
+    }
+  }
+
   const response=sessionDto(data);
   await rememberIdempotent(supabase,key,"create_session",data.id,response);
   return json(res,201,response);
