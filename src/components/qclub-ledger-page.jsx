@@ -2799,6 +2799,8 @@ export default function QclubLedgerPage() {
     }
   }
 
+  const activeOrderAlert = orderAlertQueue.length ? orderAlertQueue[0] : null;
+
   if (!auth) {
     return (
       <div className="qledger">
