@@ -3387,24 +3387,25 @@ async function recordGame(req,res,sessionId){
     return json(res,201,response);
   }
   if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    const requestedAction=safeText(req.body?.qchase_action||"",30).toUpperCase();
+    const action=requestedAction || (session.qchase_game_state==="ACTIVE"?"FINISH_CURRENT":"START_NEXT");
+
+    if(action==="FINISH_CURRENT"){
+      const response=await finishCurrentQchaseGame(supabase,session,auth.staff_id);
+      await rememberIdempotent(supabase,key,"record_game",session.id+":finish:"+response.game_number,response);
+      return json(res,200,response);
+    }
+
+    if(action!=="START_NEXT")return json(res,400,{ok:false,error:"INVALID_QCHASE_ACTION"});
     const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
-    if(selectedIds.length<2 || selectedIds.length>6)return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
-    const {data:people,error:peopleError}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
-    if(peopleError)throw peopleError;
-    if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
-    const rate=money(rule?.rate_inr);
-    if(!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
-    const gameNumber=await qchaseNextGameNumber(supabase,sessionId);
-    const response=await createQchaseGameStart(supabase,{
-      sessionId,
-      playerRows:people||[],
-      rate,
-      staffId:auth.staff_id,
-      gameNumber,
-      key:key||null,
-    });
-    await rememberIdempotent(supabase,key,"record_game",response.game_id,response);
-    return json(res,201,response);
+    try {
+      const response=await startNextQchaseGame(supabase,session,selectedIds,auth.staff_id,key||null);
+      await rememberIdempotent(supabase,key,"record_game",response.game_id,response);
+      return json(res,201,response);
+    } catch(error) {
+      if(error?.status)return json(res,error.status,{ok:false,error:error.code||"QCHASE_START_FAILED",message:error.message});
+      throw error;
+    }
   }
 
   const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
