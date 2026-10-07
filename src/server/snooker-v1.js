@@ -5355,7 +5355,8 @@ async function createPublicTableRequest(req, res, tableKey) {
   const name = canonicalCustomerName(req.body?.name || "");
   const phone = normalizePhone(req.body?.phone || "") || null;
   if (!name) return json(res, 400, { ok: false, error: "PLAYER_NAME_REQUIRED" });
-  if (phone && phone.length !== 10) return json(res, 400, { ok: false, error: "INVALID_PHONE" });
+  if (!phone) return json(res, 400, { ok: false, error: "WHATSAPP_NUMBER_REQUIRED", message: "A 10-digit WhatsApp number is required." });
+  if (phone.length !== 10) return json(res, 400, { ok: false, error: "INVALID_PHONE", message: "Enter a valid 10-digit WhatsApp number." });
 
   const session = await activeSessionForTable(supabase, table.id);
   let action = safeText(req.body?.action || (session ? "JOIN_CURRENT" : "START"), 30).toUpperCase();
