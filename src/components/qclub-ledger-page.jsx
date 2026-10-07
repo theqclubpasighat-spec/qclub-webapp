@@ -226,7 +226,7 @@ const CSS = [
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
-  ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}",
+  ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}.ql-stat.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-stat.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}",
   ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
   ".ql-table-card{min-height:222px;display:flex;flex-direction:column}.ql-table-card.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-table-card.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}.ql-table-card .ql-table-open-hint{margin-top:auto;padding-top:14px;color:#79e7aa;font-size:12px;font-weight:850}.ql-player-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-player-card{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-width:0}.ql-club-tab-card{cursor:pointer;padding:12px;min-height:118px}.ql-club-tab-card:hover{border-color:#4c8d69}.ql-compact-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
   "@media(max-width:900px){.ql-card,.ql-card.wide{grid-column:span 6}.ql-fnb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ql-player-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}",
@@ -261,6 +261,8 @@ export default function QclubLedgerPage() {
   const [selectedFnbPersonId, setSelectedFnbPersonId] = useState("");
   const [gameEntry, setGameEntry] = useState(null);
   const [tableViewSessionId, setTableViewSessionId] = useState("");
+  const [openClubTabsView, setOpenClubTabsView] = useState(false);
+  const [openClubTabsSearch, setOpenClubTabsSearch] = useState("");
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
   const [playerAccountView, setPlayerAccountView] = useState(null);
   const [billDetail, setBillDetail] = useState(null);
@@ -800,6 +802,24 @@ export default function QclubLedgerPage() {
   const clubTabView = clubTabViewCustomerId
     ? playerTabs.find(function(row) { return row.customer_id === clubTabViewCustomerId; }) || null
     : null;
+  const filteredOpenClubTabs = useMemo(function() {
+    const query = String(openClubTabsSearch || "").trim().toLowerCase();
+    if (!query) return playerTabs;
+    return playerTabs.filter(function(playerTab) {
+      const locations = (playerTab.active_locations || []).map(function(location) {
+        return [
+          String(location.table_id || "").replace("table_","T"),
+          String(location.game_type || "").replaceAll("_"," "),
+        ].join(" ");
+      }).join(" ");
+      return [
+        playerTab.name,
+        playerTab.phone,
+        locations,
+        playerTab.current_due_inr,
+      ].filter(Boolean).join(" ").toLowerCase().includes(query);
+    });
+  }, [playerTabs, openClubTabsSearch]);
 
   const sellableCatalogue = useMemo(function() {
     return catalogue.filter(function(item) { return item.sell_in_ledger !== false; });
@@ -2475,43 +2495,24 @@ export default function QclubLedgerPage() {
               <div className="ql-stat"><span className="ql-muted">Today&apos;s finalized bills</span><strong>{todayFinalizedCount}</strong></div>
               <div className="ql-stat"><span className="ql-muted">Today&apos;s realized sales</span><strong>{money(todaySales)}</strong><div className="ql-muted">Cash {money(summary && summary.today_cash_inr)} • UPI {money(summary && summary.today_upi_inr)}</div></div>
               <div className="ql-stat"><span className="ql-muted">Outstanding all ledger</span><strong>{money(outstanding)}</strong></div>
-              <div className="ql-stat"><span className="ql-muted">Open Club Tabs</span><strong>{playerTabs.length}</strong><div className="ql-muted">{playerTabs.length ? "Player accounts still open / active" : "None open"}</div></div>
-            </div>
-            <div className="ql-section">Open Club Tabs</div>
-            {playerTabs.length ? (
-              <div className="ql-grid" style={{ marginBottom: 14 }}>
-                {playerTabs.map(function(playerTab) {
-                  const locations=(playerTab.active_locations || []).map(function(x){ return String(x.table_id || "").replace("table_","T") + " " + String(x.game_type || "").replaceAll("_"," "); }).join(" • ");
-                  return (
-                    <div
-                      className="ql-card ql-club-tab-card"
-                      key={playerTab.customer_id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={function() { setClubTabViewCustomerId(playerTab.customer_id); }}
-                      onKeyDown={function(event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setClubTabViewCustomerId(playerTab.customer_id); } }}
-                    >
-                      <div className="ql-space">
-                        <div style={{ minWidth: 0 }}>
-                          <h3>{playerTab.name}</h3>
-                          <div className="ql-muted">{locations || "In club • not currently playing"}</div>
-                        </div>
-                        <strong>{money(playerTab.current_due_inr)}</strong>
-                      </div>
-                      <div className="ql-muted" style={{ marginTop:8 }}>
-                        F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier due {money(playerTab.billed_due_inr)}
-                      </div>
-                      <div className="ql-row" style={{ marginTop: 9 }}>
-                        {(playerTab.active_locations || []).length ? <span className="ql-badge good">PLAYING</span> : <span className="ql-badge">TAB OPEN</span>}
-                        {Number(playerTab.unbilled_inr || 0) > 0 ? <span className="ql-badge gold">NEW {money(playerTab.unbilled_inr)}</span> : null}
-                        <span className="ql-muted">Tap to view / settle</span>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div
+                className={"ql-stat " + (playerTabs.length ? "clickable" : "")}
+                role={playerTabs.length ? "button" : undefined}
+                tabIndex={playerTabs.length ? 0 : undefined}
+                onClick={playerTabs.length ? function() { setOpenClubTabsSearch(""); setOpenClubTabsView(true); } : undefined}
+                onKeyDown={playerTabs.length ? function(event) {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setOpenClubTabsSearch("");
+                    setOpenClubTabsView(true);
+                  }
+                } : undefined}
+              >
+                <span className="ql-muted">Open Club Tabs</span>
+                <strong>{playerTabs.length}</strong>
+                <div className="ql-muted">{playerTabs.length ? "Tap to view all player tabs" : "None open"}</div>
               </div>
-            ) : <div className="ql-empty" style={{ marginBottom:14 }}>No open Club Tabs.</div>}
-
+            </div>
             <div className="ql-section">Live tables</div>
             <div className="ql-grid">
               {tables.map(function(table) {
@@ -3523,6 +3524,82 @@ export default function QclubLedgerPage() {
           </>
         ) : null}
       </div>
+
+      {openClubTabsView ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setOpenClubTabsView(false); }}>
+          <div className="ql-modal" style={{ maxWidth: 1120 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>Open Club Tabs</h3>
+                <div className="ql-muted">{playerTabs.length} player account{playerTabs.length === 1 ? "" : "s"} • search and tap a player to view or settle</div>
+              </div>
+              <button className="ql-btn ghost" aria-label="Close Open Club Tabs popup" onClick={function() { setOpenClubTabsView(false); }}>✕</button>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <label className="ql-label">Find player</label>
+              <input
+                className="ql-input"
+                value={openClubTabsSearch}
+                onChange={function(event) { setOpenClubTabsSearch(event.target.value); }}
+                placeholder="Type player name, mobile or table"
+                autoFocus
+              />
+            </div>
+
+            <div className="ql-section">Player Tabs</div>
+            {filteredOpenClubTabs.length ? (
+              <div className="ql-player-grid">
+                {filteredOpenClubTabs.map(function(playerTab) {
+                  const locations=(playerTab.active_locations || []).map(function(x){
+                    return String(x.table_id || "").replace("table_","T") + " " + String(x.game_type || "").replaceAll("_"," ");
+                  }).join(" • ");
+                  return (
+                    <div
+                      className="ql-player-card ql-club-tab-card"
+                      key={playerTab.customer_id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={function() {
+                        setOpenClubTabsView(false);
+                        setClubTabViewCustomerId(playerTab.customer_id);
+                      }}
+                      onKeyDown={function(event) {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setOpenClubTabsView(false);
+                          setClubTabViewCustomerId(playerTab.customer_id);
+                        }
+                      }}
+                    >
+                      <div className="ql-space">
+                        <div style={{ minWidth: 0 }}>
+                          <strong>{playerTab.name}</strong>
+                          <div className="ql-muted">{locations || "In club • not currently playing"}</div>
+                        </div>
+                        <strong>{money(playerTab.current_due_inr)}</strong>
+                      </div>
+                      <div className="ql-muted" style={{ marginTop: 8 }}>
+                        F&B {money(playerTab.fnb_unbilled_inr)} • Games/Table {money(playerTab.player_unbilled_inr)} • Earlier due {money(playerTab.billed_due_inr)}
+                      </div>
+                      <div className="ql-row" style={{ marginTop: 9 }}>
+                        {(playerTab.active_locations || []).length ? <span className="ql-badge good">PLAYING</span> : <span className="ql-badge">TAB OPEN</span>}
+                        {Number(playerTab.unbilled_inr || 0) > 0 ? <span className="ql-badge gold">NEW {money(playerTab.unbilled_inr)}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="ql-empty">No player tabs match this search.</div>
+            )}
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="ql-btn ghost" onClick={function() { setOpenClubTabsView(false); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {clubTabView ? (
         <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget) setClubTabViewCustomerId(""); }}>
