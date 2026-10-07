@@ -752,7 +752,8 @@ export default function QclubLedgerPage() {
   const sessionByTable = useMemo(function() {
     const map = {};
     sessions.forEach(function(session) {
-      if (["ACTIVE", "PAUSED", "ENDED"].includes(session.status)) map[session.table_id] = session;
+      // ENDED/FINALIZED sessions no longer occupy the physical table.
+      if (["ACTIVE", "PAUSED"].includes(session.status)) map[session.table_id] = session;
     });
     return map;
   }, [sessions]);
@@ -1130,11 +1131,30 @@ export default function QclubLedgerPage() {
   }
 
   async function patchSession(sessionId, action) {
+    const session = sessions.find(function(row) { return row.session_id === sessionId; }) || allSessions.find(function(row) { return row.session_id === sessionId; }) || null;
+    const table = session ? tables.find(function(row) { return row.table_id === session.table_id; }) : null;
+    const release = action === "END" || action === "CLOSE";
+    if (release) {
+      const gameLabel = session ? ((rules.find(function(row) { return row.game_type === session.game_type; }) || {}).display_name || String(session.game_type || "").replaceAll("_"," ")) : "current game";
+      const tableLabel = table ? ("Table " + table.table_no + " — " + table.display_name) : "this table";
+      const ok = window.confirm(
+        "End " + gameLabel + " and free " + tableLabel + " now?\n\n" +
+        "The table will become AVAILABLE immediately. Existing player charges and Club Tabs stay open, so players can move to another table or settle later."
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     try {
-      await protectedCall("sessions/" + sessionId, { method: "PATCH", body: { action } });
-      flash(action === "PAUSE" ? "Table timer paused." : action === "END" ? "Table ended. Settle all player accounts, then Close Table." : action === "CLOSE" ? "Table closed and available for the next session." : "Table timer resumed.");
+      const result = await protectedCall("sessions/" + sessionId, { method: "PATCH", body: { action } });
+      if (release) setTableViewSessionId("");
+      flash(action === "PAUSE"
+        ? "Table timer paused."
+        : release
+          ? "Game ended and table released. Player Club Tabs remain open for later play or settlement."
+          : "Table timer resumed.");
       await refreshAll();
+      return result;
     } catch (error) {
       flash(error.message, true);
     } finally {
@@ -3662,8 +3682,10 @@ export default function QclubLedgerPage() {
                   <div className="ql-row">
                     {tableViewSession.status === "ACTIVE" && ((tableViewRule && tableViewRule.timer_required) || tableViewSession.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "PAUSE"); }}>Pause</button> : null}
                     {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
-                    {tableViewSession.status !== "ENDED" ? <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>End Table</button> : <button className="ql-btn primary" onClick={function() { setTableViewSessionId(""); patchSession(tableViewSession.session_id, "CLOSE"); }}>Close Table</button>}
-                    <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close</button>
+                    <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>
+                      {["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Game • Free Table"}
+                    </button>
+                    <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close Popup</button>
                   </div>
                 </div>
               </>
