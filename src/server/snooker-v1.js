@@ -67,6 +67,34 @@ function secureEqual(a = "", b = "") {
   return aa.length === bb.length && timingSafeEqual(aa, bb);
 }
 
+function gameAccessToken(kind = "access", ttlSeconds = 12 * 60 * 60) {
+  const secret = paymentLinkSecret();
+  if (!secret) return null;
+  const scope = safeText(kind || "access", 20).toLowerCase();
+  const expiresAt = Math.floor(Date.now() / 1000) + Math.max(60, number(ttlSeconds, 43200));
+  const payload = `${scope}.${expiresAt}`;
+  const signature = createHmac("sha256", secret).update("qchase-game-token|" + payload).digest("base64url");
+  return { token: payload + "." + signature, expires_at: new Date(expiresAt * 1000).toISOString() };
+}
+
+function verifyGameAccessToken(token = "", allowedKinds = ["access"]) {
+  const secret = paymentLinkSecret();
+  const parts = safeText(token, 1200).split(".");
+  if (!secret || parts.length !== 3) return false;
+  const [scope, expText, signature] = parts;
+  if (!allowedKinds.includes(scope)) return false;
+  const expiresAt = Number(expText);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false;
+  const expected = createHmac("sha256", secret)
+    .update("qchase-game-token|" + scope + "." + expText)
+    .digest("base64url");
+  return secureEqual(signature, expected);
+}
+
+function qchaseRequestToken(req) {
+  return safeText(req.headers?.["x-qclub-game-token"] || "", 1200);
+}
+
 async function authenticate(req, roles = ["STAFF", "ADMIN"]) {
   const token = bearer(req);
   if (!token) return null;
@@ -1139,12 +1167,26 @@ async function qchaseNextGameNumber(supabase, sessionId) {
     .select("game_number")
     .eq("session_id", sessionId)
     .eq("game_type", "QCHASE_RUMMY")
-    .eq("status", "COMPLETED")
+    .neq("status", "VOIDED")
     .order("game_number", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
   return number(last?.game_number, 0) + 1;
+}
+
+async function qchaseEntryGameNumber(supabase, sessionId) {
+  const { data: inProgress, error } = await supabase
+    .from("snooker_completed_games")
+    .select("game_number")
+    .eq("session_id", sessionId)
+    .eq("game_type", "QCHASE_RUMMY")
+    .eq("status", "IN_PROGRESS")
+    .order("game_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return inProgress?.game_number ? number(inProgress.game_number) : qchaseNextGameNumber(supabase, sessionId);
 }
 
 async function ensureQchasePrepaidEntryCharge(supabase, { sessionId, person, gameNumber, rate, staffId, reason = "JOIN" }) {
@@ -1195,6 +1237,7 @@ async function createQchaseGameStart(supabase, { sessionId, playerRows, rate, st
   const allocations = ids.map((id) => ({ person_id: id, amount_inr: money(rate) }));
   const total = money(money(rate) * selected.length);
 
+  const startedAt = new Date().toISOString();
   const { data: game, error: gameError } = await supabase.from("snooker_completed_games").insert({
     session_id: sessionId,
     game_number: gameNumber,
@@ -1210,6 +1253,9 @@ async function createQchaseGameStart(supabase, { sessionId, playerRows, rate, st
     winner_person_ids: [],
     loser_person_ids: [],
     charge_allocations: allocations,
+    status: "IN_PROGRESS",
+    started_at: startedAt,
+    completed_at: startedAt,
     pricing_snapshot: {
       mode: "PER_PLAYER_CHARGED_AT_GAME_START",
       charged_before_finish: true,
@@ -2715,7 +2761,7 @@ async function addSessionPerson(req,res,sessionId){
       const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
       const rate=money(rule?.rate_inr);
       if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
-      entryGameNumber=await qchaseNextGameNumber(supabase,sessionId);
+      entryGameNumber=await qchaseEntryGameNumber(supabase,sessionId);
       entryCharge=await ensureQchasePrepaidEntryCharge(supabase,{
         sessionId,
         person:data,
@@ -2775,7 +2821,7 @@ async function updateSessionPerson(req,res,sessionId,personId){
       const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
       const rate=money(rule?.rate_inr);
       if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
-      rejoinGameNumber=await qchaseNextGameNumber(supabase,sessionId);
+      rejoinGameNumber=await qchaseEntryGameNumber(supabase,sessionId);
       rejoinCharge=await ensureQchasePrepaidEntryCharge(supabase,{
         sessionId,
         person:data,
@@ -5147,6 +5193,179 @@ async function cashfreeWebhook(req, res) {
   return json(res, 200, { ok: true, received: true, auto_receipt: autoReceipt });
 }
 
+
+function qchaseTableNo(tableKey = "") {
+  const match = /^table([1-3])$/i.exec(safeText(tableKey, 20));
+  return match ? Number(match[1]) : null;
+}
+
+async function qchaseActiveLedgerSession(supabase, tableKey) {
+  const tableNo = qchaseTableNo(tableKey);
+  if (!tableNo) return { table: null, session: null };
+  const { data: table, error: tableError } = await supabase
+    .from("snooker_tables")
+    .select("*")
+    .eq("table_no", tableNo)
+    .eq("active", true)
+    .maybeSingle();
+  if (tableError) throw tableError;
+  if (!table) return { table: null, session: null };
+  const { data: session, error: sessionError } = await supabase
+    .from("snooker_sessions")
+    .select("*")
+    .eq("table_id", table.id)
+    .eq("game_type", "QCHASE_RUMMY")
+    .in("status", ["ACTIVE", "PAUSED"])
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (sessionError) throw sessionError;
+  return { table, session: session || null };
+}
+
+async function publicQchaseLive(req, res, tableKey) {
+  const key = safeText(tableKey, 20).toLowerCase();
+  if (!qchaseTableNo(key)) return json(res, 404, { ok: false, error: "QCHASE_TABLE_NOT_FOUND" });
+  const supabase = getSupabaseAdmin();
+  const [{ data: live, error: liveError }, ledger] = await Promise.all([
+    supabase.from("qclub_qchase_live_state").select("*").eq("table_key", key).maybeSingle(),
+    qchaseActiveLedgerSession(supabase, key),
+  ]);
+  if (liveError) throw liveError;
+  let currentGame = null;
+  if (ledger.session) {
+    const { data, error } = await supabase
+      .from("snooker_completed_games")
+      .select("id,game_number,status,started_at,completed_at,player_names,player_count_snapshot,calculated_charge_inr")
+      .eq("session_id", ledger.session.id)
+      .eq("game_type", "QCHASE_RUMMY")
+      .neq("status", "VOIDED")
+      .order("game_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    currentGame = data || null;
+  }
+  return json(res, 200, {
+    ok: true,
+    table_key: key,
+    snapshot: live?.snapshot || null,
+    updated_at: live?.updated_at || null,
+    ledger: ledger.session ? {
+      linked: true,
+      session_id: ledger.session.id,
+      status: ledger.session.status,
+      payment_rule: ledger.session.payment_rule,
+      current_game: currentGame,
+    } : { linked: false },
+  });
+}
+
+async function publishQchaseLive(req, res, tableKey) {
+  const token = qchaseRequestToken(req);
+  if (!verifyGameAccessToken(token, ["access", "final_lock"])) return json(res, 401, { ok: false, error: "QCHASE_GAME_TOKEN_REQUIRED" });
+  const key = safeText(tableKey, 20).toLowerCase();
+  if (!qchaseTableNo(key)) return json(res, 404, { ok: false, error: "QCHASE_TABLE_NOT_FOUND" });
+  const snapshot = req.body?.snapshot && typeof req.body.snapshot === "object" ? req.body.snapshot : null;
+  if (!snapshot) return json(res, 400, { ok: false, error: "SNAPSHOT_REQUIRED" });
+  const safeSnapshot = JSON.parse(JSON.stringify(snapshot));
+  const encoded = JSON.stringify(safeSnapshot);
+  if (encoded.length > 120000) return json(res, 413, { ok: false, error: "SNAPSHOT_TOO_LARGE" });
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.from("qclub_qchase_live_state").upsert({
+    table_key: key,
+    snapshot: safeSnapshot,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "table_key" }).select("*").single();
+  if (error) throw error;
+  return json(res, 200, { ok: true, updated_at: data.updated_at });
+}
+
+async function qchaseEngineStart(req, res, tableKey) {
+  const token = qchaseRequestToken(req);
+  if (!verifyGameAccessToken(token, ["access"])) return json(res, 401, { ok: false, error: "QCHASE_ACCESS_TOKEN_REQUIRED" });
+  const supabase = getSupabaseAdmin();
+  const { session } = await qchaseActiveLedgerSession(supabase, tableKey);
+  if (!session) return json(res, 200, { ok: true, linked: false, reason: "NO_ACTIVE_LEDGER_QCHASE" });
+  if (session.payment_rule !== "PER_PLAYER") return json(res, 200, { ok: true, linked: false, reason: "LEDGER_QCHASE_NOT_PER_PLAYER" });
+
+  const { data: inProgress, error: inProgressError } = await supabase
+    .from("snooker_completed_games")
+    .select("*")
+    .eq("session_id", session.id)
+    .eq("game_type", "QCHASE_RUMMY")
+    .eq("status", "IN_PROGRESS")
+    .limit(1)
+    .maybeSingle();
+  if (inProgressError) throw inProgressError;
+  if (inProgress) return json(res, 200, { ok: true, linked: true, already_started: true, session_id: session.id, game: inProgress });
+
+  const [{ data: people, error: peopleError }, { data: rule, error: ruleError }] = await Promise.all([
+    supabase.from("snooker_session_people").select("*").eq("session_id", session.id).eq("status", "ACTIVE").order("joined_at"),
+    supabase.from("snooker_game_rules").select("*").eq("game_type", "QCHASE_RUMMY").eq("active", true).maybeSingle(),
+  ]);
+  if (peopleError || ruleError) throw peopleError || ruleError;
+  if ((people || []).length < 2 || (people || []).length > 6) return json(res, 409, { ok: false, error: "QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS" });
+  const rate = money(rule?.rate_inr);
+  if (!(rate > 0)) return json(res, 409, { ok: false, error: "GAME_RATE_NOT_CONFIGURED" });
+  const gameNumber = await qchaseNextGameNumber(supabase, session.id);
+  const game = await createQchaseGameStart(supabase, {
+    sessionId: session.id,
+    playerRows: people || [],
+    rate,
+    staffId: "qchase-engine",
+    gameNumber,
+    key: safeText(req.body?.engine_game_id || "", 180) || null,
+  });
+  const { data: linkedGame, error: linkError } = await supabase.from("snooker_completed_games").update({
+    engine_game_id: safeText(req.body?.engine_game_id || "", 180) || null,
+    engine_game_no: safeText(req.body?.engine_game_no || "", 180) || null,
+    started_at: new Date().toISOString(),
+  }).eq("id", game.game_id).select("*").single();
+  if (linkError) throw linkError;
+  return json(res, 201, { ok: true, linked: true, session_id: session.id, game: linkedGame, charged_players: (people || []).map((p) => ({ person_id: p.id, name: p.name, amount_inr: rate })) });
+}
+
+async function qchaseEngineFinish(req, res, tableKey) {
+  const token = qchaseRequestToken(req);
+  if (!verifyGameAccessToken(token, ["final_lock"])) return json(res, 401, { ok: false, error: "QCHASE_FINAL_LOCK_TOKEN_REQUIRED" });
+  const supabase = getSupabaseAdmin();
+  const { session } = await qchaseActiveLedgerSession(supabase, tableKey);
+  if (!session) return json(res, 200, { ok: true, linked: false, reason: "NO_ACTIVE_LEDGER_QCHASE" });
+  const engineGameId = safeText(req.body?.engine_game_id || "", 180);
+  let query = supabase
+    .from("snooker_completed_games")
+    .select("*")
+    .eq("session_id", session.id)
+    .eq("game_type", "QCHASE_RUMMY")
+    .eq("status", "IN_PROGRESS");
+  if (engineGameId) query = query.eq("engine_game_id", engineGameId);
+  const { data: game, error: gameError } = await query.order("game_number", { ascending: false }).limit(1).maybeSingle();
+  if (gameError) throw gameError;
+  if (!game) {
+    const { data: completed } = await supabase
+      .from("snooker_completed_games")
+      .select("*")
+      .eq("session_id", session.id)
+      .eq("game_type", "QCHASE_RUMMY")
+      .eq("status", "COMPLETED")
+      .order("game_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return json(res, 200, { ok: true, linked: true, already_finished: Boolean(completed), game: completed || null });
+  }
+  const snapshot = req.body?.snapshot && typeof req.body.snapshot === "object" ? JSON.parse(JSON.stringify(req.body.snapshot)) : {};
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase.from("snooker_completed_games").update({
+    status: "COMPLETED",
+    completed_at: now,
+    completed_by: "qchase-engine",
+    engine_final_snapshot: snapshot,
+  }).eq("id", game.id).select("*").single();
+  if (updateError) throw updateError;
+  return json(res, 200, { ok: true, linked: true, session_id: session.id, game: updated, next_game_number: number(updated.game_number) + 1 });
+}
+
 export async function handleSnookerV1(req, res, rawPath = "") {
   try {
     const method = safeText(req.method || "GET", 10).toUpperCase();
@@ -5165,6 +5384,10 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "health") return await health(req, res);
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
+    if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "GET") return await publicQchaseLive(req, res, parts[1]);
+    if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "POST") return await publishQchaseLive(req, res, parts[1]);
+    if (parts[0] === "qchase-live" && parts[1] && parts[2] === "start" && parts.length === 3 && method === "POST") return await qchaseEngineStart(req, res, parts[1]);
+    if (parts[0] === "qchase-live" && parts[1] && parts[2] === "finish" && parts.length === 3 && method === "POST") return await qchaseEngineFinish(req, res, parts[1]);
     if (method === "POST" && path === "auth/login") return await login(req, res);
     if (method === "POST" && path === "auth/logout") return await logout(req, res);
     if (method === "POST" && path === "auth/verify-game-pin") {
@@ -5174,7 +5397,9 @@ export async function handleSnookerV1(req, res, rawPath = "") {
       if (!pin || !forwarded) return json(res, 400, { ok: false, error: "INVALID_REQUEST" });
       const { data: ok, error } = await getSupabaseAdmin().rpc("qclub_security_verify_game_pin", { p_network_hash: hashToken("ip:" + forwarded), p_kind: kind, p_pin: pin });
       if (error) return json(res, 503, { ok: false, error: "VERIFY_UNAVAILABLE" });
-      return json(res, ok ? 200 : 401, { ok: Boolean(ok) });
+      if (!ok) return json(res, 401, { ok: false });
+      const grant = gameAccessToken(kind, kind === "final_lock" ? 60 * 60 : 12 * 60 * 60);
+      return json(res, 200, { ok: true, game_token: grant?.token || null, expires_at: grant?.expires_at || null });
     }
     if (method === "POST" && path === "auth/rotate-pin") {
       const auth = await requireAuth(req, res, ["ADMIN"]);
