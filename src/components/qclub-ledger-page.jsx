@@ -3901,7 +3901,7 @@ export default function QclubLedgerPage() {
                       <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: ".12em" }}>THE Q CLUB PASIGHAT</div>
                       <h2>TABLE {table.table_no}</h2>
                       <div style={{ marginBottom: 12 }}>{table.display_name}</div>
-                      <QRCodeSVG value={url} size={240} level="H" marginSize={2} title={"Q Club Table " + table.table_no} />
+                      <QRCodeSVG value={url} size={240} level="H" includeMargin={true} title={"Q Club Table " + table.table_no} />
                       <div className="ql-table-qr-instructions">SCAN THIS TABLE QR</div>
                       <div style={{ fontSize: 12 }}>Start / Join • Live table status • Order F&B • View your charges</div>
                       <div className="ql-table-qr-url">{url}</div>
