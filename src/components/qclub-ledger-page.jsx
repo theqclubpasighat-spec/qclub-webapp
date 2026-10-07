@@ -221,7 +221,7 @@ const CSS = [
   ".ql-table-status{font-size:11px;font-weight:900;padding:5px 8px;border-radius:999px}.ql-table-status.free{background:#0f3c26;color:#90f1b9}.ql-table-status.busy{background:#553e0d;color:#ffe08a}.ql-table-status.pause{background:#402b59;color:#ddbaff}.ql-section{margin:17px 0 9px;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#e3c968;font-weight:900}",
   ".ql-input,.ql-select{width:100%;border:1px solid #294638;background:#08150f;color:#f7fbf8;border-radius:11px;padding:11px 12px;outline:none}.ql-label{display:block;font-size:12px;color:#abc0b3;margin:0 0 5px;font-weight:700}.ql-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ql-form-grid .full{grid-column:1/-1}",
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
-  ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;bottom:12px;z-index:70;margin-top:14px;border:1px solid #3b6b50;background:rgba(7,20,13,.96);backdrop-filter:blur(16px);box-shadow:0 18px 46px rgba(0,0,0,.4);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
+  ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;top:82px;z-index:70;margin:0 0 14px;border:1px solid #3b6b50;background:rgba(7,20,13,.97);backdrop-filter:blur(16px);box-shadow:0 14px 34px rgba(0,0,0,.42);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar.has-items{border-color:#79e7aa;box-shadow:0 14px 34px rgba(0,0,0,.42),0 0 0 1px rgba(121,231,170,.16)}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
   ".ql-autocomplete{position:relative}.ql-autocomplete-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:135;max-height:360px;overflow:auto;border:1px solid #315242;background:#07150f;border-radius:12px;box-shadow:0 18px 42px rgba(0,0,0,.48);padding:5px}.ql-autocomplete-option{width:100%;display:block;border:0;border-radius:9px;background:transparent;color:#f7fbf8;padding:9px 10px;text-align:left;cursor:pointer}.ql-autocomplete-option:hover,.ql-autocomplete-option.active{background:#163526;outline:1px solid #4a8b68}.ql-autocomplete-name{display:block;font-weight:900;font-size:14px}.ql-autocomplete-meta{display:flex;justify-content:space-between;gap:12px;margin-top:3px;color:#9eb2a5;font-size:12px}.ql-autocomplete-price{color:#f0d06f;font-weight:900}.ql-autocomplete-empty{padding:10px;color:#809488;font-size:12px}",
   ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
@@ -797,6 +797,9 @@ export default function QclubLedgerPage() {
   const todayFinalizedCount = summary ? Number(summary.today_finalized_bills || 0) : todayBills.length;
   const selectedSession = sessions.find(function(row) { return row.session_id === selectedSessionId; }) || null;
   const selectedFnbTab = fnbTabs.find(function(row) { return row.tab_id === selectedFnbTabId; }) || null;
+  const selectedFnbPerson = selectedSession && selectedSession.account_mode === "INDIVIDUAL"
+    ? ((((sessionDetails[selectedSession.session_id] || {}).people) || []).find(function(person) { return person.person_id === selectedFnbPersonId; }) || null)
+    : null;
   const playerAccountSession = playerAccountView
     ? sessions.find(function(row) { return row.session_id === playerAccountView.sessionId; }) || null
     : null;
@@ -3010,6 +3013,39 @@ export default function QclubLedgerPage() {
                 </div>
               </div>
             </div>
+            <div className={"ql-fnb-actionbar " + (selectedFnbCount > 0 ? "has-items" : "")}>
+              <div className="ql-space">
+                <div>
+                  <strong>Cart • {selectedFnbCount} item(s) • {money(selectedFnbTotal)}</strong>
+                  <div className="ql-muted">
+                    {fnbDestination === "RUNNING_TAB"
+                      ? (selectedFnbTab ? "Charge to " + selectedFnbTab.customer_name + "'s Club Tab" : "Choose a Club Tab above")
+                      : fnbDestination === "WALK_IN"
+                        ? "Walk-in Quick Bill"
+                        : selectedSession && selectedSession.account_mode === "INDIVIDUAL"
+                          ? (selectedFnbPerson ? "Charge to " + selectedFnbPerson.name + " • " + String(selectedSession.table_id || "").replace("table_","T") : "Choose which player is ordering")
+                          : selectedSession
+                            ? "Charge to " + String(selectedSession.table_id || "").replace("table_","T") + " table bill"
+                            : "Choose destination above"}
+                  </div>
+                </div>
+                <div className="ql-row" style={{ justifyContent: "flex-end" }}>
+                  {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
+                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || (fnbDestination === "RUNNING_TAB" && !selectedFnbTabId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
+                    {busy
+                      ? "Adding…"
+                      : fnbDestination === "RUNNING_TAB"
+                        ? "Add " + money(selectedFnbTotal) + " to " + (selectedFnbTab ? selectedFnbTab.customer_name : "Club Tab")
+                        : fnbDestination === "WALK_IN"
+                          ? "Create Quick Bill • " + money(selectedFnbTotal)
+                          : selectedSession && selectedSession.account_mode === "INDIVIDUAL"
+                            ? "Add " + money(selectedFnbTotal) + " to " + (selectedFnbPerson ? selectedFnbPerson.name : "Player")
+                            : "Add to Table Bill • " + money(selectedFnbTotal)}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="ql-fnb-spacer" aria-hidden="true" />
             <div className="ql-fnb-grid">
               {filteredCatalogue.map(function(item) {
                 const qty = Number(quantities[item.id] || 0);
@@ -3033,21 +3069,7 @@ export default function QclubLedgerPage() {
               })}
               {!filteredCatalogue.length ? <div className="ql-empty" style={{ gridColumn: "1/-1" }}>No catalogue items match this search/category.</div> : null}
             </div>
-            <div className="ql-fnb-actionbar">
-              <div className="ql-space">
-                <div>
-                  <strong>{selectedFnbCount} item(s) • {money(selectedFnbTotal)}</strong>
-                  <div className="ql-muted">Always visible on mobile. Server verifies price and stock before saving.</div>
-                </div>
-                <div className="ql-row" style={{ justifyContent: "flex-end" }}>
-                  {selectedFnbCount > 0 ? <button className="ql-btn ghost" disabled={busy} onClick={function() { setQuantities({}); }}>Clear</button> : null}
-                  <button className="ql-btn primary" disabled={(fnbDestination === "TABLE" && (!selectedSessionId || (selectedSession && selectedSession.account_mode === "INDIVIDUAL" && !selectedFnbPersonId))) || (fnbDestination === "RUNNING_TAB" && !selectedFnbTabId) || busy || selectedFnbCount <= 0} onClick={addFnb}>
-                    {busy ? "Adding…" : (fnbDestination === "RUNNING_TAB" ? "Add to " + (selectedFnbTab ? selectedFnbTab.customer_name : "Running Tab") : (fnbDestination === "WALK_IN" ? "Create Quick Bill" : (selectedSession && selectedSession.account_mode === "INDIVIDUAL" ? "Add to Player Account" : "Add to Table Bill")))}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="ql-fnb-spacer" aria-hidden="true" />
+
           </>
         ) : null}
 
