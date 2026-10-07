@@ -1133,6 +1133,153 @@ async function createPersonCharge(supabase, { sessionId, personId, type, referen
   return data;
 }
 
+async function qchaseNextGameNumber(supabase, sessionId) {
+  const { data: last, error } = await supabase
+    .from("snooker_completed_games")
+    .select("game_number")
+    .eq("session_id", sessionId)
+    .eq("game_type", "QCHASE_RUMMY")
+    .eq("status", "COMPLETED")
+    .order("game_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return number(last?.game_number, 0) + 1;
+}
+
+async function ensureQchasePrepaidEntryCharge(supabase, { sessionId, person, gameNumber, rate, staffId, reason = "JOIN" }) {
+  const { data: existingRows, error: existingError } = await supabase
+    .from("snooker_person_charges")
+    .select("*")
+    .eq("session_id", sessionId)
+    .eq("person_id", person.id)
+    .eq("charge_type", "GAME")
+    .eq("status", "ACTIVE")
+    .order("created_at", { ascending: false });
+  if (existingError) throw existingError;
+  const existing = (existingRows || []).find((row) =>
+    Boolean(row.metadata?.qchase_prepaid) &&
+    number(row.metadata?.game_number, 0) === number(gameNumber, 0)
+  );
+  if (existing) return existing;
+
+  return createPersonCharge(supabase, {
+    sessionId,
+    personId: person.id,
+    type: "GAME",
+    referenceId: null,
+    description: `QChase / Rummy — Game ${gameNumber} entry • charged on ${reason.toLowerCase()}`,
+    amount: rate,
+    staffId,
+    metadata: {
+      game_number: gameNumber,
+      settlement_rule: "PER_PLAYER",
+      qchase_prepaid: true,
+      qchase_entry_reason: reason,
+      charged_at_entry: true,
+      person_name: person.name,
+    },
+  });
+}
+
+async function createQchaseGameStart(supabase, { sessionId, playerRows, rate, staffId, gameNumber, key = null }) {
+  const selected = (playerRows || []).filter(Boolean);
+  if (selected.length < 2 || selected.length > 6) {
+    const err = new Error("QChase/Rummy requires 2 to 6 players.");
+    err.status = 400;
+    err.code = "QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS";
+    throw err;
+  }
+  const ids = selected.map((person) => person.id);
+  const names = selected.map((person) => person.name);
+  const allocations = ids.map((id) => ({ person_id: id, amount_inr: money(rate) }));
+  const total = money(money(rate) * selected.length);
+
+  const { data: game, error: gameError } = await supabase.from("snooker_completed_games").insert({
+    session_id: sessionId,
+    game_number: gameNumber,
+    game_type: "QCHASE_RUMMY",
+    billing_mode: "PER_PLAYER_PER_GAME",
+    rate_snapshot_inr: money(rate),
+    player_ids: ids,
+    player_names: names,
+    player_count_snapshot: selected.length,
+    calculated_charge_inr: total,
+    settlement_rule: "PER_PLAYER",
+    match_format: "FLEX",
+    winner_person_ids: [],
+    loser_person_ids: [],
+    charge_allocations: allocations,
+    pricing_snapshot: {
+      mode: "PER_PLAYER_CHARGED_AT_GAME_START",
+      charged_before_finish: true,
+      rate_inr: money(rate),
+    },
+    completed_by: staffId,
+    idempotency_key: key || null,
+  }).select("*").single();
+  if (gameError) throw gameError;
+
+  try {
+    const { data: existingCharges, error: chargeReadError } = await supabase
+      .from("snooker_person_charges")
+      .select("*")
+      .eq("session_id", sessionId)
+      .in("person_id", ids)
+      .eq("charge_type", "GAME")
+      .eq("status", "ACTIVE")
+      .order("created_at");
+    if (chargeReadError) throw chargeReadError;
+
+    for (const person of selected) {
+      const prepaid = (existingCharges || []).find((row) =>
+        row.person_id === person.id &&
+        Boolean(row.metadata?.qchase_prepaid) &&
+        number(row.metadata?.game_number, 0) === number(gameNumber, 0)
+      );
+      if (prepaid) {
+        const metadata = {
+          ...(prepaid.metadata || {}),
+          qchase_prepaid: false,
+          qchase_applied_to_game: true,
+          game_number: gameNumber,
+          settlement_rule: "PER_PLAYER",
+          person_name: person.name,
+        };
+        const { error: updateError } = await supabase.from("snooker_person_charges").update({
+          reference_id: game.id,
+          description: `QChase / Rummy — Game ${gameNumber} entry`,
+          metadata,
+        }).eq("id", prepaid.id);
+        if (updateError) throw updateError;
+      } else {
+        await createPersonCharge(supabase, {
+          sessionId,
+          personId: person.id,
+          type: "GAME",
+          referenceId: game.id,
+          description: `QChase / Rummy — Game ${gameNumber} entry`,
+          amount: rate,
+          staffId,
+          metadata: {
+            game_number: gameNumber,
+            settlement_rule: "PER_PLAYER",
+            qchase_applied_to_game: true,
+            charged_at_game_start: true,
+            person_name: person.name,
+          },
+        });
+      }
+    }
+  } catch (error) {
+    await supabase.from("snooker_person_charges").delete().eq("reference_id", game.id).is("bill_id", null);
+    await supabase.from("snooker_completed_games").delete().eq("id", game.id);
+    throw error;
+  }
+
+  return { ...game, game_id: game.id, charge_allocations: allocations };
+}
+
 async function syncActivePersonTimers(supabase, sessionId, action, at = new Date()) {
   const { data: people } = await supabase.from("snooker_session_people").select("*").eq("session_id", sessionId).eq("status", "ACTIVE");
   for (const person of people || []) {
@@ -2031,6 +2178,7 @@ async function createSession(req, res) {
   }).select("*").single();
   if(error) throw error;
 
+  let insertedPeople=[];
   if(individual){
     const customerRows=[];
     for (const p of people) {
@@ -2056,11 +2204,37 @@ async function createSession(req, res) {
     }));
     const {data:inserted,error:pe}=await supabase.from("snooker_session_people").insert(rows).select("*");
     if(pe){ await supabase.from("snooker_sessions").delete().eq("id",data.id); throw pe; }
+    insertedPeople=inserted||[];
     await supabase.from("snooker_sessions").update({
-      participant_ids:(inserted||[]).map((p)=>p.id),participant_names:(inserted||[]).map((p)=>p.name)
+      participant_ids:insertedPeople.map((p)=>p.id),participant_names:insertedPeople.map((p)=>p.name)
     }).eq("id",data.id);
-    data.participant_ids=(inserted||[]).map((p)=>p.id);
-    data.participant_names=(inserted||[]).map((p)=>p.name);
+    data.participant_ids=insertedPeople.map((p)=>p.id);
+    data.participant_names=insertedPeople.map((p)=>p.name);
+
+    if(gameType==="QCHASE_RUMMY" && paymentRule==="PER_PLAYER"){
+      const rate=money(rule.rate_inr);
+      if(!(rate>0)){
+        await supabase.from("snooker_session_people").delete().eq("session_id",data.id);
+        await supabase.from("snooker_sessions").delete().eq("id",data.id);
+        return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
+      }
+      try {
+        await createQchaseGameStart(supabase,{
+          sessionId:data.id,
+          playerRows:insertedPeople,
+          rate,
+          staffId:auth.staff_id,
+          gameNumber:1,
+          key:key ? key+":qchase-game-1" : null,
+        });
+      } catch (chargeError) {
+        await supabase.from("snooker_person_charges").delete().eq("session_id",data.id).is("bill_id",null);
+        await supabase.from("snooker_completed_games").delete().eq("session_id",data.id);
+        await supabase.from("snooker_session_people").delete().eq("session_id",data.id);
+        await supabase.from("snooker_sessions").delete().eq("id",data.id);
+        throw chargeError;
+      }
+    }
   }
   if (individual) {
     for (const person of people) {
@@ -2148,6 +2322,29 @@ async function addSessionPerson(req,res,sessionId){
     created_by:auth.staff_id,updated_by:auth.staff_id
   }).select("*").single();
   if(error)throw error;
+
+  let entryCharge=null;
+  let entryGameNumber=null;
+  if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    try {
+      const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
+      const rate=money(rule?.rate_inr);
+      if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
+      entryGameNumber=await qchaseNextGameNumber(supabase,sessionId);
+      entryCharge=await ensureQchasePrepaidEntryCharge(supabase,{
+        sessionId,
+        person:data,
+        gameNumber:entryGameNumber,
+        rate,
+        staffId:auth.staff_id,
+        reason:"JOIN",
+      });
+    } catch (chargeError) {
+      await supabase.from("snooker_session_people").delete().eq("id",data.id);
+      throw chargeError;
+    }
+  }
+
   const {data:all}=await supabase.from("snooker_session_people").select("id,name").eq("session_id",sessionId).order("joined_at");
   await supabase.from("snooker_sessions").update({participant_ids:(all||[]).map(p=>p.id),participant_names:(all||[]).map(p=>p.name),updated_at:now}).eq("id",sessionId);
   try {
@@ -2155,7 +2352,12 @@ async function addSessionPerson(req,res,sessionId){
   } catch (customerError) {
     console.error("customer directory remember failed", { source: "joined_player", name, message: customerError?.message });
   }
-  return json(res,201,data);
+  return json(res,201,{
+    ...data,
+    entry_charge_inr: entryCharge ? money(entryCharge.amount_inr) : 0,
+    entry_game_number: entryGameNumber,
+    qchase_charged_on_join: Boolean(entryCharge),
+  });
 }
 
 async function updateSessionPerson(req,res,sessionId,personId){
@@ -2181,12 +2383,46 @@ async function updateSessionPerson(req,res,sessionId,personId){
   }
   const {data,error}=await supabase.from("snooker_session_people").update(patch).eq("id",personId).select("*").single();
   if(error)throw error;
+  let rejoinCharge=null;
+  let rejoinGameNumber=null;
+  if(action==="REJOIN" && session?.game_type==="QCHASE_RUMMY" && session?.payment_rule==="PER_PLAYER"){
+    try {
+      const {data:rule}=await supabase.from("snooker_game_rules").select("*").eq("game_type","QCHASE_RUMMY").eq("active",true).maybeSingle();
+      const rate=money(rule?.rate_inr);
+      if(!(rate>0)) throw Object.assign(new Error("QChase/Rummy rate is not configured."),{status:409,code:"GAME_RATE_NOT_CONFIGURED"});
+      rejoinGameNumber=await qchaseNextGameNumber(supabase,sessionId);
+      rejoinCharge=await ensureQchasePrepaidEntryCharge(supabase,{
+        sessionId,
+        person:data,
+        gameNumber:rejoinGameNumber,
+        rate,
+        staffId:auth.staff_id,
+        reason:"REJOIN",
+      });
+    } catch (chargeError) {
+      await supabase.from("snooker_session_people").update({
+        status: person.status,
+        left_at: person.left_at,
+        accumulated_seconds: person.accumulated_seconds,
+        timer_running: person.timer_running,
+        timer_started_at: person.timer_started_at,
+        updated_at: new Date().toISOString(),
+        updated_by: auth.staff_id,
+      }).eq("id",personId);
+      throw chargeError;
+    }
+  }
   try {
     await rememberCustomer(supabase, { name: data.name, phone: data.phone, isMember: data.is_member, source: "player_update" });
   } catch (customerError) {
     console.error("customer directory remember failed", { source: "player_update", name: data.name, message: customerError?.message });
   }
-  return json(res,200,data);
+  return json(res,200,{
+    ...data,
+    entry_charge_inr: rejoinCharge ? money(rejoinCharge.amount_inr) : 0,
+    entry_game_number: rejoinGameNumber,
+    qchase_charged_on_rejoin: Boolean(rejoinCharge),
+  });
 }
 
 async function allocateHourlySession(req,res,sessionId){
@@ -2340,6 +2576,27 @@ async function recordGame(req,res,sessionId){
     await rememberIdempotent(supabase,key,"record_game",game.id,response);
     return json(res,201,response);
   }
+  if(session.game_type==="QCHASE_RUMMY" && session.payment_rule==="PER_PLAYER"){
+    const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
+    if(selectedIds.length<2 || selectedIds.length>6)return json(res,400,{ok:false,error:"QCHASE_GAME_REQUIRES_TWO_TO_SIX_PLAYERS"});
+    const {data:people,error:peopleError}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
+    if(peopleError)throw peopleError;
+    if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
+    const rate=money(rule?.rate_inr);
+    if(!(rate>0))return json(res,409,{ok:false,error:"GAME_RATE_NOT_CONFIGURED"});
+    const gameNumber=await qchaseNextGameNumber(supabase,sessionId);
+    const response=await createQchaseGameStart(supabase,{
+      sessionId,
+      playerRows:people||[],
+      rate,
+      staffId:auth.staff_id,
+      gameNumber,
+      key:key||null,
+    });
+    await rememberIdempotent(supabase,key,"record_game",response.game_id,response);
+    return json(res,201,response);
+  }
+
   const selectedIds=Array.isArray(req.body?.player_ids)?req.body.player_ids.map(String):[];
   if(!selectedIds.length)return json(res,400,{ok:false,error:"PLAYERS_REQUIRED"});
   const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
