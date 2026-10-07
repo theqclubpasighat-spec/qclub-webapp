@@ -1782,7 +1782,10 @@ async function customerTabOnlinePayment(req,res,customerId){
   }
 
   const sessionId=safeText(order.payment_session_id||"",2000);
-  if(!sessionId)return json(res,502,{ok:false,error:"CASHFREE_SESSION_MISSING"});
+  if(!sessionId){
+    await supabase.from("snooker_customer_settlements").update({status:"FAILED",provider_payload:{order,error:"CASHFREE_SESSION_MISSING"},updated_at:new Date().toISOString()}).eq("id",settlementId);
+    return json(res,502,{ok:false,error:"CASHFREE_SESSION_MISSING"});
+  }
   const providerExpiryMs=Date.parse(order.order_expiry_time||"");
   const requestedExpiryMs=Date.parse(requestedExpiryAt);
   const effectiveExpiryMs=Number.isFinite(providerExpiryMs)?Math.min(providerExpiryMs,requestedExpiryMs):requestedExpiryMs;
@@ -4353,6 +4356,19 @@ async function cashPayment(req, res) {
     bill = linked;
   }
 
+  if (bill.customer_id) {
+    const { data: pendingSettlement, error: pendingSettlementError } = await supabase
+      .from("snooker_customer_settlements")
+      .select("id,settlement_no")
+      .eq("customer_id", bill.customer_id)
+      .eq("status", "PENDING")
+      .not("cashfree_order_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (pendingSettlementError) throw pendingSettlementError;
+    if (pendingSettlement) return json(res, 409, { ok: false, error: "CUSTOMER_SETTLEMENT_PENDING", settlement_id: pendingSettlement.id, message: "A Club Tab Cashfree payment is already pending. Verify or let it expire before recording another payment." });
+  }
+
   const method = safeText(req.body?.method || "CASH", 20).toUpperCase();
   const received = money(req.body?.received_inr ?? req.body?.cash_tendered_inr ?? req.body?.amount_applied_inr ?? req.body?.amount_inr ?? bill.due_inr);
   const carryDifference = req.body?.carry_difference !== false;
@@ -4384,6 +4400,19 @@ async function applyCustomerBalance(req, res) {
   const old = await previousIdempotent(supabase, key, "apply_customer_balance");
   if (old) return json(res, 200, old);
   const billId = safeText(req.body?.bill_id || req.body?.billId || "", 100);
+  const { data: bill } = await supabase.from("snooker_bills").select("customer_id").eq("id", billId).maybeSingle();
+  if (bill?.customer_id) {
+    const { data: pendingSettlement, error: pendingSettlementError } = await supabase
+      .from("snooker_customer_settlements")
+      .select("id")
+      .eq("customer_id", bill.customer_id)
+      .eq("status", "PENDING")
+      .not("cashfree_order_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (pendingSettlementError) throw pendingSettlementError;
+    if (pendingSettlement) return json(res, 409, { ok: false, error: "CUSTOMER_SETTLEMENT_PENDING", message: "A Club Tab Cashfree payment is pending. Verify or let it expire before applying carried balance." });
+  }
   const { data: result, error } = await supabase.rpc("qclub_snooker_apply_customer_balance", {
     p_bill_id: billId,
     p_staff_id: auth.staff_id,
@@ -4438,6 +4467,18 @@ async function upiPayment(req, res) {
   const { data: bill } = await supabase.from("snooker_bills").select("*").eq("id", billId).maybeSingle();
   if (!bill) return json(res, 404, { ok: false, error: "BILL_NOT_FOUND" });
   if (bill.status === "PAID") return json(res, 409, { ok: false, error: "BILL_ALREADY_PAID" });
+  if (bill.customer_id) {
+    const { data: pendingSettlement, error: pendingSettlementError } = await supabase
+      .from("snooker_customer_settlements")
+      .select("id,settlement_no")
+      .eq("customer_id", bill.customer_id)
+      .eq("status", "PENDING")
+      .not("cashfree_order_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (pendingSettlementError) throw pendingSettlementError;
+    if (pendingSettlement) return json(res, 409, { ok: false, error: "CUSTOMER_SETTLEMENT_PENDING", settlement_id: pendingSettlement.id, message: "A full Club Tab Cashfree payment is already pending for this customer." });
+  }
 
   const due = money(bill.due_inr);
   const amount = money(req.body?.amount_inr ?? due);
