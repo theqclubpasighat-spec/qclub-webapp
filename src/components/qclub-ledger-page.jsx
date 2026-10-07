@@ -347,6 +347,50 @@ export default function QclubLedgerPage() {
   const role = (auth && auth.role) || "";
   const isAdmin = role === "ADMIN";
 
+  const armOrderAlertAudio = useCallback(async function() {
+    try {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return false;
+      let context = orderAlertAudioRef.current;
+      if (!context || context.state === "closed") {
+        context = new AudioContextCtor();
+        orderAlertAudioRef.current = context;
+      }
+      if (context.state === "suspended") await context.resume();
+      const ready = context.state === "running";
+      setOrderAlertsReady(ready);
+      return ready;
+    } catch {
+      setOrderAlertsReady(false);
+      return false;
+    }
+  }, []);
+
+  const playOrderAlertSound = useCallback(function() {
+    try {
+      const context = orderAlertAudioRef.current;
+      if (!context || context.state !== "running") return false;
+      const now = context.currentTime;
+      [880, 1047, 880].forEach(function(frequency, index) {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const start = now + (index * 0.18);
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.15);
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const flash = useCallback(function(message, isError) {
     setNotice(message);
     setNoticeError(Boolean(isError));
