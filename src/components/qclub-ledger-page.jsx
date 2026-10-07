@@ -664,6 +664,24 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     if (!token) return undefined;
+    refreshQrOrders();
+    const timer = window.setInterval(refreshQrOrders, 3000);
+    return function() { window.clearInterval(timer); };
+  }, [token, refreshQrOrders]);
+
+  useEffect(function() {
+    if (!auth || orderAlertsReady) return undefined;
+    function arm() { armOrderAlertAudio(); }
+    window.addEventListener("pointerdown", arm, { once: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return function() {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, [auth, orderAlertsReady, armOrderAlertAudio]);
+
+  useEffect(function() {
+    if (!token) return undefined;
     setLiveClock(Date.now());
     const timer = window.setInterval(function() { setLiveClock(Date.now()); }, 1000);
     return function() { window.clearInterval(timer); };
