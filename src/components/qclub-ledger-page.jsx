@@ -1,10 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, supabaseReady } from "../supabase";
 import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
+import { QCLUB_BUILD_VERSION, QCLUB_BUILD_GENERATED_AT } from "../generated/qclub-build-version.js";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
 const DEVICE_KEY = "qclub_ledger_device_v1";
+
+async function fetchQclubServerVersion() {
+  const response = await fetch("/version.json?_=" + Date.now(), {
+    method: "GET",
+    cache: "no-store",
+    headers: { "Cache-Control": "no-cache" },
+  });
+  if (!response.ok) throw new Error("Version check failed (" + response.status + ")");
+  const payload = await response.json();
+  return {
+    version: String((payload && payload.version) || "").trim(),
+    generatedAt: String((payload && payload.generatedAt) || "").trim(),
+  };
+}
 
 function money(value) {
   return "₹" + Number(value || 0).toFixed(2);
@@ -89,6 +104,8 @@ async function apiRequest(path, options) {
     headers: {
       "Content-Type": "application/json",
       ...(opts.token ? { Authorization: "Bearer " + opts.token } : {}),
+      "x-qclub-client-family": "qclubledger-web",
+      "x-qclub-ledger-version": QCLUB_BUILD_VERSION,
     },
     body: opts.body == null ? undefined : JSON.stringify(opts.body),
   });
@@ -227,6 +244,7 @@ const CSS = [
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
   ".ql-order-alert{position:fixed;top:18px;right:18px;z-index:320;width:min(460px,calc(100vw - 36px));border:2px solid #e9c766;background:linear-gradient(155deg,#173524,#08140e 58%,#050a07);border-radius:20px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12);animation:qlOrderPulse 1.1s ease-in-out 2}.ql-order-alert-kicker{font-size:13px;letter-spacing:.12em;color:#f4d979;font-weight:950}.ql-order-alert h2{margin:5px 0 2px;font-size:27px}.ql-order-alert .ql-order-table{color:#b8c9bf;font-weight:750}.ql-order-alert-lines{margin-top:12px;border-top:1px solid #294638;border-bottom:1px solid #294638;padding:8px 0}.ql-order-alert-line{display:flex;justify-content:space-between;gap:12px;padding:6px 0}.ql-order-alert-total{font-size:28px;color:#79e7aa;font-weight:950}.ql-order-alert-actions{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:14px}.ql-order-alert-count{margin-top:9px;color:#f0d06f;font-size:12px;font-weight:800}@keyframes qlOrderPulse{0%,100%{transform:translateY(0);box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12)}50%{transform:translateY(-3px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 7px rgba(233,199,102,.2)}}",
+  ".ql-stale-banner{position:sticky;top:0;z-index:500;border:2px solid #ff6b6b;background:#3b1010;color:#fff1f1;border-radius:16px;padding:14px 16px;margin:0 0 14px;box-shadow:0 12px 36px rgba(0,0,0,.45)}.ql-stale-banner strong{display:block;font-size:16px;letter-spacing:.04em}.ql-stale-banner .ql-muted{color:#ffd1d1}.ql-stale-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}",
   ".ql-paybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-qr{background:white;border-radius:14px;padding:12px;display:inline-flex}.ql-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-stat{border:1px solid #1e3a2c;border-radius:14px;padding:13px;background:#09170f}.ql-stat strong{display:block;font-size:21px;margin-top:4px}.ql-stat.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-stat.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}",
   ".ql-pay-modal-bg{background:rgba(0,0,0,.9);z-index:160}.ql-pay-modal{width:min(650px,100%);max-height:96vh;overflow:auto;border:2px solid #d8b64e;background:radial-gradient(circle at top,#173524 0,#09150f 48%,#040806 100%);border-radius:26px;padding:26px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.55)}.ql-pay-modal h2{margin:2px 0 0;font-size:28px;letter-spacing:.08em}.ql-pay-modal .ql-pay-kicker{font-size:12px;letter-spacing:.18em;color:#d8b64e;font-weight:900}.ql-big-qr{display:inline-flex;background:white;border-radius:22px;padding:18px;margin:18px auto 12px}.ql-pay-amount{font-size:clamp(38px,7vw,66px);font-weight:950;line-height:1;color:#7df0ad;margin:12px 0 4px}.ql-pay-status{margin:16px auto 8px;border-radius:12px;padding:12px 14px;font-weight:950;letter-spacing:.08em}.ql-pay-status.waiting{background:#122b59;color:#9cc6ff}.ql-pay-status.good{background:#0d4529;color:#8df0b7}.ql-pay-status.bad{background:#501c1c;color:#ffb0b0}.ql-pay-expiry{font-size:14px;color:#c6d5cb;font-variant-numeric:tabular-nums}.ql-pay-note{color:#91a69a;font-size:12px;margin-top:8px}",
   ".ql-table-card{min-height:222px;display:flex;flex-direction:column}.ql-table-card.clickable{cursor:pointer;transition:border-color .15s ease,transform .15s ease}.ql-table-card.clickable:hover{border-color:#4c8d69;transform:translateY(-1px)}.ql-table-card .ql-table-open-hint{margin-top:auto;padding-top:14px;color:#79e7aa;font-size:12px;font-weight:850}.ql-player-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ql-player-card{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-width:0}.ql-club-tab-card{cursor:pointer;padding:12px;min-height:118px}.ql-club-tab-card:hover{border-color:#4c8d69}.ql-compact-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
@@ -261,6 +279,9 @@ export default function QclubLedgerPage() {
   const seenOrderIdsRef = useRef(new Set());
   const pendingOrderSoundRef = useRef(false);
   const paidReceiptRecoveryDoneRef = useRef(false);
+  const staleVersionRef = useRef(null);
+  const [staleVersion, setStaleVersion] = useState(null);
+  const [versionCheckWarning, setVersionCheckWarning] = useState("");
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -439,14 +460,74 @@ export default function QclubLedgerPage() {
     logout();
   }, [logout, token]);
 
-  const protectedCall = useCallback(async function(path, options) {
+  const markStaleVersion = useCallback(function(serverVersion, generatedAt) {
+    const next = {
+      clientVersion: QCLUB_BUILD_VERSION,
+      serverVersion: String(serverVersion || "").trim() || "unknown",
+      serverGeneratedAt: String(generatedAt || "").trim(),
+    };
+    staleVersionRef.current = next;
+    setStaleVersion(next);
+    setVersionCheckWarning("");
+    return next;
+  }, []);
+
+  const checkLedgerVersion = useCallback(async function() {
+    if (staleVersionRef.current) return false;
     try {
-      return await apiRequest(path, { ...(options || {}), token: token });
+      const server = await fetchQclubServerVersion();
+      if (server.version && server.version !== QCLUB_BUILD_VERSION) {
+        markStaleVersion(server.version, server.generatedAt);
+        return false;
+      }
+      setVersionCheckWarning("");
+      return true;
+    } catch (error) {
+      setVersionCheckWarning("Could not verify the latest app version. Reads continue; the next write will re-check.");
+      return true;
+    }
+  }, [markStaleVersion]);
+
+  const reloadUpdatedLedger = useCallback(async function() {
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(function(registration) {
+          return registration.update().catch(function() { return null; });
+        }));
+      }
+    } catch {
+      // A cache-busted navigation below still requests the current production document.
+    }
+    const query = new URLSearchParams(window.location.search);
+    query.set("qclubUpdate", (staleVersionRef.current && staleVersionRef.current.serverVersion) || String(Date.now()));
+    window.location.replace(window.location.pathname + "?" + query.toString() + window.location.hash);
+  }, []);
+
+  const protectedCall = useCallback(async function(path, options) {
+    const requestOptions = options || {};
+    const method = String(requestOptions.method || "GET").toUpperCase();
+    const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
+
+    if (isWrite) {
+      const fresh = await checkLedgerVersion();
+      if (!fresh) {
+        const staleError = new Error("QclubLedger has been updated. Reload the updated Ledger before making any more changes.");
+        staleError.code = "STALE_QCLUBLEDGER_VERSION";
+        throw staleError;
+      }
+    }
+
+    try {
+      return await apiRequest(path, { ...requestOptions, token: token });
     } catch (error) {
       if (error && error.status === 401) logout("Session expired. Please enter the PIN again.");
+      if (error && error.status === 409 && error.payload && error.payload.error === "STALE_QCLUBLEDGER_VERSION") {
+        markStaleVersion(error.payload.expected_version, error.payload.generated_at);
+      }
       throw error;
     }
-  }, [logout, token]);
+  }, [checkLedgerVersion, logout, markStaleVersion, token]);
 
   function runInBackground(promise) {
     Promise.resolve(promise).catch(function() {
@@ -642,6 +723,28 @@ export default function QclubLedgerPage() {
   useEffect(function() {
     apiRequest("health").then(setHealth).catch(function() { setHealth(null); });
   }, []);
+
+  useEffect(function() {
+    let alive = true;
+    async function check() {
+      if (!alive) return;
+      await checkLedgerVersion();
+    }
+    check();
+    const timer = window.setInterval(check, 30000);
+    function onFocus() { check(); }
+    function onVisibility() {
+      if (document.visibilityState === "visible") check();
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return function() {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [checkLedgerVersion]);
 
   useEffect(function() {
     function closeAutocompleteOnOutsidePointer(event) {
@@ -2938,6 +3041,27 @@ export default function QclubLedgerPage() {
   return (
     <div className="qledger">
       <style>{CSS}</style>
+      {staleVersion ? (
+        <div className="ql-wrap" style={{ paddingBottom: 0 }}>
+          <div className="ql-stale-banner" role="alert" aria-live="assertive">
+            <strong>⚠ STALE QCLUBLEDGER — WRITES BLOCKED</strong>
+            <div className="ql-muted" style={{ marginTop: 5 }}>
+              A newer Ledger deployment is live. Your active tables, bills and Club Tabs remain on the server; this browser will not submit any more changes until it reloads the updated Ledger.
+            </div>
+            <div className="ql-stale-actions">
+              <button className="ql-btn primary" onClick={reloadUpdatedLedger}>RELOAD UPDATED QCLUBLEDGER</button>
+              <span className="ql-muted">Loaded {staleVersion.clientVersion} • Server {staleVersion.serverVersion}</span>
+            </div>
+          </div>
+        </div>
+      ) : versionCheckWarning ? (
+        <div className="ql-wrap" style={{ paddingBottom: 0 }}>
+          <div className="ql-stale-banner" style={{ borderColor: "#c69b32", background: "#2a210c" }}>
+            <strong>Version check temporarily unavailable</strong>
+            <div className="ql-muted">{versionCheckWarning}</div>
+          </div>
+        </div>
+      ) : null}
       {activeOrderAlert ? (
         <div className="ql-order-alert" role="alertdialog" aria-live="assertive" aria-label="New table order">
           <div className="ql-order-alert-kicker">🔔 NEW TABLE ORDER</div>
