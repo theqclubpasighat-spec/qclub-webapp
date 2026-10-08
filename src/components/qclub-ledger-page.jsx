@@ -439,6 +439,17 @@ export default function QclubLedgerPage() {
       { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
     ],
   });
+  const [correctionSession, setCorrectionSession] = useState(null);
+  const [correctionDraft, setCorrectionDraft] = useState({
+    tableId: "",
+    gameType: "",
+    paymentRule: "",
+    matchFormat: "FLEX",
+    startAt: "",
+    reason: "",
+    adminPin: "",
+  });
+  const [correctionBusy, setCorrectionBusy] = useState(false);
 
   const token = (auth && auth.token) || "";
   const role = (auth && auth.role) || "";
@@ -519,6 +530,7 @@ export default function QclubLedgerPage() {
     pendingOrderSoundRef.current = false;
     paidReceiptRecoveryDoneRef.current = false;
     setPlayerAccountView(null);
+    setCorrectionSession(null);
     setBillDetail(null);
     setUpiOrder(null);
     setShowUpiQrModal(false);
@@ -1351,7 +1363,7 @@ export default function QclubLedgerPage() {
       return {
         gameType,
         matchFormat: "SINGLES",
-        paymentRule: "LOSER_PAYS",
+        paymentRule: "PER_PLAYER",
         startAt: selectedStartAt,
         isMember: false,
         players: [
@@ -1468,6 +1480,129 @@ export default function QclubLedgerPage() {
     }
   }
 
+  function correctionDefaultsForGame(gameType, existingPaymentRule) {
+    if (gameType === "SIX_BALL_SNOOKER" || gameType === "TEN_BALL_SNOOKER") {
+      return { paymentRule: "PER_PLAYER", matchFormat: "SINGLES" };
+    }
+    if (gameType === "QCHASE_RUMMY") {
+      return {
+        paymentRule: ["PER_PLAYER","HOURLY_SHARED"].includes(existingPaymentRule) ? existingPaymentRule : "PER_PLAYER",
+        matchFormat: "FLEX",
+      };
+    }
+    if (gameType === "KITTY") return { paymentRule: "PER_PLAYER", matchFormat: "FLEX" };
+    if (gameType === "NORMAL_POOL") return { paymentRule: "HOURLY", matchFormat: "FLEX" };
+    return {
+      paymentRule: ["HOURLY","LOSER_PAYS"].includes(existingPaymentRule) ? existingPaymentRule : "HOURLY",
+      matchFormat: "FLEX",
+    };
+  }
+
+  function openSessionCorrection(session) {
+    if (!session) return;
+    const defaults = correctionDefaultsForGame(session.game_type, session.payment_rule);
+    setCorrectionSession(session);
+    setCorrectionDraft({
+      tableId: session.table_id,
+      gameType: session.game_type,
+      paymentRule: defaults.paymentRule,
+      matchFormat: session.match_format || defaults.matchFormat,
+      startAt: localDateTimeInputValue(session.started_at),
+      reason: "",
+      adminPin: "",
+    });
+    setTableViewSessionId("");
+  }
+
+  function changeCorrectionTable(tableId) {
+    const table = tables.find(function(row) { return row.table_id === tableId; });
+    if (!table) return;
+    const options = allowedGames(table, rules);
+    const currentGameAllowed = options.some(function(rule) { return rule.game_type === correctionDraft.gameType; });
+    const gameType = currentGameAllowed ? correctionDraft.gameType : ((options[0] && options[0].game_type) || "NORMAL_SNOOKER");
+    const defaults = correctionDefaultsForGame(gameType, correctionDraft.paymentRule);
+    setCorrectionDraft({
+      ...correctionDraft,
+      tableId,
+      gameType,
+      paymentRule: defaults.paymentRule,
+      matchFormat: defaults.matchFormat,
+    });
+  }
+
+  function changeCorrectionGame(gameType) {
+    const defaults = correctionDefaultsForGame(gameType, correctionDraft.paymentRule);
+    setCorrectionDraft({
+      ...correctionDraft,
+      gameType,
+      paymentRule: defaults.paymentRule,
+      matchFormat: defaults.matchFormat,
+    });
+  }
+
+  async function submitSessionCorrection() {
+    if (!correctionSession) return;
+    const pin = String(correctionDraft.adminPin || "").trim();
+    const reason = String(correctionDraft.reason || "").trim();
+    if (!pin) return flash("Admin PIN is required for session correction.", true);
+    if (!reason) return flash("Enter a reason for the correction.", true);
+    const requestedStartMs = Date.parse(correctionDraft.startAt || "");
+    if (!Number.isFinite(requestedStartMs)) return flash("Choose a valid actual start time.", true);
+
+    setCorrectionBusy(true);
+    let adminToken = "";
+    try {
+      const loginResult = await apiRequest("auth/login", {
+        method: "POST",
+        body: {
+          pin,
+          device_id: getDeviceId(),
+          client_version: "qclub-ledger-admin-correction-1.0",
+        },
+      });
+      if (loginResult.role !== "ADMIN") throw new Error("Admin PIN required.");
+      adminToken = loginResult.access_token;
+
+      const targetTable = tables.find(function(row) { return row.table_id === correctionDraft.tableId; });
+      const targetRule = rules.find(function(row) { return row.game_type === correctionDraft.gameType; });
+      const ok = window.confirm(
+        "ADMIN SESSION CORRECTION\n\n" +
+        "Session: " + correctionSession.session_id + "\n" +
+        "Table: " + (targetTable ? ("T" + targetTable.table_no + " — " + targetTable.display_name) : correctionDraft.tableId) + "\n" +
+        "Game: " + (targetRule?.display_name || correctionDraft.gameType) + "\n" +
+        "Billing: " + correctionDraft.paymentRule.replaceAll("_"," ") + "\n" +
+        "Start: " + new Date(requestedStartMs).toLocaleString() + "\n\n" +
+        "Reason: " + reason + "\n\n" +
+        "Apply this correction?"
+      );
+      if (!ok) return;
+
+      await apiRequest("sessions/" + correctionSession.session_id + "/correct-admin", {
+        method: "POST",
+        token: adminToken,
+        body: {
+          table_id: correctionDraft.tableId,
+          game_type: correctionDraft.gameType,
+          payment_rule: correctionDraft.paymentRule,
+          match_format: correctionDraft.matchFormat,
+          started_at: new Date(requestedStartMs).toISOString(),
+          reason,
+        },
+      });
+      setCorrectionSession(null);
+      setCorrectionDraft({ tableId:"", gameType:"", paymentRule:"", matchFormat:"FLEX", startAt:"", reason:"", adminPin:"" });
+      flash("Session corrected with Admin authorization. Original values were preserved in correction history.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to correct session.", true);
+    } finally {
+      if (adminToken) {
+        apiRequest("auth/logout", { method: "POST", token: adminToken }).catch(function() {});
+      }
+      setCorrectionBusy(false);
+    }
+  }
+
   function openStart(table) {
     const options = allowedGames(table, rules);
     const gameType = (options[0] && options[0].game_type) || "NORMAL_SNOOKER";
@@ -1577,6 +1712,17 @@ export default function QclubLedgerPage() {
     if (!Number.isFinite(requestedStartMs)) return flash("Choose a valid table start time.", true);
     if (requestedStartMs > nowMs + 60000) return flash("Start time cannot be in the future.", true);
     if (requestedStartMs < nowMs - (24 * 60 * 60 * 1000)) return flash("Start time can be backdated by up to 24 hours.", true);
+    const startRule = rules.find(function(row) { return row.game_type === startForm.gameType; });
+    const startOk = window.confirm(
+      "CONFIRM TABLE START\n\n" +
+      "T" + startTable.table_no + " — " + startTable.display_name + "\n" +
+      "Game: " + (startRule?.display_name || startForm.gameType) + "\n" +
+      "Billing: " + startForm.paymentRule.replaceAll("_"," ") + "\n" +
+      "Start: " + new Date(requestedStartMs).toLocaleString() + "\n" +
+      "Players: " + players.map(function(player) { return player.name; }).join(", ") + "\n\n" +
+      "START THIS TABLE?"
+    );
+    if (!startOk) return;
     setBusy(true);
     try {
       await protectedCall("sessions", {
@@ -4912,6 +5058,7 @@ export default function QclubLedgerPage() {
                   <div className="ql-row">
                     {tableViewSession.status === "ACTIVE" && ((tableViewRule && tableViewRule.timer_required) || tableViewSession.payment_rule === "HOURLY_SHARED") ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "PAUSE"); }}>Pause</button> : null}
                     {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
+                    <button className="ql-btn" onClick={function() { openSessionCorrection(tableViewSession); }}>Admin Correction</button>
                     <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>
                       {["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Session • Free Table"}
                     </button>
@@ -4936,6 +5083,88 @@ export default function QclubLedgerPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {correctionSession ? (
+        <div className="ql-modal-bg" onMouseDown={function(event) { if (event.target === event.currentTarget && !correctionBusy) setCorrectionSession(null); }}>
+          <div className="ql-modal" style={{ maxWidth: 760 }}>
+            <div className="ql-space">
+              <div>
+                <h3 style={{ margin: 0 }}>Admin Session Correction</h3>
+                <div className="ql-muted">For staff data-entry mistakes only. Original values are saved in correction history.</div>
+              </div>
+              <button className="ql-btn ghost" disabled={correctionBusy} onClick={function() { setCorrectionSession(null); }}>✕</button>
+            </div>
+
+            <div className="ql-line" style={{ marginTop: 14, borderColor: "#8c742a" }}>
+              <strong>Current session</strong>
+              <div className="ql-muted" style={{ marginTop: 5 }}>
+                {String(correctionSession.table_id || "").replace("table_","T")} • {String(correctionSession.game_type || "").replaceAll("_"," ")} • {String(correctionSession.payment_rule || "").replaceAll("_"," ")} • Started {sessionStartLabel(correctionSession)}
+              </div>
+              <div className="ql-muted" style={{ marginTop: 5 }}>
+                If games, charges or bills already exist, unsafe rewrites are blocked and an audited financial adjustment will be required instead.
+              </div>
+            </div>
+
+            <div className="ql-form-grid" style={{ marginTop: 14 }}>
+              <label>
+                <span className="ql-label">Correct physical table</span>
+                <select className="ql-select" value={correctionDraft.tableId} onChange={function(e) { changeCorrectionTable(e.target.value); }}>
+                  {tables.map(function(table) {
+                    const occupied = sessionByTable[table.table_id] && sessionByTable[table.table_id].session_id !== correctionSession.session_id;
+                    return <option key={table.table_id} value={table.table_id} disabled={occupied}>T{table.table_no} — {table.display_name}{occupied ? " — OCCUPIED" : ""}</option>;
+                  })}
+                </select>
+              </label>
+
+              <label>
+                <span className="ql-label">Correct game</span>
+                <select className="ql-select" value={correctionDraft.gameType} onChange={function(e) { changeCorrectionGame(e.target.value); }}>
+                  {allowedGames(tables.find(function(row) { return row.table_id === correctionDraft.tableId; }) || {}, rules).map(function(rule) {
+                    return <option key={rule.game_type} value={rule.game_type}>{rule.display_name}</option>;
+                  })}
+                </select>
+              </label>
+
+              <label>
+                <span className="ql-label">Billing rule</span>
+                {correctionDraft.gameType === "QCHASE_RUMMY" ? (
+                  <select className="ql-select" value={correctionDraft.paymentRule} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, paymentRule: e.target.value }); }}>
+                    <option value="PER_PLAYER">Per Game — per player</option>
+                    <option value="HOURLY_SHARED">Hourly Shared</option>
+                  </select>
+                ) : correctionDraft.gameType === "NORMAL_SNOOKER" ? (
+                  <select className="ql-select" value={correctionDraft.paymentRule} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, paymentRule: e.target.value }); }}>
+                    <option value="HOURLY">Hourly table charge</option>
+                    <option value="LOSER_PAYS">Loser pays by frame time</option>
+                  </select>
+                ) : (
+                  <input className="ql-input" value={correctionDraft.paymentRule.replaceAll("_"," ")} readOnly />
+                )}
+              </label>
+
+              <label>
+                <span className="ql-label">Actual start time</span>
+                <input className="ql-input" type="datetime-local" value={correctionDraft.startAt || ""} max={localDateTimeInputValue()} min={localDateTimeInputValue(Date.now()-(24*60*60*1000))} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, startAt: e.target.value }); }} />
+              </label>
+
+              <label className="full">
+                <span className="ql-label">Reason for correction</span>
+                <input className="ql-input" value={correctionDraft.reason} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, reason: e.target.value }); }} placeholder="Example: Staff selected Normal Snooker instead of 6-Ball" />
+              </label>
+
+              <label className="full">
+                <span className="ql-label">Admin PIN</span>
+                <input className="ql-input" type="password" inputMode="numeric" autoComplete="off" value={correctionDraft.adminPin} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, adminPin: e.target.value.replace(/\D/g,"") }); }} placeholder="Admin authorization required" />
+              </label>
+            </div>
+
+            <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="ql-btn" disabled={correctionBusy} onClick={function() { setCorrectionSession(null); }}>Cancel</button>
+              <button className="ql-btn primary" disabled={correctionBusy} onClick={submitSessionCorrection}>{correctionBusy ? "Applying…" : "Authorize & Apply Correction"}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -5009,7 +5238,7 @@ export default function QclubLedgerPage() {
                       setStartForm(next);
                     }}>
                       {startForm.gameType === "NORMAL_SNOOKER" || startForm.gameType === "NORMAL_POOL" ? <option value="HOURLY">Hourly table charge</option> : <option value="PER_PLAYER">Normal — each player pays own share</option>}
-                      {startForm.gameType !== "NORMAL_POOL" ? <option value="LOSER_PAYS">{startForm.gameType === "NORMAL_SNOOKER" ? "Loser pays by frame time" : "Loser pays the game"}</option> : null}
+                      {startForm.gameType === "NORMAL_SNOOKER" ? <option value="LOSER_PAYS">Loser pays by frame time</option> : null}
                     </select>
                   </div>
                 </>
