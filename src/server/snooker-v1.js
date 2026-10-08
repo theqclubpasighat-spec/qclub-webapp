@@ -1899,6 +1899,53 @@ async function customerTabOnlinePayment(req,res,customerId){
   });
 }
 
+async function autoSendSettlementPaidReceipts(supabase,settlementId,trigger="CLUB_TAB_SETTLEMENT"){
+  const safeSettlementId=safeText(settlementId||"",100);
+  if(!safeSettlementId)return {attempted:false,status:"SKIPPED",reason:"SETTLEMENT_ID_REQUIRED",receipts:[]};
+
+  const {data:allocations,error:allocationError}=await supabase
+    .from("snooker_customer_settlement_allocations")
+    .select("bill_id")
+    .eq("settlement_id",safeSettlementId)
+    .order("created_at");
+  if(allocationError)throw allocationError;
+
+  const billIds=[...new Set((allocations||[]).map((row)=>row.bill_id).filter(Boolean))];
+  if(!billIds.length)return {attempted:false,status:"SKIPPED",reason:"NO_ALLOCATED_BILLS",receipts:[]};
+
+  const receipts=[];
+  for(const billId of billIds){
+    const {data:payment,error:paymentError}=await supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,status,method,created_at")
+      .eq("bill_id",billId)
+      .eq("status","VERIFIED")
+      .eq("method","ONLINE")
+      .order("created_at",{ascending:false})
+      .limit(1)
+      .maybeSingle();
+    if(paymentError)throw paymentError;
+
+    const receipt=await autoSendPaidReceipt(
+      supabase,
+      billId,
+      payment?.id||null,
+      trigger
+    );
+    receipts.push({bill_id:billId,payment_id:payment?.id||null,...receipt});
+  }
+
+  const sent=receipts.filter((row)=>row.status==="SENT").length;
+  const failed=receipts.filter((row)=>row.status==="FAILED").length;
+  return {
+    attempted:receipts.some((row)=>row.attempted),
+    status:failed?"FAILED":sent?"SENT":"SKIPPED",
+    sent,
+    failed,
+    receipts,
+  };
+}
+
 async function fulfillCustomerSettlementOnline(supabase,settlement,providerPayload){
   const cfPaymentId=safeText(providerPayload?.cf_payment_id||providerPayload?.data?.payment?.cf_payment_id||"",160)||null;
   const {data:result,error}=await supabase.rpc("qclub_snooker_fulfill_customer_settlement",{
@@ -1907,7 +1954,15 @@ async function fulfillCustomerSettlementOnline(supabase,settlement,providerPaylo
     p_provider_payload:providerPayload||{},
   });
   if(error)throw error;
-  return result||{};
+
+  // Customer-level Club Tab settlement is a different path from a direct bill
+  // payment, so it must explicitly trigger the same automatic paid receipt.
+  const autoReceipts=await autoSendSettlementPaidReceipts(
+    supabase,
+    settlement.id,
+    "CLUB_TAB_SETTLEMENT_FULFILLED"
+  );
+  return {...(result||{}),auto_receipts:autoReceipts};
 }
 
 async function customerSettlementStatus(req,res,settlementId){
@@ -1931,11 +1986,14 @@ async function customerSettlementStatus(req,res,settlementId){
   }
 
   const detail=await customerTabDetailPayload(supabase,settlement.customer_id);
+  const autoReceipts=settlement.status==="VERIFIED"
+    ? await autoSendSettlementPaidReceipts(supabase,settlement.id,"CLUB_TAB_STATUS_RECOVERY")
+    : {attempted:false,status:"SKIPPED",reason:"SETTLEMENT_NOT_VERIFIED",receipts:[]};
   return json(res,200,{
     payment_id:settlement.id,settlement_id:settlement.id,settlement_no:settlement.settlement_no,customer_id:settlement.customer_id,
     method:settlement.method,amount_inr:money(settlement.amount_inr),order_id:settlement.cashfree_order_id,status:settlement.status,
     expires_at:settlement.expires_at,verified_at:settlement.verified_at,due_inr:detail?.current_due_inr??null,
-    closed:Boolean(detail&&number(detail.current_due_inr)<=0.009),scope:"CLUB_TAB"
+    closed:Boolean(detail&&number(detail.current_due_inr)<=0.009),scope:"CLUB_TAB",auto_receipts:autoReceipts
   });
 }
 
@@ -5083,6 +5141,48 @@ async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger =
   }
 }
 
+async function reconcileRecentPaidReceipts(req,res){
+  const auth=await requireAuth(req,res);
+  if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const rawHours=number(req.body?.hours,24);
+  const hours=Math.max(1,Math.min(72,rawHours||24));
+  const since=new Date(Date.now()-(hours*60*60*1000)).toISOString();
+
+  const {data:payments,error}=await supabase
+    .from("snooker_bill_payments")
+    .select("id,bill_id,method,status,created_at,verified_at")
+    .eq("method","ONLINE")
+    .eq("status","VERIFIED")
+    .gte("created_at",since)
+    .order("created_at",{ascending:false})
+    .limit(100);
+  if(error)throw error;
+
+  const seenBills=new Set();
+  const results=[];
+  for(const payment of payments||[]){
+    if(!payment.bill_id||seenBills.has(payment.bill_id))continue;
+    seenBills.add(payment.bill_id);
+    const receipt=await autoSendPaidReceipt(
+      supabase,
+      payment.bill_id,
+      payment.id,
+      "RECENT_PAID_RECONCILIATION"
+    );
+    results.push({bill_id:payment.bill_id,payment_id:payment.id,...receipt});
+  }
+
+  return json(res,200,{
+    ok:true,
+    hours,
+    checked:results.length,
+    sent:results.filter((row)=>row.status==="SENT").length,
+    failed:results.filter((row)=>row.status==="FAILED").length,
+    results,
+  });
+}
+
 async function sendReceipt(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -6220,6 +6320,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "payments" && parts[1] && parts[2] === "cancel" && method === "POST") return await cancelPaymentAttempt(req, res, parts[1]);
 
     if (method === "POST" && path === "notifications/receipt") return await sendReceipt(req, res);
+    if (method === "POST" && path === "notifications/reconcile-paid") return await reconcileRecentPaidReceipts(req, res);
     if (method === "GET" && path === "inventory/movements") return await inventoryMovements(req, res);
     if (method === "POST" && path === "inventory/restock") return await inventoryWrite(req, res, "RESTOCK");
     if (method === "POST" && path === "inventory/adjust") return await inventoryWrite(req, res, "ADJUST");
