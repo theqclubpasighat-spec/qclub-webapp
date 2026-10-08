@@ -1618,7 +1618,13 @@ export default function QclubLedgerPage() {
 
   function changeMatchFormat(matchFormat) {
     const next = { ...startForm, matchFormat };
-    const wanted = matchFormat === "SINGLES" ? 2 : matchFormat === "DOUBLES" ? 4 : Math.max(2, Math.min(6, (startForm.players || []).length));
+    const wanted = matchFormat === "SINGLES"
+      ? 2
+      : matchFormat === "DOUBLES"
+        ? 4
+        : matchFormat === "CHAMPIONSHIP"
+          ? Math.max(3, Math.min(6, (startForm.players || []).length))
+          : Math.max(2, Math.min(6, (startForm.players || []).length));
     next.players = (startForm.players || []).slice(0, wanted);
     while (next.players.length < wanted) next.players.push({ name: "", phone: "", customerId: null, teamNo: null, isMember: false });
     setStartForm(next);
@@ -1705,6 +1711,7 @@ export default function QclubLedgerPage() {
     if (!players.length) return flash("Enter at least one player.", true);
     if (startForm.matchFormat === "SINGLES" && players.length !== 2) return flash("Singles requires exactly 2 named players.", true);
     if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
+    if (startForm.matchFormat === "CHAMPIONSHIP" && (players.length < 3 || players.length > 6)) return flash("Championship requires 3 to 6 named players.", true);
     if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
     if (startForm.gameType === "KITTY" && (players.length < 2 || players.length > 6)) return flash("Kitty requires 2 to 6 players.", true);
     const requestedStartMs = Date.parse(startForm.startAt || "");
@@ -1717,6 +1724,7 @@ export default function QclubLedgerPage() {
       "CONFIRM TABLE START\n\n" +
       "T" + startTable.table_no + " — " + startTable.display_name + "\n" +
       "Game: " + (startRule?.display_name || startForm.gameType) + "\n" +
+      "Match format: " + startForm.matchFormat.replaceAll("_"," ") + "\n" +
       "Billing: " + startForm.paymentRule.replaceAll("_"," ") + "\n" +
       "Start: " + new Date(requestedStartMs).toLocaleString() + "\n" +
       "Players: " + players.map(function(player) { return player.name; }).join(", ") + "\n\n" +
@@ -1966,7 +1974,9 @@ export default function QclubLedgerPage() {
       session,
       people: activePeople,
       currentGameNumber: recordedGames.length + 1,
-      selectedIds: activePeople.map(function(person) { return person.person_id; }),
+      selectedIds: session.match_format === "CHAMPIONSHIP"
+        ? []
+        : activePeople.map(function(person) { return person.person_id; }),
       winnerPersonId: "",
       winningTeam: "",
       payerMode: "SPLIT",
@@ -1986,6 +1996,7 @@ export default function QclubLedgerPage() {
     let loserIds = [];
     let winnerIds = [];
     if (!selectedIds.length) return flash("Select the players in this game.", true);
+    if (session.match_format === "CHAMPIONSHIP" && selectedIds.length !== 2) return flash("Championship: select exactly 2 players who actually played this game.", true);
     if (session.game_type === "KITTY") {
       if (gameEntry.kittyResult !== "NO_WINNER" && !gameEntry.kittyWinnerId) return flash("Select the Kitty winner or choose No Winner / Kitty.", true);
     } else if (session.payment_rule === "LOSER_PAYS") {
@@ -5128,6 +5139,18 @@ export default function QclubLedgerPage() {
                 </select>
               </label>
 
+              {correctionDraft.gameType !== "QCHASE_RUMMY" && correctionDraft.gameType !== "KITTY" ? (
+                <label>
+                  <span className="ql-label">Match format</span>
+                  <select className="ql-select" value={correctionDraft.matchFormat} onChange={function(e) { setCorrectionDraft({ ...correctionDraft, matchFormat: e.target.value }); }}>
+                    {(correctionDraft.gameType === "NORMAL_SNOOKER" || correctionDraft.gameType === "NORMAL_POOL") && correctionDraft.paymentRule === "HOURLY" ? <option value="FLEX">Flexible players</option> : null}
+                    {correctionDraft.gameType !== "NORMAL_POOL" ? <option value="SINGLES">Singles — 2 players</option> : null}
+                    {correctionDraft.gameType !== "NORMAL_POOL" ? <option value="DOUBLES">Doubles — 2 vs 2</option> : null}
+                    <option value="CHAMPIONSHIP">Championship — 3 to 6 players</option>
+                  </select>
+                </label>
+              ) : null}
+
               <label>
                 <span className="ql-label">Billing rule</span>
                 {correctionDraft.gameType === "QCHASE_RUMMY" ? (
@@ -5221,6 +5244,7 @@ export default function QclubLedgerPage() {
                       {(startForm.gameType === "NORMAL_SNOOKER" || startForm.gameType === "NORMAL_POOL") && startForm.paymentRule === "HOURLY" ? <option value="FLEX">Flexible players</option> : null}
                       {startForm.gameType !== "NORMAL_POOL" ? <option value="SINGLES">Singles — 2 players</option> : null}
                       {startForm.gameType !== "NORMAL_POOL" ? <option value="DOUBLES">Doubles — 2 vs 2</option> : null}
+                      <option value="CHAMPIONSHIP">Championship — 3 to 6 players</option>
                     </select>
                   </div>
                   <div>
@@ -5228,7 +5252,7 @@ export default function QclubLedgerPage() {
                     <select className="ql-select" value={startForm.paymentRule} onChange={function(e) {
                       const rule = e.target.value;
                       const next = { ...startForm, paymentRule: rule };
-                      if (startForm.gameType === "NORMAL_SNOOKER" && rule === "HOURLY") {
+                      if (startForm.gameType === "NORMAL_SNOOKER" && rule === "HOURLY" && next.matchFormat !== "CHAMPIONSHIP") {
                         next.matchFormat = "FLEX";
                       } else if (next.matchFormat === "FLEX") {
                         next.matchFormat = "SINGLES";
@@ -5289,7 +5313,7 @@ export default function QclubLedgerPage() {
                   <div className="full ql-line" key={index}>
                     <div className="ql-space">
                       <strong>{teamNo ? "Team " + teamNo + " — " : ""}Player {index + 1}</strong>
-                      {startForm.matchFormat === "FLEX" && (startForm.players || []).length > 1 ? <button className="ql-btn danger" type="button" onClick={function() { removeStartPlayer(index); }}>Remove</button> : null}
+                      {(startForm.matchFormat === "FLEX" || startForm.matchFormat === "CHAMPIONSHIP") && (startForm.players || []).length > (startForm.matchFormat === "CHAMPIONSHIP" ? 3 : 1) ? <button className="ql-btn danger" type="button" onClick={function() { removeStartPlayer(index); }}>Remove</button> : null}
                     </div>
                     <div className="ql-form-grid" style={{ marginTop: 8 }}>
                       <label>
@@ -5306,7 +5330,7 @@ export default function QclubLedgerPage() {
                   </div>
                 );
               })}
-              {startForm.matchFormat === "FLEX" && (startForm.players || []).length < 6 ? <div className="full"><button className="ql-btn" type="button" onClick={addStartPlayer}>+ Add Player</button></div> : null}
+              {(startForm.matchFormat === "FLEX" || startForm.matchFormat === "CHAMPIONSHIP") && (startForm.players || []).length < 6 ? <div className="full"><button className="ql-btn" type="button" onClick={addStartPlayer}>+ Add Player</button></div> : null}
 
               <div className="full ql-muted">
                 Membership is verified per player. In Loser Pays, the losing player's own verified member rate is used. For ordinary hourly table billing, Player 1 remains the rate-holder for the table.
@@ -5433,11 +5457,13 @@ export default function QclubLedgerPage() {
             </div>
 
             <div className="ql-section">
-              {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER"
-                ? "Who is starting this game?"
-                : ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(gameEntry.session.game_type) && gameEntry.session.payment_rule === "PER_PLAYER"
-                  ? "Who played Game " + gameEntry.currentGameNumber + "?"
-                  : "Who played this game?"}
+              {gameEntry.session.match_format === "CHAMPIONSHIP"
+                ? "Championship — select exactly 2 players who played Game " + gameEntry.currentGameNumber
+                : gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER"
+                  ? "Who is starting this game?"
+                  : ["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER"].includes(gameEntry.session.game_type) && gameEntry.session.payment_rule === "PER_PLAYER"
+                    ? "Who played Game " + gameEntry.currentGameNumber + "?"
+                    : "Who played this game?"}
             </div>
             {gameEntry.session.game_type === "QCHASE_RUMMY" && gameEntry.session.payment_rule === "PER_PLAYER" ? (
               <div className="ql-line" style={{ marginBottom: 10 }}>
