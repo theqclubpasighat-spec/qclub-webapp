@@ -2737,7 +2737,9 @@ async function createSession(req, res) {
     frame_rate_override_inr:frameRate,
     shared_hourly_rate_inr:sharedHourlyRate,
     shared_hourly_last_at:sharedHourly?now:null,
-    started_at:now,timer_started_at:sessionRunsOnTime?now:null,timer_running:sessionRunsOnTime,
+    // snooker_sessions.timer_started_at is NOT NULL. Per-game sessions do not run
+    // a timer, but still retain the session start timestamp here for schema/audit.
+    started_at:now,timer_started_at:now,timer_running:sessionRunsOnTime,
     created_by:auth.staff_id,updated_by:auth.staff_id,client_revision:safeText(req.body?.client_revision||"",120)||null,idempotency_key:key||null,
   }).select("*").single();
   if(error) throw error;
