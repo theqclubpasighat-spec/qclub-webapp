@@ -3236,6 +3236,163 @@ async function updateSession(req,res,sessionId){
     club_tabs_preserved:current.account_mode==="INDIVIDUAL"&&data.status==="FINALIZED",
   });
 }
+async function correctActiveSession(req,res,sessionId){
+  const auth=await requireAuth(req,res,["ADMIN"]);if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const reason=safeText(req.body?.reason||"",500).trim();
+  if(!reason)return json(res,400,{ok:false,error:"CORRECTION_REASON_REQUIRED"});
+
+  const {data:current,error:currentError}=await supabase.from("snooker_sessions").select("*").eq("id",sessionId).maybeSingle();
+  if(currentError)throw currentError;
+  if(!current)return json(res,404,{ok:false,error:"SESSION_NOT_FOUND"});
+  if(!["ACTIVE","PAUSED"].includes(current.status))return json(res,409,{ok:false,error:"SESSION_NOT_ACTIVE"});
+
+  const targetTableId=safeText(req.body?.table_id||current.table_id,100);
+  const gameType=safeText(req.body?.game_type||current.game_type,80).toUpperCase();
+  let paymentRule=safeText(req.body?.payment_rule||current.payment_rule||"",40).toUpperCase();
+  let matchFormat=safeText(req.body?.match_format||current.match_format||"FLEX",40).toUpperCase();
+
+  const [{data:targetTable,error:tableError},{data:rule,error:ruleError},{data:people,error:peopleError}]=await Promise.all([
+    supabase.from("snooker_tables").select("*").eq("id",targetTableId).eq("active",true).maybeSingle(),
+    supabase.from("snooker_game_rules").select("*").eq("game_type",gameType).eq("active",true).maybeSingle(),
+    supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).order("joined_at"),
+  ]);
+  if(tableError||ruleError||peopleError)throw tableError||ruleError||peopleError;
+  if(!targetTable)return json(res,404,{ok:false,error:"TARGET_TABLE_NOT_FOUND"});
+  if(!rule)return json(res,404,{ok:false,error:"GAME_RULE_NOT_FOUND"});
+  if(!compatibleGame(targetTable.table_type,gameType))return json(res,400,{ok:false,error:"GAME_NOT_ALLOWED_ON_TARGET_TABLE"});
+
+  if(targetTableId!==current.table_id){
+    const {data:occupied,error:occupiedError}=await supabase.from("snooker_sessions").select("id,customer_name,game_type").eq("table_id",targetTableId).in("status",["ACTIVE","PAUSED"]).neq("id",sessionId).limit(1);
+    if(occupiedError)throw occupiedError;
+    if((occupied||[]).length)return json(res,409,{ok:false,error:"TARGET_TABLE_OCCUPIED"});
+  }
+
+  const activePeople=(people||[]).filter((person)=>person.status==="ACTIVE");
+  if(gameType==="SIX_BALL_SNOOKER"||gameType==="TEN_BALL_SNOOKER"){
+    paymentRule="PER_PLAYER";
+    matchFormat="SINGLES";
+    if(activePeople.length!==2)return json(res,409,{ok:false,error:"SINGLES_REQUIRES_TWO_ACTIVE_PLAYERS"});
+  }else if(gameType==="QCHASE_RUMMY"){
+    if(!["PER_PLAYER","HOURLY_SHARED"].includes(paymentRule))paymentRule="PER_PLAYER";
+    matchFormat="FLEX";
+    if(activePeople.length<2||activePeople.length>6)return json(res,409,{ok:false,error:"QCHASE_REQUIRES_TWO_TO_SIX_PLAYERS"});
+  }else if(gameType==="KITTY"){
+    paymentRule="PER_PLAYER";
+    matchFormat="FLEX";
+    if(activePeople.length<2||activePeople.length>6)return json(res,409,{ok:false,error:"KITTY_REQUIRES_TWO_TO_SIX_PLAYERS"});
+  }else if(gameType==="NORMAL_POOL"){
+    paymentRule="HOURLY";
+    matchFormat="FLEX";
+  }else if(gameType==="NORMAL_SNOOKER"){
+    if(!["HOURLY","LOSER_PAYS"].includes(paymentRule))paymentRule="HOURLY";
+    if(matchFormat!=="SINGLES"&&matchFormat!=="DOUBLES"&&matchFormat!=="FLEX")matchFormat="FLEX";
+  }
+  if(!["HOURLY","HOURLY_SHARED","PER_PLAYER","LOSER_PAYS"].includes(paymentRule))return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
+
+  const [{data:games,error:gamesError},{data:charges,error:chargesError},{data:bills,error:billsError}]=await Promise.all([
+    supabase.from("snooker_completed_games").select("id,status").eq("session_id",sessionId).neq("status","VOIDED"),
+    supabase.from("snooker_person_charges").select("id,status,bill_id").eq("session_id",sessionId).neq("status","VOIDED"),
+    supabase.from("snooker_bills").select("id,status").or(`session_id.eq.${sessionId},source_session_id.eq.${sessionId}`).neq("status","CANCELLED"),
+  ]);
+  if(gamesError||chargesError||billsError)throw gamesError||chargesError||billsError;
+
+  const requestedStartRaw=safeText(req.body?.started_at||current.started_at||"",80);
+  const requestedStart=new Date(requestedStartRaw);
+  const actualNow=new Date();
+  if(!Number.isFinite(requestedStart.getTime()))return json(res,400,{ok:false,error:"INVALID_START_TIME"});
+  if(requestedStart.getTime()>actualNow.getTime()+60000)return json(res,400,{ok:false,error:"START_TIME_IN_FUTURE"});
+  if(requestedStart.getTime()<actualNow.getTime()-(24*60*60*1000))return json(res,400,{ok:false,error:"START_TIME_TOO_OLD"});
+
+  const changedCore=
+    targetTableId!==current.table_id||
+    gameType!==current.game_type||
+    paymentRule!==(current.payment_rule||"")||
+    matchFormat!==(current.match_format||"")||
+    Math.abs(requestedStart.getTime()-Date.parse(current.started_at||""))>1000;
+
+  if(changedCore&&((games||[]).length||(charges||[]).length||(bills||[]).length)){
+    return json(res,409,{
+      ok:false,
+      error:"CORRECTION_REQUIRES_FINANCIAL_ADJUSTMENT",
+      message:"This session already has games, charges or bills. Use an audited financial adjustment instead of rewriting the session."
+    });
+  }
+
+  const sharedHourly=paymentRule==="HOURLY_SHARED";
+  const sessionRunsOnTime=rule.billing_mode==="HOURLY"||sharedHourly;
+  const startedAt=requestedStart.toISOString();
+  const sharedHourlyRate=sharedHourly
+    ? money(current.is_member?targetTable.member_price_per_hour_inr:targetTable.price_per_hour_inr)
+    : null;
+  if(sharedHourly&&!(sharedHourlyRate>0))return json(res,409,{ok:false,error:"TABLE_RATE_NOT_CONFIGURED"});
+
+  const oldValues={
+    table_id:current.table_id,
+    game_type:current.game_type,
+    payment_rule:current.payment_rule,
+    match_format:current.match_format,
+    started_at:current.started_at,
+    timer_running:current.timer_running,
+  };
+  const patch={
+    table_id:targetTableId,
+    game_type:gameType,
+    payment_rule:paymentRule,
+    match_format:matchFormat,
+    started_at:startedAt,
+    timer_running:sessionRunsOnTime&&current.status==="ACTIVE",
+    timer_started_at:sessionRunsOnTime?startedAt:(current.timer_started_at||startedAt),
+    accumulated_seconds:0,
+    shared_hourly_rate_inr:sharedHourly?sharedHourlyRate:null,
+    shared_hourly_last_at:sharedHourly?startedAt:null,
+    updated_by:auth.staff_id,
+    updated_at:new Date().toISOString(),
+  };
+
+  const {data:updated,error:updateError}=await supabase.from("snooker_sessions").update(patch).eq("id",sessionId).select("*").single();
+  if(updateError)throw updateError;
+
+  const personTimerPatch=sessionRunsOnTime
+    ? {timer_running:current.status==="ACTIVE",timer_started_at:startedAt,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id}
+    : {timer_running:false,timer_started_at:null,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id};
+  const {error:personTimerError}=await supabase.from("snooker_session_people").update(personTimerPatch).eq("session_id",sessionId).eq("status","ACTIVE");
+  if(personTimerError)throw personTimerError;
+
+  const newValues={
+    table_id:updated.table_id,
+    game_type:updated.game_type,
+    payment_rule:updated.payment_rule,
+    match_format:updated.match_format,
+    started_at:updated.started_at,
+    timer_running:updated.timer_running,
+  };
+  const correctionType=[
+    oldValues.table_id!==newValues.table_id?"MOVE_TABLE":null,
+    oldValues.game_type!==newValues.game_type?"CHANGE_GAME":null,
+    oldValues.payment_rule!==newValues.payment_rule?"CHANGE_BILLING":null,
+    String(oldValues.started_at)!==String(newValues.started_at)?"CHANGE_START_TIME":null,
+  ].filter(Boolean).join("+")||"SESSION_METADATA";
+
+  const {error:auditError}=await supabase.from("snooker_session_corrections").insert({
+    session_id:sessionId,
+    correction_type:correctionType,
+    old_values:oldValues,
+    new_values:newValues,
+    reason,
+    corrected_by:auth.staff_id,
+  });
+  if(auditError)throw auditError;
+
+  return json(res,200,{
+    ok:true,
+    correction_type:correctionType,
+    session:sessionDto(updated),
+    old_values:oldValues,
+    new_values:newValues,
+  });
+}
+
 async function recordGame(req,res,sessionId){
   const auth=await requireAuth(req,res);if(!auth)return;
   const supabase=getSupabaseAdmin();const key=idempotencyKey(req);const old=await previousIdempotent(supabase,key,"record_game");if(old)return json(res,200,old);
@@ -6372,6 +6529,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "POST" && path === "sessions") return await createSession(req, res);
     if (parts[0] === "sessions" && parts[1] && parts.length === 2 && method === "GET") return await sessionDetail(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts.length === 2 && method === "PATCH") return await updateSession(req, res, parts[1]);
+    if (parts[0] === "sessions" && parts[1] && parts[2] === "correct-admin" && method === "POST") return await correctActiveSession(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts[2] === "games" && method === "POST") return await recordGame(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts[2] === "fnb" && method === "POST") return await addFnb(req, res, parts[1]);
     if (parts[0] === "sessions" && parts[1] && parts[2] === "people" && parts.length === 3 && method === "POST") return await addSessionPerson(req,res,parts[1]);
