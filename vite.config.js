@@ -14,6 +14,7 @@ export default defineConfig(({ command }) => ({
       registerType: 'autoUpdate',
       workbox: {
         cleanupOutdatedCaches: true,
+        globIgnores: ['**/version.json'],
         navigateFallbackDenylist: [
           /^\/__checkout-preview(?:\/|$)/,
           /^\/__admin-preview(?:\/|$)/,
@@ -24,6 +25,10 @@ export default defineConfig(({ command }) => ({
           /^\/api\/snooker\/v1(?:\/|$)/i,
         ],
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname === '/version.json',
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/snooker/v1/'),
             handler: 'NetworkOnly',
