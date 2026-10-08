@@ -5141,6 +5141,48 @@ async function autoSendPaidReceipt(supabase, billId, paymentId = null, trigger =
   }
 }
 
+async function reconcileRecentPaidReceipts(req,res){
+  const auth=await requireAuth(req,res);
+  if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const rawHours=number(req.body?.hours,24);
+  const hours=Math.max(1,Math.min(72,rawHours||24));
+  const since=new Date(Date.now()-(hours*60*60*1000)).toISOString();
+
+  const {data:payments,error}=await supabase
+    .from("snooker_bill_payments")
+    .select("id,bill_id,method,status,created_at,verified_at")
+    .eq("method","ONLINE")
+    .eq("status","VERIFIED")
+    .gte("created_at",since)
+    .order("created_at",{ascending:false})
+    .limit(100);
+  if(error)throw error;
+
+  const seenBills=new Set();
+  const results=[];
+  for(const payment of payments||[]){
+    if(!payment.bill_id||seenBills.has(payment.bill_id))continue;
+    seenBills.add(payment.bill_id);
+    const receipt=await autoSendPaidReceipt(
+      supabase,
+      payment.bill_id,
+      payment.id,
+      "RECENT_PAID_RECONCILIATION"
+    );
+    results.push({bill_id:payment.bill_id,payment_id:payment.id,...receipt});
+  }
+
+  return json(res,200,{
+    ok:true,
+    hours,
+    checked:results.length,
+    sent:results.filter((row)=>row.status==="SENT").length,
+    failed:results.filter((row)=>row.status==="FAILED").length,
+    results,
+  });
+}
+
 async function sendReceipt(req, res) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -6278,6 +6320,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "payments" && parts[1] && parts[2] === "cancel" && method === "POST") return await cancelPaymentAttempt(req, res, parts[1]);
 
     if (method === "POST" && path === "notifications/receipt") return await sendReceipt(req, res);
+    if (method === "POST" && path === "notifications/reconcile-paid") return await reconcileRecentPaidReceipts(req, res);
     if (method === "GET" && path === "inventory/movements") return await inventoryMovements(req, res);
     if (method === "POST" && path === "inventory/restock") return await inventoryWrite(req, res, "RESTOCK");
     if (method === "POST" && path === "inventory/adjust") return await inventoryWrite(req, res, "ADJUST");
