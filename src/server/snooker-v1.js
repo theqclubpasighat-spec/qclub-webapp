@@ -2674,6 +2674,9 @@ async function createSession(req, res) {
     matchFormat="FLEX";
     if(!["PER_PLAYER","HOURLY_SHARED"].includes(paymentRule)) paymentRule="PER_PLAYER";
   }
+  if(gameType==="SIX_BALL_SNOOKER" || gameType==="TEN_BALL_SNOOKER"){
+    paymentRule="PER_PLAYER";
+  }
   if(!paymentRule) paymentRule = rule.billing_mode==="HOURLY" ? "HOURLY" : "PER_PLAYER";
   if(!["FLEX","SINGLES","DOUBLES","CHAMPIONSHIP"].includes(matchFormat)) return json(res,400,{ok:false,error:"INVALID_MATCH_FORMAT"});
   if(!["HOURLY","HOURLY_SHARED","PER_PLAYER","LOSER_PAYS"].includes(paymentRule)) return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
@@ -3343,29 +3346,37 @@ async function correctActiveSession(req,res,sessionId){
     started_at:current.started_at,
     timer_running:current.timer_running,
   };
-  const patch={
-    table_id:targetTableId,
-    game_type:gameType,
-    payment_rule:paymentRule,
-    match_format:matchFormat,
-    started_at:startedAt,
-    timer_running:sessionRunsOnTime&&current.status==="ACTIVE",
-    timer_started_at:sessionRunsOnTime?startedAt:(current.timer_started_at||startedAt),
-    accumulated_seconds:0,
-    shared_hourly_rate_inr:sharedHourly?sharedHourlyRate:null,
-    shared_hourly_last_at:sharedHourly?startedAt:null,
-    updated_by:auth.staff_id,
-    updated_at:new Date().toISOString(),
-  };
+  const patch=formatOnlyChange
+    ? {
+        match_format:matchFormat,
+        updated_by:auth.staff_id,
+        updated_at:new Date().toISOString(),
+      }
+    : {
+        table_id:targetTableId,
+        game_type:gameType,
+        payment_rule:paymentRule,
+        match_format:matchFormat,
+        started_at:startedAt,
+        timer_running:sessionRunsOnTime&&current.status==="ACTIVE",
+        timer_started_at:sessionRunsOnTime?startedAt:(current.timer_started_at||startedAt),
+        accumulated_seconds:0,
+        shared_hourly_rate_inr:sharedHourly?sharedHourlyRate:null,
+        shared_hourly_last_at:sharedHourly?startedAt:null,
+        updated_by:auth.staff_id,
+        updated_at:new Date().toISOString(),
+      };
 
   const {data:updated,error:updateError}=await supabase.from("snooker_sessions").update(patch).eq("id",sessionId).select("*").single();
   if(updateError)throw updateError;
 
-  const personTimerPatch=sessionRunsOnTime
-    ? {timer_running:current.status==="ACTIVE",timer_started_at:startedAt,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id}
-    : {timer_running:false,timer_started_at:null,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id};
-  const {error:personTimerError}=await supabase.from("snooker_session_people").update(personTimerPatch).eq("session_id",sessionId).eq("status","ACTIVE");
-  if(personTimerError)throw personTimerError;
+  if(!formatOnlyChange){
+    const personTimerPatch=sessionRunsOnTime
+      ? {timer_running:current.status==="ACTIVE",timer_started_at:startedAt,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id}
+      : {timer_running:false,timer_started_at:null,accumulated_seconds:0,updated_at:new Date().toISOString(),updated_by:auth.staff_id};
+    const {error:personTimerError}=await supabase.from("snooker_session_people").update(personTimerPatch).eq("session_id",sessionId).eq("status","ACTIVE");
+    if(personTimerError)throw personTimerError;
+  }
 
   const newValues={
     table_id:updated.table_id,
