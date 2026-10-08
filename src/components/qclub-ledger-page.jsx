@@ -174,15 +174,80 @@ function currentLoserPaysFrameSeconds(detail, nowMs) {
   return Math.max(0, activeSessionSeconds(detail, nowMs) - base);
 }
 
-function sharedHourlyLiveShare(session, people) {
+function sharedHourlyLiveShare(session, people, nowMs) {
   if (!session || session.payment_rule !== "HOURLY_SHARED" || !session.timer_running) return 0;
   const active = (people || []).filter(function(person) { return person.status === "ACTIVE"; });
   if (!active.length) return 0;
   const start = Date.parse(session.shared_hourly_last_at || session.started_at || "");
   if (!Number.isFinite(start)) return 0;
-  const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const now = Number(nowMs || Date.now());
+  const seconds = Math.max(0, Math.floor((now - start) / 1000));
   const rate = Number(session.shared_hourly_rate_inr || 0);
   return rate > 0 ? (rate * seconds / 3600) / active.length : 0;
+}
+
+function sessionStartLabel(session) {
+  if (!session || !session.started_at) return "—";
+  const date = new Date(session.started_at);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+function postedSessionTableCharges(detail) {
+  return ((detail && detail.people) || []).reduce(function(sum, person) {
+    return sum + Number(person.table_charges_inr || 0);
+  }, 0);
+}
+
+function liveTableChargeInfo(session, table, detail, nowMs) {
+  if (!session || !table) return { display: "—", note: "" };
+  const paymentRule = String(session.payment_rule || "").toUpperCase();
+  const people = (detail && detail.people) || [];
+  const posted = postedSessionTableCharges(detail);
+  const walkInRate = Number(table.price_per_hour_inr || 0);
+  const memberRate = Number(table.member_price_per_hour_inr || walkInRate || 0);
+
+  if (paymentRule === "HOURLY") {
+    const rate = Number(session.is_member ? memberRate : walkInRate);
+    const amount = rate > 0 ? (activeSessionSeconds(session, nowMs) / 3600) * rate : 0;
+    return {
+      display: money(amount),
+      note: rate > 0 ? money(rate) + "/hr • live, pauses excluded" : "Hourly rate not configured",
+    };
+  }
+
+  if (paymentRule === "HOURLY_SHARED") {
+    const activeCount = people.filter(function(person) { return person.status === "ACTIVE"; }).length;
+    const currentSliceTotal = sharedHourlyLiveShare(session, people, nowMs) * activeCount;
+    return {
+      display: money(posted + currentSliceTotal),
+      note: "whole table so far • shared among active players",
+    };
+  }
+
+  if (session.game_type === "NORMAL_SNOOKER" && paymentRule === "LOSER_PAYS") {
+    const seconds = currentLoserPaysFrameSeconds(detail || session, nowMs);
+    const lowRate = Math.min(memberRate || walkInRate, walkInRate || memberRate);
+    const highRate = Math.max(memberRate || walkInRate, walkInRate || memberRate);
+    const low = posted + (lowRate > 0 ? seconds / 3600 * lowRate : 0);
+    const high = posted + (highRate > 0 ? seconds / 3600 * highRate : 0);
+    return {
+      display: Math.abs(high - low) < 0.005 ? money(high) : money(low) + "–" + money(high),
+      note: "includes current frame estimate • final rate depends on loser",
+    };
+  }
+
+  if (session.game_type === "KITTY") {
+    return {
+      display: posted > 0 ? money(posted) + " + pending" : "PENDING",
+      note: clockLabel(activeSessionSeconds(session, nowMs)) + " running Kitty time • winner charge is settled on result",
+    };
+  }
+
+  return {
+    display: money(posted),
+    note: "per-game billing • game charges are shown separately",
+  };
 }
 
 function escapeHtml(value) {
@@ -1083,6 +1148,9 @@ export default function QclubLedgerPage() {
   const tableViewQchaseNextGameNumber = tableViewQchaseRunningGame
     ? Number(tableViewQchaseRunningGame.game_number || 1)
     : (tableViewRecordedGames.reduce(function(max, game) { return Math.max(max, Number(game.game_number || 0)); }, 0) + 1);
+  const tableViewLiveTableCharge = tableViewSession && tableViewTable
+    ? liveTableChargeInfo(tableViewSession, tableViewTable, tableViewDetail, liveClock)
+    : null;
   const clubTabView = clubTabViewCustomerId
     ? playerTabs.find(function(row) { return row.customer_id === clubTabViewCustomerId; }) || null
     : null;
@@ -3257,6 +3325,7 @@ export default function QclubLedgerPage() {
                 const people = (detail && detail.people) || [];
                 const activePeople = people.filter(function(person) { return person.status === "ACTIVE"; });
                 const playerDue = people.reduce(function(sum, person) { return sum + Number(person.current_due_inr || 0); }, 0);
+                const liveTableCharge = session ? liveTableChargeInfo(session, table, detail, liveClock) : null;
                 return (
                   <div
                     className={"ql-card ql-table-card " + (session ? "clickable" : "")}
@@ -3285,6 +3354,23 @@ export default function QclubLedgerPage() {
                     ) : (
                       <>
                         <div className="ql-section">Current session</div>
+                        <div className="ql-line" style={{ marginBottom: 10 }}>
+                          <div className="ql-stat-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
+                            <div className="ql-stat">
+                              <span className="ql-muted">STARTED</span>
+                              <strong style={{ fontSize: 16 }}>{sessionStartLabel(session)}</strong>
+                            </div>
+                            <div className="ql-stat">
+                              <span className="ql-muted">ACTIVE TIME</span>
+                              <strong style={{ fontSize: 16 }}>{clockLabel(activeSessionSeconds(session, liveClock))}</strong>
+                            </div>
+                            <div className="ql-stat">
+                              <span className="ql-muted">RUNNING TABLE CHARGE</span>
+                              <strong style={{ fontSize: 16 }} className="ql-price">{liveTableCharge ? liveTableCharge.display : "—"}</strong>
+                            </div>
+                          </div>
+                          {liveTableCharge && liveTableCharge.note ? <div className="ql-muted" style={{ marginTop: 7 }}>{liveTableCharge.note}</div> : null}
+                        </div>
                         <div className="ql-row">
                           <span className="ql-badge">{(rule && rule.display_name) || session.game_type}</span>
                           {session.account_mode === "INDIVIDUAL" ? <span className="ql-badge gold">{session.match_format || "FLEX"} • {String(session.payment_rule || "").replaceAll("_"," ")}</span> : null}
@@ -4649,6 +4735,24 @@ export default function QclubLedgerPage() {
                 <div className="ql-muted">{String(tableViewTable.table_type || "").replaceAll("_"," ")} • {tableViewSession.status}</div>
               </div>
               <button className="ql-btn ghost" aria-label="Close table popup" onClick={function() { setTableViewSessionId(""); }}>✕</button>
+            </div>
+
+            <div className="ql-line" style={{ marginTop: 12 }}>
+              <div className="ql-stat-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
+                <div className="ql-stat">
+                  <span className="ql-muted">STARTED</span>
+                  <strong style={{ fontSize: 16 }}>{sessionStartLabel(tableViewSession)}</strong>
+                </div>
+                <div className="ql-stat">
+                  <span className="ql-muted">ACTIVE TIME</span>
+                  <strong style={{ fontSize: 16 }}>{clockLabel(activeSessionSeconds(tableViewSession, liveClock))}</strong>
+                </div>
+                <div className="ql-stat">
+                  <span className="ql-muted">RUNNING TABLE CHARGE</span>
+                  <strong style={{ fontSize: 16 }} className="ql-price">{tableViewLiveTableCharge ? tableViewLiveTableCharge.display : "—"}</strong>
+                </div>
+              </div>
+              {tableViewLiveTableCharge && tableViewLiveTableCharge.note ? <div className="ql-muted" style={{ marginTop: 7 }}>{tableViewLiveTableCharge.note}</div> : null}
             </div>
 
             <div className="ql-row" style={{ marginTop: 12 }}>
