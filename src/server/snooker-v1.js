@@ -4,6 +4,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { createClient } from "@supabase/supabase-js";
 import { publicContent as cmsPublicContent, saveContent as saveCmsContent } from "./security/foundation.js";
 import { cancelStaffShift, clockStaffAttendance, createStaffExpense, createStaffShift, staffOpsSnapshot, voidStaffExpense } from "./security/staff-operations.js";
+import { QCLUB_BUILD_VERSION, QCLUB_BUILD_GENERATED_AT } from "../generated/qclub-build-version.js";
 
 const API_VERSION = "snooker-v1";
 const CURRENCY = "INR";
@@ -29,6 +30,27 @@ function money(value) {
 function json(res, status, body) {
   res.setHeader("Cache-Control", "no-store");
   return res.status(status).json(body);
+}
+
+function qclubLedgerBrowserRequest(req) {
+  const family = safeText(req.headers?.["x-qclub-client-family"] || "", 80).toLowerCase();
+  if (family === "qclubledger-web") return true;
+  const referer = safeText(req.headers?.referer || req.headers?.referrer || "", 1000);
+  return /\/QclubLedger(?:[/?#]|$)/i.test(referer);
+}
+
+function requireCurrentQclubLedgerVersion(req, res) {
+  const clientVersion = safeText(req.headers?.["x-qclub-ledger-version"] || "", 120);
+  if (clientVersion && clientVersion === QCLUB_BUILD_VERSION) return true;
+  json(res, 409, {
+    ok: false,
+    error: "STALE_QCLUBLEDGER_VERSION",
+    message: "QclubLedger was updated. Reload the updated Ledger before making any more changes.",
+    client_version: clientVersion || null,
+    expected_version: QCLUB_BUILD_VERSION,
+    generated_at: QCLUB_BUILD_GENERATED_AT || null,
+  });
+  return false;
 }
 
 function getSupabaseAdmin() {
@@ -6309,6 +6331,13 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     }
     if (method === "POST" && path === "cashfree-webhook") return await cashfreeWebhook(req, res);
     if (parts[0] === "payments" && parts[1] === "public" && parts[2] && method === "GET") return await publicPaymentSession(req, res, parts[2]);
+
+    // Browser QclubLedger mutations must come from the currently deployed bundle.
+    // Reads stay available so a stale terminal can still see live server state.
+    // Public QR, Cashfree webhook and QChase scorer routes above are intentionally separate.
+    if (!["GET", "HEAD", "OPTIONS"].includes(method) && qclubLedgerBrowserRequest(req)) {
+      if (!requireCurrentQclubLedgerVersion(req, res)) return;
+    }
 
     if (method === "GET" && path === "bootstrap") return await bootstrap(req, res);
     if (method === "GET" && path === "game-rules") return await gameRules(req, res);
