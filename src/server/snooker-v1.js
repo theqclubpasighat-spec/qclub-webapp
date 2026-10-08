@@ -2675,10 +2675,11 @@ async function createSession(req, res) {
     if(!["PER_PLAYER","HOURLY_SHARED"].includes(paymentRule)) paymentRule="PER_PLAYER";
   }
   if(!paymentRule) paymentRule = rule.billing_mode==="HOURLY" ? "HOURLY" : "PER_PLAYER";
-  if(!["FLEX","SINGLES","DOUBLES"].includes(matchFormat)) return json(res,400,{ok:false,error:"INVALID_MATCH_FORMAT"});
+  if(!["FLEX","SINGLES","DOUBLES","CHAMPIONSHIP"].includes(matchFormat)) return json(res,400,{ok:false,error:"INVALID_MATCH_FORMAT"});
   if(!["HOURLY","HOURLY_SHARED","PER_PLAYER","LOSER_PAYS"].includes(paymentRule)) return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
   if(matchFormat==="SINGLES" && people.length!==2) return json(res,400,{ok:false,error:"SINGLES_REQUIRES_TWO_PLAYERS"});
   if(matchFormat==="DOUBLES" && people.length!==4) return json(res,400,{ok:false,error:"DOUBLES_REQUIRES_FOUR_PLAYERS"});
+  if(matchFormat==="CHAMPIONSHIP" && (people.length<3 || people.length>6)) return json(res,400,{ok:false,error:"CHAMPIONSHIP_REQUIRES_THREE_TO_SIX_PLAYERS"});
   if(matchFormat==="DOUBLES"){
     const t1=people.filter((p)=>p.team_no===1).length,t2=people.filter((p)=>p.team_no===2).length;
     if(t1!==2||t2!==2) return json(res,400,{ok:false,error:"DOUBLES_REQUIRES_TWO_PLAYERS_PER_TEAM"});
@@ -3273,8 +3274,10 @@ async function correctActiveSession(req,res,sessionId){
   const activePeople=(people||[]).filter((person)=>person.status==="ACTIVE");
   if(gameType==="SIX_BALL_SNOOKER"||gameType==="TEN_BALL_SNOOKER"){
     paymentRule="PER_PLAYER";
-    matchFormat="SINGLES";
-    if(activePeople.length!==2)return json(res,409,{ok:false,error:"SINGLES_REQUIRES_TWO_ACTIVE_PLAYERS"});
+    if(!["SINGLES","DOUBLES","CHAMPIONSHIP"].includes(matchFormat)) matchFormat="SINGLES";
+    if(matchFormat==="SINGLES" && activePeople.length!==2)return json(res,409,{ok:false,error:"SINGLES_REQUIRES_TWO_ACTIVE_PLAYERS"});
+    if(matchFormat==="DOUBLES" && activePeople.length!==4)return json(res,409,{ok:false,error:"DOUBLES_REQUIRES_FOUR_ACTIVE_PLAYERS"});
+    if(matchFormat==="CHAMPIONSHIP" && (activePeople.length<3 || activePeople.length>6))return json(res,409,{ok:false,error:"CHAMPIONSHIP_REQUIRES_THREE_TO_SIX_ACTIVE_PLAYERS"});
   }else if(gameType==="QCHASE_RUMMY"){
     if(!["PER_PLAYER","HOURLY_SHARED"].includes(paymentRule))paymentRule="PER_PLAYER";
     matchFormat="FLEX";
@@ -3285,10 +3288,12 @@ async function correctActiveSession(req,res,sessionId){
     if(activePeople.length<2||activePeople.length>6)return json(res,409,{ok:false,error:"KITTY_REQUIRES_TWO_TO_SIX_PLAYERS"});
   }else if(gameType==="NORMAL_POOL"){
     paymentRule="HOURLY";
-    matchFormat="FLEX";
+    if(!["FLEX","CHAMPIONSHIP"].includes(matchFormat)) matchFormat="FLEX";
+    if(matchFormat==="CHAMPIONSHIP" && (activePeople.length<3 || activePeople.length>6))return json(res,409,{ok:false,error:"CHAMPIONSHIP_REQUIRES_THREE_TO_SIX_ACTIVE_PLAYERS"});
   }else if(gameType==="NORMAL_SNOOKER"){
     if(!["HOURLY","LOSER_PAYS"].includes(paymentRule))paymentRule="HOURLY";
-    if(matchFormat!=="SINGLES"&&matchFormat!=="DOUBLES"&&matchFormat!=="FLEX")matchFormat="FLEX";
+    if(!["SINGLES","DOUBLES","FLEX","CHAMPIONSHIP"].includes(matchFormat))matchFormat="FLEX";
+    if(matchFormat==="CHAMPIONSHIP" && (activePeople.length<3 || activePeople.length>6))return json(res,409,{ok:false,error:"CHAMPIONSHIP_REQUIRES_THREE_TO_SIX_ACTIVE_PLAYERS"});
   }
   if(!["HOURLY","HOURLY_SHARED","PER_PLAYER","LOSER_PAYS"].includes(paymentRule))return json(res,400,{ok:false,error:"INVALID_PAYMENT_RULE"});
 
@@ -3306,18 +3311,19 @@ async function correctActiveSession(req,res,sessionId){
   if(requestedStart.getTime()>actualNow.getTime()+60000)return json(res,400,{ok:false,error:"START_TIME_IN_FUTURE"});
   if(requestedStart.getTime()<actualNow.getTime()-(24*60*60*1000))return json(res,400,{ok:false,error:"START_TIME_TOO_OLD"});
 
-  const changedCore=
-    targetTableId!==current.table_id||
-    gameType!==current.game_type||
-    paymentRule!==(current.payment_rule||"")||
-    matchFormat!==(current.match_format||"")||
-    Math.abs(requestedStart.getTime()-Date.parse(current.started_at||""))>1000;
+  const changedTable=targetTableId!==current.table_id;
+  const changedGame=gameType!==current.game_type;
+  const changedBilling=paymentRule!==(current.payment_rule||"");
+  const changedFormat=matchFormat!==(current.match_format||"");
+  const changedStart=Math.abs(requestedStart.getTime()-Date.parse(current.started_at||""))>1000;
+  const changedCore=changedTable||changedGame||changedBilling||changedFormat||changedStart;
+  const formatOnlyChange=changedFormat&&!changedTable&&!changedGame&&!changedBilling&&!changedStart;
 
-  if(changedCore&&((games||[]).length||(charges||[]).length||(bills||[]).length)){
+  if(changedCore&&!formatOnlyChange&&((games||[]).length||(charges||[]).length||(bills||[]).length)){
     return json(res,409,{
       ok:false,
       error:"CORRECTION_REQUIRES_FINANCIAL_ADJUSTMENT",
-      message:"This session already has games, charges or bills. Use an audited financial adjustment instead of rewriting the session."
+      message:"This session already has games, charges or bills. Only a match-format correction can be applied without rewriting financial history."
     });
   }
 
@@ -3561,6 +3567,7 @@ async function recordGame(req,res,sessionId){
   const {data:people}=await supabase.from("snooker_session_people").select("*").eq("session_id",sessionId).in("id",selectedIds).eq("status","ACTIVE");
   if((people||[]).length!==selectedIds.length)return json(res,400,{ok:false,error:"INVALID_PLAYER_SELECTION"});
   if(session.match_format==="SINGLES" && selectedIds.length!==2)return json(res,400,{ok:false,error:"SINGLES_FRAME_REQUIRES_TWO_PLAYERS"});
+  if(session.match_format==="CHAMPIONSHIP" && selectedIds.length!==2)return json(res,400,{ok:false,error:"CHAMPIONSHIP_GAME_REQUIRES_TWO_PLAYERS"});
   if(session.match_format==="DOUBLES"){
     if(selectedIds.length!==4)return json(res,400,{ok:false,error:"DOUBLES_FRAME_REQUIRES_FOUR_PLAYERS"});
     const selectedPeople=(people||[]).filter(p=>selectedIds.includes(p.id));
