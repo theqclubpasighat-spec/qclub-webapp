@@ -23,14 +23,13 @@ const GAME_LABELS={
   QCHASE_RUMMY:"QChase / Rummy",
   SIX_BALL_SNOOKER:"6-Ball Snooker",
   TEN_BALL_SNOOKER:"10-Ball Snooker",
-  FIFTEEN_BALL_SNOOKER:"15-Ball Snooker",
   KITTY:"Kitty",
   AMERICAN_POOL:"American Pool",
 };
 function gameChoices(tableType){
   if(tableType==="AMERICAN_POOL")return [["AMERICAN_POOL","American Pool"]];
   if(tableType==="MINI_SNOOKER")return [["NORMAL_SNOOKER","Normal Mini Snooker"],["QCHASE_RUMMY","QChase / Rummy"],["SIX_BALL_SNOOKER","6-Ball Snooker"],["TEN_BALL_SNOOKER","10-Ball Snooker"],["KITTY","Kitty"]];
-  return [["NORMAL_SNOOKER","Normal Snooker"],["QCHASE_RUMMY","QChase / Rummy"],["SIX_BALL_SNOOKER","6-Ball Snooker"],["TEN_BALL_SNOOKER","10-Ball Snooker"],["FIFTEEN_BALL_SNOOKER","15-Ball Snooker"],["KITTY","Kitty"]];
+  return [["NORMAL_SNOOKER","Normal Snooker"],["QCHASE_RUMMY","QChase / Rummy"],["SIX_BALL_SNOOKER","6-Ball Snooker"],["TEN_BALL_SNOOKER","10-Ball Snooker"],["KITTY","Kitty"]];
 }
 
 export default function TableCustomerPage(){
