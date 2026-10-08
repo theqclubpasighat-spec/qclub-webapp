@@ -260,6 +260,7 @@ export default function QclubLedgerPage() {
   const orderAlertAudioRef = useRef(null);
   const seenOrderIdsRef = useRef(new Set());
   const pendingOrderSoundRef = useRef(false);
+  const paidReceiptRecoveryDoneRef = useRef(false);
   const [tab, setTab] = useState("desk");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -421,6 +422,7 @@ export default function QclubLedgerPage() {
     setOrderAlertQueue([]);
     seenOrderIdsRef.current = new Set();
     pendingOrderSoundRef.current = false;
+    paidReceiptRecoveryDoneRef.current = false;
     setPlayerAccountView(null);
     setBillDetail(null);
     setUpiOrder(null);
@@ -656,6 +658,21 @@ export default function QclubLedgerPage() {
   useEffect(function() {
     if (token) refreshAll();
   }, [token, refreshAll]);
+
+  useEffect(function() {
+    if (!token || paidReceiptRecoveryDoneRef.current) return;
+    paidReceiptRecoveryDoneRef.current = true;
+    protectedCall("notifications/reconcile-paid", {
+      method: "POST",
+      body: { hours: 24 },
+    }).then(function(result) {
+      if (Number(result && result.sent || 0) > 0) {
+        flash("Recovered " + result.sent + " missed WhatsApp paid receipt" + (Number(result.sent) === 1 ? "." : "s."));
+      }
+    }).catch(function() {
+      // Normal Ledger use must continue even if a WhatsApp recovery attempt fails.
+    });
+  }, [token, protectedCall, flash]);
 
   useEffect(function() {
     if (!token) return undefined;
