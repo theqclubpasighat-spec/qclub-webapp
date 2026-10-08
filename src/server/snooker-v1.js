@@ -1793,8 +1793,51 @@ async function customerTabManualPayment(req,res,customerId){
     p_idempotency_key:key||null,
   });
   if(error)throw error;
+
+  const settlementId=result?.settlement_id||null;
+  const autoReceipts=[];
+  if(settlementId){
+    const {data:allocations,error:allocationError}=await supabase
+      .from("snooker_customer_settlement_allocations")
+      .select("bill_id")
+      .eq("settlement_id",settlementId)
+      .order("created_at");
+    if(allocationError)throw allocationError;
+
+    for(const allocation of allocations||[]){
+      const {data:payment,error:paymentError}=await supabase
+        .from("snooker_bill_payments")
+        .select("id,bill_id,method,status,created_at")
+        .eq("bill_id",allocation.bill_id)
+        .eq("status","RECEIVED")
+        .eq("method",method)
+        .contains("provider_payload",{customer_settlement_id:settlementId})
+        .order("created_at",{ascending:false})
+        .limit(1)
+        .maybeSingle();
+      if(paymentError)throw paymentError;
+
+      const receipt=await autoSendPaidReceipt(
+        supabase,
+        allocation.bill_id,
+        payment?.id||null,
+        method==="UPI"?"MANUAL_CLUB_TAB_UPI_RECEIVED":"MANUAL_CLUB_TAB_CASH_RECEIVED"
+      );
+      autoReceipts.push({bill_id:allocation.bill_id,payment_id:payment?.id||null,...receipt});
+    }
+  }
+
   const detail=await customerTabDetailPayload(supabase,customerId);
-  return json(res,201,{...(result||{}),tab:detail});
+  return json(res,201,{
+    ...(result||{}),
+    auto_receipts:{
+      attempted:autoReceipts.some((row)=>row.attempted),
+      sent:autoReceipts.filter((row)=>row.status==="SENT").length,
+      failed:autoReceipts.filter((row)=>row.status==="FAILED").length,
+      receipts:autoReceipts,
+    },
+    tab:detail
+  });
 }
 
 async function customerTabOnlinePayment(req,res,customerId){
@@ -5149,26 +5192,43 @@ async function reconcileRecentPaidReceipts(req,res){
   const hours=Math.max(1,Math.min(72,rawHours||24));
   const since=new Date(Date.now()-(hours*60*60*1000)).toISOString();
 
-  const {data:payments,error}=await supabase
-    .from("snooker_bill_payments")
-    .select("id,bill_id,method,status,created_at,verified_at")
-    .eq("method","ONLINE")
-    .eq("status","VERIFIED")
-    .gte("created_at",since)
-    .order("created_at",{ascending:false})
-    .limit(100);
-  if(error)throw error;
+  const [{data:onlinePayments,error:onlineError},{data:manualPayments,error:manualError}]=await Promise.all([
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,status,created_at,verified_at")
+      .eq("method","ONLINE")
+      .eq("status","VERIFIED")
+      .gte("created_at",since)
+      .order("created_at",{ascending:false})
+      .limit(100),
+    supabase
+      .from("snooker_bill_payments")
+      .select("id,bill_id,method,status,created_at,verified_at")
+      .in("method",["CASH","UPI"])
+      .eq("status","RECEIVED")
+      .gte("created_at",since)
+      .order("created_at",{ascending:false})
+      .limit(100),
+  ]);
+  if(onlineError||manualError)throw onlineError||manualError;
+
+  const payments=[...(onlinePayments||[]),...(manualPayments||[])]
+    .sort((a,b)=>Date.parse(b.created_at||0)-Date.parse(a.created_at||0));
 
   const seenBills=new Set();
   const results=[];
-  for(const payment of payments||[]){
+  for(const payment of payments){
     if(!payment.bill_id||seenBills.has(payment.bill_id))continue;
     seenBills.add(payment.bill_id);
     const receipt=await autoSendPaidReceipt(
       supabase,
       payment.bill_id,
       payment.id,
-      "RECENT_PAID_RECONCILIATION"
+      payment.method==="ONLINE"
+        ?"RECENT_PAID_RECONCILIATION"
+        : payment.method==="UPI"
+          ?"RECENT_MANUAL_UPI_RECONCILIATION"
+          :"RECENT_CASH_RECONCILIATION"
     );
     results.push({bill_id:payment.bill_id,payment_id:payment.id,...receipt});
   }
