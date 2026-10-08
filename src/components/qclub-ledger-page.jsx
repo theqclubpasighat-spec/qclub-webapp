@@ -193,6 +193,14 @@ function sessionStartLabel(session) {
   return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
+function localDateTimeInputValue(value) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = function(number) { return String(number).padStart(2, "0"); };
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
+    "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+}
+
 function postedSessionTableCharges(detail) {
   return ((detail && detail.people) || []).reduce(function(sum, person) {
     return sum + Number(person.table_charges_inr || 0);
@@ -305,7 +313,7 @@ const CSS = [
   ".ql-list{display:flex;flex-direction:column;gap:9px}.ql-line{border:1px solid #1c382a;background:#08150f;border-radius:12px;padding:11px}.ql-line.selected{border-color:#69dca0;background:#0c2217}.ql-price{font-weight:900;color:#f0d06f}.ql-badge{font-size:11px;padding:4px 7px;border-radius:999px;background:#173025;color:#a8dabc}.ql-badge.bad{background:#3a1717;color:#ffb7b7}.ql-badge.gold{background:#3b2d0d;color:#f4da87}",
   ".ql-fnb-tools{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:10px;margin-bottom:12px}.ql-fnb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ql-fnb{border:1px solid #1c382a;background:#08150f;border-radius:14px;padding:12px;min-height:148px;display:flex;flex-direction:column;justify-content:space-between}.ql-fnb.disabled{opacity:.5}.ql-qty{display:flex;align-items:center;gap:8px}.ql-qty button{width:31px;height:31px;border-radius:9px;border:1px solid #315242;background:#11261b;color:white;font-weight:900;cursor:pointer}.ql-fnb-actionbar{position:sticky;top:82px;z-index:70;margin:0 0 14px;border:1px solid #3b6b50;background:rgba(7,20,13,.97);backdrop-filter:blur(16px);box-shadow:0 14px 34px rgba(0,0,0,.42);border-radius:16px;padding:12px 14px}.ql-fnb-actionbar.has-items{border-color:#79e7aa;box-shadow:0 14px 34px rgba(0,0,0,.42),0 0 0 1px rgba(121,231,170,.16)}.ql-fnb-actionbar .ql-btn{min-width:190px}.ql-fnb-spacer{display:none}",
   ".ql-autocomplete{position:relative}.ql-autocomplete-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:135;max-height:360px;overflow:auto;border:1px solid #315242;background:#07150f;border-radius:12px;box-shadow:0 18px 42px rgba(0,0,0,.48);padding:5px}.ql-autocomplete-option{width:100%;display:block;border:0;border-radius:9px;background:transparent;color:#f7fbf8;padding:9px 10px;text-align:left;cursor:pointer}.ql-autocomplete-option:hover,.ql-autocomplete-option.active{background:#163526;outline:1px solid #4a8b68}.ql-autocomplete-name{display:block;font-weight:900;font-size:14px}.ql-autocomplete-meta{display:flex;justify-content:space-between;gap:12px;margin-top:3px;color:#9eb2a5;font-size:12px}.ql-autocomplete-price{color:#f0d06f;font-weight:900}.ql-autocomplete-empty{padding:10px;color:#809488;font-size:12px}",
-  ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}.ql-modal{width:min(680px,100%);max-height:90vh;overflow:auto;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px}",
+  ".ql-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:10px 12px;overflow-y:auto;overscroll-behavior:contain}.ql-modal{width:min(680px,100%);max-height:none;overflow:visible;border:1px solid #2c513e;background:#09150f;border-radius:20px;padding:18px;margin:auto 0}",
   ".ql-login{min-height:100vh;display:grid;place-items:center;padding:20px}.ql-login-card{width:min(440px,100%);border:1px solid #31513f;background:linear-gradient(155deg,#10261a,#07110c);border-radius:24px;padding:24px}.ql-login-logo{font-size:34px}.ql-login h1{margin:8px 0 3px}.ql-login p{color:#9fb3a6;margin:0 0 20px}",
   ".ql-toast{position:fixed;right:18px;bottom:20px;z-index:140;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:12px;background:#183425;border:1px solid #3f7355;color:#d8f7e5}.ql-error{background:#3d1616;border-color:#7d3434;color:#ffd1d1}.ql-empty{border:1px dashed #2d493a;border-radius:14px;padding:24px;text-align:center;color:#809488}",
   ".ql-order-alert{position:fixed;top:18px;right:18px;z-index:320;width:min(460px,calc(100vw - 36px));border:2px solid #e9c766;background:linear-gradient(155deg,#173524,#08140e 58%,#050a07);border-radius:20px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12);animation:qlOrderPulse 1.1s ease-in-out 2}.ql-order-alert-kicker{font-size:13px;letter-spacing:.12em;color:#f4d979;font-weight:950}.ql-order-alert h2{margin:5px 0 2px;font-size:27px}.ql-order-alert .ql-order-table{color:#b8c9bf;font-weight:750}.ql-order-alert-lines{margin-top:12px;border-top:1px solid #294638;border-bottom:1px solid #294638;padding:8px 0}.ql-order-alert-line{display:flex;justify-content:space-between;gap:12px;padding:6px 0}.ql-order-alert-total{font-size:28px;color:#79e7aa;font-weight:950}.ql-order-alert-actions{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:14px}.ql-order-alert-count{margin-top:9px;color:#f0d06f;font-size:12px;font-weight:800}@keyframes qlOrderPulse{0%,100%{transform:translateY(0);box-shadow:0 24px 80px rgba(0,0,0,.68),0 0 0 4px rgba(233,199,102,.12)}50%{transform:translateY(-3px);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 0 7px rgba(233,199,102,.2)}}",
@@ -424,6 +432,7 @@ export default function QclubLedgerPage() {
     gameType: "NORMAL_SNOOKER",
     matchFormat: "FLEX",
     paymentRule: "HOURLY",
+    startAt: localDateTimeInputValue(),
     isMember: false,
     players: [
       { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
@@ -1323,12 +1332,14 @@ export default function QclubLedgerPage() {
     setWalkInPhone(customer.phone || "");
   }
 
-  function startDefaults(gameType) {
+  function startDefaults(gameType, startAt) {
+    const selectedStartAt = startAt || localDateTimeInputValue();
     if (gameType === "QCHASE_RUMMY" || gameType === "KITTY") {
       return {
         gameType,
         matchFormat: "FLEX",
         paymentRule: "PER_PLAYER",
+        startAt: selectedStartAt,
         isMember: false,
         players: [
           { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
@@ -1341,6 +1352,7 @@ export default function QclubLedgerPage() {
         gameType,
         matchFormat: "SINGLES",
         paymentRule: "LOSER_PAYS",
+        startAt: selectedStartAt,
         isMember: false,
         players: [
           { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
@@ -1352,6 +1364,7 @@ export default function QclubLedgerPage() {
       gameType,
       matchFormat: "FLEX",
       paymentRule: "HOURLY",
+      startAt: selectedStartAt,
       isMember: false,
       players: [
         { name: "", phone: "", customerId: null, teamNo: null, isMember: false },
@@ -1465,7 +1478,7 @@ export default function QclubLedgerPage() {
 
   function changeStartGame(gameType) {
     setMemberCheck(null);
-    setStartForm(startDefaults(gameType));
+    setStartForm(startDefaults(gameType, startForm.startAt));
   }
 
   function changeMatchFormat(matchFormat) {
@@ -1559,6 +1572,11 @@ export default function QclubLedgerPage() {
     if (startForm.matchFormat === "DOUBLES" && players.length !== 4) return flash("Doubles requires exactly 4 named players.", true);
     if (startForm.gameType === "QCHASE_RUMMY" && (players.length < 2 || players.length > 6)) return flash("QChase/Rummy requires 2 to 6 players.", true);
     if (startForm.gameType === "KITTY" && (players.length < 2 || players.length > 6)) return flash("Kitty requires 2 to 6 players.", true);
+    const requestedStartMs = Date.parse(startForm.startAt || "");
+    const nowMs = Date.now();
+    if (!Number.isFinite(requestedStartMs)) return flash("Choose a valid table start time.", true);
+    if (requestedStartMs > nowMs + 60000) return flash("Start time cannot be in the future.", true);
+    if (requestedStartMs < nowMs - (24 * 60 * 60 * 1000)) return flash("Start time can be backdated by up to 24 hours.", true);
     setBusy(true);
     try {
       await protectedCall("sessions", {
@@ -1569,6 +1587,7 @@ export default function QclubLedgerPage() {
           account_mode: "INDIVIDUAL",
           match_format: startForm.matchFormat,
           payment_rule: startForm.paymentRule,
+          started_at: new Date(requestedStartMs).toISOString(),
           frame_rate_override_inr: null,
           people: players,
           idempotency_key: makeKey("session"),
@@ -4930,6 +4949,32 @@ export default function QclubLedgerPage() {
             </div>
 
             <div className="ql-form-grid" style={{ marginTop: 15 }}>
+              <div className="full ql-line">
+                <div className="ql-space" style={{ alignItems: "end" }}>
+                  <label style={{ flex: 1 }}>
+                    <span className="ql-label">Actual table start time</span>
+                    <input
+                      className="ql-input"
+                      type="datetime-local"
+                      value={startForm.startAt || ""}
+                      max={localDateTimeInputValue()}
+                      min={localDateTimeInputValue(Date.now() - (24 * 60 * 60 * 1000))}
+                      onChange={function(e) { setStartForm({ ...startForm, startAt: e.target.value }); }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="ql-btn"
+                    onClick={function() { setStartForm({ ...startForm, startAt: localDateTimeInputValue() }); }}
+                  >
+                    Use Now
+                  </button>
+                </div>
+                <div className="ql-muted" style={{ marginTop: 6 }}>
+                  If staff forgot to enter a running table, set the real earlier start time here. Hourly billing starts from this time. Maximum backdate: 24 hours.
+                </div>
+              </div>
+
               <div className="full">
                 <label className="ql-label">Game / Format</label>
                 <select className="ql-select" value={startForm.gameType} onChange={function(e) { changeStartGame(e.target.value); }}>

@@ -2286,7 +2286,9 @@ const scorerOnlyPaths = [
     "/tv-display",
 ];
 
-const isScorerOnlyPage = scorerOnlyPaths.includes(location.pathname);
+const normalizedOperationalPath = (location.pathname || "/").toLowerCase().replace(/\/+$/, "") || "/";
+const scorerOnlyPathSet = new Set(scorerOnlyPaths.map((path) => path.toLowerCase().replace(/\/+$/, "") || "/"));
+const isScorerOnlyPage = scorerOnlyPathSet.has(normalizedOperationalPath);
 
 const [showInstallHelp, setShowInstallHelp] = useState(false);
 useEffect(() => {

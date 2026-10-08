@@ -2716,7 +2716,17 @@ async function createSession(req, res) {
     ? null
     : (req.body?.frame_rate_override_inr==null ? null : money(req.body.frame_rate_override_inr));
 
-  const now=new Date().toISOString();
+  const actualNow=new Date();
+  const requestedStartRaw=safeText(req.body?.started_at||"",80);
+  let sessionStart=actualNow;
+  if(requestedStartRaw){
+    const parsed=new Date(requestedStartRaw);
+    if(!Number.isFinite(parsed.getTime()))return json(res,400,{ok:false,error:"INVALID_START_TIME"});
+    if(parsed.getTime()>actualNow.getTime()+60000)return json(res,400,{ok:false,error:"START_TIME_IN_FUTURE"});
+    if(parsed.getTime()<actualNow.getTime()-(24*60*60*1000))return json(res,400,{ok:false,error:"START_TIME_TOO_OLD",message:"Table start time can be backdated by up to 24 hours."});
+    sessionStart=parsed;
+  }
+  const now=sessionStart.toISOString();
   const {data,error}=await supabase.from("snooker_sessions").insert({
     table_id:tableId,game_type:gameType,customer_name:customerName,customer_phone:customerPhone,is_member:isMember,
     participant_names:individual?people.map((p)=>p.name):(Array.isArray(req.body?.participant_names)?req.body.participant_names:[]),
@@ -2727,7 +2737,7 @@ async function createSession(req, res) {
     frame_rate_override_inr:frameRate,
     shared_hourly_rate_inr:sharedHourlyRate,
     shared_hourly_last_at:sharedHourly?now:null,
-    started_at:now,timer_started_at:now,timer_running:sessionRunsOnTime,
+    started_at:now,timer_started_at:sessionRunsOnTime?now:null,timer_running:sessionRunsOnTime,
     created_by:auth.staff_id,updated_by:auth.staff_id,client_revision:safeText(req.body?.client_revision||"",120)||null,idempotency_key:key||null,
   }).select("*").single();
   if(error) throw error;
