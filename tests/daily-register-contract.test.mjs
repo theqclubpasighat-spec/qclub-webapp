@@ -13,8 +13,9 @@ test("dated register GET uses actual F&B opened_at schema and Pasighat boundarie
   assert.match(fn, /T00:00:00\+05:30/);
   assert.match(fn, /snooker_fnb_tabs"\)\.select\("id,customer_id,customer_name,opened_at"\)\.gte\("opened_at"/);
   assert.doesNotMatch(fn, /snooker_fnb_tabs"\)\.select\("id,customer_id,customer_name,created_at"/);
-  assert.match(fn, /snooker_bills"\)\.select\("id,customer_id,customer_name,created_at"\)\.gte\("created_at"/);
-  assert.doesNotMatch(fn, /snooker_bills"\)\.select\("id,customer_id,customer_name,opened_at"/);
+  assert.match(fn, /snooker_bills"\)\.select\("id,customer_id,customer_name,finalized_at"\)\.gte\("finalized_at"/);
+  assert.doesNotMatch(fn, /snooker_bills"\)\.select\("id,customer_id,customer_name,(?:created_at|opened_at)"/);
+  assert.match(fn, /for\(const x of bills\|\|\[\]\)mark\(x.customer_id,x.customer_name,x.finalized_at\)/);
   assert.match(server, /path === "daily-register"\) return await listDailyRegister\(req, res\)/);
 });
 
