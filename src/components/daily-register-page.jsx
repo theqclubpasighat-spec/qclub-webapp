@@ -23,10 +23,37 @@ export default function DailyRegisterPage({
   const [batchId, setBatchId] = useState("");
   const [bulkError, setBulkError] = useState("");
   const [posting, setPosting] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [showHandover, setShowHandover] = useState(false);
   const [bulkResults, setBulkResults] = useState(null);
   const today = pasighatBusinessDate();
   const isToday = selectedDate === today;
-  const rows = useMemo(() => mergeRegisterRows(dayRows, playerTabs, selectedDate, today, search), [dayRows, playerTabs, selectedDate, today, search]);
+  const exampleDayRows = [
+    { customer_id:"demo-kiron",name:"KIRON TALI",first_activity_at:selectedDate+"T04:00:00+05:30",activity_count:3 },
+    { customer_id:"demo-kamin",name:"KAMIN MIZE",first_activity_at:selectedDate+"T04:15:00+05:30",activity_count:4 },
+    { customer_id:"demo-wilson",name:"WILSON",first_activity_at:selectedDate+"T04:35:00+05:30",activity_count:3 },
+    { customer_id:"demo-mibom",name:"MIBOM MIBANG",first_activity_at:selectedDate+"T06:00:00+05:30",activity_count:2 },
+    { customer_id:"demo-katem",name:"KATEM YOMPANG",first_activity_at:selectedDate+"T06:05:00+05:30",activity_count:1 },
+  ];
+  const exampleTabs = [
+    {customer_id:"demo-kiron",name:"KIRON TALI",current_due_inr:950,player_unbilled_inr:200,active_locations:[]},
+    {customer_id:"demo-kamin",name:"KAMIN MIZE",current_due_inr:1150,player_unbilled_inr:400,active_locations:[]},
+    {customer_id:"demo-wilson",name:"WILSON",current_due_inr:550,player_unbilled_inr:400,active_locations:[]},
+    {customer_id:"demo-mibom",name:"MIBOM MIBANG",current_due_inr:300,player_unbilled_inr:0,active_locations:[{table_id:"table_3",game_type:"NORMAL_SNOOKER"}]},
+    {customer_id:"demo-katem",name:"KATEM YOMPANG",current_due_inr:150,player_unbilled_inr:0,active_locations:[]},
+  ];
+  const exampleFnbTabs = [
+    {customer_id:"demo-kiron",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:1},{status:"ACTIVE",item_name_snapshot:"Classic Low Smell",quantity:1}]},
+    {customer_id:"demo-kamin",lines:[{status:"ACTIVE",item_name_snapshot:"Monster",quantity:1},{status:"ACTIVE",item_name_snapshot:"Classic Ultramild",quantity:1}]},
+    {customer_id:"demo-wilson",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:1}]},
+    {customer_id:"demo-mibom",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:2}]},
+    {customer_id:"demo-katem",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:1}]},
+  ];
+  const shownDayRows = demoMode ? exampleDayRows : dayRows;
+  const shownOpenTabs = demoMode ? exampleTabs : playerTabs;
+  const shownFnbTabs = demoMode ? exampleFnbTabs : fnbTabs;
+  const rows = useMemo(() => mergeRegisterRows(shownDayRows, shownOpenTabs, selectedDate, today, search),
+    [demoMode, dayRows, playerTabs, selectedDate, today, search]);
   const openCount = rows.filter(x => x.open_tab).length;
   const playingCount = rows.filter(x => (x.open_tab?.active_locations || []).length > 0).length;
   const openDue = rows.reduce((sum, x) => sum + Number(x.open_tab?.current_due_inr || 0), 0);
@@ -102,6 +129,8 @@ export default function DailyRegisterPage({
   return (
     <section aria-label="Daily customer register" style={{ display: "grid", gap: 14 }}>
       {livePreviewNotice}
+      {previewMode ? <button className="ql-btn gold" style={{ width: "fit-content" }} onClick={() => setDemoMode(value => !value)}>{demoMode ? "Return to live read-only data" : "Show Kiron / Kamin / Wilson example"}</button> : null}
+      {demoMode ? <div style={{ ...box, borderColor:"#b78c35" }}>SIMULATED REGISTER — sample balances and products are illustrative, not actual sales or current catalogue prices. No customer or financial records are created.</div> : null}
       <div style={{ ...box, background: "#102a25", borderColor: "#3e8b78" }}>
         <div style={{ ...layout, justifyContent: "space-between", alignItems: "start" }}>
           <div>
@@ -125,11 +154,29 @@ export default function DailyRegisterPage({
       </div>
 
       <div style={{ ...layout, alignItems: "stretch" }}>
-        <button className="ql-btn primary" disabled={!isToday || busy} onClick={beginNew}>+ Customer / Open Tab</button>
+        <button className="ql-btn primary" disabled={!isToday || busy || demoMode} onClick={beginNew}>+ Customer / Open Tab</button>
         <button className="ql-btn gold" disabled={!isToday || busy} onClick={() => { setShowBulk(value => !value); resetBatch(); }}>Allocate F&B to several people</button>
         <button className="ql-btn" onClick={onOpenTables}>🎱 Tables & Games</button>
         <button className="ql-btn ghost" onClick={onOpenHistory}>Ledger History</button>
+        <button className="ql-btn ghost" onClick={() => setShowHandover(value => !value)}>Shift handover overview</button>
       </div>
+
+      {showHandover ? (
+        <div style={box}>
+          <h3 style={{ marginTop: 0 }}>Shift handover overview · read-only</h3>
+          <div style={muted}>This does not stop timers, post payments, settle customer accounts or create an audited handover. The confirmed staff-to-staff signoff is a separate development task.</div>
+          <div style={{ ...layout, marginTop: 12 }}>
+            <strong>{(sessions || []).filter(x => ["ACTIVE","PAUSED"].includes(x.status)).length} active/paused tables</strong>
+            <strong>{(playerTabs || []).length} current Club Tabs</strong>
+          </div>
+          {(sessions || []).filter(x => ["ACTIVE","PAUSED"].includes(x.status)).map(session =>
+            <div key={session.session_id} style={{ padding: 9, borderBottom:"1px solid #34494c" }}>
+              {String(session.table_id || "").replace("table_","T")} · {String(session.game_type || "").replaceAll("_"," ")} · {session.status}
+            </div>
+          )}
+          <div style={{ ...muted, marginTop: 10 }}>Before leaving, staff should reconcile paper notes, unfinished frames, running timers, payments and unposted F&B. This view does not confirm the physical handover.</div>
+        </div>
+      ) : null}
 
       {showNew ? (
         <div style={box}>
@@ -220,7 +267,7 @@ export default function DailyRegisterPage({
         <div style={{ marginTop: 10 }}>
           {rows.map((row, index) => {
             const locations = row.open_tab?.active_locations || [];
-            const fnb = (fnbTabs || []).find(tab => tab.customer_id === row.customer_id);
+            const fnb = (shownFnbTabs || []).find(tab => tab.customer_id === row.customer_id);
             const lines = (fnb?.lines || []).filter(x => x.status === "ACTIVE").slice(-3);
             const summary = [
               lines.length ? lines.map(x => x.item_name_snapshot + " ×" + Number(x.quantity)).join(" · ") : null,
@@ -239,8 +286,8 @@ export default function DailyRegisterPage({
                 </div>
               </div>
               <div style={layout}>
-                <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy}>View account / Checkout</button>
-                <button className="ql-btn ghost" onClick={() => onAddFnb(row)} disabled={busy || previewMode || !isToday}>+ Add F&B</button>
+                <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy || demoMode}>View account / Checkout</button>
+                <button className="ql-btn ghost" onClick={() => onAddFnb(row)} disabled={busy || demoMode || previewMode || !isToday}>+ Add F&B</button>
               </div>
             </div>;
           })}
