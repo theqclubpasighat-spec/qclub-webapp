@@ -1891,37 +1891,36 @@ async function customerTabDetailPayload(supabase,customerId){
   for(const bill of recentBills||[]){if(!relevantBills.some(x=>x.id===bill.id))relevantBills.push(bill);}
   const billIds=relevantBills.map(b=>b.id);
 
-  let charges=[],runningFnb=[],billItems=[],billPayments=[],settlements=[];
-  if(personIds.length){
-    const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at");
-    if(q.error)throw q.error;charges=q.data||[];
-  }
-  if(tabIds.length){
-    const q=await supabase.from("snooker_fnb_lines").select("*").in("tab_id",tabIds).eq("status","ACTIVE").is("bill_id",null).order("added_at");
-    if(q.error)throw q.error;runningFnb=q.data||[];
-  }
-  if(billIds.length){
-    const [iq,pq]=await Promise.all([
-      supabase.from("snooker_bill_items").select("*").in("bill_id",billIds).order("created_at"),
-      supabase.from("snooker_bill_payments").select("*").in("bill_id",billIds).in("status",["RECEIVED","VERIFIED"]).order("created_at"),
-    ]);
-    if(iq.error||pq.error)throw iq.error||pq.error;
-    billItems=iq.data||[];billPayments=pq.data||[];
-  }
-  {
-    const q=await supabase.from("snooker_customer_settlements").select("*").eq("customer_id",customerId).order("created_at",{ascending:false}).limit(20);
-    if(q.error)throw q.error;settlements=q.data||[];
-  }
-
-  const sessionIds=[...new Set([
-    ...(people||[]).map(p=>p.session_id),
-    ...charges.map(c=>c.session_id),
-  ].filter(Boolean))];
-  let sessions=[];
-  if(sessionIds.length){
-    const q=await supabase.from("snooker_sessions").select("id,table_id,game_type,payment_rule,status,started_at,ended_at").in("id",sessionIds);
-    if(q.error)throw q.error;sessions=q.data||[];
-  }
+  // All five lookups below depend only on IDs already resolved above.
+  // Run together instead of stacking 4+ Supabase round trips before checkout
+  // can render. No settlement, due, charge, or payment calculation is changed.
+  const sessionIds=[...new Set((people||[]).map(p=>p.session_id).filter(Boolean))];
+  const [chargeResult,fnbResult,billItemResult,paymentResult,settlementResult,sessionResult]=await Promise.all([
+    personIds.length
+      ? supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null).order("created_at")
+      : Promise.resolve({data:[],error:null}),
+    tabIds.length
+      ? supabase.from("snooker_fnb_lines").select("*").in("tab_id",tabIds).eq("status","ACTIVE").is("bill_id",null).order("added_at")
+      : Promise.resolve({data:[],error:null}),
+    billIds.length
+      ? supabase.from("snooker_bill_items").select("*").in("bill_id",billIds).order("created_at")
+      : Promise.resolve({data:[],error:null}),
+    billIds.length
+      ? supabase.from("snooker_bill_payments").select("*").in("bill_id",billIds).in("status",["RECEIVED","VERIFIED"]).order("created_at")
+      : Promise.resolve({data:[],error:null}),
+    supabase.from("snooker_customer_settlements").select("*").eq("customer_id",customerId).order("created_at",{ascending:false}).limit(20),
+    sessionIds.length
+      ? supabase.from("snooker_sessions").select("id,table_id,game_type,payment_rule,status,started_at,ended_at").in("id",sessionIds)
+      : Promise.resolve({data:[],error:null}),
+  ]);
+  const lookupError=[chargeResult,fnbResult,billItemResult,paymentResult,settlementResult,sessionResult].find(row=>row.error)?.error;
+  if(lookupError)throw lookupError;
+  const charges=chargeResult.data||[];
+  const runningFnb=fnbResult.data||[];
+  const billItems=billItemResult.data||[];
+  const billPayments=paymentResult.data||[];
+  const settlements=settlementResult.data||[];
+  const sessions=sessionResult.data||[];
   const sessionMap=new Map(sessions.map(x=>[x.id,x]));
   const personMap=new Map((people||[]).map(x=>[x.id,x]));
   const billMap=new Map(relevantBills.map(x=>[x.id,x]));

@@ -12,7 +12,7 @@ const formatInr = value => "₹" + Number(value || 0).toLocaleString("en-IN", { 
 export default function DailyRegisterPage({
   selectedDate, onDateChange, dayRows, dayLoading, dayError, dayLimited,
   playerTabs, customers, fnbTabs, catalogue, sessions, tables, rules, busy, previewMode,
-  onOpenCustomer, onAddFnb, onCreateCustomer, onOpenTables, onOpenHistory,
+  onOpenCustomer, onCheckoutCustomer, onAddFnb, onCreateCustomer, onOpenTables, onOpenHistory,
   onPostAllocations, onConfigureGameCharge, onContinueGame, onPostRegisterFrames,
 }) {
   const [search, setSearch] = useState("");
@@ -336,7 +336,8 @@ export default function DailyRegisterPage({
                 </div>
               ):null}
               <div style={layout}>
-                <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy || demoMode}>View account / Checkout</button>
+                <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy || demoMode}>View account</button>
+                <button className="ql-btn primary" onClick={() => onCheckoutCustomer(row.open_tab || { customer_id:row.customer_id,name:row.name,phone:row.phone })} disabled={busy || demoMode || previewMode || !isToday}>Checkout</button>
                 <button className="ql-btn ghost" onClick={() => onAddFnb(row)} disabled={busy || demoMode || previewMode || !isToday}>+ Add F&B</button>
                 <button className="ql-btn gold" type="button" onClick={() => setChargeCustomer(row)} disabled={busy || !isToday}>+ Add Table / Frame Charges</button>
               </div>
