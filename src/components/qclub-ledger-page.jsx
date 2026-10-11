@@ -2141,6 +2141,86 @@ export default function QclubLedgerPage() {
     }
   }
 
+  async function adminDeleteClubTab(playerTab) {
+    if (!isAdmin || !playerTab || !playerTab.customer_id) return;
+    if ((playerTab.active_locations || []).length) {
+      const places = (playerTab.active_locations || []).map(function(location) {
+        return String(location.table_id || "").replace("table_","T") + " " + String(location.game_type || "").replaceAll("_"," ");
+      }).join(", ");
+      flash("End or correct the active table first (" + places + "). Delete Tab will not silently stop a live table.", true);
+      return;
+    }
+    const reason = window.prompt(
+      "Reason for deleting " + (playerTab.name || "this player") + " from Open Club Tabs:",
+      "Paper register / duplicate or incorrect ledger entry"
+    );
+    if (reason == null) return;
+    if (!reason.trim()) return flash("Enter a reason for the Admin deletion.", true);
+    const ok = window.confirm(
+      "DELETE CLUB TAB — ADMIN ONLY\n\n" +
+      (playerTab.name || "Player") + " • " + money(playerTab.current_due_inr) + " current due\n\n" +
+      "This will void UNBILLED game/table/F&B entries, return stock for voided F&B, cancel open F&B tabs, and exclude outstanding unpaid bills from accounting.\n\n" +
+      "Customer identity and successful payment/provider audit history will NOT be erased.\n\nContinue?"
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const result = await protectedCall("player-tabs/" + playerTab.customer_id + "/delete-admin", {
+        method: "POST",
+        body: { reason: reason.trim() },
+      });
+      setClubTabViewCustomerId("");
+      setClubTabDetail(null);
+      setOpenClubTabsView(true);
+      flash((result.customer_name || playerTab.name || "Club Tab") + " removed from Open Club Tabs. Audit history preserved.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to delete Club Tab.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adminDeleteLedgerBill(bill) {
+    if (!isAdmin || !bill || !bill.bill_id) return;
+    if (bill.accounting_excluded) return;
+    const reason = window.prompt(
+      "Reason for deleting " + (bill.bill_no || "this bill") + " from Ledger History:",
+      "Paper register / duplicate or incorrect ledger entry"
+    );
+    if (reason == null) return;
+    if (!reason.trim()) return flash("Enter a reason for the Admin deletion.", true);
+    const ok = window.confirm(
+      "DELETE FROM LEDGER HISTORY — ADMIN ONLY\n\n" +
+      (bill.bill_no || bill.bill_id) + " • " + money(bill.total_inr) + "\n\n" +
+      "This is a SAFE DELETE: the bill is excluded from normal Ledger History, revenue, Finance/F&B totals, exports and daily closing. Successful Cashfree/manual payment audit records are preserved.\n\nContinue?"
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      await protectedCall("bills/" + bill.bill_id + "/accounting-exclusion", {
+        method: "PATCH",
+        body: {
+          accounting_excluded: true,
+          reason: "Admin deleted from Ledger History: " + reason.trim(),
+        },
+      });
+      if (billDetail && billDetail.bill_id === bill.bill_id) {
+        setBillDetail(null);
+        setUpiOrder(null);
+        setShowUpiQrModal(false);
+      }
+      flash((bill.bill_no || "Bill") + " deleted from normal Ledger History. Audit history preserved.");
+      await refreshAll();
+    } catch (error) {
+      flash(error.message || "Unable to delete Ledger History entry.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function prepareClubTabCheckout(playerTab) {
     if (!playerTab || !playerTab.customer_id) return;
     setBusy(true);
@@ -4293,11 +4373,44 @@ export default function QclubLedgerPage() {
                 {filteredBills.length ? filteredBills.map(function(bill) {
                   const session = sessionLookup[bill.session_id];
                   return (
-                    <button key={bill.bill_id} className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")} style={{ color: "inherit", textAlign: "left", cursor: "pointer" }} onClick={function() { loadBill(bill.bill_id); }}>
-                      <div className="ql-space"><strong>{bill.bill_no || bill.bill_id}</strong><span className={"ql-badge " + (bill.accounting_excluded ? "gold" : (Number(bill.due_inr) > 0 ? "bad" : ""))}>{bill.accounting_excluded ? "TEST / EXCLUDED" : bill.status}</span></div>
+                    <div
+                      key={bill.bill_id}
+                      className={"ql-line " + (billDetail && billDetail.bill_id === bill.bill_id ? "selected" : "")}
+                      style={{ color: "inherit", textAlign: "left", cursor: "pointer" }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={function() { loadBill(bill.bill_id); }}
+                      onKeyDown={function(event) {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          loadBill(bill.bill_id);
+                        }
+                      }}
+                    >
+                      <div className="ql-space">
+                        <strong>{bill.bill_no || bill.bill_id}</strong>
+                        <div className="ql-row">
+                          <span className={"ql-badge " + (bill.accounting_excluded ? "gold" : (Number(bill.due_inr) > 0 ? "bad" : ""))}>{bill.accounting_excluded ? "DELETED / EXCLUDED" : bill.status}</span>
+                          {isAdmin && !bill.accounting_excluded ? (
+                            <button
+                              type="button"
+                              className="ql-btn danger"
+                              disabled={busy}
+                              style={{ padding: "5px 8px" }}
+                              onClick={function(event) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                adminDeleteLedgerBill(bill);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                       <div className="ql-muted">{(session && session.customer_name) || bill.customer_name || "Customer"} • {dateTime(bill.finalized_at || bill.created_at)}</div>
                       <div className="ql-space" style={{ marginTop: 5 }}><span>{money(bill.total_inr)}</span><span className="ql-muted">Due {money(bill.due_inr)}</span></div>
-                    </button>
+                    </div>
                   );
                 }) : <div className="ql-empty">No bills match these filters.</div>}
               </div>
@@ -4660,6 +4773,21 @@ export default function QclubLedgerPage() {
                       <div className="ql-row" style={{ marginTop: 9 }}>
                         {(playerTab.active_locations || []).length ? <span className="ql-badge good">PLAYING</span> : <span className="ql-badge">TAB OPEN</span>}
                         {Number(playerTab.unbilled_inr || 0) > 0 ? <span className="ql-badge gold">NEW {money(playerTab.unbilled_inr)}</span> : null}
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            className="ql-btn danger"
+                            disabled={busy}
+                            style={{ marginLeft: "auto", padding: "5px 8px" }}
+                            onClick={function(event) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              adminDeleteClubTab(playerTab);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -4721,6 +4849,7 @@ export default function QclubLedgerPage() {
               {Number(clubTabView.current_due_inr || 0) > 0.009 ? (
                 <button className="ql-btn gold" disabled={busy} onClick={function() { prepareClubTabCheckout(clubTabView); }}>Checkout</button>
               ) : null}
+              {isAdmin ? <button className="ql-btn danger" disabled={busy} onClick={function() { adminDeleteClubTab(clubTabView); }}>Delete Tab</button> : null}
               <button className="ql-btn ghost" onClick={function() { setClubTabViewCustomerId(""); }}>Close</button>
             </div>
           </div>
