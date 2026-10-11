@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase, supabaseReady } from "../supabase";
 import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
 import { QCLUB_BUILD_VERSION, QCLUB_BUILD_GENERATED_AT } from "../generated/qclub-build-version.js";
+import DailyRegisterPage from "./daily-register-page.jsx";
+import { pasighatBusinessDate } from "../lib/daily-register.js";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -98,6 +100,13 @@ function readAuth() {
 
 async function apiRequest(path, options) {
   const opts = options || {};
+  const method = String(opts.method || "GET").toUpperCase();
+  const isBranchPreview = !["www.theqclubpasighat.com", "theqclubpasighat.com"].includes(window.location.hostname.toLowerCase());
+  const cleanApiPath = String(path).startsWith("/") ? String(path).slice(1) : String(path);
+  const isLedgerWrite = !["GET", "HEAD", "OPTIONS"].includes(method) && !["auth/login", "auth/logout"].includes(cleanApiPath);
+  if (isBranchPreview && isLedgerWrite) {
+    throw new Error("READ-ONLY PREVIEW: No Ledger data can be changed here. Production balances are protected.");
+  }
   const response = await fetch(API_ROOT + "/" + path, {
     method: opts.method || "GET",
     cache: "no-store",
@@ -355,7 +364,12 @@ export default function QclubLedgerPage() {
   const staleVersionRef = useRef(null);
   const [staleVersion, setStaleVersion] = useState(null);
   const [versionCheckWarning, setVersionCheckWarning] = useState("");
-  const [tab, setTab] = useState("desk");
+  const [tab, setTab] = useState("register");
+  const [registerDate, setRegisterDate] = useState(pasighatBusinessDate);
+  const [registerDayRows, setRegisterDayRows] = useState([]);
+  const [registerDayLoading, setRegisterDayLoading] = useState(false);
+  const [registerDayError, setRegisterDayError] = useState("");
+  const [registerDayLimited, setRegisterDayLimited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
@@ -454,6 +468,8 @@ export default function QclubLedgerPage() {
   const token = (auth && auth.token) || "";
   const role = (auth && auth.role) || "";
   const isAdmin = role === "ADMIN";
+  // Vercel branch URLs remain inspection-only: no preview test orders in production Supabase.
+  const registerPreviewMode = !["www.theqclubpasighat.com", "theqclubpasighat.com"].includes(window.location.hostname.toLowerCase());
 
   const armOrderAlertAudio = useCallback(async function() {
     try {
@@ -619,6 +635,98 @@ export default function QclubLedgerPage() {
     Promise.resolve(promise).catch(function() {
       // Foreground action already succeeded. Periodic sync/manual refresh will reconcile.
     });
+  }
+
+  const loadDailyRegister = useCallback(async function(date) {
+    if (!token || !date) return;
+    setRegisterDayLoading(true);
+    setRegisterDayError("");
+    try {
+      const payload = await protectedCall("daily-register?date=" + encodeURIComponent(date));
+      setRegisterDayRows(payload.rows || []);
+      setRegisterDayLimited(Boolean(payload.limited));
+    } catch (error) {
+      setRegisterDayError(error.message || "Register could not be loaded.");
+    } finally {
+      setRegisterDayLoading(false);
+    }
+  }, [protectedCall, token]);
+
+  useEffect(function() {
+    if (token && tab === "register") loadDailyRegister(registerDate);
+  }, [token, tab, registerDate, loadDailyRegister]);
+
+  async function openCustomerFromDailyRegister(row) {
+    await openClubTabDetail({
+      customer_id: row.customer_id,
+      name: row.name,
+      phone: row.phone,
+    });
+  }
+
+  async function createRegisterCustomer(payload) {
+    if (registerPreviewMode) throw new Error("New customer posting is disabled on preview URLs.");
+    const opened = await protectedCall("fnb-tabs", {
+      method: "POST",
+      body: {
+        customer_id: payload.customer_id || null,
+        customer_name: payload.name,
+        customer_phone: payload.phone || null,
+        idempotency_key: makeKey("register-open"),
+      },
+    });
+    await Promise.allSettled([refreshFnbFastState(), loadDailyRegister(registerDate)]);
+    flash("Customer " + opened.customer_name + " opened in Daily Register. No table timer was started.");
+    return opened;
+  }
+
+  async function postRegisterAllocations(payload) {
+    if (registerPreviewMode) throw new Error("Order posting is disabled on preview URLs.");
+    const entries = payload.recipients || [];
+    const resultRows = [];
+    setBusy(true);
+    try {
+      // Each payer receives a separate, idempotent order. Partial results are returned explicitly:
+      // never silently repeat a charge, and never pretend that a multi-payer sequence is atomic.
+      for (const entry of entries) {
+        const customer = customers.find(function(x) { return x.customer_id === entry.customer_id; })
+          || playerTabs.find(function(x) { return x.customer_id === entry.customer_id; });
+        if (!customer) {
+          resultRows.push({ customer_id: entry.customer_id, name: "Unknown customer", ok: false, error: "Customer not found" });
+          continue;
+        }
+        try {
+          let running = fnbTabs.find(function(x) { return x.customer_id === entry.customer_id && x.status === "OPEN"; });
+          if (!running) {
+            running = await protectedCall("fnb-tabs", {
+              method: "POST",
+              body: {
+                customer_id: entry.customer_id,
+                customer_name: customer.name,
+                customer_phone: customer.phone || null,
+                idempotency_key: payload.batch_id + ":open:" + entry.customer_id,
+              },
+            });
+          }
+          await protectedCall("fnb-tabs/" + running.tab_id + "/fnb", {
+            method: "POST",
+            body: {
+              lines: [{ item_id: payload.item.id, quantity: entry.quantity }],
+              idempotency_key: payload.batch_id + ":charge:" + entry.customer_id,
+            },
+          });
+          resultRows.push({ customer_id: entry.customer_id, name: customer.name, ok: true });
+        } catch (error) {
+          resultRows.push({ customer_id: entry.customer_id, name: customer.name, ok: false, error: error.message || "Unable to post" });
+        }
+      }
+      await Promise.allSettled([refreshFnbFastState(), loadDailyRegister(registerDate)]);
+      const ok = resultRows.every(function(x) { return x.ok; });
+      flash(ok ? "Allocated F&B posted to each customer's Club Tab." : "Some customer allocations failed. Inspect status and retry the SAME batch.", !ok);
+      return { ok, results: resultRows };
+    } finally {
+      setBusy(false);
+    }
   }
 
   const refreshOneSession = useCallback(async function(sessionId) {
@@ -1601,6 +1709,60 @@ export default function QclubLedgerPage() {
       }
       setCorrectionBusy(false);
     }
+  }
+
+  function configureRegisterGameCharge(customer, selection) {
+    if (!customer || !customer.customer_id) return flash("Select a registered customer.", true);
+    const table = tables.find(function(x) { return x.table_id === selection.table_id; });
+    if (!table) return flash("Choose a real Q Club table.", true);
+    if (sessionByTable[table.table_id]) {
+      return flash("This table is already active. Open its existing session, do not start another.", true);
+    }
+    if (!allowedGames(table, rules).some(function(rule) { return rule.game_type === selection.game_type; })) {
+      return flash("That game is not available on the selected table.", true);
+    }
+    const allowedModes = selection.game_type === "NORMAL_SNOOKER"
+      ? ["HOURLY", "LOSER_PAYS"]
+      : selection.game_type === "QCHASE_RUMMY" ? ["PER_PLAYER", "HOURLY_SHARED"]
+      : selection.game_type === "NORMAL_POOL" ? ["HOURLY"] : ["PER_PLAYER"];
+    if (!allowedModes.includes(selection.payment_rule)) return flash("Invalid billing rule for this game.", true);
+    const defaults = startDefaults(selection.game_type);
+    const validFormats = ["FLEX", "SINGLES", "DOUBLES", "CHAMPIONSHIP"];
+    const format = validFormats.includes(selection.match_format) ? selection.match_format : defaults.matchFormat;
+    // An occupied Table is never overwritten and the selected customer is always
+    // the first player. Staff add the opponents before starting the session.
+    const first = {
+      name: String(customer.name || "").trim().toUpperCase(),
+      phone: String(customer.phone || "").replace(/\D/g, "").slice(-10),
+      customerId: customer.customer_id,
+      teamNo: null,
+      isMember: Boolean(customer.open_tab?.is_member || customer.is_member),
+    };
+    const desiredPlayers = format === "DOUBLES" ? 4 : format === "CHAMPIONSHIP" ? 3 : 2;
+    const others = Array.from({length:desiredPlayers-1},function(){
+      return {name:"",phone:"",customerId:null,teamNo:null,isMember:false};
+    });
+    setStartForm({
+      ...defaults, gameType:selection.game_type, paymentRule:selection.payment_rule,
+      matchFormat:format, isMember:first.isMember, players:[first,...others],
+    });
+    setStartTable(table);
+    setMemberCheck(null);
+    flash("Review " + first.name + " on T" + table.table_no + ". Add other players before saving. No table charge has been posted.");
+  }
+
+  function continueRegisterGameCharge(session, customer) {
+    const liveSession = sessions.find(function(row) { return row.session_id === session?.session_id; });
+    if (!liveSession || !["ACTIVE", "PAUSED"].includes(liveSession.status)) {
+      return flash("The session changed. Refresh and choose the current table.", true);
+    }
+    const people = sessionDetails[liveSession.session_id]?.people || [];
+    const participant = people.find(function(person) {
+      return person.customer_id === customer?.customer_id && person.status === "ACTIVE";
+    });
+    setTab("desk");
+    setTableViewSessionId(liveSession.session_id);
+    if (!participant) flash("Open the running table and use Join Player before billing " + customer?.name + ". Existing game charges must not be assigned to the wrong player.");
   }
 
   function openStart(table) {
@@ -3435,7 +3597,8 @@ export default function QclubLedgerPage() {
 
         <div className="ql-tabs">
           {[
-            ["desk", "🎱 Desk Ledger"],
+            ["register", "📒 Daily Register"],
+            ["desk", "🎱 Tables & Games"],
             ["fnb", "🍽 Add F&B"],
             ["activity", "🌐 Website Activity"],
             ["ledger", "🧾 Ledger History"],
@@ -3447,6 +3610,34 @@ export default function QclubLedgerPage() {
           <button className="ql-tab" onClick={function() { window.open("/table-qr-print","_blank","noopener"); }}>▦ Print Table QRs</button>
           <button className="ql-tab" onClick={refreshAll}>{busy ? "Refreshing…" : "↻ Refresh"}</button>
         </div>
+
+        {tab === "register" ? (
+          <DailyRegisterPage
+            selectedDate={registerDate}
+            onDateChange={setRegisterDate}
+            dayRows={registerDayRows}
+            dayLoading={registerDayLoading}
+            dayError={registerDayError}
+            dayLimited={registerDayLimited}
+            playerTabs={playerTabs}
+            customers={customers}
+            fnbTabs={fnbTabs}
+            catalogue={catalogue}
+            sessions={sessions}
+            tables={tables}
+            rules={rules}
+            busy={busy}
+            previewMode={registerPreviewMode}
+            onOpenCustomer={openCustomerFromDailyRegister}
+            onAddFnb={addFnbForClubTab}
+            onCreateCustomer={createRegisterCustomer}
+            onOpenTables={function() { setTab("desk"); }}
+            onOpenHistory={function() { setTab("ledger"); }}
+            onPostAllocations={postRegisterAllocations}
+            onConfigureGameCharge={configureRegisterGameCharge}
+            onContinueGame={continueRegisterGameCharge}
+          />
+        ) : null}
 
         {tab === "desk" ? (
           <>

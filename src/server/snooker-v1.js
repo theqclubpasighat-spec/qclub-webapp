@@ -1544,6 +1544,86 @@ async function upsertCustomer(req, res) {
 }
 
 
+// Read-only day sheet. Existing charging, settlement and inventory paths remain authoritative.
+// A business date always means midnight-to-midnight in Pasighat (Asia/Kolkata).
+async function listDailyRegister(req,res){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const date=safeText(req.query?.date||"",10).trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return json(res,400,{ok:false,error:"REGISTER_DATE_REQUIRED"});
+  const startMs=Date.parse(date+"T00:00:00+05:30");
+  if(!Number.isFinite(startMs))return json(res,400,{ok:false,error:"INVALID_REGISTER_DATE"});
+  const start=new Date(startMs).toISOString();
+  const end=new Date(startMs+86400000).toISOString();
+  const supabase=getSupabaseAdmin();
+  const [{data:tabs,error:te},{data:people,error:pe},{data:bills,error:be},{data:lines,error:le},{data:charges,error:ce}]=await Promise.all([
+    supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,opened_at").gte("opened_at",start).lt("opened_at",end).limit(500),
+    supabase.from("snooker_session_people").select("id,customer_id,name,joined_at").gte("joined_at",start).lt("joined_at",end).limit(500),
+    supabase.from("snooker_bills").select("id,customer_id,customer_name,created_at").gte("created_at",start).lt("created_at",end).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").limit(500),
+    supabase.from("snooker_fnb_lines").select("id,tab_id,person_id,added_at,status").gte("added_at",start).lt("added_at",end).neq("status","VOIDED").limit(1000),
+    supabase.from("snooker_person_charges").select("id,person_id,created_at,status").gte("created_at",start).lt("created_at",end).neq("status","VOIDED").limit(1000),
+  ]);
+  if(te||pe||be||le||ce)throw te||pe||be||le||ce;
+  const tabMap=new Map((tabs||[]).map(x=>[x.id,x]));
+  const personMap=new Map((people||[]).map(x=>[x.id,x]));
+  // A customer may have opened their tab/session yesterday but ordered today.
+  const missingTabIds=[...new Set((lines||[]).map(x=>x.tab_id).filter(id=>id&&!tabMap.has(id)))];
+  const missingPersonIds=[...new Set([
+    ...(lines||[]).map(x=>x.person_id),
+    ...(charges||[]).map(x=>x.person_id),
+  ].filter(id=>id&&!personMap.has(id)))];
+  for(let i=0;i<missingTabIds.length;i+=100){
+    const q=await supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,opened_at").in("id",missingTabIds.slice(i,i+100));
+    if(q.error)throw q.error;
+    for(const row of q.data||[])tabMap.set(row.id,row);
+  }
+  for(let i=0;i<missingPersonIds.length;i+=100){
+    const q=await supabase.from("snooker_session_people").select("id,customer_id,name,joined_at").in("id",missingPersonIds.slice(i,i+100));
+    if(q.error)throw q.error;
+    for(const row of q.data||[])personMap.set(row.id,row);
+  }
+  const customersById=new Map();
+  const mark=(customerId,fallbackName,time)=>{
+    if(!customerId||!time)return;
+    const tick=Date.parse(time);
+    if(!Number.isFinite(tick))return;
+    let row=customersById.get(customerId);
+    if(!row){
+      row={customer_id:customerId,name:fallbackName||"CUSTOMER",first_activity_at:time,last_activity_at:time,activity_count:0};
+      customersById.set(customerId,row);
+    }
+    if(tick<Date.parse(row.first_activity_at))row.first_activity_at=time;
+    if(tick>Date.parse(row.last_activity_at))row.last_activity_at=time;
+    row.activity_count++;
+  };
+  for(const x of tabs||[])mark(x.customer_id,x.customer_name,x.opened_at);
+  for(const x of people||[])mark(x.customer_id,x.name,x.joined_at);
+  for(const x of bills||[])mark(x.customer_id,x.customer_name,x.created_at);
+  for(const x of lines||[]){
+    const tab=x.tab_id?tabMap.get(x.tab_id):null;
+    const person=x.person_id?personMap.get(x.person_id):null;
+    mark(tab?.customer_id||person?.customer_id,tab?.customer_name||person?.name,x.added_at);
+  }
+  for(const x of charges||[]){
+    const person=personMap.get(x.person_id);
+    mark(person?.customer_id,person?.name,x.created_at);
+  }
+  const ids=[...customersById.keys()];
+  for(let i=0;i<ids.length;i+=100){
+    const q=await supabase.from("snooker_customers").select("id,name,phone,is_member").in("id",ids.slice(i,i+100));
+    if(q.error)throw q.error;
+    for(const customer of q.data||[]){
+      const row=customersById.get(customer.id);
+      if(row){
+        row.name=customer.name||row.name;
+        row.phone=customer.phone||null;
+        row.is_member=Boolean(customer.is_member);
+      }
+    }
+  }
+  const rows=[...customersById.values()].sort((a,b)=>Date.parse(a.first_activity_at)-Date.parse(b.first_activity_at));
+  return json(res,200,{date,rows,limited:Math.max((tabs||[]).length,(people||[]).length,(bills||[]).length)>=500||(lines||[]).length>=1000||(charges||[]).length>=1000});
+}
+
 async function listPlayerTabs(req,res){
   const auth=await requireAuth(req,res); if(!auth)return;
   const supabase=getSupabaseAdmin();
@@ -6688,6 +6768,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (parts[0] === "fnb-lines" && parts[1] && parts[2] === "void" && method === "POST") return await voidFnb(req, res, parts[1], ["ADMIN"]);
 
     if (method === "GET" && path === "customers") return await listCustomers(req, res);
+    if (method === "GET" && path === "daily-register") return await listDailyRegister(req, res);
     if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "detail" && method === "GET") return await customerTabDetail(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);
