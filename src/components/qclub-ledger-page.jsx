@@ -100,6 +100,12 @@ function readAuth() {
 
 async function apiRequest(path, options) {
   const opts = options || {};
+  const method = String(opts.method || "GET").toUpperCase();
+  const isBranchPreview = !["www.theqclubpasighat.com", "theqclubpasighat.com"].includes(window.location.hostname.toLowerCase());
+  const isLedgerWrite = !["GET", "HEAD", "OPTIONS"].includes(method) && !["auth/login", "auth/logout"].includes(String(path).replace(/^\\/+/, ""));
+  if (isBranchPreview && isLedgerWrite) {
+    throw new Error("READ-ONLY PREVIEW: No Ledger data can be changed here. Production balances are protected.");
+  }
   const response = await fetch(API_ROOT + "/" + path, {
     method: opts.method || "GET",
     cache: "no-store",
