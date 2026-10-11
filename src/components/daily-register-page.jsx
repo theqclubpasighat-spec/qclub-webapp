@@ -29,6 +29,7 @@ export default function DailyRegisterPage({
   const [demoMode, setDemoMode] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
   const [chargeCustomer, setChargeCustomer] = useState(null);
+  const [previewCharges, setPreviewCharges] = useState([]);
   const [bulkResults, setBulkResults] = useState(null);
   const today = pasighatBusinessDate();
   const isToday = selectedDate === today;
@@ -54,6 +55,12 @@ export default function DailyRegisterPage({
     {customer_id:"demo-katem",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:1}]},
   ];
   const shownDayRows = demoMode ? exampleDayRows : dayRows;
+  // Simulation-only: never merge these charges into actual customer balances or API data.
+  // They are deliberately kept in this component's memory and disappear on reload.
+  const simulateCharge = entry => {
+    setPreviewCharges(current => [...current, {...entry, id: current.length + 1, at: new Date().toISOString()}]);
+  };
+  const simulationTotal = previewCharges.reduce((sum, entry) => sum + Number(entry.amount_inr || 0), 0);
   const shownOpenTabs = demoMode ? exampleTabs : playerTabs;
   const shownFnbTabs = demoMode ? exampleFnbTabs : fnbTabs;
   const rows = useMemo(() => mergeRegisterRows(shownDayRows, shownOpenTabs, selectedDate, today, search),
@@ -138,6 +145,13 @@ export default function DailyRegisterPage({
       {livePreviewNotice}
       {previewMode ? <button className="ql-btn gold" style={{ width: "fit-content" }} onClick={() => setDemoMode(value => !value)}>{demoMode ? "Return to live read-only data" : "Show Kiron / Kamin / Wilson example"}</button> : null}
       {demoMode ? <div style={{ ...box, borderColor:"#b78c35" }}>SIMULATED REGISTER — sample balances and products are illustrative, not actual sales or current catalogue prices. No customer or financial records are created.</div> : null}
+      {previewMode && previewCharges.length>0 ? (
+        <div style={{ ...box, borderColor:"#d29f35", background:"#352b17" }} role="status">
+          <strong>Preview additions · Not saved</strong>
+          <div style={muted}>{previewCharges.length} test entries · {formatInr(simulationTotal)} total (simulation only)</div>
+          <button type="button" className="ql-btn ghost" style={{ marginTop:8 }} onClick={()=>setPreviewCharges([])}>Clear simulated charges</button>
+        </div>
+      ) : null}
       <div style={{ ...box, background: "#102a25", borderColor: "#3e8b78" }}>
         <div style={{ ...layout, justifyContent: "space-between", alignItems: "start" }}>
           <div>
@@ -180,6 +194,7 @@ export default function DailyRegisterPage({
           demoMode={demoMode}
           onClose={() => setChargeCustomer(null)}
           onPost={onPostRegisterFrames}
+          onSimulate={simulateCharge}
           onStartTimed={onConfigureGameCharge}
           onContinue={onContinueGame}
         />
@@ -291,6 +306,7 @@ export default function DailyRegisterPage({
         <div style={{ marginTop: 10 }}>
           {rows.map((row, index) => {
             const locations = row.open_tab?.active_locations || [];
+            const simulated = previewMode ? previewCharges.filter(x => x.customer_id === row.customer_id) : [];
             const fnb = (shownFnbTabs || []).find(tab => tab.customer_id === row.customer_id);
             const lines = (fnb?.lines || []).filter(x => x.status === "ACTIVE").slice(-3);
             const summary = [
@@ -309,6 +325,16 @@ export default function DailyRegisterPage({
                   <div style={muted}>{row.carried_forward ? "CARRY-FORWARD" : locations.length ? "PLAYING" : row.open_tab ? "TAB OPEN" : "DAY ACTIVITY"}</div>
                 </div>
               </div>
+              {simulated.length>0 ? (
+                <div style={{ padding:10,background:"#352b17",border:"1px solid #bc933b",borderRadius:8 }}>
+                  <strong>SIMULATED CHARGES · NOT SAVED</strong>
+                  {simulated.map(x=><div key={x.id} style={{...layout,justifyContent:"space-between",marginTop:5}}>
+                    <span>{x.quantity} × {x.game_name} · {x.table_id.replace("table_","T")}</span>
+                    <strong>{formatInr(x.amount_inr)}</strong>
+                  </div>)}
+                  <div style={{marginTop:6,fontWeight:700}}>Sample additions: {formatInr(simulated.reduce((sum,x)=>sum+Number(x.amount_inr),0))}</div>
+                </div>
+              ):null}
               <div style={layout}>
                 <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy || demoMode}>View account / Checkout</button>
                 <button className="ql-btn ghost" onClick={() => onAddFnb(row)} disabled={busy || demoMode || previewMode || !isToday}>+ Add F&B</button>
