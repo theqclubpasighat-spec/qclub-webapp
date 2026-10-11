@@ -60,3 +60,72 @@ export function validateRegisterAllocation(item, allocations, availableCustomerI
   }
   return { recipients, totalQuantity, totalInr: Number(item.selling_price_inr) * totalQuantity };
 }
+
+
+// A register row selects a game, then delegates charge creation to the existing
+// authoritative session/timer/game flow. No manual independent charge is posted.
+export const REGISTER_GAME_TYPES = [
+  { id: "NORMAL_SNOOKER", label: "Normal Snooker / Championship" },
+  { id: "QCHASE_RUMMY", label: "QChase / Rummy" },
+  { id: "SIX_BALL_SNOOKER", label: "6-Ball Snooker" },
+  { id: "TEN_BALL_SNOOKER", label: "10-Ball Snooker" },
+  { id: "KITTY", label: "Kitty" },
+  { id: "NORMAL_POOL", label: "American Pool" },
+];
+
+export function registerBillingModes(gameType) {
+  switch (gameType) {
+    case "NORMAL_SNOOKER":
+      return [
+        { id: "HOURLY", label: "By table time · hourly" },
+        { id: "LOSER_PAYS", label: "Loser pays actual frame time" },
+      ];
+    case "QCHASE_RUMMY":
+      return [
+        { id: "PER_PLAYER", label: "Per game · ₹100 per active player" },
+        { id: "HOURLY_SHARED", label: "By table time · split among active players" },
+      ];
+    case "SIX_BALL_SNOOKER":
+    case "TEN_BALL_SNOOKER":
+      return [{ id: "PER_PLAYER", label: "Per player / per game · existing game rules" }];
+    case "KITTY":
+      return [{ id: "PER_PLAYER", label: "Winner pays timed Kitty charge" }];
+    case "NORMAL_POOL":
+      return [{ id: "HOURLY", label: "By table time · hourly" }];
+    default:
+      return [];
+  }
+}
+
+export function registerMatchFormats(gameType, billingMode) {
+  if (["QCHASE_RUMMY", "KITTY", "NORMAL_POOL"].includes(gameType)) {
+    return [{ id: "FLEX", label: "Flexible players" }];
+  }
+  if (gameType === "NORMAL_SNOOKER" && billingMode === "HOURLY") {
+    return [
+      { id: "FLEX", label: "Flexible players" },
+      { id: "SINGLES", label: "Singles · 2 players" },
+      { id: "DOUBLES", label: "Doubles · 2 teams" },
+      { id: "CHAMPIONSHIP", label: "Championship · 3–6 players" },
+    ];
+  }
+  return [
+    { id: "SINGLES", label: "Singles · 2 players" },
+    { id: "DOUBLES", label: "Doubles · 2 teams" },
+    { id: "CHAMPIONSHIP", label: "Championship · 3–6 players" },
+  ];
+}
+
+export function registerTableAllowsGame(table, gameType) {
+  if (!table || !gameType) return false;
+  if (table.table_type === "POOL") return gameType === "NORMAL_POOL";
+  if (table.table_type === "MINI_SNOOKER") return [
+    "NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER",
+    "TEN_BALL_SNOOKER", "KITTY",
+  ].includes(gameType);
+  if (table.table_type === "FULL_SIZE_SNOOKER") return [
+    "NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER",
+    "TEN_BALL_SNOOKER", "KITTY",
+  ].includes(gameType);
+  return false;
+}
