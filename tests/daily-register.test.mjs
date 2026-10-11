@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pasighatBusinessDate, mergeRegisterRows, validateRegisterAllocation } from "../src/lib/daily-register.js";
+import {
+  pasighatBusinessDate, mergeRegisterRows, validateRegisterAllocation,
+  REGISTER_GAME_TYPES, registerBillingModes, registerMatchFormats, registerTableAllowsGame,
+} from "../src/lib/daily-register.js";
 
 test("register date is Pasighat business date, not UTC date", () => {
   assert.equal(pasighatBusinessDate(new Date("2026-10-10T19:00:00Z")), "2026-10-11");
@@ -36,4 +39,20 @@ test("one Red Bull each and a 2/1 split produce exactly allocated quantity", () 
   assert.throws(() => validateRegisterAllocation(item,{mibom:0.5},ids), /whole quantity/);
   assert.throws(() => validateRegisterAllocation(item,{unknown:1},ids), /registered customer/);
   assert.throws(() => validateRegisterAllocation(item,{mibom:1},["katem"]), /registered customer/);
+});
+
+test("table and frame charge chooser includes club games and legitimate billing rules", () => {
+  assert.deepEqual(REGISTER_GAME_TYPES.map(game => game.id), [
+    "NORMAL_SNOOKER", "QCHASE_RUMMY", "SIX_BALL_SNOOKER",
+    "TEN_BALL_SNOOKER", "KITTY", "NORMAL_POOL",
+  ]);
+  assert.deepEqual(registerBillingModes("QCHASE_RUMMY").map(x => x.id), ["PER_PLAYER", "HOURLY_SHARED"]);
+  assert.deepEqual(registerBillingModes("NORMAL_SNOOKER").map(x => x.id), ["HOURLY", "LOSER_PAYS"]);
+  assert.deepEqual(registerBillingModes("KITTY").map(x => x.id), ["PER_PLAYER"]);
+  assert.deepEqual(registerMatchFormats("NORMAL_SNOOKER","LOSER_PAYS").map(x => x.id),
+    ["SINGLES","DOUBLES","CHAMPIONSHIP"]);
+  assert.equal(registerMatchFormats("KITTY","PER_PLAYER").length,1);
+  assert.equal(registerTableAllowsGame({table_type:"POOL"},"KITTY"), false);
+  assert.equal(registerTableAllowsGame({table_type:"MINI_SNOOKER"},"QCHASE_RUMMY"), true);
+  assert.equal(registerTableAllowsGame({table_type:"FULL_SIZE_SNOOKER"},"TEN_BALL_SNOOKER"), true);
 });
