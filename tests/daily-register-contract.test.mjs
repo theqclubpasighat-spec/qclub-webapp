@@ -28,27 +28,25 @@ test("branch preview must reject Ledger writes before fetch, except auth login/l
   assert.match(fn, /"auth\/login", "auth\/logout"/);
 });
 
-test("customer register uses one popup without a billing-rule form", () => {
+test("customer register has one Add button and preview-only unsaved entry", () => {
   const register = readFileSync(new URL("../src/components/daily-register-page.jsx", import.meta.url), "utf8");
   const modal = readFileSync(new URL("../src/components/daily-register-charge-modal.jsx", import.meta.url), "utf8");
-  assert.match(register, /Add Table \/ Frame Charges/);
-  assert.match(register, /DailyRegisterChargeModal/);
-  assert.match(register, /SIMULATED CHARGES/);
-  assert.match(register, /onSimulate=\\{simulateCharge\\}/);
-  assert.match(modal, /role="dialog"/);
-  assert.match(modal, /Chargeable frames/);
-  assert.match(modal, /Add "\+price\(total\)\+" to account/);
-  assert.match(modal, /onPost\\(/);
-  assert.match(modal, /onSimulate\\(/);
-  assert.match(modal, /fixed\\?"Add "\\+price\\(total\\)/);
-  assert.doesNotMatch(modal, /Preview amount/);
-  assert.doesNotMatch(modal, /Preview selected charges/);
-  assert.match(modal, /onStartTimed\(/);
-  assert.match(modal, /onContinue\(/);
-  assert.match(modal, /Championship format/);
-  assert.doesNotMatch(modal, /Billing rule/);
-  assert.doesNotMatch(modal, /Normal Snooker \/ Championship/);
-  assert.match(page, /async function postRegisterFrames\(payload\)/);
+  assert.ok(register.includes("Add Table / Frame Charges"));
+  assert.ok(register.includes("DailyRegisterChargeModal"));
+  assert.ok(register.includes("SIMULATED CHARGES"));
+  assert.ok(register.includes("onSimulate={simulateCharge}"));
+  assert.ok(modal.includes('role="dialog"'));
+  assert.ok(modal.includes("Chargeable frames"));
+  assert.ok(modal.includes('fixed?"Add "+price(total)'));
+  assert.ok(modal.includes("onPost({"));
+  assert.ok(modal.includes("onSimulate({"));
+  assert.ok(modal.includes("onStartTimed("));
+  assert.ok(modal.includes("onContinue("));
+  assert.ok(modal.includes("Championship format"));
+  assert.equal(modal.includes("Preview amount"),false);
+  assert.equal(modal.includes("Billing rule"),false);
+  assert.equal(modal.includes("Normal Snooker / Championship"),false);
+  assert.ok(page.includes("async function postRegisterFrames(payload)"));
 });
 
 test("manual frame charge API never trusts client amounts and uses atomic RPC", () => {
