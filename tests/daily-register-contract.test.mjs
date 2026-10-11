@@ -28,17 +28,35 @@ test("branch preview must reject Ledger writes before fetch, except auth login/l
   assert.match(fn, /"auth\/login", "auth\/logout"/);
 });
 
-test("customer register exposes selectable game charges without direct manual writes", () => {
+test("customer register has one Add button and preview-only unsaved entry", () => {
   const register = readFileSync(new URL("../src/components/daily-register-page.jsx", import.meta.url), "utf8");
-  assert.match(register, /Add Table \/ Frame Charges/);
-  assert.match(register, /Game \/ Format/);
-  assert.match(register, /Billing rule/);
-  assert.match(register, /onConfigureGameCharge/);
-  assert.match(register, /onContinueGame/);
-  assert.match(register, /Preview selected charges/);
-  assert.doesNotMatch(register, /person-charges.*method: "POST"/);
-  assert.match(page, /function configureRegisterGameCharge\(/);
-  assert.match(page, /function continueRegisterGameCharge\(/);
-  assert.match(page, /setStartTable\(table\)/);
-  assert.match(page, /setTableViewSessionId\(liveSession.session_id\)/);
+  const modal = readFileSync(new URL("../src/components/daily-register-charge-modal.jsx", import.meta.url), "utf8");
+  assert.ok(register.includes("Add Table / Frame Charges"));
+  assert.ok(register.includes("DailyRegisterChargeModal"));
+  assert.ok(register.includes("SIMULATED CHARGES"));
+  assert.ok(register.includes("onSimulate={simulateCharge}"));
+  assert.ok(modal.includes('role="dialog"'));
+  assert.ok(modal.includes("Chargeable frames"));
+  assert.ok(modal.includes('fixed?"Add "+price(total)'));
+  assert.ok(modal.includes("onPost({"));
+  assert.ok(modal.includes("onSimulate({"));
+  assert.ok(modal.includes("onStartTimed("));
+  assert.ok(modal.includes("onContinue("));
+  assert.ok(modal.includes("Championship format"));
+  assert.equal(modal.includes("Preview amount"),false);
+  assert.equal(modal.includes("Billing rule"),false);
+  assert.equal(modal.includes("Normal Snooker / Championship"),false);
+  assert.ok(page.includes("async function postRegisterFrames(payload)"));
+});
+
+test("manual frame charge API never trusts client amounts and uses atomic RPC", () => {
+  const start = server.indexOf("async function createRegisterFrameCharge(req,res){");
+  const end = server.indexOf("async function listPlayerTabs(req,res){",start);
+  assert.ok(start>0&&end>start);
+  const handler=server.slice(start,end);
+  assert.match(handler, /requireAuth\(req,res\)/);
+  assert.match(handler, /qclub_register_add_frame_bill/);
+  assert.match(handler, /p_idempotency_key:key/);
+  assert.doesNotMatch(handler, /req.body\?\.amount/);
+  assert.match(server, /path === "register\/charges"\) return await createRegisterFrameCharge/);
 });

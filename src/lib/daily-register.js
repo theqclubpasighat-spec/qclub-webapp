@@ -65,7 +65,7 @@ export function validateRegisterAllocation(item, allocations, availableCustomerI
 // A register row selects a game, then delegates charge creation to the existing
 // authoritative session/timer/game flow. No manual independent charge is posted.
 export const REGISTER_GAME_TYPES = [
-  { id: "NORMAL_SNOOKER", label: "Normal Snooker / Championship" },
+  { id: "NORMAL_SNOOKER", label: "Normal Snooker" },
   { id: "QCHASE_RUMMY", label: "QChase / Rummy" },
   { id: "SIX_BALL_SNOOKER", label: "6-Ball Snooker" },
   { id: "TEN_BALL_SNOOKER", label: "10-Ball Snooker" },

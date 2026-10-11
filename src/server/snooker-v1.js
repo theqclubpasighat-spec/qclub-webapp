@@ -1624,15 +1624,53 @@ async function listDailyRegister(req,res){
   return json(res,200,{date,rows,limited:Math.max((tabs||[]).length,(people||[]).length,(bills||[]).length)>=500||(lines||[]).length>=1000||(charges||[]).length>=1000});
 }
 
+// Paper-register quick entry: one customer's frames/games become one existing
+// PLAYER_ACCOUNT bill. The SQL function posts bill + item atomically and prices
+// solely from the active server-side game rule, never from client amount fields.
+async function createRegisterFrameCharge(req,res){
+  const auth=await requireAuth(req,res);if(!auth)return;
+  const key=idempotencyKey(req);
+  if(!key || key.length>180)return json(res,400,{ok:false,error:"IDEMPOTENCY_KEY_REQUIRED"});
+  const customerId=safeText(req.body?.customer_id||"",100);
+  const tableId=safeText(req.body?.table_id||"",80);
+  const gameType=safeText(req.body?.game_type||"",80).toUpperCase();
+  const quantity=number(req.body?.quantity,0);
+  const format=safeText(req.body?.register_format||"STANDARD",30).toUpperCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(customerId))return json(res,400,{ok:false,error:"CUSTOMER_ID_REQUIRED"});
+  if(!tableId || !Number.isInteger(quantity) || quantity<1 || quantity>50)return json(res,400,{ok:false,error:"INVALID_REGISTER_QUANTITY"});
+  if(!["STANDARD","CHAMPIONSHIP"].includes(format))return json(res,400,{ok:false,error:"INVALID_REGISTER_FORMAT"});
+  if(!["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER","QCHASE_RUMMY"].includes(gameType)){
+    return json(res,400,{ok:false,error:"TIMED_GAME_REQUIRES_SESSION"});
+  }
+  const supabase=getSupabaseAdmin();
+  const {data,error}=await supabase.rpc("qclub_register_add_frame_bill",{
+    p_customer_id:customerId,
+    p_table_id:tableId,
+    p_game_type:gameType,
+    p_units:quantity,
+    p_format:format,
+    p_idempotency_key:key,
+    p_staff_id:auth.staff_id,
+  });
+  if(error){
+    const code=String(error.message||"").split(":")[0];
+    const status=error.code==="23514"||error.code==="23505" ? 409 : error.code==="22023" ? 400 : 503;
+    return json(res,status,{ok:false,error:status===503?"REGISTER_CHARGE_UNAVAILABLE":safeText(code,120),
+      message:status===503?"Register billing service is not installed. Do not retry with a new transaction ID.":safeText(error.message,300)});
+  }
+  return json(res,200,{...data,customer_id:customerId,game_type:gameType,quantity});
+}
+
 async function listPlayerTabs(req,res){
   const auth=await requireAuth(req,res); if(!auth)return;
   const supabase=getSupabaseAdmin();
 
-  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError}] = await Promise.all([
+  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:unpaidCustomerBills,error:unpaidError}] = await Promise.all([
     supabase.from("snooker_session_people").select("id,customer_id,session_id,name,phone,status,joined_at,left_at").not("customer_id","is",null).order("updated_at",{ascending:false}).limit(1000),
     supabase.from("snooker_fnb_tabs").select("*").eq("status","OPEN").not("customer_id","is",null).order("last_order_at",{ascending:false}).limit(500),
+    supabase.from("snooker_bills").select("customer_id").not("customer_id","is",null).gt("due_inr",0).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").limit(500),
   ]);
-  if(peopleError||fnbTabError)throw peopleError||fnbTabError;
+  if(peopleError||fnbTabError||unpaidError)throw peopleError||fnbTabError||unpaidError;
 
   const personIds=(people||[]).map(p=>p.id);
   let charges=[];
@@ -1651,6 +1689,7 @@ async function listPlayerTabs(req,res){
   const customerIds=[...new Set([
     ...(people||[]).map(p=>p.customer_id),
     ...(openFnbTabs||[]).map(t=>t.customer_id),
+    ...(unpaidCustomerBills||[]).map(b=>b.customer_id),
   ].filter(Boolean))];
 
   let customers=[],bills=[],sessions=[];
@@ -6769,6 +6808,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
 
     if (method === "GET" && path === "customers") return await listCustomers(req, res);
     if (method === "GET" && path === "daily-register") return await listDailyRegister(req, res);
+    if (method === "POST" && path === "register/charges") return await createRegisterFrameCharge(req,res);
     if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "detail" && method === "GET") return await customerTabDetail(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);

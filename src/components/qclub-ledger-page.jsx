@@ -680,6 +680,33 @@ export default function QclubLedgerPage() {
     return opened;
   }
 
+  async function postRegisterFrames(payload) {
+    if(registerPreviewMode)throw new Error("Preview is read-only. No real frame charges can be posted here.");
+    if(!payload?.customer_id || !payload?.table_id || !payload?.idempotency_key){
+      throw new Error("Customer, table and transaction ID are required.");
+    }
+    setBusy(true);
+    try{
+      const result=await protectedCall("register/charges",{
+        method:"POST",
+        body:{
+          customer_id:payload.customer_id,
+          table_id:payload.table_id,
+          game_type:payload.game_type,
+          quantity:payload.quantity,
+          register_format:payload.register_format,
+          idempotency_key:payload.idempotency_key,
+        },
+      });
+      flash((result.reused?"Already recorded: ":"Added to customer account: ")+money(result.amount_inr)+" · "+result.bill_no);
+      await Promise.allSettled([refreshAll(),loadDailyRegister(registerDate)]);
+      return result;
+    }catch(error){
+      flash(error.message||"Unable to record frames. Do not create a duplicate entry.",true);
+      throw error;
+    }finally{setBusy(false);}
+  }
+
   async function postRegisterAllocations(payload) {
     if (registerPreviewMode) throw new Error("Order posting is disabled on preview URLs.");
     const entries = payload.recipients || [];
@@ -3634,6 +3661,7 @@ export default function QclubLedgerPage() {
             onOpenTables={function() { setTab("desk"); }}
             onOpenHistory={function() { setTab("ledger"); }}
             onPostAllocations={postRegisterAllocations}
+            onPostRegisterFrames={postRegisterFrames}
             onConfigureGameCharge={configureRegisterGameCharge}
             onContinueGame={continueRegisterGameCharge}
           />

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
+import DailyRegisterChargeModal from "./daily-register-charge-modal.jsx";
 import {
   mergeRegisterRows, normalizeRegisterSearch, pasighatBusinessDate, validateRegisterAllocation,
-  REGISTER_GAME_TYPES, registerBillingModes, registerMatchFormats, registerTableAllowsGame,
 } from "../lib/daily-register.js";
 
 const box = { background: "#152329", border: "1px solid #34494c", borderRadius: 12, padding: 15 };
@@ -13,7 +13,7 @@ export default function DailyRegisterPage({
   selectedDate, onDateChange, dayRows, dayLoading, dayError, dayLimited,
   playerTabs, customers, fnbTabs, catalogue, sessions, tables, rules, busy, previewMode,
   onOpenCustomer, onAddFnb, onCreateCustomer, onOpenTables, onOpenHistory,
-  onPostAllocations, onConfigureGameCharge, onContinueGame,
+  onPostAllocations, onConfigureGameCharge, onContinueGame, onPostRegisterFrames,
 }) {
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -29,52 +29,8 @@ export default function DailyRegisterPage({
   const [demoMode, setDemoMode] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
   const [chargeCustomer, setChargeCustomer] = useState(null);
-  const [chargeGameType, setChargeGameType] = useState("NORMAL_SNOOKER");
-  const [chargeBilling, setChargeBilling] = useState("HOURLY");
-  const [chargeMatchFormat, setChargeMatchFormat] = useState("FLEX");
-  const [chargeTableId, setChargeTableId] = useState("");
-  const [chargeReview, setChargeReview] = useState(false);
+  const [previewCharges, setPreviewCharges] = useState([]);
   const [bulkResults, setBulkResults] = useState(null);
-  const availableGameTypes = REGISTER_GAME_TYPES.filter(x => (rules || []).some(rule => rule.game_type === x.id));
-  const chargeModes = registerBillingModes(chargeGameType);
-  const chargeFormats = registerMatchFormats(chargeGameType, chargeBilling);
-  const compatibleTables = (tables || []).filter(table => registerTableAllowsGame(table, chargeGameType));
-  const selectedChargeTable = compatibleTables.find(x => x.table_id === chargeTableId) || null;
-  const occupyingSession = (sessions || []).find(x => x.table_id === chargeTableId && ["ACTIVE", "PAUSED"].includes(x.status)) || null;
-  const chargeGameName = REGISTER_GAME_TYPES.find(x => x.id === chargeGameType)?.label || chargeGameType;
-  const selectedBillingLabel = chargeModes.find(x => x.id === chargeBilling)?.label || chargeBilling;
-  const showChargeForm = Boolean(chargeCustomer && selectedDate === pasighatBusinessDate());
-  function openChargeForm(row) {
-    setChargeCustomer(row);
-    const firstGame = availableGameTypes.find(x => x.id === (row.open_tab?.active_locations || [])[0]?.game_type)?.id
-      || availableGameTypes.find(x => x.id === "NORMAL_SNOOKER")?.id || availableGameTypes[0]?.id || "NORMAL_SNOOKER";
-    const modes = registerBillingModes(firstGame);
-    const billing = modes[0]?.id || "";
-    setChargeGameType(firstGame);
-    setChargeBilling(billing);
-    setChargeMatchFormat(registerMatchFormats(firstGame, billing)[0]?.id || "FLEX");
-    const currentTableId = row.open_tab?.active_locations?.[0]?.table_id || "";
-    const choices = (tables || []).filter(table => registerTableAllowsGame(table, firstGame));
-    setChargeTableId(choices.find(x => x.table_id === currentTableId)?.table_id || choices[0]?.table_id || "");
-    setChargeReview(false);
-    window.requestAnimationFrame(() => document.getElementById("qclub-register-charge-panel")?.scrollIntoView({ behavior:"smooth", block:"start" }));
-  }
-  function chooseChargeGame(gameType) {
-    const billing = registerBillingModes(gameType)[0]?.id || "";
-    setChargeGameType(gameType);
-    setChargeBilling(billing);
-    setChargeMatchFormat(registerMatchFormats(gameType, billing)[0]?.id || "FLEX");
-    setChargeTableId((tables || []).find(x => x.table_id === chargeTableId && registerTableAllowsGame(x, gameType))?.table_id
-      || (tables || []).find(x => registerTableAllowsGame(x, gameType))?.table_id || "");
-    setChargeReview(false);
-  }
-  function chooseChargeBilling(mode) {
-    setChargeBilling(mode);
-    const formats = registerMatchFormats(chargeGameType, mode);
-    if (!formats.some(x => x.id === chargeMatchFormat)) setChargeMatchFormat(formats[0]?.id || "FLEX");
-    setChargeReview(false);
-  }
-
   const today = pasighatBusinessDate();
   const isToday = selectedDate === today;
   const exampleDayRows = [
@@ -99,6 +55,12 @@ export default function DailyRegisterPage({
     {customer_id:"demo-katem",lines:[{status:"ACTIVE",item_name_snapshot:"Red Bull",quantity:1}]},
   ];
   const shownDayRows = demoMode ? exampleDayRows : dayRows;
+  // Simulation-only: never merge these charges into actual customer balances or API data.
+  // They are deliberately kept in this component's memory and disappear on reload.
+  const simulateCharge = entry => {
+    setPreviewCharges(current => [...current, {...entry, id: current.length + 1, at: new Date().toISOString()}]);
+  };
+  const simulationTotal = previewCharges.reduce((sum, entry) => sum + Number(entry.amount_inr || 0), 0);
   const shownOpenTabs = demoMode ? exampleTabs : playerTabs;
   const shownFnbTabs = demoMode ? exampleFnbTabs : fnbTabs;
   const rows = useMemo(() => mergeRegisterRows(shownDayRows, shownOpenTabs, selectedDate, today, search),
@@ -183,6 +145,13 @@ export default function DailyRegisterPage({
       {livePreviewNotice}
       {previewMode ? <button className="ql-btn gold" style={{ width: "fit-content" }} onClick={() => setDemoMode(value => !value)}>{demoMode ? "Return to live read-only data" : "Show Kiron / Kamin / Wilson example"}</button> : null}
       {demoMode ? <div style={{ ...box, borderColor:"#b78c35" }}>SIMULATED REGISTER — sample balances and products are illustrative, not actual sales or current catalogue prices. No customer or financial records are created.</div> : null}
+      {previewMode && previewCharges.length>0 ? (
+        <div style={{ ...box, borderColor:"#d29f35", background:"#352b17" }} role="status">
+          <strong>Preview additions · Not saved</strong>
+          <div style={muted}>{previewCharges.length} test entries · {formatInr(simulationTotal)} total (simulation only)</div>
+          <button type="button" className="ql-btn ghost" style={{ marginTop:8 }} onClick={()=>setPreviewCharges([])}>Clear simulated charges</button>
+        </div>
+      ) : null}
       <div style={{ ...box, background: "#102a25", borderColor: "#3e8b78" }}>
         <div style={{ ...layout, justifyContent: "space-between", alignItems: "start" }}>
           <div>
@@ -214,87 +183,21 @@ export default function DailyRegisterPage({
       </div>
 
 
-      {showChargeForm ? (
-        <div id="qclub-register-charge-panel" style={{ ...box, borderColor:"#4c9f84", scrollMarginTop: 24 }}>
-          <div style={{ ...layout, justifyContent:"space-between" }}>
-            <div>
-              <h3 style={{ margin:0 }}>🎱 Add Table / Frame Charges</h3>
-              <div style={{ ...muted, marginTop:5 }}>Customer: <strong>{chargeCustomer.name}</strong></div>
-            </div>
-            <button className="ql-btn ghost" type="button" onClick={() => setChargeCustomer(null)}>✕ Close</button>
-          </div>
-          <div style={{ ...muted, margin:"12px 0" }}>
-            Choose the game and billing rule. The charge is recorded through the existing table/session engine, not as an arbitrary manual amount on the account.
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:12 }}>
-            <label><span className="ql-label">1 · Game / Format</span>
-              <select className="ql-select" value={chargeGameType} onChange={e => chooseChargeGame(e.target.value)}>
-                {availableGameTypes.map(game => <option key={game.id} value={game.id}>{game.label}</option>)}
-              </select>
-            </label>
-            <label><span className="ql-label">2 · Billing rule</span>
-              <select className="ql-select" value={chargeBilling} onChange={e => chooseChargeBilling(e.target.value)}>
-                {chargeModes.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}
-              </select>
-            </label>
-            <label><span className="ql-label">3 · Match / Players</span>
-              <select className="ql-select" value={chargeMatchFormat} onChange={e => { setChargeMatchFormat(e.target.value); setChargeReview(false); }}>
-                {chargeFormats.map(format => <option key={format.id} value={format.id}>{format.label}</option>)}
-              </select>
-            </label>
-            <label><span className="ql-label">4 · Select Table</span>
-              <select className="ql-select" value={chargeTableId} onChange={e => { setChargeTableId(e.target.value); setChargeReview(false); }}>
-                {compatibleTables.map(table => {
-                  const occupied = (sessions || []).find(x => x.table_id === table.table_id && ["ACTIVE","PAUSED"].includes(x.status));
-                  return <option key={table.table_id} value={table.table_id}>
-                    T{table.table_no} · {table.display_name}{occupied ? " · IN USE (" + occupied.game_type.replaceAll("_"," ") + ")" : " · AVAILABLE"}
-                  </option>;
-                })}
-              </select>
-            </label>
-          </div>
-          {chargeGameType === "KITTY" ? (
-            <div style={{ ...muted, marginTop:12 }}>Kitty is billed by timed game to its winner, with minimum and rounding handled by the Kitty engine. Do not charge individual frames manually.</div>
-          ) : chargeGameType === "QCHASE_RUMMY" ? (
-            <div style={{ ...muted, marginTop:12 }}>QChase/Rummy uses game completion or shared hourly time according to the selected rule. Note: the current per-game engine may post its first game charge when a session starts; review the session activity to avoid duplicates.</div>
-          ) : chargeBilling === "LOSER_PAYS" ? (
-            <div style={{ ...muted, marginTop:12 }}>The actual loser is chosen when the frame is completed. Charges follow frame duration and verified member rate. The customer selected here is not assumed to be the loser.</div>
-          ) : chargeGameType === "NORMAL_SNOOKER" || chargeGameType === "NORMAL_POOL" ? (
-            <div style={{ ...muted, marginTop:12 }}>Hourly charges are calculated from the live table timer, then allocated using the existing billing workflow.</div>
-          ) : (
-            <div style={{ ...muted, marginTop:12 }}>The selected game uses its existing per-player game billing. Add all actual participants before completing/charging each game.</div>
-          )}
-          {occupyingSession ? (
-            <div style={{ ...box, marginTop:12, background:"#243127" }}>
-              <strong>Table already running</strong>
-              <div style={muted}>T{selectedChargeTable?.table_no}: {occupyingSession.game_type.replaceAll("_"," ")} · {occupyingSession.status}. Continue the existing session instead of creating a second one. If this customer has not joined, add them through the table controls first.</div>
-              {occupyingSession.game_type !== chargeGameType ? <div style={{ ...muted, marginTop:6 }}>Selected new game differs from the running game. End the current game/table before changing its rules.</div> : null}
-            </div>
-          ) : null}
-          {chargeReview ? (
-            <div style={{ ...box, marginTop:12, borderColor:"#b78c35" }} role="status">
-              <strong>Sample review only — no bill was created</strong>
-              <div style={muted}>{chargeCustomer.name} · {chargeGameName} · {selectedBillingLabel} · {chargeMatchFormat} · {selectedChargeTable ? "T" + selectedChargeTable.table_no : "No table selected"}</div>
-              <div style={{ ...muted, marginTop:6 }}>In actual use, the existing game controls record completed frames/games, apply the billing rule and update participating customers' running accounts.</div>
-            </div>
-          ) : null}
-          <div style={{ ...layout, marginTop:14 }}>
-            <button className="ql-btn primary" type="button" disabled={!selectedChargeTable || busy || !availableGameTypes.length}
-              onClick={() => {
-                if (demoMode) { setChargeReview(true); return; }
-                if (occupyingSession) onContinueGame(occupyingSession, chargeCustomer);
-                else onConfigureGameCharge(chargeCustomer, {
-                  table_id:chargeTableId, game_type:chargeGameType,
-                  payment_rule:chargeBilling, match_format:chargeMatchFormat,
-                });
-                setChargeCustomer(null);
-              }}>
-              {demoMode ? "Preview selected charges" : occupyingSession ? "Open existing game controls" : "Review & Start Table Session"}
-            </button>
-            <button className="ql-btn ghost" onClick={() => setChargeCustomer(null)}>Cancel</button>
-          </div>
-          {!demoMode && previewMode ? <div style={{ ...muted, marginTop:8 }}>Read-only preview: you may inspect the session setup, but the preview cannot save a table charge.</div> : null}
-        </div>
+      {chargeCustomer ? (
+        <DailyRegisterChargeModal
+          customer={chargeCustomer}
+          tables={tables}
+          rules={rules}
+          sessions={sessions}
+          busy={busy}
+          previewMode={previewMode}
+          demoMode={demoMode}
+          onClose={() => setChargeCustomer(null)}
+          onPost={onPostRegisterFrames}
+          onSimulate={simulateCharge}
+          onStartTimed={onConfigureGameCharge}
+          onContinue={onContinueGame}
+        />
       ) : null}
 
       {showHandover ? (
@@ -403,6 +306,7 @@ export default function DailyRegisterPage({
         <div style={{ marginTop: 10 }}>
           {rows.map((row, index) => {
             const locations = row.open_tab?.active_locations || [];
+            const simulated = previewMode ? previewCharges.filter(x => x.customer_id === row.customer_id) : [];
             const fnb = (shownFnbTabs || []).find(tab => tab.customer_id === row.customer_id);
             const lines = (fnb?.lines || []).filter(x => x.status === "ACTIVE").slice(-3);
             const summary = [
@@ -421,10 +325,20 @@ export default function DailyRegisterPage({
                   <div style={muted}>{row.carried_forward ? "CARRY-FORWARD" : locations.length ? "PLAYING" : row.open_tab ? "TAB OPEN" : "DAY ACTIVITY"}</div>
                 </div>
               </div>
+              {simulated.length>0 ? (
+                <div style={{ padding:10,background:"#352b17",border:"1px solid #bc933b",borderRadius:8 }}>
+                  <strong>SIMULATED CHARGES · NOT SAVED</strong>
+                  {simulated.map(x=><div key={x.id} style={{...layout,justifyContent:"space-between",marginTop:5}}>
+                    <span>{x.quantity} × {x.game_name} · {x.table_id.replace("table_","T")}</span>
+                    <strong>{formatInr(x.amount_inr)}</strong>
+                  </div>)}
+                  <div style={{marginTop:6,fontWeight:700}}>Sample additions: {formatInr(simulated.reduce((sum,x)=>sum+Number(x.amount_inr),0))}</div>
+                </div>
+              ):null}
               <div style={layout}>
                 <button className="ql-btn" onClick={() => onOpenCustomer(row)} disabled={busy || demoMode}>View account / Checkout</button>
                 <button className="ql-btn ghost" onClick={() => onAddFnb(row)} disabled={busy || demoMode || previewMode || !isToday}>+ Add F&B</button>
-                <button className="ql-btn gold" type="button" onClick={() => openChargeForm(row)} disabled={busy || !isToday}>+ Add Table / Frame Charges</button>
+                <button className="ql-btn gold" type="button" onClick={() => setChargeCustomer(row)} disabled={busy || !isToday}>+ Add Table / Frame Charges</button>
               </div>
             </div>;
           })}
