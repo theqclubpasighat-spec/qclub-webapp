@@ -33,10 +33,16 @@ test("customer register uses one popup without a billing-rule form", () => {
   const modal = readFileSync(new URL("../src/components/daily-register-charge-modal.jsx", import.meta.url), "utf8");
   assert.match(register, /Add Table \/ Frame Charges/);
   assert.match(register, /DailyRegisterChargeModal/);
+  assert.match(register, /SIMULATED CHARGES/);
+  assert.match(register, /onSimulate=\\{simulateCharge\\}/);
   assert.match(modal, /role="dialog"/);
   assert.match(modal, /Chargeable frames/);
   assert.match(modal, /Add "\+price\(total\)\+" to account/);
-  assert.match(modal, /onPost\(/);
+  assert.match(modal, /onPost\\(/);
+  assert.match(modal, /onSimulate\\(/);
+  assert.match(modal, /fixed\\?"Add "\\+price\\(total\\)/);
+  assert.doesNotMatch(modal, /Preview amount/);
+  assert.doesNotMatch(modal, /Preview selected charges/);
   assert.match(modal, /onStartTimed\(/);
   assert.match(modal, /onContinue\(/);
   assert.match(modal, /Championship format/);
