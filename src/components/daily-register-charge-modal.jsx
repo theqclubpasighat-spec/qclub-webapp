@@ -7,7 +7,7 @@ const supportedRates = new Set(["SIX_BALL_SNOOKER","TEN_BALL_SNOOKER","QCHASE_RU
 
 export default function DailyRegisterChargeModal({
   customer, tables=[], rules=[], sessions=[], busy=false, previewMode=false, demoMode=false,
-  onClose, onPost, onStartTimed, onContinue,
+  onClose, onPost, onStartTimed, onContinue, onSimulate,
 }) {
   const [gameType,setGameType] = useState("SIX_BALL_SNOOKER");
   const [tableId,setTableId] = useState(customer?.open_tab?.active_locations?.[0]?.table_id || "table_1");
@@ -16,7 +16,6 @@ export default function DailyRegisterChargeModal({
   const [hourly,setHourly] = useState(false);
   const [posting,setPosting] = useState(false);
   const [error,setError] = useState("");
-  const [demoReview,setDemoReview] = useState(false);
   const [key] = useState(()=>"reg-"+(globalThis.crypto?.randomUUID?.() || Date.now()+"-"+Math.random().toString(36).slice(2)));
   const availableGames = useMemo(()=>REGISTER_GAME_TYPES.filter(g=>rules.some(r=>r.game_type===g.id && r.active!==false)),[rules]);
   const compatibleTables = useMemo(()=>tables.filter(t=>registerTableAllowsGame(t,gameType)),[tables,gameType]);
@@ -31,7 +30,7 @@ export default function DailyRegisterChargeModal({
   const gameName=availableGames.find(g=>g.id===gameType)?.label || gameType;
 
   const chooseGame = value=>{
-    setGameType(value);setError("");setDemoReview(false);
+    setGameType(value);setError("");
     setHourly(false);
     const next=tables.find(t=>t.table_id===tableId && registerTableAllowsGame(t,value)) || tables.find(t=>registerTableAllowsGame(t,value));
     setTableId(next?.table_id||"");
@@ -41,7 +40,6 @@ export default function DailyRegisterChargeModal({
   const submit=async ()=>{
     if(posting||busy||!table)return;
     if(session) {onContinue(session,customer);onClose();return;}
-    if(demoMode||previewMode) {setDemoReview(true);return;}
     if(timed){
       onStartTimed(customer,{
         table_id:table.table_id,
@@ -52,6 +50,12 @@ export default function DailyRegisterChargeModal({
       onClose();return;
     }
     if(!goodCount) {setError("Enter between 1 and 50 whole frames/games.");return;}
+    if(demoMode||previewMode) {
+      onSimulate({customer_id:customer.customer_id,customer_name:customer.name,table_id:table.table_id,
+        game_type:gameType, game_name:gameName, quantity:count, unit_inr:rate,
+        amount_inr:total, register_format:championship?"CHAMPIONSHIP":"STANDARD"});
+      onClose();return;
+    }
     setPosting(true);setError("");
     try {
       await onPost({
@@ -86,7 +90,7 @@ export default function DailyRegisterChargeModal({
           </label>
           <label><span className="ql-label">Table</span>
             <select className="ql-select" value={table?.table_id||""} disabled={posting}
-              onChange={e=>{setTableId(e.target.value);setDemoReview(false);}}>
+              onChange={e=>setTableId(e.target.value)}>
               {compatibleTables.map(t=><option value={t.table_id} key={t.table_id}>
                 T{t.table_no} · {t.display_name}
               </option>)}
@@ -94,7 +98,7 @@ export default function DailyRegisterChargeModal({
           </label>
           {supportedRates.has(gameType) ? (
             <label className="ql-line" style={{display:"flex",gap:10,alignItems:"center",cursor:"pointer"}}>
-              <input type="checkbox" checked={hourly} disabled={posting} onChange={e=>{setHourly(e.target.checked);setDemoReview(false);}}/>
+              <input type="checkbox" checked={hourly} disabled={posting} onChange={e=>setHourly(e.target.checked)}/>
               <span>Booked by time instead of per frame/game</span>
             </label>
           ):null}
@@ -104,7 +108,7 @@ export default function DailyRegisterChargeModal({
                 <button type="button" className="ql-btn" disabled={posting||count<=1} onClick={()=>setCount(n=>Math.max(1,n-1))}>−</button>
                 <input className="ql-input" type="number" aria-label="Chargeable frames" min={1} max={50} step={1}
                   style={{textAlign:"center",flex:1,minWidth:80}} disabled={posting} value={count}
-                  onChange={e=>{setCount(Number(e.target.value));setDemoReview(false);}}/>
+                  onChange={e=>setCount(Number(e.target.value))}/>
                 <button type="button" className="ql-btn" disabled={posting||count>=50} onClick={()=>setCount(n=>Math.min(50,n+1))}>+</button>
               </div>
             </label>
@@ -131,20 +135,14 @@ export default function DailyRegisterChargeModal({
             )}
           </div>
           {session ? <div className="ql-error">This table has a running session. Continue its game to avoid double billing.</div>:null}
-          {demoReview ? (
-            <div style={{padding:10,border:"1px solid #b88f34",borderRadius:9}}>
-              <strong>Illustration only · Nothing was saved</strong>
-              <div className="ql-muted">{customer.name} · {gameName}{fixed?" · "+count+" × "+price(rate)+" = "+price(total):" · By time"}</div>
-            </div>
-          ):null}
           {error ? <div className="ql-error" role="alert">{error}</div>:null}
-          {previewMode&&!demoMode?<div className="ql-muted">Preview is read-only. No financial records will be created.</div>:null}
+          {previewMode ? <div className="ql-muted">Preview mode: Add will record a temporary sample line on this screen only. Nothing is saved to the club database.</div> : null}
           <div className="ql-row" style={{justifyContent:"flex-end"}}>
             <button type="button" className="ql-btn ghost" disabled={posting} onClick={onClose}>Cancel</button>
             <button type="button" className="ql-btn primary" disabled={posting||busy||!table||(fixed&&!goodCount)}
               onClick={submit}>
-              {posting?"Saving…":previewMode||demoMode?"Preview amount":session?"Open running table":
-                fixed?"Add "+price(total)+" to account":"Open table timer"}
+              {posting?"Adding…":session?"Open running table":
+                fixed?"Add "+price(total):"Open table timer"}
             </button>
           </div>
           <div className="ql-muted" style={{fontSize:12}}>
