@@ -125,7 +125,7 @@ export default function DailyRegisterPage({
       </div>
 
       <div style={{ ...layout, alignItems: "stretch" }}>
-        <button className="ql-btn primary" disabled={!isToday || busy || previewMode} onClick={beginNew}>+ Customer / Open Tab</button>
+        <button className="ql-btn primary" disabled={!isToday || busy} onClick={beginNew}>+ Customer / Open Tab</button>
         <button className="ql-btn gold" disabled={!isToday || busy} onClick={() => { setShowBulk(value => !value); resetBatch(); }}>Allocate F&B to several people</button>
         <button className="ql-btn" onClick={onOpenTables}>🎱 Tables & Games</button>
         <button className="ql-btn ghost" onClick={onOpenHistory}>Ledger History</button>
