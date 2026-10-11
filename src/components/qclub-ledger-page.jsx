@@ -383,6 +383,8 @@ export default function QclubLedgerPage() {
   const [clubTabViewCustomerId, setClubTabViewCustomerId] = useState("");
   const [clubTabDetail, setClubTabDetail] = useState(null);
   const [clubTabDetailLoading, setClubTabDetailLoading] = useState(false);
+  const [clubTabPendingCustomer, setClubTabPendingCustomer] = useState(null);
+  const checkoutRequestRef = useRef(false);
   const [clubCheckoutMethod, setClubCheckoutMethod] = useState("CASH");
   const [clubCheckoutAmount, setClubCheckoutAmount] = useState("");
   const [clubCheckoutPhone, setClubCheckoutPhone] = useState("");
@@ -2275,15 +2277,20 @@ export default function QclubLedgerPage() {
   async function openClubTabDetail(playerTab, options) {
     if (!playerTab || !playerTab.customer_id) return;
     const opts = options || {};
-    if (!opts.silent) setClubTabDetailLoading(true);
+    if (!opts.silent) {
+      setClubTabDetailLoading(true);
+      setClubTabPendingCustomer({customer_id:playerTab.customer_id,name:playerTab.name,kind:"VIEW"});
+    }
     try {
       const detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
       setClubTabDetail(detail);
+      if (!opts.silent) setClubTabPendingCustomer(null);
       setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
       setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
       if (!opts.keepSummaryOpen) setClubTabViewCustomerId("");
       return detail;
     } catch (error) {
+      if (!opts.silent) setClubTabPendingCustomer(null);
       flash(error.message || "Unable to load Club Tab details.", true);
       return null;
     } finally {
@@ -2411,29 +2418,55 @@ export default function QclubLedgerPage() {
   }
 
   async function prepareClubTabCheckout(playerTab) {
-    if (!playerTab || !playerTab.customer_id) return;
+    if (!playerTab || !playerTab.customer_id || checkoutRequestRef.current) return;
+    checkoutRequestRef.current = true;
+    // Show the payment destination immediately; the form remains disabled
+    // until authoritative balances return. No estimated balance is payable.
+    setClubTabPendingCustomer({customer_id:playerTab.customer_id,name:playerTab.name,kind:"CHECKOUT"});
+    setClubTabDetail(null);
+    setClubTabDetailLoading(true);
     setBusy(true);
     try {
-      let detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
-      if (Number(detail.unbilled?.total_inr || 0) > 0.009) {
-        await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", {
-          method: "POST",
-          body: { idempotency_key: makeKey("club-tab-checkout") },
-        });
+      let detail;
+      const finalize = async function() {
+        try {
+          await protectedCall("player-tabs/" + playerTab.customer_id + "/finalize", {
+            method: "POST",
+            body: { idempotency_key: makeKey("club-tab-checkout") },
+          });
+        } catch (error) {
+          // Another terminal may have finalized the same tab already.
+          // NEVER fabricate due amounts or repeat a payment as a fallback.
+          if (error?.payload?.error !== "NOTHING_TO_BILL") throw error;
+        }
+      };
+      if (Number(playerTab.unbilled_inr || 0) > 0.009) {
+        // Known unbilled charges: skip the redundant initial detail read.
+        await finalize();
         detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+      } else {
+        detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+        if (Number(detail.unbilled?.total_inr || 0) > 0.009) {
+          // Snapshot changed or was not supplied: re-check before settlement.
+          await finalize();
+          detail = await protectedCall("player-tabs/" + playerTab.customer_id + "/detail");
+        }
       }
       setClubTabViewCustomerId("");
       setClubTabDetail(detail);
       setClubCheckoutAmount(Number(detail.current_due_inr || 0).toFixed(2));
       setClubCheckoutPhone(String(detail.customer?.phone || playerTab.phone || "").replace(/\D/g, "").slice(-10));
       flash(Number(detail.current_due_inr || 0) > 0.009
-        ? "Checkout prepared. Review the itemized statement, then collect payment."
+        ? "Checkout ready. Review the itemized statement, then collect payment."
         : "This Club Tab has no amount due.");
       runInBackground(refreshBillingOverview());
       runInBackground(refreshFnbFastState());
     } catch (error) {
       flash(error.message || "Unable to prepare Club Tab checkout.", true);
     } finally {
+      checkoutRequestRef.current = false;
+      setClubTabPendingCustomer(null);
+      setClubTabDetailLoading(false);
       setBusy(false);
     }
   }
@@ -3656,6 +3689,7 @@ export default function QclubLedgerPage() {
             busy={busy}
             previewMode={registerPreviewMode}
             onOpenCustomer={openCustomerFromDailyRegister}
+            onCheckoutCustomer={prepareClubTabCheckout}
             onAddFnb={addFnbForClubTab}
             onCreateCustomer={createRegisterCustomer}
             onOpenTables={function() { setTab("desk"); }}
@@ -5071,6 +5105,18 @@ export default function QclubLedgerPage() {
               {isAdmin ? <button className="ql-btn danger" disabled={busy} onClick={function() { adminDeleteClubTab(clubTabView); }}>Delete Tab</button> : null}
               <button className="ql-btn ghost" onClick={function() { setClubTabViewCustomerId(""); }}>Close</button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clubTabPendingCustomer && !clubTabDetail ? (
+        <div className="ql-modal-bg">
+          <div className="ql-modal" role="status" aria-live="polite" style={{maxWidth:520}}>
+            <h3 style={{margin:"0 0 8px"}}>{clubTabPendingCustomer.name || "Customer"} — {clubTabPendingCustomer.kind==="CHECKOUT"?"Checkout":"Account"}</h3>
+            <div className="ql-muted">{clubTabPendingCustomer.kind==="CHECKOUT"
+              ? "Preparing final bills and retrieving verified balance…"
+              : "Loading customer charges and payments…"}</div>
+            <div className="ql-line" style={{marginTop:12}}>Loading account… Please wait. No payment has been recorded.</div>
           </div>
         </div>
       ) : null}
