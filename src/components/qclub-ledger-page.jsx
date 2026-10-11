@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase, supabaseReady } from "../supabase";
 import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
 import { QCLUB_BUILD_VERSION, QCLUB_BUILD_GENERATED_AT } from "../generated/qclub-build-version.js";
+import DailyRegisterPage from "./daily-register-page.jsx";
+import { pasighatBusinessDate } from "../lib/daily-register.js";
 
 const API_ROOT = "/api/snooker/v1";
 const AUTH_KEY = "qclub_ledger_auth_v1";
@@ -355,7 +357,12 @@ export default function QclubLedgerPage() {
   const staleVersionRef = useRef(null);
   const [staleVersion, setStaleVersion] = useState(null);
   const [versionCheckWarning, setVersionCheckWarning] = useState("");
-  const [tab, setTab] = useState("desk");
+  const [tab, setTab] = useState("register");
+  const [registerDate, setRegisterDate] = useState(pasighatBusinessDate);
+  const [registerDayRows, setRegisterDayRows] = useState([]);
+  const [registerDayLoading, setRegisterDayLoading] = useState(false);
+  const [registerDayError, setRegisterDayError] = useState("");
+  const [registerDayLimited, setRegisterDayLimited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
@@ -454,6 +461,8 @@ export default function QclubLedgerPage() {
   const token = (auth && auth.token) || "";
   const role = (auth && auth.role) || "";
   const isAdmin = role === "ADMIN";
+  // Vercel branch URLs remain inspection-only: no preview test orders in production Supabase.
+  const registerPreviewMode = !["www.theqclubpasighat.com", "theqclubpasighat.com"].includes(window.location.hostname.toLowerCase());
 
   const armOrderAlertAudio = useCallback(async function() {
     try {
@@ -619,6 +628,98 @@ export default function QclubLedgerPage() {
     Promise.resolve(promise).catch(function() {
       // Foreground action already succeeded. Periodic sync/manual refresh will reconcile.
     });
+  }
+
+  const loadDailyRegister = useCallback(async function(date) {
+    if (!token || !date) return;
+    setRegisterDayLoading(true);
+    setRegisterDayError("");
+    try {
+      const payload = await protectedCall("daily-register?date=" + encodeURIComponent(date));
+      setRegisterDayRows(payload.rows || []);
+      setRegisterDayLimited(Boolean(payload.limited));
+    } catch (error) {
+      setRegisterDayError(error.message || "Register could not be loaded.");
+    } finally {
+      setRegisterDayLoading(false);
+    }
+  }, [protectedCall, token]);
+
+  useEffect(function() {
+    if (token && tab === "register") loadDailyRegister(registerDate);
+  }, [token, tab, registerDate, loadDailyRegister]);
+
+  async function openCustomerFromDailyRegister(row) {
+    await openClubTabDetail({
+      customer_id: row.customer_id,
+      name: row.name,
+      phone: row.phone,
+    });
+  }
+
+  async function createRegisterCustomer(payload) {
+    if (registerPreviewMode) throw new Error("New customer posting is disabled on preview URLs.");
+    const opened = await protectedCall("fnb-tabs", {
+      method: "POST",
+      body: {
+        customer_id: payload.customer_id || null,
+        customer_name: payload.name,
+        customer_phone: payload.phone || null,
+        idempotency_key: makeKey("register-open"),
+      },
+    });
+    await Promise.allSettled([refreshFnbFastState(), loadDailyRegister(registerDate)]);
+    flash("Customer " + opened.customer_name + " opened in Daily Register. No table timer was started.");
+    return opened;
+  }
+
+  async function postRegisterAllocations(payload) {
+    if (registerPreviewMode) throw new Error("Order posting is disabled on preview URLs.");
+    const entries = payload.recipients || [];
+    const resultRows = [];
+    setBusy(true);
+    try {
+      // Each payer receives a separate, idempotent order. Partial results are returned explicitly:
+      // never silently repeat a charge, and never pretend that a multi-payer sequence is atomic.
+      for (const entry of entries) {
+        const customer = customers.find(function(x) { return x.customer_id === entry.customer_id; })
+          || playerTabs.find(function(x) { return x.customer_id === entry.customer_id; });
+        if (!customer) {
+          resultRows.push({ customer_id: entry.customer_id, name: "Unknown customer", ok: false, error: "Customer not found" });
+          continue;
+        }
+        try {
+          let running = fnbTabs.find(function(x) { return x.customer_id === entry.customer_id && x.status === "OPEN"; });
+          if (!running) {
+            running = await protectedCall("fnb-tabs", {
+              method: "POST",
+              body: {
+                customer_id: entry.customer_id,
+                customer_name: customer.name,
+                customer_phone: customer.phone || null,
+                idempotency_key: payload.batch_id + ":open:" + entry.customer_id,
+              },
+            });
+          }
+          await protectedCall("fnb-tabs/" + running.tab_id + "/fnb", {
+            method: "POST",
+            body: {
+              lines: [{ item_id: payload.item.id, quantity: entry.quantity }],
+              idempotency_key: payload.batch_id + ":charge:" + entry.customer_id,
+            },
+          });
+          resultRows.push({ customer_id: entry.customer_id, name: customer.name, ok: true });
+        } catch (error) {
+          resultRows.push({ customer_id: entry.customer_id, name: customer.name, ok: false, error: error.message || "Unable to post" });
+        }
+      }
+      await Promise.allSettled([refreshFnbFastState(), loadDailyRegister(registerDate)]);
+      const ok = resultRows.every(function(x) { return x.ok; });
+      flash(ok ? "Allocated F&B posted to each customer's Club Tab." : "Some customer allocations failed. Inspect status and retry the SAME batch.", !ok);
+      return { ok, results: resultRows };
+    } finally {
+      setBusy(false);
+    }
   }
 
   const refreshOneSession = useCallback(async function(sessionId) {
@@ -3435,7 +3536,8 @@ export default function QclubLedgerPage() {
 
         <div className="ql-tabs">
           {[
-            ["desk", "🎱 Desk Ledger"],
+            ["register", "📒 Daily Register"],
+            ["desk", "🎱 Tables & Games"],
             ["fnb", "🍽 Add F&B"],
             ["activity", "🌐 Website Activity"],
             ["ledger", "🧾 Ledger History"],
@@ -3447,6 +3549,30 @@ export default function QclubLedgerPage() {
           <button className="ql-tab" onClick={function() { window.open("/table-qr-print","_blank","noopener"); }}>▦ Print Table QRs</button>
           <button className="ql-tab" onClick={refreshAll}>{busy ? "Refreshing…" : "↻ Refresh"}</button>
         </div>
+
+        {tab === "register" ? (
+          <DailyRegisterPage
+            selectedDate={registerDate}
+            onDateChange={setRegisterDate}
+            dayRows={registerDayRows}
+            dayLoading={registerDayLoading}
+            dayError={registerDayError}
+            dayLimited={registerDayLimited}
+            playerTabs={playerTabs}
+            customers={customers}
+            fnbTabs={fnbTabs}
+            catalogue={catalogue}
+            sessions={sessions}
+            busy={busy}
+            previewMode={registerPreviewMode}
+            onOpenCustomer={openCustomerFromDailyRegister}
+            onAddFnb={addFnbForClubTab}
+            onCreateCustomer={createRegisterCustomer}
+            onOpenTables={function() { setTab("desk"); }}
+            onOpenHistory={function() { setTab("ledger"); }}
+            onPostAllocations={postRegisterAllocations}
+          />
+        ) : null}
 
         {tab === "desk" ? (
           <>
