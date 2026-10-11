@@ -1556,9 +1556,9 @@ async function listDailyRegister(req,res){
   const end=new Date(startMs+86400000).toISOString();
   const supabase=getSupabaseAdmin();
   const [{data:tabs,error:te},{data:people,error:pe},{data:bills,error:be},{data:lines,error:le},{data:charges,error:ce}]=await Promise.all([
-    supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,created_at").gte("created_at",start).lt("created_at",end).limit(500),
+    supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,opened_at").gte("opened_at",start).lt("opened_at",end).limit(500),
     supabase.from("snooker_session_people").select("id,customer_id,name,joined_at").gte("joined_at",start).lt("joined_at",end).limit(500),
-    supabase.from("snooker_bills").select("id,customer_id,customer_name,created_at").gte("created_at",start).lt("created_at",end).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").limit(500),
+    supabase.from("snooker_bills").select("id,customer_id,customer_name,opened_at").gte("created_at",start).lt("created_at",end).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").limit(500),
     supabase.from("snooker_fnb_lines").select("id,tab_id,person_id,added_at,status").gte("added_at",start).lt("added_at",end).neq("status","VOIDED").limit(1000),
     supabase.from("snooker_person_charges").select("id,person_id,created_at,status").gte("created_at",start).lt("created_at",end).neq("status","VOIDED").limit(1000),
   ]);
@@ -1572,7 +1572,7 @@ async function listDailyRegister(req,res){
     ...(charges||[]).map(x=>x.person_id),
   ].filter(id=>id&&!personMap.has(id)))];
   for(let i=0;i<missingTabIds.length;i+=100){
-    const q=await supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,created_at").in("id",missingTabIds.slice(i,i+100));
+    const q=await supabase.from("snooker_fnb_tabs").select("id,customer_id,customer_name,opened_at").in("id",missingTabIds.slice(i,i+100));
     if(q.error)throw q.error;
     for(const row of q.data||[])tabMap.set(row.id,row);
   }
@@ -1595,9 +1595,9 @@ async function listDailyRegister(req,res){
     if(tick>Date.parse(row.last_activity_at))row.last_activity_at=time;
     row.activity_count++;
   };
-  for(const x of tabs||[])mark(x.customer_id,x.customer_name,x.created_at);
+  for(const x of tabs||[])mark(x.customer_id,x.customer_name,x.opened_at);
   for(const x of people||[])mark(x.customer_id,x.name,x.joined_at);
-  for(const x of bills||[])mark(x.customer_id,x.customer_name,x.created_at);
+  for(const x of bills||[])mark(x.customer_id,x.customer_name,x.opened_at);
   for(const x of lines||[]){
     const tab=x.tab_id?tabMap.get(x.tab_id):null;
     const person=x.person_id?personMap.get(x.person_id):null;
