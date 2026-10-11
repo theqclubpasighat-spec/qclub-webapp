@@ -106,6 +106,9 @@ export default function DailyRegisterPage({
   const openCount = rows.filter(x => x.open_tab).length;
   const playingCount = rows.filter(x => (x.open_tab?.active_locations || []).length > 0).length;
   const openDue = rows.reduce((sum, x) => sum + Number(x.open_tab?.current_due_inr || 0), 0);
+  const registerUnavailable = Boolean(dayError && !demoMode);
+  const shownMetric = value => registerUnavailable ? "—" : value;
+
   const item = (catalogue || []).find(x => String(x.id) === String(itemId));
   const selectable = (catalogue || []).filter(x => x.sell_in_ledger !== false && !x.requires_price_configuration && !x.is_unpriced && Number(x.selling_price_inr) > 0);
   const registerIds = rows.map(row => row.customer_id);
@@ -194,10 +197,10 @@ export default function DailyRegisterPage({
           </div>
         </div>
         <div style={{ ...layout, marginTop: 14 }}>
-          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Customers shown</div><strong style={{ fontSize: 24 }}>{rows.length}</strong></div>
-          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Open accounts</div><strong style={{ fontSize: 24 }}>{openCount}</strong></div>
-          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Playing now</div><strong style={{ fontSize: 24 }}>{playingCount}</strong></div>
-          <div style={{ ...box, flex: "1 1 120px", background: "#122822" }}><div style={muted}>Due on shown open tabs</div><strong style={{ fontSize: 24 }}>{formatInr(openDue)}</strong></div>
+          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Customers shown</div><strong style={{ fontSize: 24 }}>{shownMetric(rows.length)}</strong></div>
+          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Open accounts</div><strong style={{ fontSize: 24 }}>{shownMetric(openCount)}</strong></div>
+          <div style={{ ...box, flex: "1 1 105px", background: "#122822" }}><div style={muted}>Playing now</div><strong style={{ fontSize: 24 }}>{shownMetric(playingCount)}</strong></div>
+          <div style={{ ...box, flex: "1 1 120px", background: "#122822" }}><div style={muted}>Due on shown open tabs</div><strong style={{ fontSize: 24 }}>{shownMetric(formatInr(openDue))}</strong></div>
         </div>
         <div style={{ ...muted, marginTop: 9 }}>Outstanding amount is not today's sales. Previous balances remain separate in the customer's activity. {isToday ? "Older unpaid tabs appear as carried forward." : "Showing customers active on the selected historical date."}</div>
       </div>
@@ -425,7 +428,7 @@ export default function DailyRegisterPage({
               </div>
             </div>;
           })}
-          {!rows.length && !dayLoading ? <div className="ql-empty">No customer activity on this date. Open a customer tab to create the first row.</div> : null}
+          {!rows.length && !dayLoading && !registerUnavailable ? <div className="ql-empty">No customer activity on this date. Open a customer tab to create the first row.</div> : null}
         </div>
       </div>
     </section>
