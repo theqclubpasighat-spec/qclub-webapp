@@ -53,17 +53,6 @@ begin
     raise exception 'REGISTER_GAME_RATE_MISSING' using errcode='22023';
   end if;
 
-  -- A live session already creates its own authoritative charges. Never double
-  -- bill a running table or a customer playing on another live table.
-  if exists(select 1 from public.snooker_sessions s
-            where s.table_id=p_table_id and s.status in ('ACTIVE','PAUSED')) or
-     exists(select 1 from public.snooker_session_people sp
-            join public.snooker_sessions s on s.id=sp.session_id
-            where sp.customer_id=p_customer_id and sp.status='ACTIVE'
-              and s.status in ('ACTIVE','PAUSED')) then
-    raise exception 'USE_ACTIVE_TABLE_ENGINE' using errcode='23514';
-  end if;
-
   select * into v_bill from public.snooker_bills where idempotency_key=v_key;
   if found then
     select * into v_item from public.snooker_bill_items where bill_id=v_bill.id limit 1;
@@ -77,6 +66,17 @@ begin
     end if;
     return jsonb_build_object('ok',true,'reused',true,'bill_id',v_bill.id,
       'bill_no',v_bill.bill_no,'amount_inr',v_bill.total_inr);
+  end if;
+
+  -- A live session already creates its own authoritative charges. Never double
+  -- bill a running table or a customer playing on another live table.
+  if exists(select 1 from public.snooker_sessions s
+            where s.table_id=p_table_id and s.status in ('ACTIVE','PAUSED')) or
+     exists(select 1 from public.snooker_session_people sp
+            join public.snooker_sessions s on s.id=sp.session_id
+            where sp.customer_id=p_customer_id and sp.status='ACTIVE'
+              and s.status in ('ACTIVE','PAUSED')) then
+    raise exception 'USE_ACTIVE_TABLE_ENGINE' using errcode='23514';
   end if;
 
   v_total := round(v_game.rate_inr * p_units,2);
