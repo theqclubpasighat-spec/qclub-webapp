@@ -1577,7 +1577,7 @@ async function listPlayerTabs(req,res){
   if(customerIds.length){
     const [cq,bq]=await Promise.all([
       supabase.from("snooker_customers").select("*").in("id",customerIds),
-      supabase.from("snooker_bills").select("*").in("customer_id",customerIds).neq("status","CANCELLED")
+      supabase.from("snooker_bills").select("*").in("customer_id",customerIds).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false")
     ]);
     if(cq.error||bq.error)throw cq.error||bq.error;customers=cq.data||[];bills=bq.data||[];
   }
@@ -1628,6 +1628,131 @@ async function listPlayerTabs(req,res){
 }
 
 
+async function adminDeletePlayerTab(req,res,customerId){
+  const auth=await requireAuth(req,res,["ADMIN"]);if(!auth)return;
+  const supabase=getSupabaseAdmin();
+  const reason=safeText(req.body?.reason||"",500).trim();
+  if(!reason)return json(res,400,{ok:false,error:"DELETE_REASON_REQUIRED"});
+
+  const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
+  if(customerError)throw customerError;
+  if(!customer)return json(res,404,{ok:false,error:"CUSTOMER_NOT_FOUND"});
+
+  const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:openBills,error:billError}]=await Promise.all([
+    supabase.from("snooker_session_people").select("*").eq("customer_id",customerId),
+    supabase.from("snooker_fnb_tabs").select("*").eq("customer_id",customerId).eq("status","OPEN"),
+    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").gt("due_inr",0),
+  ]);
+  if(peopleError||fnbTabError||billError)throw peopleError||fnbTabError||billError;
+
+  const sessionIds=[...new Set((people||[]).map((p)=>p.session_id).filter(Boolean))];
+  let sessions=[];
+  if(sessionIds.length){
+    const q=await supabase.from("snooker_sessions").select("id,table_id,game_type,status").in("id",sessionIds);
+    if(q.error)throw q.error;
+    sessions=q.data||[];
+  }
+  const sessionMap=new Map(sessions.map((row)=>[row.id,row]));
+  const activeLocations=(people||[]).filter((person)=>person.status==="ACTIVE").map((person)=>{
+    const session=sessionMap.get(person.session_id);
+    return session&&["ACTIVE","PAUSED"].includes(session.status)
+      ? {session_id:session.id,table_id:session.table_id,game_type:session.game_type}
+      : null;
+  }).filter(Boolean);
+  if(activeLocations.length){
+    return json(res,409,{
+      ok:false,
+      error:"ACTIVE_TABLE_MUST_BE_ENDED_FIRST",
+      message:"This player is still attached to an active table. End/correct that table first, then delete the Club Tab so no live table is silently stopped.",
+      active_locations:activeLocations,
+    });
+  }
+
+  const now=new Date().toISOString();
+  const personIds=(people||[]).map((p)=>p.id);
+  let unbilledCharges=[];
+  if(personIds.length){
+    const q=await supabase.from("snooker_person_charges").select("*").in("person_id",personIds).eq("status","ACTIVE").is("bill_id",null);
+    if(q.error)throw q.error;
+    unbilledCharges=q.data||[];
+  }
+
+  const tabIds=(openFnbTabs||[]).map((tab)=>tab.id);
+  let runningFnb=[];
+  if(tabIds.length){
+    const q=await supabase.from("snooker_fnb_lines").select("*").in("tab_id",tabIds).eq("status","ACTIVE").is("bill_id",null);
+    if(q.error)throw q.error;
+    runningFnb=q.data||[];
+  }
+
+  for(const line of runningFnb){
+    const {data:item,error:itemError}=await supabase.from("snooker_catalogue_items").select("*").eq("id",line.item_id).maybeSingle();
+    if(itemError)throw itemError;
+    if(item?.track_inventory){
+      await applyStockMovement(supabase,{
+        item,
+        delta:number(line.quantity),
+        type:"RETURN",
+        referenceType:"ADMIN_CLUB_TAB_DELETE",
+        referenceId:line.id,
+        reason:"Admin deleted Club Tab: "+reason,
+        staffId:auth.staff_id,
+        key:"admin-tab-delete:return:"+line.id,
+      });
+    }
+    const {error:lineError}=await supabase.from("snooker_fnb_lines").update({
+      status:"VOIDED",
+      voided_at:now,
+      voided_by:auth.staff_id,
+      void_reason:"Admin deleted Club Tab: "+reason,
+      stock_returned:Boolean(item?.track_inventory),
+    }).eq("id",line.id).eq("status","ACTIVE").is("bill_id",null);
+    if(lineError)throw lineError;
+  }
+
+  if(unbilledCharges.length){
+    const {error:chargeError}=await supabase.from("snooker_person_charges").update({
+      status:"VOIDED",
+      voided_at:now,
+      voided_by:auth.staff_id,
+      void_reason:"Admin deleted Club Tab: "+reason,
+    }).in("id",unbilledCharges.map((row)=>row.id)).eq("status","ACTIVE").is("bill_id",null);
+    if(chargeError)throw chargeError;
+  }
+
+  if(tabIds.length){
+    const {error:tabError}=await supabase.from("snooker_fnb_tabs").update({
+      status:"CANCELLED",
+      closed_at:now,
+      closed_by:auth.staff_id,
+      updated_at:now,
+    }).in("id",tabIds).eq("status","OPEN");
+    if(tabError)throw tabError;
+  }
+
+  if((openBills||[]).length){
+    const {error:excludeError}=await supabase.from("snooker_bills").update({
+      accounting_excluded:true,
+      exclusion_reason:"Admin deleted Club Tab: "+reason,
+      excluded_at:now,
+      excluded_by:auth.staff_id,
+      updated_at:now,
+    }).in("id",(openBills||[]).map((bill)=>bill.id));
+    if(excludeError)throw excludeError;
+  }
+
+  return json(res,200,{
+    ok:true,
+    customer_id:customerId,
+    customer_name:customer.name,
+    deleted_from_open_tabs:true,
+    voided_unbilled_charges:unbilledCharges.length,
+    voided_fnb_lines:runningFnb.length,
+    excluded_outstanding_bills:(openBills||[]).length,
+    audit_preserved:true,
+  });
+}
+
 async function customerTabDetailPayload(supabase,customerId){
   const {data:customer,error:customerError}=await supabase.from("snooker_customers").select("*").eq("id",customerId).maybeSingle();
   if(customerError)throw customerError;
@@ -1636,8 +1761,8 @@ async function customerTabDetailPayload(supabase,customerId){
   const [{data:people,error:peopleError},{data:openFnbTabs,error:fnbTabError},{data:openBills,error:billError},{data:recentBills,error:recentBillError}] = await Promise.all([
     supabase.from("snooker_session_people").select("*").eq("customer_id",customerId).order("joined_at"),
     supabase.from("snooker_fnb_tabs").select("*").eq("customer_id",customerId).eq("status","OPEN").order("last_order_at",{ascending:false}),
-    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").gt("due_inr",0).order("finalized_at",{ascending:true}),
-    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").order("finalized_at",{ascending:false}).limit(10),
+    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").gt("due_inr",0).order("finalized_at",{ascending:true}),
+    supabase.from("snooker_bills").select("*").eq("customer_id",customerId).neq("status","CANCELLED").or("accounting_excluded.is.null,accounting_excluded.eq.false").order("finalized_at",{ascending:false}).limit(10),
   ]);
   if(peopleError||fnbTabError||billError||recentBillError)throw peopleError||fnbTabError||billError||recentBillError;
 
@@ -6566,6 +6691,7 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "player-tabs") return await listPlayerTabs(req, res);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "detail" && method === "GET") return await customerTabDetail(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "finalize" && method === "POST") return await finalizePlayerTab(req,res,parts[1]);
+    if (parts[0] === "player-tabs" && parts[1] && parts[2] === "delete-admin" && method === "POST") return await adminDeletePlayerTab(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "pay" && method === "POST") return await customerTabManualPayment(req,res,parts[1]);
     if (parts[0] === "player-tabs" && parts[1] && parts[2] === "online" && method === "POST") return await customerTabOnlinePayment(req,res,parts[1]);
     if (parts[0] === "player-tab-payments" && parts[1] && parts.length === 2 && method === "GET") return await customerSettlementStatus(req,res,parts[1]);
