@@ -28,17 +28,31 @@ test("branch preview must reject Ledger writes before fetch, except auth login/l
   assert.match(fn, /"auth\/login", "auth\/logout"/);
 });
 
-test("customer register exposes selectable game charges without direct manual writes", () => {
+test("customer register uses one popup without a billing-rule form", () => {
   const register = readFileSync(new URL("../src/components/daily-register-page.jsx", import.meta.url), "utf8");
+  const modal = readFileSync(new URL("../src/components/daily-register-charge-modal.jsx", import.meta.url), "utf8");
   assert.match(register, /Add Table \/ Frame Charges/);
-  assert.match(register, /Game \/ Format/);
-  assert.match(register, /Billing rule/);
-  assert.match(register, /onConfigureGameCharge/);
-  assert.match(register, /onContinueGame/);
-  assert.match(register, /Preview selected charges/);
-  assert.doesNotMatch(register, /person-charges.*method: "POST"/);
-  assert.match(page, /function configureRegisterGameCharge\(/);
-  assert.match(page, /function continueRegisterGameCharge\(/);
-  assert.match(page, /setStartTable\(table\)/);
-  assert.match(page, /setTableViewSessionId\(liveSession.session_id\)/);
+  assert.match(register, /DailyRegisterChargeModal/);
+  assert.match(modal, /role="dialog"/);
+  assert.match(modal, /Chargeable frames/);
+  assert.match(modal, /Add "\+price\(total\)\+" to account/);
+  assert.match(modal, /onPost\(/);
+  assert.match(modal, /onStartTimed\(/);
+  assert.match(modal, /onContinue\(/);
+  assert.match(modal, /Championship format/);
+  assert.doesNotMatch(modal, /Billing rule/);
+  assert.doesNotMatch(modal, /Normal Snooker \/ Championship/);
+  assert.match(page, /async function postRegisterFrames\(payload\)/);
+});
+
+test("manual frame charge API never trusts client amounts and uses atomic RPC", () => {
+  const start = server.indexOf("async function createRegisterFrameCharge(req,res){");
+  const end = server.indexOf("async function listPlayerTabs(req,res){",start);
+  assert.ok(start>0&&end>start);
+  const handler=server.slice(start,end);
+  assert.match(handler, /requireAuth\(req,res\)/);
+  assert.match(handler, /qclub_register_add_frame_bill/);
+  assert.match(handler, /p_idempotency_key:key/);
+  assert.doesNotMatch(handler, /req.body\?\.amount/);
+  assert.match(server, /path === "register\/charges"\) return await createRegisterFrameCharge/);
 });
