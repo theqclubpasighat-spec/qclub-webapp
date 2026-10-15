@@ -1,3 +1,4 @@
+import { uploadProtectedFile } from '../lib/storage-client.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, supabaseReady } from "../supabase";
 import { autocompleteKeyAction, incrementItemQuantity, rankFnbAutocomplete } from "../lib/fnb-autocomplete.js";
@@ -3411,18 +3412,9 @@ export default function QclubLedgerPage() {
     }
     setBusy(true);
     try {
-      const rawExt = String(file.name || "").split(".").pop()?.toLowerCase();
-      const ext = rawExt && rawExt.length <= 8 ? rawExt : "jpg";
-      const path = "menu-items/" + Date.now() + "-" + makeKey("ledger").replace(/[^a-z0-9_-]/gi, "") + "." + ext;
-      const { error } = await supabase.storage.from("photos").upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-      if (error) throw error;
-      const { data } = supabase.storage.from("photos").getPublicUrl(path);
-      updateCatalogueDraft("imagePath", path);
-      updateCatalogueDraft("imageUrl", data?.publicUrl || "");
+      const uploaded = await uploadProtectedFile(file, "menu-items", readAuth()?.token);
+      updateCatalogueDraft("imagePath", uploaded.path);
+      updateCatalogueDraft("imageUrl", uploaded.url);
       flash("Image uploaded. Save the item to publish it.");
     } catch (error) {
       flash(error.message || "Image upload failed.", true);

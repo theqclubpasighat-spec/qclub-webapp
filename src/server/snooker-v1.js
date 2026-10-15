@@ -1,3 +1,4 @@
+import { storageTransport } from './security/storage.js';
 import {websiteStateTransport} from './security/website-state.js';
 import {SecurityError as WebsiteSecurityError} from './security/errors.js';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -6632,9 +6633,9 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     const path = safeText(rawPath || req.query?.path || "", 500).replace(/^\/+|\/+$/g, "");
     const parts = path ? path.split("/").filter(Boolean) : [];
 
-    if (path === "website/state") {
+    if (path === "website/state" || path === "website/storage") {
       try {
-        return json(res, 200, await websiteStateTransport(getSupabaseAdmin(), req));
+        return json(res, 200, await (path === "website/storage" ? storageTransport : websiteStateTransport)(getSupabaseAdmin(), req));
       } catch (error) {
         return json(res, error instanceof WebsiteSecurityError ? error.status : 503, {
           ok: false, error: error instanceof WebsiteSecurityError ? error.code : "STATE_UNAVAILABLE",

@@ -1,3 +1,4 @@
+import { uploadProtectedFile } from '../lib/storage-client.js';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { PageShell } from "./page-helpers";
@@ -479,25 +480,7 @@ function handleWhatsappNotification({
 }
 
 async function uploadImageToStorage(file, folder = "general") {
-  if (!file) throw new Error("No file selected.");
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      if (!dataUrl) {
-        reject(new Error("Failed to read selected file."));
-        return;
-      }
-
-      resolve({
-        path: `${folder}/${Date.now()}-${file.name || "upload"}`,
-        url: dataUrl,
-      });
-    };
-    reader.onerror = () => reject(new Error("Failed to read selected file."));
-    reader.readAsDataURL(file);
-  });
+  return uploadProtectedFile(file, folder);
 }
 
 export function AdminPanel({ data, admin, commit, activeTournament }) {

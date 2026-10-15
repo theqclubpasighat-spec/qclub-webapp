@@ -1,3 +1,4 @@
+import { signApplicantFiles, canonicalApplications, applicantPath, PRIVATE_BUCKET } from './storage.js';
 // Server transport for the legacy website. This does not enable the cutover:
 // cloud.js must switch only after public submissions and checkout are migrated.
 import {authenticate,SecurityError} from './foundation.js';
@@ -59,7 +60,7 @@ export function applyWebsitePatch(state,role,patch){
  const uniqueRows=value=>Array.isArray(value)&&value.every(v=>v&&typeof v==='object'&&typeof v.id==='string')&&new Set(value.map(v=>v.id)).size===value.length;
  // Preserve every server-owned section, including credentials and gateway records.
  const next=structuredClone(state);
- for(const [key,value] of Object.entries(patch))next[key]=structuredClone(value);
+ for(const [key,value] of Object.entries(patch))next[key]=key==='jobApplications'?canonicalApplications(value):structuredClone(value);
  // Restricted roles cannot change catalogue prices through operational payloads.
  if(role==='STAFF'&&patch.booking){
   if(JSON.stringify(patch.booking.tables)!==JSON.stringify(state.booking?.tables))throw new SecurityError(403,'FORBIDDEN');
@@ -84,13 +85,17 @@ export async function websiteStateTransport(db,req){
   const kind=String(req.body?.kind||''); const payload=req.body?.payload;
   if(!['booking','job_application'].includes(kind)||!payload||typeof payload!=='object'||Array.isArray(payload))throw new SecurityError(400,'INVALID_SUBMISSION');
   if(JSON.stringify(payload).length>200000)throw new SecurityError(413,'SUBMISSION_TOO_LARGE');
+  if(kind==='job_application') {
+   for(const key of ['photo','aadhaarFile','panFile']) if(!applicantPath(payload[key])||payload[key]?.bucket!==PRIVATE_BUCKET) throw new SecurityError(400,'PRIVATE_DOCUMENT_REQUIRED');
+   Object.assign(payload,canonicalApplications([payload])[0]);
+  }
   const saved=await db.from('qclub_public_submissions').insert({kind,payload}).select('id,created_at').single();
   if(saved.error||!saved.data)throw new SecurityError(503,'SUBMISSION_UNAVAILABLE');
   return {ok:true,id:saved.data.id,createdAt:saved.data.created_at};
  }
  const {data,error}=await db.from('qclub_state').select('state,updated_at').eq('key','main').single();
  if(error||!data)throw new SecurityError(503,'STATE_UNAVAILABLE');
- if(method==='GET')return {state:actor?websiteActorState(data.state,actor.role):websitePublicState(data.state),updatedAt:data.updated_at,role:actor?.role||null};
+ if(method==='GET')return {state:actor?await signApplicantFiles(db,websiteActorState(data.state,actor.role)):websitePublicState(data.state),updatedAt:data.updated_at,role:actor?.role||null};
  // Preserve PostgreSQL precision. Do not round both revisions through Date.
  if(req.body?.baseUpdatedAt!==data.updated_at)throw new SecurityError(409,'STATE_CONFLICT');
  const next=applyWebsitePatch(data.state,actor.role,req.body?.patch);
@@ -98,5 +103,5 @@ export async function websiteStateTransport(db,req){
  const saved=await db.from('qclub_state').update({state:next,updated_at:updatedAt}).eq('key','main').eq('updated_at',data.updated_at).select('updated_at').maybeSingle();
  if(saved.error)throw new SecurityError(503,'STATE_UNAVAILABLE');
  if(!saved.data)throw new SecurityError(409,'STATE_CONFLICT');
- return {ok:true,updatedAt:saved.data.updated_at,state:websiteActorState(next,actor.role)};
+ return {ok:true,updatedAt:saved.data.updated_at,state:await signApplicantFiles(db,websiteActorState(next,actor.role))};
 }
