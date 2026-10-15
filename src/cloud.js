@@ -21,7 +21,7 @@ export function subscribeState(onState,onError) {
   // Public visitors only need the initial projection. Operational sessions poll
   // at a moderate cadence instead of forcing a network request every 5 seconds.
   if (token()) timer=setInterval(pull,AUTHENTICATED_POLL_INTERVAL_MS);
-  const refresh=()=>{ if (!closed) pull(); };
+  const refresh=()=>{ if(timer)clearInterval(timer); timer=token()?setInterval(pull,AUTHENTICATED_POLL_INTERVAL_MS):null; if (!closed) pull(); };
   const onVisibility=()=>{ if (document.visibilityState === "visible" && token()) pull(); };
   window.addEventListener("qclub-secure-session-changed",refresh);
   document.addEventListener("visibilitychange",onVisibility);
@@ -36,7 +36,9 @@ export async function writeState(state) {
   const patch={};
   for(const [key,value] of Object.entries(state||{})){
     if(["updated_at","updatedAt","__cloudUpdatedAt","admin","paymentOrders","whatsappPersistence"].includes(key)) continue;
-    if(JSON.stringify(value)!==JSON.stringify(current?.[key])) patch[key]=value;
+    const comparable = v => key==='jobApplications' && Array.isArray(v)
+      ? v.map(app=>{const next={...app};for(const field of ['photo','aadhaarFile','panFile'])if(next[field]?.path)next[field]={path:next[field].path};return next;}) : v;
+    if(JSON.stringify(comparable(value))!==JSON.stringify(comparable(current?.[key]))) patch[key]=value;
   }
   if(!Object.keys(patch).length) return {ok:true,updatedAt:baseUpdatedAt};
   const response=await fetch(ENDPOINT,{method:"PATCH",cache:"no-store",headers:{"Content-Type":"application/json",Authorization:"Bearer "+t},body:JSON.stringify({baseUpdatedAt,patch})});

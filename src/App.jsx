@@ -1,3 +1,4 @@
+import { uploadProtectedFile, deleteProtectedFile } from './lib/storage-client.js';
 ﻿/* ================================
    App.jsx — PART 1
    (Beginning → inside resetAll())
@@ -277,36 +278,10 @@ function isDataUrl(value) {
 }
 
 async function uploadImageToStorage(file, folder = "general") {
-  if (!supabaseReady || !supabase) {
-    throw new Error("Supabase is not ready for storage uploads.");
-  }
-
-  const ext = fileExt(file);
-  const path = `${folder}/${Date.now()}-${uid()}.${ext}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: true,
-      contentType: file?.type || undefined,
-    });
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-  return { path, url: data?.publicUrl || "" };
+  return uploadProtectedFile(file, folder);
 }
-
 async function deleteStorageObject(path) {
-  if (!path || !supabaseReady || !supabase) return;
-  try {
-    await supabase.storage.from(STORAGE_BUCKET).remove([path]);
-  } catch {
-    // ignore cleanup failures
-  }
+  try { await deleteProtectedFile(path); } catch { /* Retain the object if cleanup fails. */ }
 }
 
 /* ---------------------------
