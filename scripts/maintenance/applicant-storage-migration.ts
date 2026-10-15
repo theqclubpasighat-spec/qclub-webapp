@@ -31,7 +31,7 @@ Deno.serve(async req => {
   const start=body.action==='remove'?0:offset;
   const listing={data:names.slice(start,start+5).map(name=>({name}))};
   let verified=0,removed=0;
-  for(const row of listing.data||[]) {
+  const results=await Promise.allSettled((listing.data||[]).map(async row => {
    const path=row.name;
    if(!/^job-applications\/(photos|aadhaar|pan)\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|pdf)$/i.test(path))throw Error('UNEXPECTED_PATH');
    const source=await db.storage.from('photos').download(path);
@@ -48,7 +48,9 @@ Deno.serve(async req => {
    if(body.action==='remove') {
     const result=await db.storage.from('photos').remove([path]);if(result.error)throw Error('REMOVE_FAILED');removed++;
    }
-  }
+  }));
+  const failed=results.find(r=>r.status==='rejected');
+  if(failed?.status==='rejected')throw failed.reason;
   return Response.json({ok:true,verified,removed});
  } catch(e) { return Response.json({ok:false,error:e instanceof Error?e.message:'FAILED'},{status:500}); }
 });
