@@ -9,9 +9,14 @@ begin
   raise exception 'Every applicant object requires a matching private copy';
  end if;
 end $$;
--- Public images remain accessible by URL. Listing and mutations now require
--- the server transport, which authorizes administrators before using storage.
-drop policy if exists "public can view photos" on storage.objects;
-drop policy if exists "public can upload photos" on storage.objects;
-drop policy if exists "public can update photos" on storage.objects;
-drop policy if exists "public can delete photos" on storage.objects;
+-- Public image URLs continue working. Restrictive policies are ANDed with
+-- permissive policies, so existing broad grants cannot permit client mutations.
+-- Keep the old policy definitions for a reversible, additive cutover.
+do $$
+begin
+ if not exists(select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='photos require server authorization') then
+  create policy "photos require server authorization" on storage.objects
+   as restrictive for all to anon, authenticated
+   using (bucket_id <> 'photos') with check (bucket_id <> 'photos');
+ end if;
+end $$;
