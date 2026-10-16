@@ -1,6 +1,6 @@
 # Production Route Registry
 
-Last reconciled: 2026-10-03  
+Last reconciled: 2026-10-16
 Production branch: `main`  
 Purpose: authoritative map of every named client-side Q Club route after the V2 consolidation.
 
@@ -16,8 +16,8 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 
 ## Current totals
 
-- Named/recognized routes: **115**
-- Canonical: **91**
+- Named/recognized routes: **117**
+- Canonical: **93**
 - Aliases: **18**
 - Bridges: **4**
 - Legacy: **1**
@@ -36,6 +36,8 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 | `/membership` | Membership | Public | Main | Canonical | Membership |
 | `/members` | Membership | Public | Main | Canonical | Public members |
 | `/member-registry` | Membership | Admin | Ops | Canonical | Current registry editor; donor staff alias points here |
+| `/table/:tableKey` | Table QR | Public | Hidden | Canonical | Permanent table QR customer portal; orders require access approval |
+| `/table-qr-print` | Table QR | Public | Ops | Canonical | Printable permanent table QR sheet |
 | `/book` | Booking | Public | Main | Canonical | Book a table |
 | `/tournaments` | Tournament | Public | Main | Canonical | Tournaments |
 | `/tournament-register` | Tournament | Public | Hidden | Canonical | Tournament registration |

@@ -31,7 +31,7 @@ const documented = [...new Set(
 )].sort();
 
 test("production route registry covers every named client route and CMS deep link", () => {
-  assert.equal(actual.length, 111);
+  assert.equal(actual.length, 117);
   assert.deepEqual(documented, actual);
 });
 
