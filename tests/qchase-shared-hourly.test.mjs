@@ -24,8 +24,14 @@ test("join, leave, pause and end settle the prior occupancy slice", () => {
   assert.match(server, /"PLAYER_REJOIN"/);
   assert.match(server, /"TABLE_PAUSE"/);
   assert.match(server, /"TABLE_END"/);
-  assert.match(ledger, /Settle & Leave/);
-  assert.match(ledger, /Leave • Keep Tab Open/);
+  assert.match(ledger, /setPersonPresence\(tableViewSession, person, "LEAVE"\); \}\}>Leave Table • Keep Club Tab/);
+  assert.match(ledger, /setPersonPresence\(tableViewSession, person, "REJOIN"\); \}\}>Rejoin/);
+  const update = server.split('async function updateSessionPerson(')[1].split('async function allocateHourlySession(')[0];
+  assert.match(update, /await settleSharedHourlySlice\(/);
+  assert.match(update, /\.update\(patch\)/);
+  assert.ok(update.indexOf('await settleSharedHourlySlice(') < update.indexOf('.update(patch)'), 'Settle occupied time before changing presence');
+  assert.match(update, /patch\.status="LEFT"/);
+  assert.match(update, /patch\.status="ACTIVE"/);
 });
 
 test("shared hourly migration reproduces the real-life 4-player then 3-player scenario", { skip: !process.env.QCLUB_PGLITE_MODULE }, async () => {

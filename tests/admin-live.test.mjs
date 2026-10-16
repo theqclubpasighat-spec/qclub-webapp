@@ -23,12 +23,17 @@ test("live CMS uses canonical server auth and never calls rehearsal endpoints", 
 });
 
 test("CMS writes remain main-admin only while committee has a distinct role", () => {
-  assert.match(api, /pin: admin\.committeePin, role: "COMMITTEE"/);
+  const login = api.split('async function login(req, res) {')[1].split('async function logout')[0];
+  assert.match(login, /rpc\("qclub_security_login_pin"/);
+  assert.match(login, /committee: \{ role: "COMMITTEE", staffId: "admin-committee"/);
+  assert.match(login, /identities\[verified\.credential_id\]/);
+  assert.match(login, /rpc\("qclub_security_create_session"/);
+  assert.doesNotMatch(login, /admin\.(mainPin|staffPin|committeePin)/);
   assert.match(api, /path === "cms\/content"/);
   assert.match(api, /requireAuth\(req, res, \["ADMIN"\]\)/);
   assert.match(api, /auth\.staff_id !== "admin-main"/);
   assert.match(api, /error: "FORBIDDEN"/);
-  assert.match(api, /requireAuth\(req, res, \["STAFF", "ADMIN", "COMMITTEE"\]\)/);
+  assert.match(api, /requireAuth\(req, res, \["ADMIN", "STAFF", "COMMITTEE"\]\)/);
 });
 
 test("committee login remains COMMITTEE in the live CMS client", async () => {
