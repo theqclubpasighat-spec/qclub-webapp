@@ -372,8 +372,34 @@ export async function saveContent(db, actor, body, now = new Date()) {
   if (typeof body?.baseUpdatedAt !== 'string' || !Number.isFinite(Date.parse(body.baseUpdatedAt))) fail(400, 'REVISION_REQUIRED');
   const { data: row, error } = await db.from('qclub_state').select('state,updated_at').eq('key', 'main').single();
   if (error || !row) fail(503, 'STATE_UNAVAILABLE');
-  if (row.updated_at !== body.baseUpdatedAt) fail(409, 'STATE_CONFLICT');
+  if (row.updated_at !== body.baseUpdatedAt) {
+    // A version difference does not necessarily mean that this Admin's edited
+    // fields changed (legacy background writes also advanced revisions).
+    // Merge only when the original value of EVERY intended field is identical
+    // in the current public projection. Missing baselines still fail closed.
+    const baseline = body.baseFields;
+    const changes = body.changes;
+    if (!object(baseline) || !object(changes) || !Object.keys(changes).length) fail(409, 'STATE_CONFLICT');
+    const latest = publicContent(row.state);
+    for (const [section, fields] of Object.entries(changes)) {
+      if (!Object.hasOwn(baseline, section)) fail(409, 'STATE_CONFLICT');
+      if (section === 'club' || section === 'foodPage') {
+        if (!object(fields) || !object(baseline[section])) fail(409, 'STATE_CONFLICT');
+        for (const key of Object.keys(fields)) {
+          if (!Object.hasOwn(baseline[section], key) ||
+              JSON.stringify(baseline[section][key]) !== JSON.stringify(latest[section]?.[key] ?? ''))
+            fail(409, 'STATE_CONFLICT');
+        }
+      } else {
+        const latestSection = section === 'notices' ? latest.announcements :
+          section === 'heroSlides' ? latest.club?.heroSlides : latest[section];
+        if (JSON.stringify(baseline[section]) !== JSON.stringify(latestSection ?? null)) fail(409, 'STATE_CONFLICT');
+      }
+    }
+  }
   const next = contentPatch(row.state, body.changes);
+  if (JSON.stringify(next) === JSON.stringify(row.state))
+    return { ok: true, updatedAt: row.updated_at, content: publicContent(row.state) };
   const updatedAt = new Date(Math.max(now.getTime(), Date.parse(row.updated_at) + 1)).toISOString();
   Object.assign(next, { updated_at: updatedAt, updatedAt, __cloudUpdatedAt: updatedAt });
   // Atomic compare-and-swap; unlike a read followed by unconditional upsert.
