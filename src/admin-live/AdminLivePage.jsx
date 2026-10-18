@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { createAdminClient, changesBetween, messageFor, sections } from "./client.mjs";
+import { createAdminClient, changesBetween, originalFieldsForChanges, messageFor, sections } from "./client.mjs";
 import "../admin-preview/style.css";
 import Notices from "../admin-preview/Notices.jsx";
 import StaffOperationsPanel from "../admin-preview/StaffOperationsPanel.jsx";
@@ -233,7 +233,7 @@ export default function AdminLivePage() {
     const changes = changesBetween(saved.content, draft);
     if (!Object.keys(changes).length || conflict) return;
     await perform(async () => {
-      const result = await client.save(saved.updatedAt, changes);
+      const result = await client.save(saved.updatedAt, changes, originalFieldsForChanges(saved.content, changes));
       accept({ content: result.content, updatedAt: result.updatedAt });
       setNotice("Changes saved to the live Q Club website.");
     });
