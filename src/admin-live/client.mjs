@@ -80,9 +80,9 @@ export function createAdminClient(fetcher = globalThis.fetch, storage = globalTh
       return normalizedActor(result);
     },
     content: () => jsonRequest("/api/snooker/v1/cms/content"),
-    save: (baseUpdatedAt, changes) => jsonRequest("/api/snooker/v1/cms/content", {
+    save: (baseUpdatedAt, changes, baseFields) => jsonRequest("/api/snooker/v1/cms/content", {
       method: "PATCH",
-      body: JSON.stringify({ baseUpdatedAt, changes }),
+      body: JSON.stringify({ baseUpdatedAt, changes, baseFields }),
     }),
     staffOps: () => jsonRequest("/api/snooker/v1/cms/staff-ops"),
     createShift: values => jsonRequest("/api/snooker/v1/cms/staff-shift", {
@@ -171,6 +171,27 @@ export function changesBetween(before, after) {
   if (JSON.stringify(before?.featureFlags || {}) !== JSON.stringify(after?.featureFlags || {})) changes.featureFlags = after?.featureFlags || {};
   if (JSON.stringify(before?.club?.heroSlides || []) !== JSON.stringify(after?.club?.heroSlides || [])) changes.heroSlides = after?.club?.heroSlides || [];
   return changes;
+}
+
+// Send only the original values of edited fields, not an entire stale website state.
+// The server verifies these against the latest state when another update has
+// advanced the revision. This allows disjoint edits while blocking lost updates.
+export function originalFieldsForChanges(savedContent, changes) {
+  const original = {};
+  for (const [section, fields] of Object.entries(changes || {})) {
+    if (section === "club" || section === "foodPage") {
+      original[section] = Object.fromEntries(Object.keys(fields).map(key => [
+        key, savedContent?.[section]?.[key] ?? "",
+      ]));
+    } else if (section === "heroSlides") {
+      original.heroSlides = savedContent?.club?.heroSlides || [];
+    } else if (section === "notices") {
+      original.notices = savedContent?.announcements || [];
+    } else {
+      original[section] = savedContent?.[section] ?? null;
+    }
+  }
+  return original;
 }
 
 export function messageFor(error) {

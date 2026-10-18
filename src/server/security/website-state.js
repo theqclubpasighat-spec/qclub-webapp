@@ -99,6 +99,10 @@ export async function websiteStateTransport(db,req){
  // Preserve PostgreSQL precision. Do not round both revisions through Date.
  if(req.body?.baseUpdatedAt!==data.updated_at)throw new SecurityError(409,'STATE_CONFLICT');
  const next=applyWebsitePatch(data.state,actor.role,req.body?.patch);
+ // Polling clients sometimes resubmit a patch equal to the saved state.
+ // This is not a website edit and must not invalidate a CMS draft.
+ if(JSON.stringify(next)===JSON.stringify(data.state))
+  return {ok:true,updatedAt:data.updated_at,state:await signApplicantFiles(db,websiteActorState(data.state,actor.role))};
  const updatedAt=new Date(Math.max(Date.now(),Date.parse(data.updated_at)+1)).toISOString();
  const saved=await db.from('qclub_state').update({state:next,updated_at:updatedAt}).eq('key','main').eq('updated_at',data.updated_at).select('updated_at').maybeSingle();
  if(saved.error)throw new SecurityError(503,'STATE_UNAVAILABLE');
