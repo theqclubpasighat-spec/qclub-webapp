@@ -13,9 +13,11 @@ const kitty = readFileSync(new URL("../src/components/kitty-page.jsx", import.me
 const pageHelpers = readFileSync(new URL("../src/components/page-helpers.jsx", import.meta.url), "utf8");
 const adminPanel = readFileSync(new URL("../src/components/admin-panel.jsx", import.meta.url), "utf8");
 
-test("public root uses V2 Home while preserving classic admin Home controls", () => {
-  assert.match(app, /path="\/" element=\{admin \? <Home[\s\S]*: <V2Home/);
+test("modern V2 home stays visible for guests, Admin and Staff", () => {
+  assert.match(app, /<Route path="\/" element=\{<V2Home data=\{data\} activeTournament=\{activeTournament\} \/>\}/);
+  assert.doesNotMatch(app, /path="\/" element=\{admin \? <Home/);
   assert.match(app, /import V2Home from "\.\/v2-live\/V2Home\.jsx"/);
+  assert.ok(app.includes('path="/admin"'));
 });
 
 test("Q Lounge is a real production route backed by the shared catalogue", () => {
