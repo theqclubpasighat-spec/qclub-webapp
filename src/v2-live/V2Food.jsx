@@ -83,7 +83,21 @@ export default function V2Food({ startPayment }) {
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
-  const [cart, setCart] = useState({});
+  // Restore the interrupted food order ONLY on the payment retry route.
+  // A normal fresh /food visit must not accidentally re-order a prior paid cart.
+  const [cart, setCart] = useState(() => {
+    if (new URLSearchParams(window.location.search).get("retry") !== "1") return {};
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("qclub_food_cart") || "[]");
+      if (!Array.isArray(saved)) return {};
+      return Object.fromEntries(saved
+        .filter((line) => line && typeof line.id === "string" &&
+          Number.isInteger(Number(line.qty)) && Number(line.qty) > 0)
+        .map((line) => [line.id, Math.min(100, Number(line.qty))]));
+    } catch {
+      return {};
+    }
+  });
   const [showCart, setShowCart] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
