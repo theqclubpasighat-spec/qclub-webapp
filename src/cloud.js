@@ -17,14 +17,14 @@ export function allowedWebsitePatchForRole(role, patch, current = {}) {
     if (!allowed.has(key)) continue;
     if (role === "STAFF" && key === "booking") {
       const before = current.booking || {};
-      // The staff role may manage requests/blocked slots, NOT booking table rates.
-      result.booking = {
-        ...before,
-        requests: value?.requests ?? before.requests ?? [],
-        blockedSlots: value?.blockedSlots ?? before.blockedSlots ?? [],
-        lastSeenRequestAt: value?.lastSeenRequestAt ?? before.lastSeenRequestAt,
-      };
-      if (JSON.stringify(result.booking) === JSON.stringify(before)) delete result.booking;
+      // Only copy actually provided staff-editable fields. Do not synthesize
+      // defaults for missing properties, or a table-price-only change could
+      // create a spurious booking PATCH and clobber live booking requests.
+      const nextBooking = { ...before };
+      for (const field of ["requests", "blockedSlots", "lastSeenRequestAt"]) {
+        if (Object.hasOwn(value || {}, field)) nextBooking[field] = value[field];
+      }
+      if (JSON.stringify(nextBooking) !== JSON.stringify(before)) result.booking = nextBooking;
       continue;
     }
     result[key] = value;
