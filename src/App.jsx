@@ -3690,7 +3690,7 @@ latestDataRef.current = fresh;
     />
   }
 />
-<Route path="/food" element={<V2Food />} />
+<Route path="/food" element={<V2Food startPayment={startPayment} />} />
 <Route
   path="/shop/successful-order-receipts"
   element={
@@ -16765,7 +16765,7 @@ saveMembershipReceiptOperationalRecord(membershipOperationalRecord).catch((error
 }, [status, paymentContext, orderIdFromUrl]);
 
   function retryPath() {
-  if (paymentContext === "food") return "/offer";
+  if (paymentContext === "food") return "/food?retry=1";
   if (paymentContext === "shop") return "/shop";
   if (paymentContext === "membership") return "/membership";
   if (paymentContext === "tournament") return "/tournament-register";
@@ -16941,7 +16941,7 @@ saveMembershipReceiptOperationalRecord(membershipOperationalRecord).catch((error
                 </div>
 
                 <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn primary" onClick={() => navigate("/offer")}>
+                  <button className="btn primary" onClick={() => navigate("/food")}>
                     Order More
                   </button>
                   <button

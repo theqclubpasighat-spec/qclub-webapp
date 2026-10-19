@@ -20,11 +20,16 @@ test("modern V2 home stays visible for guests, Admin and Staff", () => {
   assert.ok(app.includes('path="/admin"'));
 });
 
-test("Q Lounge is a real production route backed by the shared catalogue", () => {
-  assert.match(app, /path="\/food" element=\{<V2Food \/>\}/);
+test("Q Lounge orders directly on the existing payment flow from the current public catalogue", () => {
+  assert.ok(app.includes('path="/food" element={<V2Food startPayment={startPayment} />}'));
   assert.match(food, /readCatalogue/);
   assert.match(food, /\.\.\/v2-preview\/catalogue\.mjs/);
-  assert.match(food, /to="\/offer"/);
+  assert.match(food, /loungeOrderLines/);
+  assert.match(food, /startPayment\(cartTotal, phone, name/);
+  assert.match(food, /food_items_json: JSON\.stringify\(orderLines\)/);
+  assert.match(food, /qclub_food_cart/);
+  assert.doesNotMatch(food, /to="\/offer"/);
+  assert.match(app, /if \(paymentContext === "food"\) return "\/food\?retry=1";/);
 });
 
 test("production entry loads V2 shell after legacy styles", () => {

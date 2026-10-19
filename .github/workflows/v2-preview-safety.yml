@@ -64,6 +64,10 @@ jobs:
         run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" node tests/browser/public-ui-mobile.mjs
         env:
           QCLUB_BROWSER_FIXTURES: enabled
+      - name: Verify direct Q Lounge Add, Cart and Checkout without navigating to /offer
+        run: QCLUB_AGENT_BROWSER="$RUNNER_TEMP/qclub-browser/node_modules/.bin/agent-browser" node tests/browser/qlounge-direct-order-mobile.mjs
+        env:
+          QCLUB_BROWSER_FIXTURES: enabled
       - name: Save screenshots and browser results
         if: always()
         uses: actions/upload-artifact@v4

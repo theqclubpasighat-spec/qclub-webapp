@@ -890,3 +890,135 @@ body.qclub-v2-live .shopDetailOptions{display:grid;gap:8px;margin-top:18px}
 body.qclub-v2-live .shopDetailCart,body.qclub-v2-live .shopDetailAdmin{gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
 body.qclub-v2-live .shopDetailExternal{display:inline-block;margin-top:22px;font-size:.9rem}
 @media(max-width:640px){body.qclub-v2-live .shopStorefrontGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}body.qclub-v2-live .shopStorefrontCard{min-height:270px;padding:9px}body.qclub-v2-live .shopStorefrontCardBody h3{font-size:.9rem}body.qclub-v2-live .shopDetailOverlay{padding:0;align-items:stretch}body.qclub-v2-live .shopDetailPanel{max-height:100vh;border-radius:0;padding:14px}body.qclub-v2-live .shopDetailLayout{grid-template-columns:1fr;gap:16px}}
+
+
+/* Q Lounge V2: actionable product cards and integrated, catalogue-backed checkout.
+   These styles are scoped to /food and do not alter the existing /offer,
+   Cashfree, QclubLedger, Q Shop or staff order workflows. */
+.v2-live-food .v2-live-product-card {
+  display: flex;
+  flex-direction: column;
+}
+.v2-live-food .v2-live-product-open {
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.v2-live-food .v2-live-product-open > img,
+.v2-live-food .v2-live-product-open > .v2-live-image-placeholder {
+  width: 100%;
+  aspect-ratio: 1.7;
+  object-fit: cover;
+  display: grid;
+}
+.v2-live-food .v2-live-product-open .v2-live-product-content {
+  width: 100%;
+}
+.v2-live-food .v2-live-product-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 4px 10px 12px;
+  margin-top: auto;
+}
+.v2-live-food .v2-live-product-actions > .v2-live-button {
+  min-height: 40px;
+  flex: 1;
+  font-size: .86rem;
+  padding: 8px 10px;
+}
+.v2-live-food .v2-live-qty-remove,
+.v2-live-food .v2-live-qty button {
+  border: 1px solid var(--qv2-border);
+  background: #1a3527;
+  color: var(--qv2-ivory);
+  border-radius: 8px;
+  min-width: 40px;
+  min-height: 40px;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.v2-live-food .v2-live-qty-count { min-width: 20px; text-align: center; }
+.v2-live-food .v2-live-product-unavailable {
+  margin: auto 10px 12px;
+  padding: 10px 0 0;
+  min-height: 40px;
+}
+.v2-live-food .v2-live-cart {
+  border: 1px solid var(--qv2-border);
+  background: var(--qv2-surface);
+  border-radius: 16px;
+  padding: clamp(12px, 3vw, 24px);
+  margin: 12px 0 24px;
+  scroll-margin-top: 86px;
+}
+.v2-live-food .v2-live-cart-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.v2-live-food .v2-live-cart-heading h2 { margin: 0; font-size: clamp(1.2rem, 4vw, 1.55rem); }
+.v2-live-food .v2-live-cart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(64px, auto);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--qv2-border);
+  align-items: center;
+}
+.v2-live-food .v2-live-cart-row > strong:last-child { text-align: right; }
+.v2-live-food .v2-live-qty { display: flex; gap: 8px; align-items: center; }
+.v2-live-food .v2-live-qty strong { min-width: 20px; text-align: center; }
+.v2-live-food .v2-live-cart-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.2rem;
+  padding: 16px 0 4px;
+}
+.v2-live-food .v2-live-checkout { display: grid; gap: 10px; margin-top: 14px; }
+.v2-live-food .v2-live-checkout label { font-size: .9rem; font-weight: 700; }
+.v2-live-food .v2-live-checkout .v2-live-button { width: 100%; }
+.v2-live-food .v2-live-checkout .v2-live-muted { font-size: .8rem; line-height: 1.5; }
+.v2-live-food .v2-live-floating-cart {
+  position: fixed;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 950;
+  width: min(600px, calc(100% - 24px));
+  border: 1px solid var(--qv2-brass);
+  background: #d9b66e;
+  color: #0d1c14;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px #0009;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  font: 700 1rem "Space Grotesk", system-ui, sans-serif;
+  cursor: pointer;
+}
+.v2-live-food .v2-live-floating-cart strong { white-space: nowrap; }
+.v2-live-food .v2-live-product-open:focus-visible,
+.v2-live-food button:focus-visible { outline: 2px solid var(--qv2-brass); outline-offset: 3px; }
+.v2-live-food button:disabled { cursor: not-allowed; opacity: .58; }
+@media (max-width: 480px) {
+  .v2-live-food .v2-live-cart-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .v2-live-food .v2-live-cart-row > span { grid-column: 1 / -1; }
+}
