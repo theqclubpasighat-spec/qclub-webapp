@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { writeState } from '../src/cloud.js';
 
 const revision='2026-10-16T09:00:00.123456+00:00';
-function fixture(t, {token='fixture-session', current={}, response={ok:true,updatedAt:revision},status=200}={}) {
+function fixture(t, {token='fixture-session', role='ADMIN', current={}, response={ok:true,updatedAt:revision},status=200}={}) {
  const calls=[];
  t.mock.method(globalThis,'fetch',async(url,options={})=>{
   calls.push({url,...options});
   return options.method==='PATCH'
    ? {ok:status===200,status,json:async()=>response}
-   : {ok:true,status:200,json:async()=>({state:current,updatedAt:revision})};
+   : {ok:true,status:200,json:async()=>({state:current,updatedAt:revision,role})};
  });
  const original=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:()=>token}});
@@ -46,4 +46,42 @@ test('revision conflict is surfaced without retrying or replacing the original r
  await assert.rejects(writeState({__cloudUpdatedAt:stale,club:{name:'My draft'}}),/STATE_CONFLICT/);
  assert.equal(calls.length,2);
  assert.equal(JSON.parse(calls[1].body).baseUpdatedAt,stale);
+});
+
+test('staff login does not send protected CMS/price settings as a website write',async t=>{
+ const current={club:{name:'Modern'},shopCatalog:{items:[{id:'item',price:200}]},booking:{tables:[{id:'T1',pricePerHour:600}],requests:[]},foodOrders:[]};
+ const calls=fixture(t,{role:'STAFF',current});
+ const result=await writeState({
+   __cloudUpdatedAt:revision,
+   club:{name:'Legacy auto sync'},shopCatalog:{items:[{id:'item',price:1}]},
+   booking:{tables:[{id:'T1',pricePerHour:1}],requests:[]},foodOrders:[],
+ });
+ assert.equal(result.ok,true);
+ assert.equal(calls.length,1,'background local/default normalization must not post a forbidden PATCH');
+});
+test('staff operational write retains authorized data and preserves server booking prices',async t=>{
+ const current={club:{name:'Modern'},booking:{tables:[{id:'T1',pricePerHour:600}],requests:[]},foodOrders:[]};
+ const calls=fixture(t,{role:'STAFF',current});
+ await writeState({
+  __cloudUpdatedAt:revision,
+  club:{name:'Unsafe'},
+  booking:{tables:[{id:'T1',pricePerHour:1}],requests:[{id:'order-1'}]},
+  foodOrders:[{id:'f1'}],
+ });
+ const patch=JSON.parse(calls.at(-1).body).patch;
+ assert.deepEqual(Object.keys(patch).sort(),['booking','foodOrders']);
+ assert.equal(patch.booking.tables[0].pricePerHour,600);
+ assert.equal(patch.booking.requests[0].id,'order-1');
+ assert.equal(patch.foodOrders[0].id,'f1');
+});
+test('committee changes do not inherit Admin CMS editing permissions',async t=>{
+ const calls=fixture(t,{role:'COMMITTEE',current:{club:{name:'Original'},players:[]}});
+ await writeState({__cloudUpdatedAt:revision,club:{name:'Attempted change'},players:[{id:'p1'}]});
+ const patch=JSON.parse(calls.at(-1).body).patch;
+ assert.deepEqual(patch,{players:[{id:'p1'}]});
+});
+test('unknown/expired server role does not permit cloud writes',async t=>{
+ const calls=fixture(t,{role:null,current:{club:{name:'Original'}}});
+ await assert.rejects(writeState({__cloudUpdatedAt:revision,club:{name:'Changed'}}),/Secure session expired or role unavailable/);
+ assert.equal(calls.length,1);
 });
