@@ -91,7 +91,7 @@ try {
   await browser("fill", "#v2-food-name", "Q Lounge Browser Fixture");
   await browser("fill", "#v2-food-phone", "9876543210");
   await browser("click", '.v2-live-checkout button[type="submit"]');
-  await browser("wait", 200);
+  await browser("wait", "200");
   const payments = await evaluate("window.__qloungePayments");
   assert.equal(payments.length, 1, "One click should invoke one checkout");
   assert.equal(payments[0].amount, 140);
