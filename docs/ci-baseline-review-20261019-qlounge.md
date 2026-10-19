@@ -9,10 +9,10 @@ Reason: The V2 Q Lounge route `/food` previously displayed a read-only menu and 
 Three exact one-line substitutions **only**:
 
 1. `<Route path="/food" element={<V2Food />} />` -> `<Route path="/food" element={<V2Food startPayment={startPayment} />} />`. The existing payment function is passed as a prop; no new payment or backend functions.
-2. For `paymentContext === "food"`, `retryPath()` returns `/food` instead of `/offer`.
+2. For `paymentContext === "food"`, `retryPath()` returns `/food?retry=1` instead of `/offer` so the new Q Lounge menu can restore an interrupted cart only on explicit retry, not on a normal visit.
 3. Food payment success **Order More** button navigates to `/food` instead of `/offer`.
 
-Reviewed Git blob SHA-1 of `src/App.jsx`: `04d21d490e2790d776c744586e6c865b90e9e857`.
+Reviewed Git blob SHA-1 of `src/App.jsx`: `9e67d5806f3ab2a478f86da1f1d37eb18d664c77`.
 
 Previous pinned SHA-1: `51614e8a300b72bd3159aa813097d2399da5dcd3`.
 
