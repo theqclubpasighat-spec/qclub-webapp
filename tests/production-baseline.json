@@ -13,7 +13,7 @@
     "api/whatsapp-send.js": "9cbb4e5422f36ca894e9833aa23e6a03675854a5",
     "package-lock.json": "f2ecd6381b18a0aa56eb8a34f5e4b8c0ff79ff70",
     "package.json": "48d5b48c3a9bb07e13ca15e44bbbc0bc51158e1a",
-    "src/App.jsx": "04d21d490e2790d776c744586e6c865b90e9e857",
+    "src/App.jsx": "9e67d5806f3ab2a478f86da1f1d37eb18d664c77",
     "src/cloud.js": "d35aa412ee17c9056989564c7e309d324dde2a10",
     "src/components/qclub-ledger-page.jsx": "7ce5e4da92c23b81b6bd5fd09b4e40790783adcb",
     "src/components/qclub-pay-page.jsx": "5367285b86f767946e7abf25776e1ac3bcb5c8c9",
