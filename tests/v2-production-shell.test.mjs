@@ -29,7 +29,7 @@ test("Q Lounge orders directly on the existing payment flow from the current pub
   assert.match(food, /food_items_json: JSON\.stringify\(orderLines\)/);
   assert.match(food, /qclub_food_cart/);
   assert.doesNotMatch(food, /to="\/offer"/);
-  assert.match(app, /if \(paymentContext === "food"\) return "\/food";/);
+  assert.match(app, /if \(paymentContext === "food"\) return "\/food\?retry=1";/);
 });
 
 test("production entry loads V2 shell after legacy styles", () => {
