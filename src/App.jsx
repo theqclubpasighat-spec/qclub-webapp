@@ -16765,7 +16765,7 @@ saveMembershipReceiptOperationalRecord(membershipOperationalRecord).catch((error
 }, [status, paymentContext, orderIdFromUrl]);
 
   function retryPath() {
-  if (paymentContext === "food") return "/food";
+  if (paymentContext === "food") return "/food?retry=1";
   if (paymentContext === "shop") return "/shop";
   if (paymentContext === "membership") return "/membership";
   if (paymentContext === "tournament") return "/tournament-register";
