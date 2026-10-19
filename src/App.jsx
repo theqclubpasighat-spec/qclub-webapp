@@ -3617,7 +3617,7 @@ latestDataRef.current = fresh;
 ) : null}
 
       <Routes>
-        <Route path="/" element={admin ? <Home data={data} admin={admin} commit={commit} activeTournament={activeTournament} /> : <V2Home data={data} activeTournament={activeTournament} />} />
+        <Route path="/" element={<V2Home data={data} activeTournament={activeTournament} />} />
         <Route path="/members" element={<MembersPage data={data} admin={admin} commit={commit} />} />
         <Route path="/member-registry" element={<MemberRegistryPage data={data} admin={admin} commit={commit} />} />
         <Route path="/jobs" element={<JobApplicationPage data={data} commit={commit} />} />
