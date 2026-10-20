@@ -44,3 +44,11 @@ Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `095616bac6d
 Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `f688af0b962fe5c99e4c1aec2f0519e398cf4963`.
 
 Verification: production build, server syntax check, and full Node test suite are run for this update; database-gated tests remain skipped without the production database configuration.
+
+## Reviewed finished Pool QR session recovery and charge display
+
+The public request-status endpoint now returns the posted, unbilled table-time charge for finalized Pool sessions, so the player payment page no longer presents a false ₹0. When a claimed player's customer tab already includes that charge, the combined due display does not add it a second time. The player page distinguishes a finished session from an active one and uses the finished session's timer rather than another session currently at the table.
+
+When the same phone restores a finished QR request, its payment link remains intact. If the table is available, the player can explicitly start a new session; the old request token is archived on that phone and can be reopened to return to its payment. This avoids silently discarding an unpaid bill or automatically charging a new player on refresh.
+
+Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `8363c9131fe105cbdb22851476314d50841b9246`.
