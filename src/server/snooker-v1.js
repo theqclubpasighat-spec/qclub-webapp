@@ -6141,6 +6141,154 @@ async function publicTablePortal(req, res, tableKey) {
   });
 }
 
+async function startPoolQrScan(req, res, tableKey) {
+  const supabase = getSupabaseAdmin();
+  const table = await tableByPublicKey(supabase, tableKey);
+  if (!table) return json(res, 404, { ok: false, error: "TABLE_NOT_FOUND" });
+  if (table.table_type !== "POOL") return json(res, 409, { ok: false, error: "POOL_TABLE_REQUIRED" });
+  const current = await activeSessionForTable(supabase, table.id);
+  if (current) return json(res, 200, { ok: true, already_running: true, session_id: current.id });
+  const { data: rule } = await supabase.from("snooker_game_rules").select("game_type").eq("game_type", "NORMAL_POOL").eq("active", true).maybeSingle();
+  if (!rule) return json(res, 409, { ok: false, error: "POOL_BILLING_NOT_CONFIGURED" });
+
+  const now = new Date();
+  const startAt = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
+  const { data: session, error: sessionError } = await supabase.from("snooker_sessions").insert({
+    table_id: table.id, game_type: "NORMAL_POOL", customer_name: "Pool QR Guest", customer_phone: null,
+    is_member: false, participant_names: ["Pool QR Guest"], participant_ids: [], account_mode: "INDIVIDUAL",
+    match_format: "FLEX", payment_rule: "HOURLY", frame_rate_override_inr: null, shared_hourly_rate_inr: null,
+    shared_hourly_last_at: null, started_at: startAt, timer_started_at: startAt, timer_running: true,
+    created_by: "table_qr_pool_scan", updated_by: "table_qr_pool_scan",
+  }).select("*").single();
+  if (sessionError) {
+    if (sessionError.code === "23505") return json(res, 409, { ok: false, error: "TABLE_ALREADY_RUNNING" });
+    throw sessionError;
+  }
+  const { data: person, error: personError } = await supabase.from("snooker_session_people").insert({
+    session_id: session.id, customer_id: null, name: "Pool QR Guest", phone: null, is_member: false,
+    team_no: null, status: "ACTIVE", joined_at: startAt, timer_running: true, timer_started_at: startAt,
+    created_by: "table_qr_pool_scan", updated_by: "table_qr_pool_scan",
+  }).select("*").single();
+  if (personError) { await supabase.from("snooker_sessions").delete().eq("id", session.id); throw personError; }
+  await supabase.from("snooker_sessions").update({ participant_ids: [person.id] }).eq("id", session.id);
+
+  const secret = randomBytes(24).toString("base64url");
+  const { data: access, error: accessError } = await supabase.from("qclub_table_access_requests").insert({
+    table_id: table.id, customer_id: null, customer_name: "Pool QR Guest", phone: null, action: "START",
+    requested_game_type: "NORMAL_POOL", status: "APPROVED", target_session_id: session.id, person_id: person.id,
+    request_secret_hash: hashToken(secret), decided_at: now.toISOString(), decided_by: "auto-start-pool-qr-scan",
+    metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase(), auto_started_pool: true, claimed: false, lead_minutes: 3 },
+  }).select("id,status,action").single();
+  if (accessError) {
+    await supabase.from("snooker_session_people").delete().eq("id", person.id);
+    await supabase.from("snooker_sessions").delete().eq("id", session.id);
+    throw accessError;
+  }
+  return json(res, 201, { ok: true, request_id: access.id, request_token: secret, status: access.status, action: access.action, auto_started: true });
+}
+
+async function claimPoolQrSession(req, res, requestId) {
+  const secret = safeText(req.query?.token || req.headers?.["x-qclub-table-token"] || "", 300);
+  if (!secret) return json(res, 401, { ok: false, error: "REQUEST_TOKEN_REQUIRED" });
+  const supabase = getSupabaseAdmin();
+  const { data: access, error } = await supabase.from("qclub_table_access_requests").select("*").eq("id", requestId).maybeSingle();
+  if (error) throw error;
+  if (!access || !secureEqual(access.request_secret_hash, hashToken(secret))) return json(res, 404, { ok: false, error: "REQUEST_NOT_FOUND" });
+  if (access.metadata?.source !== "table_qr" || !access.metadata?.auto_started_pool) return json(res, 409, { ok: false, error: "NOT_A_POOL_QR_SESSION" });
+  const name = canonicalCustomerName(req.body?.name || "");
+  const phone = normalizePhone(req.body?.phone || "") || null;
+  if (!name) return json(res, 400, { ok: false, error: "PLAYER_NAME_REQUIRED" });
+  if (!phone || phone.length !== 10) return json(res, 400, { ok: false, error: "INVALID_PHONE", message: "Enter a valid 10-digit WhatsApp number." });
+  const { data: session } = await supabase.from("snooker_sessions").select("*").eq("id", access.target_session_id).maybeSingle();
+  const { data: person } = await supabase.from("snooker_session_people").select("*").eq("id", access.person_id).maybeSingle();
+  if (!session || !person || session.status !== "FINALIZED") return json(res, 409, { ok: false, error: "FINISH_GAME_FIRST", message: "Enter your details after the Game Marshall finishes the game." });
+  if (access.metadata?.payment_url) return json(res, 200, { ok: true, ...access.metadata.payment_result });
+  const customer = await lookupCustomerForPublicRequest(supabase, name, phone);
+  let verifiedMember = false;
+  try { verifiedMember = Boolean((await verifyMemberRecord(supabase, { phone, name }))?.verified); } catch {}
+  let resolvedCustomer = customer;
+  try { resolvedCustomer = customer || await rememberCustomer(supabase, { name, phone, isMember: verifiedMember, source: "table_qr_pool" }); } catch {}
+  const timestamp = new Date().toISOString();
+  const { error: personUpdateError } = await supabase.from("snooker_session_people").update({ customer_id: resolvedCustomer?.id || null, name, phone, is_member: verifiedMember, updated_by: "table_qr_pool_claim" }).eq("id", person.id);
+  if (personUpdateError) throw personUpdateError;
+  const { error: sessionUpdateError } = await supabase.from("snooker_sessions").update({ customer_name: name, customer_phone: phone, is_member: verifiedMember, participant_names: [name], participant_ids: [person.id], updated_by: "table_qr_pool_claim" }).eq("id", session.id);
+  if (sessionUpdateError) throw sessionUpdateError;
+  const [{ data: table }, { data: tableCharge }] = await Promise.all([
+    supabase.from("snooker_tables").select("price_per_hour_inr,member_price_per_hour_inr").eq("id", session.table_id).maybeSingle(),
+    supabase.from("snooker_person_charges").select("*").eq("session_id", session.id).eq("person_id", person.id).eq("charge_type", "TABLE").eq("status", "ACTIVE").is("bill_id", null).maybeSingle(),
+  ]);
+  if (table && tableCharge) {
+    const rate = money(verifiedMember ? table.member_price_per_hour_inr : table.price_per_hour_inr);
+    const correctedAmount = money(personElapsedSeconds(person) * rate / 3600);
+    const { error: rateError } = await supabase.from("snooker_person_charges").update({
+      amount_inr: correctedAmount,
+      description: "Table time — " + Math.max(1, Math.round(personElapsedSeconds(person) / 60)) + " min • " + (verifiedMember ? "member" : "walk-in") + " rate",
+      metadata: { ...(tableCharge.metadata || {}), hourly_rate_inr: rate, elapsed_seconds: personElapsedSeconds(person), member_rate_applied: verifiedMember },
+    }).eq("id", tableCharge.id);
+    if (rateError) throw rateError;
+  }
+  const { data: previousBill, error: previousBillError } = await supabase.from("snooker_bills").select("*").eq("source_session_id", session.id).eq("person_id", person.id).eq("bill_source", "PLAYER_ACCOUNT").neq("status", "CANCELLED").order("finalized_at", { ascending: false }).limit(1).maybeSingle();
+  if (previousBillError) throw previousBillError;
+  if (previousBill) {
+    const { data: previousPayment, error: previousPaymentError } = await supabase.from("snooker_bill_payments").select("*").eq("bill_id", previousBill.id).eq("method", "UPI").eq("status", "PENDING").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (previousPaymentError) throw previousPaymentError;
+    if (previousPayment) {
+      const paymentResult = { payment_id: previousPayment.id, bill_id: previousBill.id, bill_no: previousBill.bill_no, amount_inr: money(previousPayment.amount_inr), status: previousPayment.status, expires_at: previousPayment.expires_at, payment_url: paymentLinkUrl(previousPayment), qr_element_url: qrElementUrl(previousPayment) };
+      await supabase.from("qclub_table_access_requests").update({ customer_id: resolvedCustomer?.id || null, customer_name: name, phone, metadata: { ...access.metadata, claimed: true, bill_id: previousBill.id, payment_url: paymentResult.qr_element_url, payment_result: paymentResult }, last_seen_at: timestamp }).eq("id", access.id);
+      return json(res, 200, { ok: true, ...paymentResult });
+    }
+  }
+  const { data: charges, error: chargeError } = await supabase.from("snooker_person_charges").select("*").eq("session_id", session.id).eq("person_id", person.id).eq("status", "ACTIVE").is("bill_id", null).order("created_at");
+  if (chargeError) throw chargeError;
+  if (!charges?.length && !previousBill) return json(res, 409, { ok: false, error: "NOTHING_TO_BILL" });
+  let bill = previousBill;
+  if (!bill) {
+    const gameTotal = money(charges.filter((x) => x.charge_type !== "FNB").reduce((sum, x) => sum + number(x.amount_inr), 0));
+    const fnbTotal = money(charges.filter((x) => x.charge_type === "FNB").reduce((sum, x) => sum + number(x.amount_inr), 0));
+    const total = money(gameTotal + fnbTotal);
+    const billId = randomUUID();
+    const billNo = `QP-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${billId.replace(/-/g, "").slice(-6).toUpperCase()}`;
+    const result = await supabase.from("snooker_bills").insert({
+      id: billId, bill_no: billNo, session_id: null, source_session_id: session.id, person_id: person.id,
+      customer_id: resolvedCustomer?.id || null, bill_source: "PLAYER_ACCOUNT", customer_name: name, customer_phone: phone,
+      game_total_inr: gameTotal, fnb_total_inr: fnbTotal, discount_inr: 0, total_inr: total, paid_inr: 0,
+      due_inr: total, status: total > 0 ? "UNPAID" : "PAID", revision: "1", finalized_by: "table_qr_player",
+    }).select("*").single();
+    if (result.error) throw result.error;
+    bill = result.data;
+    const items = charges.map((ch) => ({ bill_id: bill.id, item_type: ch.charge_type === "FNB" ? "FNB" : ch.charge_type === "TABLE" ? "TABLE_TIME" : "GAME", reference_id: ch.reference_id, description: ch.description, quantity: 1, unit_price_inr: money(ch.amount_inr), line_total_inr: money(ch.amount_inr), metadata: { person_id: person.id, charge_id: ch.id, ...(ch.metadata || {}) } }));
+    const { error: itemError } = await supabase.from("snooker_bill_items").insert(items);
+    if (itemError) throw itemError;
+    const { error: chargeUpdateError } = await supabase.from("snooker_person_charges").update({ bill_id: bill.id }).in("id", charges.map((x) => x.id));
+    if (chargeUpdateError) throw chargeUpdateError;
+  }
+
+  const total = money(bill.due_inr);
+  const paymentId = access.id;
+  const orderId = `snk_${paymentId.replace(/-/g, "").slice(0, 24)}`;
+  const expiry = new Date(Date.now() + 20 * 60_000).toISOString();
+  const siteUrl = safeText(env("QCLUB_SITE_URL") || "https://www.theqclubpasighat.com", 240).replace(/\/$/, "");
+  const order = await cashfreeJson("https://api.cashfree.com/pg/orders", {
+    method: "POST", headers: { ...cashfreeHeaders(), "x-idempotency-key": `pool-${access.id}` },
+    body: JSON.stringify({ order_id: orderId, order_amount: total, order_currency: CURRENCY, order_expiry_time: expiry,
+      customer_details: { customer_id: `snooker_${bill.id.slice(0, 36)}`, customer_name: name, customer_phone: phone },
+      order_meta: { notify_url: `${siteUrl}/api/snooker/v1/cashfree-webhook`, return_url: `${siteUrl}/payment-status?order_id={order_id}`, payment_methods: "upi" },
+      order_note: `Q Club Pool ${bill.bill_no}`, order_tags: { context: "snooker", bill_id: bill.id, payment_id: paymentId } }),
+  });
+  const paymentSessionId = safeText(order.payment_session_id || "", 2000);
+  if (!paymentSessionId) return json(res, 502, { ok: false, error: "CASHFREE_SESSION_MISSING" });
+  const { data: payment, error: paymentError } = await supabase.from("snooker_bill_payments").insert({
+    id: paymentId, bill_id: bill.id, method: "UPI", amount_inr: total, status: "PENDING", cashfree_order_id: orderId,
+    payment_session_id: paymentSessionId, qr_payload: null, expires_at: expiry,
+    provider_payload: { order, integration: "cashfree_element_upi_qr", s2s_order_pay_disabled: true }, received_by: "table_qr_player",
+  }).select("*").single();
+  if (paymentError) throw paymentError;
+  const paymentResult = { payment_id: payment.id, bill_id: bill.id, bill_no: bill.bill_no, amount_inr: total, status: "PENDING", expires_at: expiry, payment_url: paymentLinkUrl(payment), qr_element_url: qrElementUrl(payment) };
+  const { error: accessUpdateError } = await supabase.from("qclub_table_access_requests").update({ customer_id: resolvedCustomer?.id || null, customer_name: name, phone, metadata: { ...access.metadata, claimed: true, bill_id: bill.id, payment_url: paymentResult.qr_element_url, payment_result: paymentResult }, last_seen_at: timestamp }).eq("id", access.id);
+  if (accessUpdateError) throw accessUpdateError;
+  return json(res, 201, { ok: true, ...paymentResult });
+}
+
 async function createPublicTableRequest(req, res, tableKey) {
   const supabase = getSupabaseAdmin();
   const table = await tableByPublicKey(supabase, tableKey);
@@ -6162,95 +6310,6 @@ async function createPublicTableRequest(req, res, tableKey) {
   const requestedGameType = safeText(req.body?.game_type || "", 80).toUpperCase() || null;
   const customer = await lookupCustomerForPublicRequest(supabase, name, phone);
 
-  // Pool QR starts the clock as soon as the player submits their details. The
-  // three-minute lead-in covers the QR form and racking time and is recorded in
-  // the session's normal timer fields so all existing billing paths agree.
-  if (!session && table.table_type === "POOL" && action === "START") {
-    const { data: rule } = await supabase.from("snooker_game_rules").select("*").eq("game_type", "NORMAL_POOL").eq("active", true).maybeSingle();
-    if (!rule || !compatibleGame(table.table_type, "NORMAL_POOL")) return json(res, 409, { ok: false, error: "POOL_BILLING_NOT_CONFIGURED" });
-    const { data: active } = await supabase.from("snooker_sessions").select("id").eq("table_id", table.id).in("status", ["ACTIVE", "PAUSED"]).limit(1).maybeSingle();
-    if (active) return createPublicTableRequest(req, res, tableKey);
-
-    let verifiedMember = false;
-    try {
-      const verified = await verifyMemberRecord(supabase, { phone, name });
-      verifiedMember = Boolean(verified?.verified);
-    } catch { verifiedMember = false; }
-    let resolvedCustomer = customer;
-    try {
-      resolvedCustomer = customer || await rememberCustomer(supabase, { name, phone, isMember: verifiedMember, source: "table_qr_pool" });
-    } catch { /* The player account can still be created without a directory link. */ }
-
-    const now = new Date();
-    const startAt = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
-    const { data: createdSession, error: sessionError } = await supabase.from("snooker_sessions").insert({
-      table_id: table.id,
-      game_type: "NORMAL_POOL",
-      customer_name: name,
-      customer_phone: phone,
-      is_member: verifiedMember,
-      participant_names: [name],
-      participant_ids: [],
-      account_mode: "INDIVIDUAL",
-      match_format: "FLEX",
-      payment_rule: "HOURLY",
-      frame_rate_override_inr: null,
-      shared_hourly_rate_inr: null,
-      shared_hourly_last_at: null,
-      started_at: startAt,
-      timer_started_at: startAt,
-      timer_running: true,
-      created_by: "table_qr_pool",
-      updated_by: "table_qr_pool",
-    }).select("*").single();
-    if (sessionError) {
-      if (sessionError.code === "23505") return createPublicTableRequest(req, res, tableKey);
-      throw sessionError;
-    }
-
-    const { data: person, error: personError } = await supabase.from("snooker_session_people").insert({
-      session_id: createdSession.id,
-      customer_id: resolvedCustomer?.id || null,
-      name,
-      phone,
-      is_member: verifiedMember,
-      team_no: null,
-      status: "ACTIVE",
-      joined_at: startAt,
-      timer_running: true,
-      timer_started_at: startAt,
-      created_by: "table_qr_pool",
-      updated_by: "table_qr_pool",
-    }).select("*").single();
-    if (personError) {
-      await supabase.from("snooker_sessions").delete().eq("id", createdSession.id);
-      throw personError;
-    }
-    await supabase.from("snooker_sessions").update({ participant_ids: [person.id], participant_names: [name] }).eq("id", createdSession.id);
-
-    const secret = randomBytes(24).toString("base64url");
-    const { data: linked, error: linkError } = await supabase.from("qclub_table_access_requests").insert({
-      table_id: table.id,
-      customer_id: resolvedCustomer?.id || null,
-      customer_name: name,
-      phone,
-      action: "START",
-      requested_game_type: "NORMAL_POOL",
-      status: "APPROVED",
-      target_session_id: createdSession.id,
-      person_id: person.id,
-      request_secret_hash: hashToken(secret),
-      decided_at: now.toISOString(),
-      decided_by: "auto-start-pool-qr",
-      metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase(), auto_started_pool: true, lead_minutes: 3 },
-    }).select("*").single();
-    if (linkError) {
-      await supabase.from("snooker_session_people").delete().eq("id", person.id);
-      await supabase.from("snooker_sessions").delete().eq("id", createdSession.id);
-      throw linkError;
-    }
-    return json(res, 201, { ok: true, request_id: linked.id, request_token: secret, status: linked.status, action: linked.action, auto_started: true });
-  }
 
   if (session?.account_mode === "INDIVIDUAL") {
     const { data: currentPeople, error: currentPeopleError } = await supabase
@@ -6485,31 +6544,33 @@ async function publicTableRequestStatus(req, res, requestId) {
       };
     }
   }
-  if (requestRow.customer_id && ["APPROVED","WAITING_NEXT_GAME"].includes(requestRow.status)) {
-    const detail = await customerTabDetailPayload(supabase, requestRow.customer_id);
-    if (detail) {
-      let liveTableCharge = 0;
-      if (requestRow.person_id && sessionPayload?.game_type === "NORMAL_POOL" && sessionPayload.status === "ACTIVE") {
-        const [{ data: person }, { data: table }, { data: tableCharges }] = await Promise.all([
-          supabase.from("snooker_session_people").select("*").eq("id", requestRow.person_id).maybeSingle(),
-          supabase.from("snooker_tables").select("price_per_hour_inr,member_price_per_hour_inr").eq("id", requestRow.table_id).maybeSingle(),
-          supabase.from("snooker_person_charges").select("amount_inr").eq("session_id", sessionPayload.session_id).eq("person_id", requestRow.person_id).eq("charge_type", "TABLE").eq("status", "ACTIVE"),
-        ]);
-        if (person && table) {
-          const rate = money(person.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
-          const elapsed = personElapsedSeconds(person);
-          const posted = money((tableCharges || []).reduce((sum, row) => sum + number(row.amount_inr), 0));
-          liveTableCharge = money(Math.max(0, (elapsed / 3600) * rate - posted));
-        }
+  if (["APPROVED","WAITING_NEXT_GAME"].includes(requestRow.status)) {
+    const detail = requestRow.customer_id ? await customerTabDetailPayload(supabase, requestRow.customer_id) : null;
+    let liveTableCharge = 0;
+    if (requestRow.person_id && sessionPayload?.game_type === "NORMAL_POOL" && sessionPayload.status === "ACTIVE") {
+      const [{ data: person }, { data: table }, { data: tableCharges }] = await Promise.all([
+        supabase.from("snooker_session_people").select("*").eq("id", requestRow.person_id).maybeSingle(),
+        supabase.from("snooker_tables").select("price_per_hour_inr,member_price_per_hour_inr").eq("id", requestRow.table_id).maybeSingle(),
+        supabase.from("snooker_person_charges").select("amount_inr").eq("session_id", sessionPayload.session_id).eq("person_id", requestRow.person_id).eq("charge_type", "TABLE").eq("status", "ACTIVE"),
+      ]);
+      if (person && table) {
+        const rate = money(person.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
+        const elapsed = personElapsedSeconds(person);
+        const posted = money((tableCharges || []).reduce((sum, row) => sum + number(row.amount_inr), 0));
+        liveTableCharge = sessionPayload.status === "ACTIVE"
+          ? money(Math.max(0, (elapsed / 3600) * rate - posted))
+          : posted;
       }
+    }
+    if (detail || requestRow.metadata?.auto_started_pool) {
       own = {
-        customer_id: detail.customer?.customer_id || requestRow.customer_id,
-        name: detail.customer?.name || requestRow.customer_name,
-        current_due_inr: money(number(detail.current_due_inr || 0) + liveTableCharge),
-        unbilled_inr: money(detail.unbilled_inr || 0),
-        billed_due_inr: money(detail.billed_due_inr || 0),
-        fnb_unbilled_inr: money(detail.fnb_unbilled_inr || 0),
-        player_unbilled_inr: money(detail.player_unbilled_inr || 0),
+        customer_id: detail?.customer?.customer_id || requestRow.customer_id,
+        name: detail?.customer?.name || requestRow.customer_name,
+        current_due_inr: money(number(detail?.current_due_inr || 0) + liveTableCharge),
+        unbilled_inr: money(detail?.unbilled_inr || 0),
+        billed_due_inr: money(detail?.billed_due_inr || 0),
+        fnb_unbilled_inr: money(detail?.fnb_unbilled_inr || 0),
+        player_unbilled_inr: money(detail?.player_unbilled_inr || 0),
         live_table_charge_inr: liveTableCharge,
       };
     }
@@ -6526,6 +6587,7 @@ async function publicTableRequestStatus(req, res, requestId) {
       requested_game_type: requestRow.requested_game_type,
       requested_at: requestRow.requested_at,
       decided_at: requestRow.decided_at,
+      player_claimed: Boolean(requestRow.metadata?.claimed),
     },
     session: sessionPayload,
     own,
@@ -6856,8 +6918,10 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "public-catalogue") return await publicCatalogue(req, res);
     if (parts[0] === "display" && parts[1] && parts.length === 2 && method === "GET") return await publicTableDisplay(req, res, parts[1]);
     if (parts[0] === "table-public" && parts[1] && parts.length === 2 && method === "GET") return await publicTablePortal(req,res,parts[1]);
+    if (parts[0] === "table-public" && parts[1] && parts[2] === "scan" && parts.length === 3 && method === "POST") return await startPoolQrScan(req,res,parts[1]);
     if (parts[0] === "table-public" && parts[1] && parts[2] === "request" && parts.length === 3 && method === "POST") return await createPublicTableRequest(req,res,parts[1]);
     if (parts[0] === "table-public" && parts[1] === "request-status" && parts[2] && parts.length === 3 && method === "GET") return await publicTableRequestStatus(req,res,parts[2]);
+    if (parts[0] === "table-public" && parts[1] === "request-status" && parts[2] && parts[3] === "claim" && parts.length === 4 && method === "POST") return await claimPoolQrSession(req,res,parts[2]);
     if (parts[0] === "table-public" && parts[1] === "request-status" && parts[2] && parts[3] === "orders" && parts.length === 4 && method === "POST") return await createPublicTableOrder(req,res,parts[2]);
     if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "GET") return await publicQchaseLive(req, res, parts[1]);
     if (parts[0] === "qchase-live" && parts[1] && parts.length === 2 && method === "POST") return await publishQchaseLive(req, res, parts[1]);
