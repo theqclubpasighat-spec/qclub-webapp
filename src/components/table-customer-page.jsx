@@ -14,6 +14,7 @@ function elapsed(seconds){
   return (value<0?"−":"")+[h,m,s].map((v,i)=>i===0?String(v):String(v).padStart(2,"0")).join(":");
 }
 function storageKey(tableKey){return "qclub_table_portal_"+String(tableKey||"").toUpperCase();}
+function historyKey(tableKey){return storageKey(tableKey)+"_history";}
 async function requestJson(path,options={}){
   const response=await fetch(API_ROOT+"/"+path,{cache:"no-store",...options,headers:{"Content-Type":"application/json",...(options.headers||{})}});
   const data=await response.json().catch(()=>({}));
@@ -35,6 +36,7 @@ export default function TableCustomerPage(){
   const tableKey=String(params.tableKey||"").toUpperCase();
   const [state,setState]=useState(null);
   const [link,setLink]=useState(()=>{try{return JSON.parse(localStorage.getItem(storageKey(tableKey))||"null");}catch{return null;}});
+  const [poolHistory,setPoolHistory]=useState(()=>{try{return JSON.parse(localStorage.getItem(historyKey(tableKey))||"[]");}catch{return [];}});
   const [requestState,setRequestState]=useState(null);
   const [name,setName]=useState("");
   const [phone,setPhone]=useState("");
@@ -119,6 +121,31 @@ export default function TableCustomerPage(){
     try{localStorage.removeItem(storageKey(tableKey));}catch{}
     setLink(null);setRequestState(null);setError("");
   }
+  function savePoolHistory(rows){
+    const unique=[];
+    for(const row of rows){if(row?.request_id&&row?.request_token&&!unique.some(x=>x.request_id===row.request_id))unique.push(row);}
+    const trimmed=unique.slice(0,10);
+    try{localStorage.setItem(historyKey(tableKey),JSON.stringify(trimmed));}catch{}
+    setPoolHistory(trimmed);
+  }
+  async function startNewPoolSession(){
+    setBusy(true);setError("");
+    try{
+      const data=await requestJson("table-public/"+encodeURIComponent(tableKey)+"/scan",{method:"POST",body:JSON.stringify({})});
+      if(data.already_running){await refreshTable();throw new Error("This table has already been started. Refreshing its live session.");}
+      if(link)savePoolHistory([link,...poolHistory]);
+      const next={request_id:data.request_id,request_token:data.request_token};
+      localStorage.setItem(storageKey(tableKey),JSON.stringify(next));
+      setRequestState(null);setLink(next);setName("");setPhone("");
+    }catch(e){setError(e.message||"Unable to start a new Pool session.");}
+    finally{setBusy(false);}
+  }
+  function openPoolHistory(previous){
+    if(link)savePoolHistory([link,...poolHistory.filter(row=>row.request_id!==previous.request_id)]);
+    else savePoolHistory(poolHistory.filter(row=>row.request_id!==previous.request_id));
+    localStorage.setItem(storageKey(tableKey),JSON.stringify(previous));
+    setRequestState(null);setLink(previous);setName("");setPhone("");
+  }
 
   function changeQty(itemId,delta){
     setCart(current=>{
@@ -143,6 +170,7 @@ export default function TableCustomerPage(){
   }
 
   const session=state?.session;
+  const displayedSession=requestState?.session?.status==="FINALIZED"?requestState.session:(session||requestState?.session);
   const own=requestState?.own;
   const req=requestState?.request;
   const approved=req?.status==="APPROVED";
@@ -164,7 +192,7 @@ export default function TableCustomerPage(){
             <div style={{fontSize:12,color:"#9fb3a6"}}>STATUS</div>
             <strong style={{fontSize:24,color:requestState?.session?.status==="FINALIZED"?"#f0d06f":state?.state==="AVAILABLE"?"#79e7aa":"#f0d06f"}}>{requestState?.session?.status==="FINALIZED"?"FINISHED":state?.state||"LOADING"}</strong>
           </div>
-          {(session||requestState?.session)?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed((session||requestState.session).elapsed_seconds-Number((session||requestState.session).setup_allowance_seconds||0))}</strong></div>:null}
+          {displayedSession?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed(displayedSession.elapsed_seconds-Number(displayedSession.setup_allowance_seconds||0))}</strong></div>:null}
         </div>
         {session?<div style={{marginTop:12}}>
           <strong>{session.game_label||GAME_LABELS[session.game_type]||session.game_type}</strong>
@@ -185,13 +213,13 @@ export default function TableCustomerPage(){
         {waitingNext?<div style={{marginTop:8,color:"#f0d06f"}}>You will be added and charged when the next QChase/Rummy game starts.</div>:null}
         {pending?<div style={{marginTop:8,color:"#a9b9af"}}>The Game Marshall has been notified. Do not rescan or create another session.</div>:null}
         {approved&&requestState?.session?<div style={{marginTop:10}}>
-          <div>{requestState.session.game_type==="QCHASE_RUMMY"&&requestState.session.current_game?.game_number?"QChase Game "+requestState.session.current_game.game_number:"Session active"}</div>
-          <div style={{color:"#a9b9af"}}>Your phone may be closed or switched off. The club server keeps the session running.</div>
+          <div>{requestState.session.status==="FINALIZED"?"The Game Marshall has finished this session.":requestState.session.game_type==="QCHASE_RUMMY"&&requestState.session.current_game?.game_number?"QChase Game "+requestState.session.current_game.game_number:"Session active"}</div>
+          {requestState.session.status==="ACTIVE"?<div style={{color:"#a9b9af"}}>Your phone may be closed or switched off. The club server keeps the session running.</div>:null}
         </div>:null}
         {own?<div style={{marginTop:14,padding:14,borderRadius:14,background:"#10271b"}}>
-          <div style={{fontSize:12,color:"#9fb3a6"}}>{requestState?.session?.game_type==="NORMAL_POOL"?"LIVE TABLE CHARGE + YOUR CLUB TAB":"YOUR CLUB TAB"}</div>
+          <div style={{fontSize:12,color:"#9fb3a6"}}>{requestState?.session?.game_type==="NORMAL_POOL"?(requestState?.session?.status==="FINALIZED"?"FINAL TABLE CHARGE + YOUR CLUB TAB":"LIVE TABLE CHARGE + YOUR CLUB TAB"):"YOUR CLUB TAB"}</div>
           <strong style={{fontSize:34,color:"#79e7aa"}}>{money(own.current_due_inr)}</strong>
-          {requestState?.session?.game_type==="NORMAL_POOL"?<div style={{color:"#a9b9af"}}>Current Pool time charge {money(own.live_table_charge_inr) } • updates automatically</div>:null}
+          {requestState?.session?.game_type==="NORMAL_POOL"?<div style={{color:"#a9b9af"}}>{requestState?.session?.status==="FINALIZED"?"Final Pool time charge ":"Current Pool time charge "}{money(own.live_table_charge_inr)}{requestState?.session?.status==="ACTIVE"?" • updates automatically":""}</div>:null}
           <div style={{color:"#a9b9af"}}>Games/Table {money(own.player_unbilled_inr)} • F&B {money(own.fnb_unbilled_inr)} • Earlier due {money(own.billed_due_inr)}</div>
         </div>:null}
         {rejected?<button onClick={clearRequest} style={buttonStyle("ghost")}>Make a new request</button>:null}
@@ -205,6 +233,18 @@ export default function TableCustomerPage(){
         <label style={labelStyle}>WhatsApp number</label>
         <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" style={inputStyle}/>
         <button disabled={busy} onClick={requestPoolPayment} style={buttonStyle("primary")}>{busy?"Preparing Cashfree payment…":"Continue to UPI Payment Options"}</button>
+      </div>:null}
+
+      {hourlyPoolTable&&link&&req?.status==="APPROVED"&&requestState?.session?.status==="FINALIZED"&&state?.state==="AVAILABLE"?<div style={{border:"1px solid #8c742a",background:"#211b0c",borderRadius:16,padding:16,marginBottom:12}}>
+        <strong>This QR restored your previous finished session.</strong>
+        <div style={{marginTop:6,color:"#d7c892"}}>Its payment link remains available above. Start a new session only when you are ready to begin another game.</div>
+        <button disabled={busy} onClick={startNewPoolSession} style={buttonStyle("primary")}>{busy?"Starting…":"Start a New Pool Session"}</button>
+      </div>:null}
+
+      {hourlyPoolTable&&poolHistory.length?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:16,padding:16,marginBottom:12}}>
+        <strong>Earlier Pool sessions</strong>
+        <div style={{color:"#a9b9af",marginTop:4}}>Saved on this phone so you can return to a previous payment.</div>
+        {poolHistory.map((previous,index)=><button key={previous.request_id} onClick={()=>openPoolHistory(previous)} style={buttonStyle("ghost")}>Open previous session/payment {index+1}</button>)}
       </div>:null}
 
       {approved?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
