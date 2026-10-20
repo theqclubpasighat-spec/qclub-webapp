@@ -32,13 +32,13 @@ The merged Ledger UI change adds active shared Q Lounge category names to the ex
 Reviewed production commit: `771918c899df8125513aa10aa4d35c0e43b5bf55`.
 Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `633b7ae88bdd534099947552f5e9596f0459ca43`.
 
-## Reviewed Pool QR hourly start — PR #120
+## Reviewed Pool QR scan start and Cashfree handoff
 
-Table 4 is the only Pool table. Its QR start now creates an active `NORMAL_POOL` individual hourly session after the player submits their name and WhatsApp number. The server starts the session timer three minutes before submission, links the player to the session, and approves that player's QR access request. The existing end-session billing path calculates and posts the exact time charge when the Marshall finishes the game. This uses the existing `snooker_sessions`, `snooker_session_people`, and player-charge records; no schema or payment flow changes are introduced.
+Opening an available Pool table QR starts its hourly `NORMAL_POOL` session automatically with a three-minute lead-in. The player page shows the live server timer and estimated time charge without asking for a name or phone number during play. QclubLedger detects the new session, uses the existing sound alert, and provides Finish Game. Finishing the session posts the final time charge; only then does the player enter their name and WhatsApp number. The public token-protected handoff creates a player bill at the verified member or walk-in rate, creates a Cashfree UPI order for that amount, and opens the existing secure Cashfree QR page on the player's phone. No schema migration is required.
 
-The player's request-status response includes the live Pool time estimate, calculated from their server timer and member/walk-in hourly rate, and refreshes on the existing 2.5-second customer poll. QclubLedger detects a newly started Pool session during its five-second live refresh, uses the existing alert sound, and exposes Finish Game on the active table card. The baseline hash below reflects this reviewed UI change; payment handlers and catalogue behavior remain unchanged.
+The change uses existing individual player charges, bills and Cashfree payment records. The bill and payment amounts are calculated from server-side charges, and the player submission is authorized by the secret table QR request token. The existing Ledger alert/finish controls remain part of the reviewed Pool QR change.
 
 Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `095616bac6d2f233749e3268452a7ea59b547e5a`.
+Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `f688af0b962fe5c99e4c1aec2f0519e398cf4963`.
 
-Verification for PR #120: local production build and server syntax check pass. CI initially failed only because this production baseline hash had not yet been updated; rerun the full suite after the reviewed hash update.
-Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `c4424ab007ba6aea0e3a2b4d7ada9bd4909a6ca5`.
+Verification: production build, server syntax check, and full Node test suite are run for this update; database-gated tests remain skipped without the production database configuration.

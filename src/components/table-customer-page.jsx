@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { gameChoices, isHourlyPoolTable } from "../lib/table-game-options.mjs";
 
@@ -43,6 +43,7 @@ export default function TableCustomerPage(){
   const [menu,setMenu]=useState([]);
   const [cart,setCart]=useState({});
   const [orderBusy,setOrderBusy]=useState(false);
+  const poolScanStarted=useRef(false);
 
   const choices=useMemo(()=>gameChoices(state?.table?.table_type),[state?.table?.table_type]);
   const hourlyPoolTable=isHourlyPoolTable(state?.table?.table_type);
@@ -66,6 +67,15 @@ export default function TableCustomerPage(){
   }
   useEffect(()=>{refreshTable();const timer=setInterval(refreshTable,2500);return()=>clearInterval(timer);},[tableKey]);
   useEffect(()=>{if(!link)return;refreshRequest(link);const timer=setInterval(()=>refreshRequest(link),2500);return()=>clearInterval(timer);},[link?.request_id,link?.request_token]);
+  useEffect(()=>{
+    if(!isHourlyPoolTable(state?.table?.table_type)||state?.state!=="AVAILABLE"||link||poolScanStarted.current)return;
+    poolScanStarted.current=true;
+    requestJson("table-public/"+encodeURIComponent(tableKey)+"/scan",{method:"POST",body:JSON.stringify({})}).then(data=>{
+      if(data.already_running)return;
+      const next={request_id:data.request_id,request_token:data.request_token};
+      localStorage.setItem(storageKey(tableKey),JSON.stringify(next));setLink(next);refreshRequest(next);
+    }).catch(e=>{poolScanStarted.current=false;setError(e.message||"Unable to start the Pool timer.");});
+  },[state,tableKey,link]);
   useEffect(()=>{if(requestState?.request?.status!=="APPROVED")return;requestJson("public-catalogue").then(data=>{
     const rows=[];
     Object.entries(data.menuCatalog||{}).forEach(([key,group])=>(group.items||[]).forEach(item=>{
@@ -89,6 +99,18 @@ export default function TableCustomerPage(){
       setLink(next);
       await refreshRequest(next);
     }catch(e){setError(e.message||"Unable to send request.");}
+    finally{setBusy(false);}
+  }
+  async function requestPoolPayment(){
+    const whatsapp=phone.replace(/\D/g,"").slice(-10);
+    if(!name.trim()){setError("Enter your name to prepare the payment.");return;}
+    if(whatsapp.length!==10){setError("Enter your 10-digit WhatsApp number to prepare the payment.");return;}
+    setBusy(true);setError("");
+    try{
+      const result=await requestJson("table-public/request-status/"+encodeURIComponent(link.request_id)+"/claim?token="+encodeURIComponent(link.request_token),{method:"POST",body:JSON.stringify({name:name.trim(),phone:whatsapp})});
+      if(!result.qr_element_url)throw new Error("Cashfree payment QR was not returned.");
+      window.location.assign(result.qr_element_url);
+    }catch(e){setError(e.message||"Unable to prepare Cashfree payment.");}
     finally{setBusy(false);}
   }
   function clearRequest(){
@@ -138,22 +160,26 @@ export default function TableCustomerPage(){
         <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center"}}>
           <div>
             <div style={{fontSize:12,color:"#9fb3a6"}}>STATUS</div>
-            <strong style={{fontSize:24,color:state?.state==="AVAILABLE"?"#79e7aa":"#f0d06f"}}>{state?.state||"LOADING"}</strong>
+            <strong style={{fontSize:24,color:requestState?.session?.status==="FINALIZED"?"#f0d06f":state?.state==="AVAILABLE"?"#79e7aa":"#f0d06f"}}>{requestState?.session?.status==="FINALIZED"?"FINISHED":state?.state||"LOADING"}</strong>
           </div>
-          {session?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed(session.elapsed_seconds)}</strong></div>:null}
+          {(session||requestState?.session)?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed((session||requestState.session).elapsed_seconds)}</strong></div>:null}
         </div>
         {session?<div style={{marginTop:12}}>
           <strong>{session.game_label||GAME_LABELS[session.game_type]||session.game_type}</strong>
           <div style={{color:"#a9b9af",marginTop:4}}>
             {session.current_game?.game_number?"Game "+session.current_game.game_number+" • ":""}{session.player_count} active player{session.player_count===1?"":"s"}
           </div>
-          {session.active_players?.length?<div style={{marginTop:8,color:"#d9e4dd"}}>{session.active_players.map(p=>p.name).join(" • ")}</div>:null}
+          {session.active_players?.some(p=>p.name!=="Pool QR Guest")?<div style={{marginTop:8,color:"#d9e4dd"}}>{session.active_players.filter(p=>p.name!=="Pool QR Guest").map(p=>p.name).join(" • ")}</div>:null}
         </div>:<div style={{marginTop:12,color:"#a9b9af"}}>Walk-in {money(state?.table?.walkin_rate_inr)}/hr • Member {money(state?.table?.member_rate_inr)}/hr</div>}
       </div>
 
+      {hourlyPoolTable&&!link&&state?.state==="AVAILABLE"?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:16,padding:16,marginBottom:12,color:"#a9b9af"}}>
+        The timer is starting automatically from this QR scan, with the three-minute setup allowance included. Your live time and charge will appear here. No name or WhatsApp number is needed until the Game Marshall finishes.
+      </div>:null}
+
       {req?<div style={{border:"1px solid "+(approved?"#4c8d69":waitingNext?"#8c742a":rejected?"#7c3b3b":"#315242"),background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
-        <div style={{fontSize:12,color:"#9fb3a6"}}>YOUR REQUEST</div>
-        <strong style={{fontSize:22}}>{approved?"CONNECTED":waitingNext?"WAITING FOR NEXT GAME":pending?"WAITING FOR GAME MARSHALL":rejected?"NOT APPROVED":req.status}</strong>
+        <div style={{fontSize:12,color:"#9fb3a6"}}>{hourlyPoolTable?"POOL TABLE SESSION":"YOUR REQUEST"}</div>
+        <strong style={{fontSize:22}}>{approved?(hourlyPoolTable&&!req.player_claimed?"TIMER RUNNING":"CONNECTED"):waitingNext?"WAITING FOR NEXT GAME":pending?"WAITING FOR GAME MARSHALL":rejected?"NOT APPROVED":req.status}</strong>
         {waitingNext?<div style={{marginTop:8,color:"#f0d06f"}}>You will be added and charged when the next QChase/Rummy game starts.</div>:null}
         {pending?<div style={{marginTop:8,color:"#a9b9af"}}>The Game Marshall has been notified. Do not rescan or create another session.</div>:null}
         {approved&&requestState?.session?<div style={{marginTop:10}}>
@@ -167,6 +193,16 @@ export default function TableCustomerPage(){
           <div style={{color:"#a9b9af"}}>Games/Table {money(own.player_unbilled_inr)} • F&B {money(own.fnb_unbilled_inr)} • Earlier due {money(own.billed_due_inr)}</div>
         </div>:null}
         {rejected?<button onClick={clearRequest} style={buttonStyle("ghost")}>Make a new request</button>:null}
+      </div>:null}
+
+      {hourlyPoolTable&&link&&req?.status==="APPROVED"&&requestState?.session?.status==="FINALIZED"?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
+        <strong style={{fontSize:20}}>Game finished • Pay your table charge</strong>
+        <div style={{marginTop:8,color:"#a9b9af"}}>Final Pool charge: {money(own?.live_table_charge_inr)}. Enter your details to prepare your Cashfree payment QR.</div>
+        <label style={labelStyle}>Your name</label>
+        <input value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="Player name" style={inputStyle}/>
+        <label style={labelStyle}>WhatsApp number</label>
+        <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" style={inputStyle}/>
+        <button disabled={busy} onClick={requestPoolPayment} style={buttonStyle("primary")}>{busy?"Preparing Cashfree QR…":"Continue to Cashfree Payment"}</button>
       </div>:null}
 
       {approved?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
@@ -195,7 +231,7 @@ export default function TableCustomerPage(){
         </div>:null}
       </div>:null}
 
-      {!req?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16}}>
+      {!req&&!hourlyPoolTable?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16}}>
         <label style={labelStyle}>Your name</label>
         <input value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="Player name" style={inputStyle}/>
         <label style={labelStyle}>WhatsApp number (required)</label>
@@ -203,10 +239,10 @@ export default function TableCustomerPage(){
         <div style={{marginTop:6,color:"#91a69a",fontSize:12}}>Required for WhatsApp order updates, bills and payment links.</div>
         {state?.state==="AVAILABLE"?<>
           {hourlyPoolTable
-            ? <div style={{marginTop:12,color:"#a9b9af"}}>Pool time starts when you submit your details. The timer includes a 3-minute setup allowance and your live charge will appear here.</div>
+            ? <div style={{marginTop:12,color:"#a9b9af"}}>Pool timer starts automatically when this QR opens, including the 3-minute setup allowance. Your live time and charge will appear here. No details are needed until the Game Marshall finishes the game.</div>
             : <><label style={labelStyle}>What do you want to play?</label><select value={gameType} onChange={e=>setGameType(e.target.value)} style={inputStyle}>{choices.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select></>}
-          <button disabled={busy} onClick={()=>submit("START")} style={buttonStyle("primary")}>{busy?"Starting…":hourlyPoolTable?"Start Pool Table":"Request Table Start"}</button>
-          <div style={{marginTop:8,color:"#91a69a",fontSize:12}}>{hourlyPoolTable?"QclubLedger will be notified automatically. The table keeps running if you close this page.":"The timer starts after the Game Marshall starts/approves the table in QclubLedger."}</div>
+          {!hourlyPoolTable?<button disabled={busy} onClick={()=>submit("START")} style={buttonStyle("primary")}>{busy?"Sending…":"Request Table Start"}</button>:null}
+          <div style={{marginTop:8,color:"#91a69a",fontSize:12}}>{hourlyPoolTable?"Timer starting automatically. It keeps running if you close this page.":"The timer starts after the Game Marshall starts/approves the table in QclubLedger."}</div>
         </>:<>
           {session?.game_type==="QCHASE_RUMMY"?<>
             <button disabled={busy||session.player_count>=session.max_players} onClick={()=>submit("JOIN_CURRENT")} style={buttonStyle("primary")}>{busy?"Sending…":"Join Current Game • ₹100"}</button>
