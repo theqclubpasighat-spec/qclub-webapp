@@ -14,6 +14,8 @@ test("Q Lounge exposes menu management through the existing Admin PIN session", 
   assert.match(manager, /catalogue\/items/);
   assert.match(manager, /catalogue\/categories/);
   assert.match(manager, /Deactivate/);
+  assert.match(manager, /cost_price_inr/);
+  assert.match(manager, /low_stock_threshold/);
 });
 
 test("catalogue category writes require an Admin session and protect categories in use", () => {
