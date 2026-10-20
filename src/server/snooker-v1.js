@@ -6556,7 +6556,7 @@ async function publicTableRequestStatus(req, res, requestId) {
   if (["APPROVED","WAITING_NEXT_GAME"].includes(requestRow.status)) {
     const detail = requestRow.customer_id ? await customerTabDetailPayload(supabase, requestRow.customer_id) : null;
     let liveTableCharge = 0;
-    if (requestRow.person_id && sessionPayload?.game_type === "NORMAL_POOL" && sessionPayload.status === "ACTIVE") {
+    if (requestRow.person_id && sessionPayload?.game_type === "NORMAL_POOL" && ["ACTIVE", "FINALIZED"].includes(sessionPayload.status)) {
       const [{ data: person }, { data: table }, { data: tableCharges }] = await Promise.all([
         supabase.from("snooker_session_people").select("*").eq("id", requestRow.person_id).maybeSingle(),
         supabase.from("snooker_tables").select("price_per_hour_inr,member_price_per_hour_inr").eq("id", requestRow.table_id).maybeSingle(),
@@ -6576,7 +6576,10 @@ async function publicTableRequestStatus(req, res, requestId) {
       own = {
         customer_id: detail?.customer?.customer_id || requestRow.customer_id,
         name: detail?.customer?.name || requestRow.customer_name,
-        current_due_inr: money(number(detail?.current_due_inr || 0) + liveTableCharge),
+        // Once the guest claims the finished Pool session, customerTabDetailPayload
+        // already includes its unbilled table charge. Only add the session charge
+        // separately for an unclaimed QR guest, to avoid showing it twice.
+        current_due_inr: money(number(detail?.current_due_inr || 0) + (detail ? 0 : liveTableCharge)),
         unbilled_inr: money(detail?.unbilled_inr || 0),
         billed_due_inr: money(detail?.billed_due_inr || 0),
         fnb_unbilled_inr: money(detail?.fnb_unbilled_inr || 0),
