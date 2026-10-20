@@ -1,5 +1,5 @@
 {
-  "commit": "reviewed-PR-113-qlounge-direct-checkout-based-on-PR-112",
+  "commit": "reviewed-Q-Lounge-menu-management",
   "files": {
     "api/cashfree-webhook.js": "3f50ea74bd252286258ca366ed6d7fe69c83cd97",
     "api/create-order.js": "aa55725beb1c2c52da7102268a68a71d4a3abc9e",
@@ -18,7 +18,7 @@
     "src/components/qclub-ledger-page.jsx": "7ce5e4da92c23b81b6bd5fd09b4e40790783adcb",
     "src/components/qclub-pay-page.jsx": "5367285b86f767946e7abf25776e1ac3bcb5c8c9",
     "src/components/qclub-qr-page.jsx": "beda5858d8b728912881cf5d9b6d5147f3ad05b3",
-    "src/server/snooker-v1.js": "47a7f7c2928a41db08792d134906f9b069cfe002",
+    "src/server/snooker-v1.js": "182f8b59198352b911b8a3d1ba7ed4ca3d0b60cb",
     "src/styles.css": "ab1c25928976755f2bfe3648135c010eb6f715da",
     "src/supabase.js": "8417af4e4122eaa6f55e1cba71b3f3f3c9ad3741",
     "supabase/migrations/20260926_consolidate_qclub_fnb_master_catalogue.sql": "aca28fc00daa2ea5e825ce5ec38a89e2308e7ccb",
@@ -33,5 +33,5 @@
     "supabase/migrations/20261001_table_displays_and_kitty_billing.sql": "8ebe3355b09eaa2b090dd24ec39d88142272516c",
     "supabase/migrations/20261002_unify_fnb_player_club_tabs.sql": "f4fe0f56a845c3f82c9fe36745a2cb5a9b2df552"
   },
-  "review": "docs/ci-baseline-review-20261019-qlounge.md"
+  "review": "docs/ci-baseline-review-20261020-qlounge-menu.md"
 }
