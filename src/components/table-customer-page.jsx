@@ -203,6 +203,12 @@ export default function TableCustomerPage(){
         </div>:<div style={{marginTop:12,color:"#a9b9af"}}>Walk-in {money(state?.table?.walkin_rate_inr)}/hr • Member {money(state?.table?.member_rate_inr)}/hr</div>}
       </div>
 
+      {hourlyPoolTable&&link&&req?.status==="APPROVED"&&requestState?.session?.status==="FINALIZED"&&state?.state==="AVAILABLE"?<div style={{border:"1px solid #8c742a",background:"#211b0c",borderRadius:16,padding:16,marginBottom:12}}>
+        <strong>This QR restored your previous finished session.</strong>
+        <div style={{marginTop:6,color:"#d7c892"}}>Its payment link remains available above. Start a new session only when you are ready to begin another game.</div>
+        <button disabled={busy} onClick={startNewPoolSession} style={buttonStyle("primary")}>{busy?"Starting…":"Start a New Pool Session"}</button>
+      </div>:null}
+
       {hourlyPoolTable&&!link&&state?.state==="AVAILABLE"?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:16,padding:16,marginBottom:12,color:"#a9b9af"}}>
         The timer is starting automatically from this QR scan, with the three-minute setup allowance included. Your live time and charge will appear here. No name or WhatsApp number is needed until the Game Marshall finishes.
       </div>:null}
@@ -233,12 +239,6 @@ export default function TableCustomerPage(){
         <label style={labelStyle}>WhatsApp number</label>
         <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" style={inputStyle}/>
         <button disabled={busy} onClick={requestPoolPayment} style={buttonStyle("primary")}>{busy?"Preparing Cashfree payment…":"Continue to UPI Payment Options"}</button>
-      </div>:null}
-
-      {hourlyPoolTable&&link&&req?.status==="APPROVED"&&requestState?.session?.status==="FINALIZED"&&state?.state==="AVAILABLE"?<div style={{border:"1px solid #8c742a",background:"#211b0c",borderRadius:16,padding:16,marginBottom:12}}>
-        <strong>This QR restored your previous finished session.</strong>
-        <div style={{marginTop:6,color:"#d7c892"}}>Its payment link remains available above. Start a new session only when you are ready to begin another game.</div>
-        <button disabled={busy} onClick={startNewPoolSession} style={buttonStyle("primary")}>{busy?"Starting…":"Start a New Pool Session"}</button>
       </div>:null}
 
       {hourlyPoolTable&&poolHistory.length?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:16,padding:16,marginBottom:12}}>
