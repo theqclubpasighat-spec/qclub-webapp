@@ -51,7 +51,7 @@ export function applyLegacyFulfillment(state, record, now = new Date().toISOStri
     tournament.participantIds=[...new Set([...(tournament.participantIds||[]),player.id])];inserted=true;
   } else if(context==='booking') {
     const booking=state.booking||{}, requests=booking.requests||[], existing=requests.find(x=>x.id===tags.booking_request_id||x.gatewayOrderId===id);
-    const request={...existing,id:existing?.id||tags.booking_request_id||`bk_${id}`,gatewayOrderId:id,name,mobile,itemId:tags.booking_item_id,itemLabel:tags.table_label,bookingDate:tags.booking_date,timeSlot:tags.booking_time_slot,slotLabel:tags.booking_slot,durationHours:Number(tags.booking_duration_hours||1),amount,status:'verified',paymentStatus:'Paid',createdAt:existing?.createdAt||Date.parse(now)};
+    const request={...existing,id:existing?.id||tags.booking_request_id||`bk_${id}`,gatewayOrderId:id,name,mobile,note:tags.booking_note||existing?.note||'',bookingType:tags.booking_type||existing?.bookingType||'nonmember',itemId:tags.booking_item_id,itemLabel:tags.table_label,bookingDate:tags.booking_date,timeSlot:tags.booking_time_slot,slotLabel:tags.booking_slot,durationHours:Number(tags.booking_duration_hours||1),amount,status:'verified',paymentStatus:'Paid',createdAt:existing?.createdAt||Date.parse(now)};
     state.booking={...booking,requests:existing?requests.map(x=>x===existing?request:x):[...requests,request]};inserted=true;
   } else fail('PAYMENT_CONTEXT_UNSUPPORTED');
   if(inserted) {
