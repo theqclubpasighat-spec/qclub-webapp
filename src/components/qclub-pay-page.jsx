@@ -10,6 +10,7 @@ export default function QclubPayPage() {
   const params = new URLSearchParams(window.location.search);
   const paymentId = params.get("payment_id") || "";
   const signature = params.get("sig") || "";
+  const returnedFromCheckout = params.get("returned") === "1";
   const [payment, setPayment] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -88,7 +89,9 @@ export default function QclubPayPage() {
               </div>
             </div>
 
-            {pending ? (
+            {pending && returnedFromCheckout ? <div role="status" style={{ marginTop: 16, color: "#f2d981" }}>Confirming your payment with Cashfree… If money was debited, do not pay again. This page checks automatically; you can also tap Check Payment Status.</div> : null}
+
+            {pending && !returnedFromCheckout ? (
               <button onClick={payNow} disabled={busy} style={{ width: "100%", marginTop: 16, border: "1px solid #46e596", background: "linear-gradient(135deg,#35d07f,#18a761)", color: "#031209", borderRadius: 12, padding: 14, fontWeight: 900, fontSize: 16, cursor: "pointer" }}>
                 {busy ? "OPENING CASHFREE…" : "PAY SECURELY WITH CASHFREE"}
               </button>

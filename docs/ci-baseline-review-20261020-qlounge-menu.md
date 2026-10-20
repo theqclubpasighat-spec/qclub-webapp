@@ -52,3 +52,10 @@ The public request-status endpoint now returns the posted, unbilled table-time c
 When the same phone restores a finished QR request, its payment link remains intact. If the table is available, the player can explicitly start a new session; the old request token is archived on that phone and can be reopened to return to its payment. This avoids silently discarding an unpaid bill or automatically charging a new player on refresh.
 
 Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `8363c9131fe105cbdb22851476314d50841b9246`.
+
+
+## Pool payment return and timer correction — 20 October 2026
+
+Reviewed limited changes: Pool-created Cashfree orders return to the signed QclubPay flow, not legacy payment-status. Public payment verification retains existing signatures and accepts the equivalent ISO expiry used before database insertion. It still verifies server-side Cashfree state; no client payment assertion is trusted. Returned pending checkout hides the pay button and advises against duplicate payment. Player timer interpolates active server samples locally; paused/ended/finalized clocks freeze, and the 180-second allowance and all billing calculations remain unchanged. Existing new-session top placement is preserved. No database migration or payment-state write is part of this release. MSG91 food template remains a separate unresolved configuration/template task.
+
+Regression tests cover signed return routing, equivalent expiry signatures, wrong payment identity, sequential seconds, negative allowance and stopped timers. Local build passed. Database-gated tests are not run against production. No real payment was initiated for testing.

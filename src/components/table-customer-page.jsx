@@ -35,6 +35,8 @@ export default function TableCustomerPage(){
   const params=useParams();
   const tableKey=String(params.tableKey||"").toUpperCase();
   const [state,setState]=useState(null);
+  const [clockNow,setClockNow]=useState(()=>performance.now());
+  useEffect(()=>{const timer=setInterval(()=>setClockNow(performance.now()),200);return()=>clearInterval(timer);},[]);
   const [link,setLink]=useState(()=>{try{return JSON.parse(localStorage.getItem(storageKey(tableKey))||"null");}catch{return null;}});
   const [poolHistory,setPoolHistory]=useState(()=>{try{return JSON.parse(localStorage.getItem(historyKey(tableKey))||"[]");}catch{return [];}});
   const [requestState,setRequestState]=useState(null);
@@ -53,13 +55,14 @@ export default function TableCustomerPage(){
   useEffect(()=>{if(choices.length&&!choices.some(x=>x[0]===gameType))setGameType(choices[0][0]);},[choices,gameType]);
 
   async function refreshTable(){
-    try{setState(await requestJson("table-public/"+encodeURIComponent(tableKey)));setError("");}
+    try{const data=await requestJson("table-public/"+encodeURIComponent(tableKey));if(data.session)data.session.received_at=performance.now();setState(data);setError("");}
     catch(e){setError(e.message||"Unable to load table.");}
   }
   async function refreshRequest(activeLink=link){
     if(!activeLink?.request_id||!activeLink?.request_token)return;
     try{
       const data=await requestJson("table-public/request-status/"+encodeURIComponent(activeLink.request_id)+"?token="+encodeURIComponent(activeLink.request_token));
+      if(data.session)data.session.received_at=performance.now();
       setRequestState(data);
       if(data?.request?.status==="REJECTED"||data?.request?.status==="CANCELLED"){
         // Keep the result visible; user can clear it and request again.
@@ -171,6 +174,8 @@ export default function TableCustomerPage(){
 
   const session=state?.session;
   const displayedSession=requestState?.session?.status==="FINALIZED"?requestState.session:(session||requestState?.session);
+  const displayedSeconds=Number(displayedSession?.elapsed_seconds||0)-Number(displayedSession?.setup_allowance_seconds||0)
+    +(displayedSession?.status==="ACTIVE"&&displayedSession?.timer_running?Math.max(0,(clockNow-Number(displayedSession.received_at||clockNow))/1000):0);
   const own=requestState?.own;
   const req=requestState?.request;
   const approved=req?.status==="APPROVED";
@@ -192,7 +197,7 @@ export default function TableCustomerPage(){
             <div style={{fontSize:12,color:"#9fb3a6"}}>STATUS</div>
             <strong style={{fontSize:24,color:requestState?.session?.status==="FINALIZED"?"#f0d06f":state?.state==="AVAILABLE"?"#79e7aa":"#f0d06f"}}>{requestState?.session?.status==="FINALIZED"?"FINISHED":state?.state||"LOADING"}</strong>
           </div>
-          {displayedSession?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed(displayedSession.elapsed_seconds-Number(displayedSession.setup_allowance_seconds||0))}</strong></div>:null}
+          {displayedSession?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed(displayedSeconds)}</strong></div>:null}
         </div>
         {session?<div style={{marginTop:12}}>
           <strong>{session.game_label||GAME_LABELS[session.game_type]||session.game_type}</strong>
