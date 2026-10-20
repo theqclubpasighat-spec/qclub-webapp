@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { gameChoices, isHourlyPoolTable } from "../lib/table-game-options.mjs";
 
 const API_ROOT="/api/snooker/v1";
 
@@ -25,12 +26,8 @@ const GAME_LABELS={
   TEN_BALL_SNOOKER:"10-Ball Snooker",
   KITTY:"Kitty",
   AMERICAN_POOL:"American Pool",
+  NORMAL_POOL:"Pool (Hourly)",
 };
-function gameChoices(tableType){
-  if(tableType==="AMERICAN_POOL")return [["AMERICAN_POOL","American Pool"]];
-  if(tableType==="MINI_SNOOKER")return [["NORMAL_SNOOKER","Normal Mini Snooker"],["QCHASE_RUMMY","QChase / Rummy"],["SIX_BALL_SNOOKER","6-Ball Snooker"],["TEN_BALL_SNOOKER","10-Ball Snooker"],["KITTY","Kitty"]];
-  return [["NORMAL_SNOOKER","Normal Snooker"],["QCHASE_RUMMY","QChase / Rummy"],["SIX_BALL_SNOOKER","6-Ball Snooker"],["TEN_BALL_SNOOKER","10-Ball Snooker"],["KITTY","Kitty"]];
-}
 
 export default function TableCustomerPage(){
   const params=useParams();
@@ -48,6 +45,7 @@ export default function TableCustomerPage(){
   const [orderBusy,setOrderBusy]=useState(false);
 
   const choices=useMemo(()=>gameChoices(state?.table?.table_type),[state?.table?.table_type]);
+  const hourlyPoolTable=isHourlyPoolTable(state?.table?.table_type);
   useEffect(()=>{if(choices.length&&!choices.some(x=>x[0]===gameType))setGameType(choices[0][0]);},[choices,gameType]);
 
   async function refreshTable(){
@@ -203,8 +201,9 @@ export default function TableCustomerPage(){
         <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" required aria-required="true" style={inputStyle}/>
         <div style={{marginTop:6,color:"#91a69a",fontSize:12}}>Required for WhatsApp order updates, bills and payment links.</div>
         {state?.state==="AVAILABLE"?<>
-          <label style={labelStyle}>What do you want to play?</label>
-          <select value={gameType} onChange={e=>setGameType(e.target.value)} style={inputStyle}>{choices.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select>
+          {hourlyPoolTable
+            ? <div style={{marginTop:12,color:"#a9b9af"}}>Pool is charged by time. The Game Marshall will start the hourly timer.</div>
+            : <><label style={labelStyle}>What do you want to play?</label><select value={gameType} onChange={e=>setGameType(e.target.value)} style={inputStyle}>{choices.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select></>}
           <button disabled={busy} onClick={()=>submit("START")} style={buttonStyle("primary")}>{busy?"Sending…":"Request Table Start"}</button>
           <div style={{marginTop:8,color:"#91a69a",fontSize:12}}>The timer starts only after the Game Marshall starts/approves the table in QclubLedger.</div>
         </>:<>
