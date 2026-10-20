@@ -415,6 +415,10 @@ export default function QclubLedgerPage() {
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [showCatalogueAdd, setShowCatalogueAdd] = useState(false);
+  const [showCatalogueCategories, setShowCatalogueCategories] = useState(false);
+  const [showCatalogueCategoryForm, setShowCatalogueCategoryForm] = useState(false);
+  const [editingCatalogueCategoryKey, setEditingCatalogueCategoryKey] = useState("");
+  const [catalogueCategoryDraft, setCatalogueCategoryDraft] = useState({ title: "", imageUrl: "", sortOrder: "0" });
   const [editingCatalogueItemId, setEditingCatalogueItemId] = useState("");
   const [catalogueDraft, setCatalogueDraft] = useState({
     name: "",
@@ -3379,7 +3383,83 @@ export default function QclubLedgerPage() {
   function beginAddCatalogueItem() {
     setEditingCatalogueItemId("");
     setCatalogueDraft(emptyCatalogueDraft());
+    setShowCatalogueCategories(false);
     setShowCatalogueAdd(true);
+  }
+
+  function beginAddCatalogueCategory() {
+    setEditingCatalogueCategoryKey("");
+    setCatalogueCategoryDraft({ title: "", imageUrl: "", sortOrder: String(catalogueCategories.length * 10) });
+    setShowCatalogueCategoryForm(true);
+    setShowCatalogueAdd(false);
+    setShowCatalogueCategories(true);
+  }
+
+  function beginEditCatalogueCategory(category) {
+    setEditingCatalogueCategoryKey(category.category_key);
+    setCatalogueCategoryDraft({
+      title: category.title || "",
+      imageUrl: category.image_url || "",
+      sortOrder: category.sort_order == null ? "0" : String(category.sort_order),
+    });
+    setShowCatalogueCategoryForm(true);
+    setShowCatalogueCategories(true);
+    setShowCatalogueAdd(false);
+  }
+
+  async function saveCatalogueCategory() {
+    if (!isAdmin) {
+      flash("Admin PIN is required to manage categories.", true);
+      return;
+    }
+    const title = catalogueCategoryDraft.title.trim();
+    const sortOrder = Number(catalogueCategoryDraft.sortOrder || 0);
+    if (!title) return flash("Enter a category name.", true);
+    if (!Number.isFinite(sortOrder)) return flash("Enter a valid display order.", true);
+
+    setBusy(true);
+    try {
+      const body = {
+        title,
+        image_url: catalogueCategoryDraft.imageUrl.trim(),
+        sort_order: sortOrder,
+      };
+      const isEditing = Boolean(editingCatalogueCategoryKey);
+      if (isEditing) {
+        await protectedCall("catalogue/categories/" + encodeURIComponent(editingCatalogueCategoryKey), { method: "PATCH", body });
+      } else {
+        await protectedCall("catalogue/categories", { method: "POST", body });
+      }
+      await refreshAll();
+      setShowCatalogueCategories(false);
+      setShowCatalogueCategoryForm(false);
+      setEditingCatalogueCategoryKey("");
+      flash(isEditing ? "Category updated." : "Category added.");
+    } catch (error) {
+      flash(error.message || "Unable to save category.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCatalogueCategory(category) {
+    if (!isAdmin) {
+      flash("Admin PIN is required to manage categories.", true);
+      return;
+    }
+    if (!window.confirm("Remove “" + category.title + "”? Move or deactivate its active menu items first.")) return;
+    setBusy(true);
+    try {
+      await protectedCall("catalogue/categories/" + encodeURIComponent(category.category_key), { method: "DELETE" });
+      await refreshAll();
+      flash("Category removed.");
+    } catch (error) {
+      flash(error.status === 409
+        ? "This category still has active menu items. Move or deactivate those items first."
+        : error.message || "Unable to remove category.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function beginEditCatalogueItem(item) {
@@ -4830,8 +4910,63 @@ export default function QclubLedgerPage() {
                         {catalogue.length} active item(s). Price and public-menu details here are the master values used across the club.
                       </div>
                     </div>
-                    <button className="ql-btn primary" onClick={beginAddCatalogueItem}>+ Add Item</button>
+                    <div className="ql-row">
+                      <button
+                        className={"ql-btn " + (showCatalogueCategories ? "primary" : "")}
+                        onClick={function() {
+                          setShowCatalogueAdd(false);
+                          setShowCatalogueCategories(function(current) { return !current; });
+                          setShowCatalogueCategoryForm(false);
+                          setEditingCatalogueCategoryKey("");
+                        }}
+                      >Category</button>
+                      <button className="ql-btn primary" onClick={beginAddCatalogueItem}>+ Add Item</button>
+                    </div>
                   </div>
+
+                  {showCatalogueCategories ? (
+                    <div className="ql-line" style={{ marginTop: 14 }}>
+                      <div className="ql-space" style={{ marginBottom: 10 }}>
+                        <div>
+                          <strong>{editingCatalogueCategoryKey ? "Edit Category" : "Manage Categories"}</strong>
+                          <div className="ql-muted">These categories organize items shown on Q Lounge.</div>
+                        </div>
+                        <div className="ql-row">
+                          <button className="ql-btn primary" onClick={beginAddCatalogueCategory}>+ Add Category</button>
+                          <button className="ql-btn ghost" onClick={function() { setShowCatalogueCategories(false); setShowCatalogueCategoryForm(false); setEditingCatalogueCategoryKey(""); }}>Close</button>
+                        </div>
+                      </div>
+                      {showCatalogueCategoryForm ? (
+                        <div className="ql-line" style={{ marginBottom: 12 }}>
+                          <div className="ql-form-grid">
+                            <label><span className="ql-label">Category name</span><input className="ql-input" value={catalogueCategoryDraft.title} onChange={function(e) { setCatalogueCategoryDraft(function(current) { return { ...current, title: e.target.value }; }); }} /></label>
+                            <label><span className="ql-label">Display order</span><input className="ql-input" type="number" step="1" value={catalogueCategoryDraft.sortOrder} onChange={function(e) { setCatalogueCategoryDraft(function(current) { return { ...current, sortOrder: e.target.value }; }); }} /></label>
+                            <label className="full"><span className="ql-label">Category image URL (optional)</span><input className="ql-input" value={catalogueCategoryDraft.imageUrl} onChange={function(e) { setCatalogueCategoryDraft(function(current) { return { ...current, imageUrl: e.target.value }; }); }} placeholder="https://…" /></label>
+                          </div>
+                          <div className="ql-row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+                            <button className="ql-btn" disabled={busy} onClick={function() { setShowCatalogueCategoryForm(false); setEditingCatalogueCategoryKey(""); setCatalogueCategoryDraft({ title: "", imageUrl: "", sortOrder: String(catalogueCategories.length * 10) }); }}>Cancel</button>
+                            <button className="ql-btn primary" disabled={busy} onClick={saveCatalogueCategory}>{busy ? "Saving…" : (editingCatalogueCategoryKey ? "Save Changes" : "Save Category")}</button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="ql-list">
+                        {catalogueCategories.length ? catalogueCategories.map(function(category) {
+                          return (
+                            <div className="ql-line ql-space" key={category.category_key}>
+                              <div>
+                                <strong>{category.title}</strong>
+                                <div className="ql-muted">Display order {category.sort_order == null ? "0" : category.sort_order}</div>
+                              </div>
+                              <div className="ql-row">
+                                <button className="ql-btn" disabled={busy} onClick={function() { beginEditCatalogueCategory(category); }}>Edit</button>
+                                <button className="ql-btn danger" disabled={busy} onClick={function() { removeCatalogueCategory(category); }}>Remove</button>
+                              </div>
+                            </div>
+                          );
+                        }) : <div className="ql-empty">No categories yet. Add one to organize Q Lounge items.</div>}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {showCatalogueAdd ? (
                     <div className="ql-line" style={{ marginTop: 14 }}>
