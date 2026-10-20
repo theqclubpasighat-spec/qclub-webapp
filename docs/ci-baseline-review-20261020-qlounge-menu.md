@@ -24,3 +24,10 @@ Reviewed Git blob SHA-1: `182f8b59198352b911b8a3d1ba7ed4ca3d0b60cb`.
 - `tests/q-lounge-menu-manager.test.mjs`: confirms the shared Admin session, protected route registration, admin guards, and safe category deletion policy.
 
 No database migration, payment handling, existing stock records or existing order records are changed. New items can be set up with Ledger stock tracking through the existing catalogue API.
+
+## Reviewed Ledger category dropdown update — PR #118
+
+The merged Ledger UI change adds active shared Q Lounge category names to the existing Ledger category selector and retains a current category if it is no longer active. It changes only the item editor's available category choices; it does not alter catalogue write authorization, item identity, billing, stock handling, payment processing, or database schema.
+
+Reviewed production commit: `771918c899df8125513aa10aa4d35c0e43b5bf55`.
+Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `633b7ae88bdd534099947552f5e9596f0459ca43`.
