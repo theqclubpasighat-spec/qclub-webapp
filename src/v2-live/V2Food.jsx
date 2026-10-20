@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { readCatalogue } from "../v2-preview/catalogue.mjs";
 import { canOrderLoungeItem, loungeOrderLines } from "./lounge-order.mjs";
+import V2FoodManager from "./V2FoodManager.jsx";
 
 // The checkout still uses the existing production Cashfree path in App.jsx.
 // This component only collects current catalogue items and the customer's order.
@@ -212,6 +213,7 @@ export default function V2Food({ startPayment }) {
           <p className="v2-live-muted">Choose food and drinks, add them to your cart and pay right here.</p>
         </div>
         <div className="v2-live-inline-actions">
+          <V2FoodManager onUpdated={() => setRetry((value) => value + 1)} />
           {cartCount > 0 ? (
             <button className="v2-live-button v2-live-primary" type="button" onClick={() => setShowCart(true)}>
               View Cart ({cartCount})

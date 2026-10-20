@@ -1022,3 +1022,77 @@ body.qclub-v2-live .shopDetailExternal{display:inline-block;margin-top:22px;font
   }
   .v2-live-food .v2-live-cart-row > span { grid-column: 1 / -1; }
 }
+
+.v2-live-food .v2-live-manager-trigger { border-color: var(--qv2-brass); color: var(--qv2-brass-soft); }
+.v2-live-manager-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: rgba(0, 0, 0, .78);
+}
+.v2-live-manager {
+  width: min(920px, 100%);
+  max-height: min(92dvh, 1000px);
+  overflow: auto;
+  padding: clamp(16px, 3vw, 26px);
+  border: 1px solid var(--qv2-border);
+  border-radius: 16px;
+  background: #101a14;
+  color: var(--qv2-ivory);
+  box-shadow: 0 24px 80px #000b;
+}
+.v2-live-manager-heading,
+.v2-live-manager-section-heading,
+.v2-live-manager-row,
+.v2-live-manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.v2-live-manager-heading { align-items: flex-start; margin-bottom: 18px; }
+.v2-live-manager-heading h2,
+.v2-live-manager-section h3 { margin: 0; }
+.v2-live-manager-heading .v2-live-eyebrow { margin: 0 0 4px; }
+.v2-live-manager-heading .v2-live-muted { margin: 4px 0 0; }
+.v2-live-manager-section { border-top: 1px solid var(--qv2-border); padding-top: 16px; margin-top: 18px; }
+.v2-live-manager-section-heading { margin-bottom: 10px; }
+.v2-live-manager-login { display: grid; gap: 10px; max-width: 420px; margin: 10px auto 30px; }
+.v2-live-manager-login p { margin: 0; color: var(--qv2-muted); }
+.v2-live-manager-login label,
+.v2-live-manager-form label { display: grid; gap: 5px; font-size: .88rem; font-weight: 700; }
+.v2-live-manager-login input,
+.v2-live-manager-form input,
+.v2-live-manager-form select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #657564;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #0a120d;
+  color: var(--qv2-ivory);
+}
+.v2-live-manager-form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; padding: 12px; border: 1px solid var(--qv2-border); border-radius: 12px; margin: 10px 0; }
+.v2-live-manager-form .wide { grid-column: 1 / -1; }
+.v2-live-manager-check { display: flex !important; align-items: center; gap: 8px !important; min-height: 42px; }
+.v2-live-manager-check input { width: 20px; min-height: 20px; }
+.v2-live-manager-actions { justify-content: flex-end; flex-wrap: wrap; }
+.v2-live-manager-list { display: grid; gap: 8px; }
+.v2-live-manager-row { align-items: center; padding: 10px; border: 1px solid var(--qv2-border); border-radius: 10px; background: #0b140e; }
+.v2-live-manager-row > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.v2-live-manager-row small { color: var(--qv2-muted); overflow-wrap: anywhere; }
+.v2-live-manager .v2-live-danger { border-color: #9b4a3d; color: #ffb7a6; }
+.v2-live-manager-error { padding: 10px 12px; border-radius: 8px; background: #401e1a; color: #ffd0c3; }
+.v2-live-manager-notice { padding: 10px 12px; border-radius: 8px; background: #173426; color: #b6edc6; }
+.v2-live-manager button:disabled { opacity: .56; }
+@media (max-width: 560px) {
+  .v2-live-manager-backdrop { padding: 8px; }
+  .v2-live-manager { max-height: 96dvh; padding: 14px; }
+  .v2-live-manager-form { grid-template-columns: 1fr; }
+  .v2-live-manager-row { align-items: flex-start; flex-direction: column; }
+  .v2-live-manager-row .v2-live-manager-actions { width: 100%; }
+  .v2-live-manager-row .v2-live-manager-actions .v2-live-button { flex: 1; }
+}
