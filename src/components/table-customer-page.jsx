@@ -109,8 +109,9 @@ export default function TableCustomerPage(){
     setBusy(true);setError("");
     try{
       const result=await requestJson("table-public/request-status/"+encodeURIComponent(link.request_id)+"/claim?token="+encodeURIComponent(link.request_token),{method:"POST",body:JSON.stringify({name:name.trim(),phone:whatsapp})});
-      if(!result.qr_element_url)throw new Error("Cashfree payment QR was not returned.");
-      window.location.assign(result.qr_element_url);
+      const checkoutUrl=result.payment_url||result.qr_element_url;
+      if(!checkoutUrl)throw new Error("Cashfree payment options were not returned.");
+      window.location.assign(checkoutUrl);
     }catch(e){setError(e.message||"Unable to prepare Cashfree payment.");}
     finally{setBusy(false);}
   }
@@ -198,12 +199,12 @@ export default function TableCustomerPage(){
 
       {hourlyPoolTable&&link&&req?.status==="APPROVED"&&requestState?.session?.status==="FINALIZED"?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
         <strong style={{fontSize:20}}>Game finished • Pay your table charge</strong>
-        <div style={{marginTop:8,color:"#a9b9af"}}>Final Pool charge: {money(own?.live_table_charge_inr)}. Enter your details to prepare your Cashfree payment QR.</div>
+        <div style={{marginTop:8,color:"#a9b9af"}}>Final Pool charge: {money(own?.live_table_charge_inr)}. Enter your details, then choose an available UPI app such as Google Pay or PhonePe, or use Cashfree’s QR option.</div>
         <label style={labelStyle}>Your name</label>
         <input value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="Player name" style={inputStyle}/>
         <label style={labelStyle}>WhatsApp number</label>
         <input value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} inputMode="numeric" placeholder="10-digit WhatsApp number" style={inputStyle}/>
-        <button disabled={busy} onClick={requestPoolPayment} style={buttonStyle("primary")}>{busy?"Preparing Cashfree QR…":"Continue to Cashfree Payment"}</button>
+        <button disabled={busy} onClick={requestPoolPayment} style={buttonStyle("primary")}>{busy?"Preparing Cashfree payment…":"Continue to UPI Payment Options"}</button>
       </div>:null}
 
       {approved?<div style={{border:"1px solid #294638",background:"#08150f",borderRadius:18,padding:16,marginBottom:12}}>
