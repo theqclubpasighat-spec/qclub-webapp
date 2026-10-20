@@ -484,6 +484,24 @@ export default function QclubLedgerPage() {
     .map(function(category) {
       return { key: "QL:" + category.category_key, label: category.title };
     }));
+  const catalogueItemCategoryOptions = [
+    { value: "FOOD", label: "Food" },
+    { value: "BEVERAGES", label: "Beverages" },
+    { value: "OTHER", label: "Other" },
+  ].concat(catalogueCategories.map(function(category) {
+    return {
+      value: String(category.title || "").trim().toUpperCase(),
+      label: String(category.title || "").trim(),
+    };
+  })).filter(function(option, index, options) {
+    return Boolean(option.value) && options.findIndex(function(candidate) { return candidate.value === option.value; }) === index;
+  });
+  if (catalogueDraft.category && !catalogueItemCategoryOptions.some(function(option) { return option.value === catalogueDraft.category; })) {
+    catalogueItemCategoryOptions.push({
+      value: catalogueDraft.category,
+      label: String(catalogueDraft.category).replaceAll("_", " "),
+    });
+  }
   const filteredCatalogueItems = catalogue.filter(function(item) {
     if (catalogueCategoryFilter === "ALL") return true;
     if (catalogueCategoryFilter.startsWith("QL:")) {
@@ -4880,7 +4898,9 @@ export default function QclubLedgerPage() {
                         <label>
                           <span className="ql-label">Ledger category</span>
                           <select className="ql-select" value={catalogueDraft.category} onChange={function(e) { updateCatalogueDraft("category", e.target.value); }}>
-                            <option value="FOOD">Food</option><option value="BEVERAGES">Beverages</option><option value="OTHER">Other</option>
+                            {catalogueItemCategoryOptions.map(function(category) {
+                              return <option key={category.value} value={category.value}>{category.label}</option>;
+                            })}
                           </select>
                         </label>
                         <label><span className="ql-label">Selling price ₹</span><input className="ql-input" type="number" min="0" step="0.01" value={catalogueDraft.sellingPrice} onChange={function(e) { updateCatalogueDraft("sellingPrice", e.target.value); }} /></label>
