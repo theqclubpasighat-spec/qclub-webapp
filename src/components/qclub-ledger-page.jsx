@@ -362,6 +362,7 @@ export default function QclubLedgerPage() {
   const seenOrderIdsRef = useRef(new Set());
   const pendingOrderSoundRef = useRef(false);
   const knownPoolSessionIdsRef = useRef(null);
+  const poolAlertBaselineReadyRef = useRef(false);
   const pendingPoolSoundRef = useRef(false);
   const paidReceiptRecoveryDoneRef = useRef(false);
   const staleVersionRef = useRef(null);
@@ -896,6 +897,10 @@ export default function QclubLedgerPage() {
       setCatalogueCategories((catCategories && catCategories.categories) || []);
       setInventory((inv && (inv.items || inv.inventory)) || []);
       const openRows = (sessionPayload && sessionPayload.sessions) || [];
+      if (!poolAlertBaselineReadyRef.current) {
+        knownPoolSessionIdsRef.current = new Set(openRows.filter(function(row) { return row.game_type === "NORMAL_POOL"; }).map(function(row) { return row.session_id; }));
+        poolAlertBaselineReadyRef.current = true;
+      }
       setSessions(openRows);
       setAllSessions((allPayload && allPayload.sessions) || []);
       setBills((billPayload && billPayload.bills) || []);
@@ -1092,12 +1097,8 @@ export default function QclubLedgerPage() {
   }, [orderAlertsReady, orderAlertQueue.length, playOrderAlertSound]);
 
   useEffect(function() {
-    if (!token) return;
+    if (!token || !poolAlertBaselineReadyRef.current) return;
     const current = new Set((sessions || []).filter(function(row) { return row.game_type === "NORMAL_POOL"; }).map(function(row) { return row.session_id; }));
-    if (knownPoolSessionIdsRef.current === null) {
-      knownPoolSessionIdsRef.current = current;
-      return;
-    }
     const added = (sessions || []).filter(function(row) {
       return row.game_type === "NORMAL_POOL" && !knownPoolSessionIdsRef.current.has(row.session_id);
     });
