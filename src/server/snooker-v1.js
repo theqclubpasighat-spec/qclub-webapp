@@ -3428,7 +3428,9 @@ async function settleIndividualHourlyOnRelease(supabase, session, staffId, at = 
   ]);
   if (tableError || peopleError || existingError) throw tableError || peopleError || existingError;
 
-  const seconds = elapsedSeconds(session, at);
+  const elapsed = elapsedSeconds(session, at);
+  const setupAllowanceSeconds = session.created_by === "table_qr_pool_scan" && session.game_type === "NORMAL_POOL" ? 180 : 0;
+  const seconds = Math.max(0, elapsed - setupAllowanceSeconds);
   const rate = money(session.is_member ? table?.member_price_per_hour_inr : table?.price_per_hour_inr);
   if (!(rate > 0)) {
     const err = new Error("Table hourly rate is not configured.");
@@ -3496,6 +3498,8 @@ async function settleIndividualHourlyOnRelease(supabase, session, staffId, at = 
         auto_on_release: true,
         hourly_rate_inr: rate,
         elapsed_seconds: seconds,
+        actual_elapsed_seconds: elapsed,
+        setup_allowance_seconds: setupAllowanceSeconds,
         person_elapsed_seconds: row.seconds,
       },
     });
@@ -6118,6 +6122,7 @@ async function publicTablePortal(req, res, tableKey) {
       account_mode: session.account_mode,
       started_at: session.started_at,
       elapsed_seconds: elapsedSeconds(session),
+      setup_allowance_seconds: session.created_by === "table_qr_pool_scan" && session.game_type === "NORMAL_POOL" ? 180 : 0,
       timer_running: Boolean(session.timer_running),
       active_players: (people || []).map((p) => ({ name: p.name, joined_at: p.joined_at })),
       player_count: (people || []).length,
@@ -6152,7 +6157,7 @@ async function startPoolQrScan(req, res, tableKey) {
   if (!rule) return json(res, 409, { ok: false, error: "POOL_BILLING_NOT_CONFIGURED" });
 
   const now = new Date();
-  const startAt = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
+  const startAt = now.toISOString();
   const { data: session, error: sessionError } = await supabase.from("snooker_sessions").insert({
     table_id: table.id, game_type: "NORMAL_POOL", customer_name: "Pool QR Guest", customer_phone: null,
     is_member: false, participant_names: ["Pool QR Guest"], participant_ids: [], account_mode: "INDIVIDUAL",
@@ -6177,7 +6182,7 @@ async function startPoolQrScan(req, res, tableKey) {
     table_id: table.id, customer_id: null, customer_name: "Pool QR Guest", phone: null, action: "START",
     requested_game_type: "NORMAL_POOL", status: "APPROVED", target_session_id: session.id, person_id: person.id,
     request_secret_hash: hashToken(secret), decided_at: now.toISOString(), decided_by: "auto-start-pool-qr-scan",
-    metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase(), auto_started_pool: true, claimed: false, lead_minutes: 3 },
+    metadata: { source: "table_qr", public_table_key: String(tableKey).toUpperCase(), auto_started_pool: true, claimed: false, setup_allowance_seconds: 180 },
   }).select("id,status,action").single();
   if (accessError) {
     await supabase.from("snooker_session_people").delete().eq("id", person.id);
@@ -6219,11 +6224,14 @@ async function claimPoolQrSession(req, res, requestId) {
   ]);
   if (table && tableCharge) {
     const rate = money(verifiedMember ? table.member_price_per_hour_inr : table.price_per_hour_inr);
-    const correctedAmount = money(personElapsedSeconds(person) * rate / 3600);
+    const actualElapsed = personElapsedSeconds(person);
+    const setupAllowanceSeconds = session.created_by === "table_qr_pool_scan" && session.game_type === "NORMAL_POOL" ? 180 : 0;
+    const billableElapsed = Math.max(0, actualElapsed - setupAllowanceSeconds);
+    const correctedAmount = money(billableElapsed * rate / 3600);
     const { error: rateError } = await supabase.from("snooker_person_charges").update({
       amount_inr: correctedAmount,
-      description: "Table time — " + Math.max(1, Math.round(personElapsedSeconds(person) / 60)) + " min • " + (verifiedMember ? "member" : "walk-in") + " rate",
-      metadata: { ...(tableCharge.metadata || {}), hourly_rate_inr: rate, elapsed_seconds: personElapsedSeconds(person), member_rate_applied: verifiedMember },
+      description: "Table time — " + Math.max(0, Math.round(billableElapsed / 60)) + " billable min • " + (verifiedMember ? "member" : "walk-in") + " rate",
+      metadata: { ...(tableCharge.metadata || {}), hourly_rate_inr: rate, elapsed_seconds: actualElapsed, billable_elapsed_seconds: billableElapsed, setup_allowance_seconds: setupAllowanceSeconds, member_rate_applied: verifiedMember },
     }).eq("id", tableCharge.id);
     if (rateError) throw rateError;
   }
@@ -6539,6 +6547,7 @@ async function publicTableRequestStatus(req, res, requestId) {
         payment_rule: session.payment_rule,
         started_at: session.started_at,
         elapsed_seconds: elapsedSeconds(session),
+        setup_allowance_seconds: session.created_by === "table_qr_pool_scan" && session.game_type === "NORMAL_POOL" ? 180 : 0,
         timer_running: Boolean(session.timer_running),
         current_game: latestGame || null,
       };
@@ -6556,9 +6565,10 @@ async function publicTableRequestStatus(req, res, requestId) {
       if (person && table) {
         const rate = money(person.is_member ? table.member_price_per_hour_inr : table.price_per_hour_inr);
         const elapsed = personElapsedSeconds(person);
+        const setupAllowanceSeconds = sessionPayload.setup_allowance_seconds || 0;
         const posted = money((tableCharges || []).reduce((sum, row) => sum + number(row.amount_inr), 0));
         liveTableCharge = sessionPayload.status === "ACTIVE"
-          ? money(Math.max(0, (elapsed / 3600) * rate - posted))
+          ? money(Math.max(0, (Math.max(0, elapsed - setupAllowanceSeconds) / 3600) * rate - posted))
           : posted;
       }
     }

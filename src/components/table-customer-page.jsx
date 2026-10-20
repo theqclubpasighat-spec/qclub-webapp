@@ -8,9 +8,10 @@ function money(value){
   return new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
 }
 function elapsed(seconds){
-  const total=Math.max(0,Math.floor(Number(seconds||0)));
+  const value=Math.floor(Number(seconds||0));
+  const total=Math.abs(value);
   const h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;
-  return [h,m,s].map((v,i)=>i===0?String(v):String(v).padStart(2,"0")).join(":");
+  return (value<0?"−":"")+[h,m,s].map((v,i)=>i===0?String(v):String(v).padStart(2,"0")).join(":");
 }
 function storageKey(tableKey){return "qclub_table_portal_"+String(tableKey||"").toUpperCase();}
 async function requestJson(path,options={}){
@@ -162,7 +163,7 @@ export default function TableCustomerPage(){
             <div style={{fontSize:12,color:"#9fb3a6"}}>STATUS</div>
             <strong style={{fontSize:24,color:requestState?.session?.status==="FINALIZED"?"#f0d06f":state?.state==="AVAILABLE"?"#79e7aa":"#f0d06f"}}>{requestState?.session?.status==="FINALIZED"?"FINISHED":state?.state||"LOADING"}</strong>
           </div>
-          {(session||requestState?.session)?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed((session||requestState.session).elapsed_seconds)}</strong></div>:null}
+          {(session||requestState?.session)?<div style={{textAlign:"right"}}><div style={{fontSize:12,color:"#9fb3a6"}}>TABLE TIME</div><strong style={{fontSize:24}}>{elapsed((session||requestState.session).elapsed_seconds-Number((session||requestState.session).setup_allowance_seconds||0))}</strong></div>:null}
         </div>
         {session?<div style={{marginTop:12}}>
           <strong>{session.game_label||GAME_LABELS[session.game_type]||session.game_type}</strong>
