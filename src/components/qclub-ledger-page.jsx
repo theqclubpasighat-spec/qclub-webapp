@@ -472,8 +472,24 @@ export default function QclubLedgerPage() {
   const token = (auth && auth.token) || "";
   const role = (auth && auth.role) || "";
   const isAdmin = role === "ADMIN";
+  const catalogueCategoryFilters = [
+    { key: "ALL", label: "All" },
+    { key: "FOOD", label: "Food" },
+    { key: "BEVERAGES", label: "Beverages" },
+    { key: "OTHER", label: "Others" },
+  ].concat(catalogueCategories
+    .filter(function(category) {
+      return !["food", "beverage", "beverages", "other", "others"].includes(String(category.title || "").trim().toLowerCase());
+    })
+    .map(function(category) {
+      return { key: "QL:" + category.category_key, label: category.title };
+    }));
   const filteredCatalogueItems = catalogue.filter(function(item) {
-    return catalogueCategoryFilter === "ALL" || String(item.category || "OTHER").toUpperCase() === catalogueCategoryFilter;
+    if (catalogueCategoryFilter === "ALL") return true;
+    if (catalogueCategoryFilter.startsWith("QL:")) {
+      return item.qlounge_category_key === catalogueCategoryFilter.slice(3);
+    }
+    return String(item.category || "OTHER").toUpperCase() === catalogueCategoryFilter;
   });
   // Vercel branch URLs remain inspection-only: no preview test orders in production Supabase.
   const registerPreviewMode = !["www.theqclubpasighat.com", "theqclubpasighat.com"].includes(window.location.hostname.toLowerCase());
@@ -4838,12 +4854,7 @@ export default function QclubLedgerPage() {
                   </div>
 
                   <div className="ql-row" style={{ marginTop: 12, flexWrap: "wrap", gap: 8 }} aria-label="Filter catalogue items by category">
-                    {[
-                      { key: "ALL", label: "All" },
-                      { key: "FOOD", label: "Food" },
-                      { key: "BEVERAGES", label: "Beverages" },
-                      { key: "OTHER", label: "Others" },
-                    ].map(function(category) {
+                    {catalogueCategoryFilters.map(function(category) {
                       return (
                         <button
                           key={category.key}
