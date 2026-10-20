@@ -451,7 +451,10 @@ async function publicPaymentSession(req, res, paymentId) {
   const supabase = getSupabaseAdmin();
   const signature = safeText(req.query?.sig || "", 500);
   const { data } = await supabase.from("snooker_bill_payments").select("*").eq("id", paymentId).maybeSingle();
-  if (!data || data.method !== "UPI" || !signature || !secureEqual(signature, paymentLinkSignature(data))) {
+  // PostgreSQL may return the same expiry with +00:00 instead of Z. Accept
+  // the ISO form signed before order creation as well as existing link signatures.
+  const isoSignature = data?.expires_at ? paymentLinkSignature({ ...data, expires_at: new Date(data.expires_at).toISOString() }) : "";
+  if (!data || data.method !== "UPI" || !signature || !(secureEqual(signature, paymentLinkSignature(data)) || (isoSignature && secureEqual(signature, isoSignature)))) {
     return json(res, 404, { ok: false, error: "PAYMENT_LINK_NOT_FOUND" });
   }
 
@@ -6280,7 +6283,7 @@ async function claimPoolQrSession(req, res, requestId) {
     method: "POST", headers: { ...cashfreeHeaders(), "x-idempotency-key": `pool-${access.id}` },
     body: JSON.stringify({ order_id: orderId, order_amount: total, order_currency: CURRENCY, order_expiry_time: expiry,
       customer_details: { customer_id: `snooker_${bill.id.slice(0, 36)}`, customer_name: name, customer_phone: phone },
-      order_meta: { notify_url: `${siteUrl}/api/snooker/v1/cashfree-webhook`, return_url: `${siteUrl}/payment-status?order_id={order_id}`, payment_methods: "upi" },
+      order_meta: { notify_url: `${siteUrl}/api/snooker/v1/cashfree-webhook`, return_url: paymentLinkUrl({ id: paymentId, bill_id: bill.id, expires_at: expiry }) + "&returned=1", payment_methods: "upi" },
       order_note: `Q Club Pool ${bill.bill_no}`, order_tags: { context: "snooker", bill_id: bill.id, payment_id: paymentId } }),
   });
   const paymentSessionId = safeText(order.payment_session_id || "", 2000);
