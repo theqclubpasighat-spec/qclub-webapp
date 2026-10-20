@@ -2556,6 +2556,111 @@ async function catalogueCategories(req, res) {
   });
 }
 
+function catalogueCategoryDto(row) {
+  return {
+    category_key: row.category_key,
+    title: row.title,
+    image_url: row.image_url || "",
+    image_path: row.image_path || "",
+    sort_order: number(row.sort_order),
+    active: row.active,
+  };
+}
+
+async function createCatalogueCategory(req, res) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const supabase = getSupabaseAdmin();
+  const title = safeText(req.body?.title || "", 120).trim();
+  if (!title) return json(res, 400, { ok: false, error: "CATEGORY_TITLE_REQUIRED" });
+  const categoryKey = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!categoryKey) return json(res, 400, { ok: false, error: "CATEGORY_TITLE_REQUIRED" });
+  const sortOrder = Number(req.body?.sort_order ?? req.body?.sortOrder ?? 0);
+  if (!Number.isFinite(sortOrder)) return json(res, 400, { ok: false, error: "INVALID_CATEGORY_ORDER" });
+  const values = {
+    title,
+    image_url: safeText(req.body?.image_url || req.body?.imageUrl || "", 2000) || null,
+    sort_order: Math.max(0, Math.floor(sortOrder)),
+    active: true,
+    updated_at: new Date().toISOString(),
+  };
+  const { data: existing, error: fetchError } = await supabase
+    .from("qclub_fnb_categories")
+    .select("category_key,active")
+    .eq("category_key", categoryKey)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (existing?.active) return json(res, 409, { ok: false, error: "CATEGORY_KEY_EXISTS" });
+  let saved;
+  if (existing) {
+    const { data, error } = await supabase.from("qclub_fnb_categories")
+      .update(values).eq("category_key", categoryKey).select("*").single();
+    if (error) throw error;
+    saved = data;
+  } else {
+    const { data, error } = await supabase.from("qclub_fnb_categories")
+      .insert({ category_key: categoryKey, ...values, created_at: new Date().toISOString() })
+      .select("*").single();
+    if (error) {
+      if (error.code === "23505") return json(res, 409, { ok: false, error: "CATEGORY_KEY_EXISTS" });
+      throw error;
+    }
+    saved = data;
+  }
+  return json(res, 201, { ok: true, category: catalogueCategoryDto(saved) });
+}
+
+async function updateCatalogueCategory(req, res, categoryKey) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const key = safeText(categoryKey || "", 120);
+  if (!key) return json(res, 400, { ok: false, error: "CATEGORY_KEY_REQUIRED" });
+  const next = {};
+  if (req.body?.title != null) {
+    const title = safeText(req.body.title, 120).trim();
+    if (!title) return json(res, 400, { ok: false, error: "CATEGORY_TITLE_REQUIRED" });
+    next.title = title;
+  }
+  if (req.body?.image_url != null || req.body?.imageUrl != null) {
+    next.image_url = safeText(req.body?.image_url ?? req.body?.imageUrl, 2000) || null;
+  }
+  if (req.body?.sort_order != null || req.body?.sortOrder != null) {
+    const order = Number(req.body?.sort_order ?? req.body?.sortOrder);
+    if (!Number.isFinite(order)) return json(res, 400, { ok: false, error: "INVALID_CATEGORY_ORDER" });
+    next.sort_order = Math.max(0, Math.floor(order));
+  }
+  if (!Object.keys(next).length) return json(res, 400, { ok: false, error: "CATEGORY_UPDATE_REQUIRED" });
+  next.updated_at = new Date().toISOString();
+  const { data, error } = await getSupabaseAdmin().from("qclub_fnb_categories")
+    .update(next).eq("category_key", key).eq("active", true).select("*").maybeSingle();
+  if (error) throw error;
+  if (!data) return json(res, 404, { ok: false, error: "CATEGORY_NOT_FOUND" });
+  return json(res, 200, { ok: true, category: catalogueCategoryDto(data) });
+}
+
+async function removeCatalogueCategory(req, res, categoryKey) {
+  const auth = await requireAuth(req, res, ["ADMIN"]);
+  if (!auth) return;
+  const key = safeText(categoryKey || "", 120);
+  if (!key) return json(res, 400, { ok: false, error: "CATEGORY_KEY_REQUIRED" });
+  const supabase = getSupabaseAdmin();
+  const { data: category, error: categoryError } = await supabase.from("qclub_fnb_categories")
+    .select("category_key,active").eq("category_key", key).maybeSingle();
+  if (categoryError) throw categoryError;
+  if (!category || !category.active) return json(res, 404, { ok: false, error: "CATEGORY_NOT_FOUND" });
+  const { count, error: itemError } = await supabase.from("snooker_catalogue_items")
+    .select("id", { count: "exact", head: true })
+    .eq("qlounge_category_key", key).eq("active", true);
+  if (itemError) throw itemError;
+  if (Number(count || 0) > 0) {
+    return json(res, 409, { ok: false, error: "CATEGORY_IN_USE", active_item_count: Number(count) });
+  }
+  const { error } = await supabase.from("qclub_fnb_categories")
+    .update({ active: false, updated_at: new Date().toISOString() }).eq("category_key", key);
+  if (error) throw error;
+  return json(res, 200, { ok: true, removed: true, category_key: key });
+}
+
 async function createCatalogueItem(req, res) {
   const auth = await requireAuth(req, res, ["ADMIN"]);
   if (!auth) return;
@@ -6774,6 +6879,9 @@ export async function handleSnookerV1(req, res, rawPath = "") {
     if (method === "GET" && path === "game-rules") return await gameRules(req, res);
     if (method === "GET" && path === "catalogue") return await catalogue(req, res);
     if (method === "GET" && path === "catalogue/categories") return await catalogueCategories(req, res);
+    if (method === "POST" && path === "catalogue/categories") return await createCatalogueCategory(req, res);
+    if (parts[0] === "catalogue" && parts[1] === "categories" && parts[2] && parts.length === 3 && method === "PATCH") return await updateCatalogueCategory(req, res, parts[2]);
+    if (parts[0] === "catalogue" && parts[1] === "categories" && parts[2] && parts.length === 3 && method === "DELETE") return await removeCatalogueCategory(req, res, parts[2]);
     if (method === "POST" && path === "catalogue/items") return await createCatalogueItem(req, res);
     if (parts[0] === "catalogue" && parts[1] === "items" && parts[2] && parts.length === 3 && method === "PATCH") return await updateCatalogueItem(req, res, parts[2]);
     if (parts[0] === "catalogue" && parts[1] === "items" && parts[2] && parts.length === 3 && method === "DELETE") return await removeCatalogueItem(req, res, parts[2]);
