@@ -28,12 +28,17 @@ function emptyItem(categories) {
     id: "",
     name: "",
     price: "",
+    costPrice: "",
+    unit: "unit",
     description: "",
     image: "",
     category: categories[0]?.category_key || "",
     ledgerCategory: "FOOD",
     online: true,
     showOnQlounge: true,
+    trackInventory: false,
+    openingStock: "0",
+    lowStockThreshold: "5",
   };
 }
 
@@ -42,12 +47,17 @@ function itemDraft(item, categories) {
     id: item.id,
     name: item.name || "",
     price: item.selling_price_inr == null ? "" : String(item.selling_price_inr),
+    costPrice: item.cost_price_inr == null ? "" : String(item.cost_price_inr),
+    unit: item.unit || "unit",
     description: item.description || "",
     image: item.image_url || "",
     category: item.qlounge_category_key || categories[0]?.category_key || "",
     ledgerCategory: item.category || "OTHER",
     online: Boolean(item.online_order_enabled),
     showOnQlounge: Boolean(item.show_on_qlounge),
+    trackInventory: Boolean(item.track_inventory),
+    openingStock: item.current_stock == null ? "0" : String(item.current_stock),
+    lowStockThreshold: item.low_stock_threshold == null ? "5" : String(item.low_stock_threshold),
   };
 }
 
@@ -198,7 +208,9 @@ export default function V2FoodManager({ onUpdated }) {
     const body = {
       name: itemDraftState.name.trim(),
       category: itemDraftState.ledgerCategory,
+      unit: itemDraftState.unit || "unit",
       selling_price_inr: price,
+      cost_price_inr: itemDraftState.costPrice.trim() === "" ? null : Number(itemDraftState.costPrice),
       description: itemDraftState.description.trim(),
       image_url: itemDraftState.image.trim(),
       qlounge_category_key: itemDraftState.showOnQlounge ? itemDraftState.category : null,
@@ -206,6 +218,11 @@ export default function V2FoodManager({ onUpdated }) {
       online_order_enabled: Boolean(itemDraftState.showOnQlounge && itemDraftState.online),
       sell_in_ledger: true,
     };
+    if (!itemDraftState.id) {
+      body.track_inventory = Boolean(itemDraftState.trackInventory);
+      body.opening_stock = Number(itemDraftState.openingStock || 0);
+      body.low_stock_threshold = Number(itemDraftState.lowStockThreshold || 0);
+    }
     setSaving(true);
     setError("");
     try {
@@ -294,12 +311,19 @@ export default function V2FoodManager({ onUpdated }) {
                         <form className="v2-live-manager-form" onSubmit={saveItem}>
                           <label>Item name<input value={itemDraftState.name} onChange={(event) => setItemDraftState({ ...itemDraftState, name: event.target.value })} required /></label>
                           <label>Price (₹)<input type="number" min="0.01" step="0.01" value={itemDraftState.price} onChange={(event) => setItemDraftState({ ...itemDraftState, price: event.target.value })} required /></label>
+                          <label>Purchase / cost price (₹)<input type="number" min="0" step="0.01" value={itemDraftState.costPrice} onChange={(event) => setItemDraftState({ ...itemDraftState, costPrice: event.target.value })} placeholder="Optional" /></label>
+                          <label>Unit<input value={itemDraftState.unit} onChange={(event) => setItemDraftState({ ...itemDraftState, unit: event.target.value })} placeholder="unit / bottle / plate" /></label>
                           <label>Ledger category<select value={itemDraftState.ledgerCategory} onChange={(event) => setItemDraftState({ ...itemDraftState, ledgerCategory: event.target.value })}><option value="FOOD">Food</option><option value="BEVERAGES">Beverages</option><option value="OTHER">Other</option></select></label>
                           <label>Q Lounge category<select value={itemDraftState.category} disabled={!itemDraftState.showOnQlounge} onChange={(event) => setItemDraftState({ ...itemDraftState, category: event.target.value })}><option value="">Choose a category</option>{categories.map((category) => <option key={category.category_key} value={category.category_key}>{category.title}</option>)}</select></label>
                           <label className="wide">Description<input value={itemDraftState.description} onChange={(event) => setItemDraftState({ ...itemDraftState, description: event.target.value })} /></label>
                           <label className="wide">Image URL (optional)<input type="url" value={itemDraftState.image} onChange={(event) => setItemDraftState({ ...itemDraftState, image: event.target.value })} /></label>
                           <label className="v2-live-manager-check"><input type="checkbox" checked={itemDraftState.showOnQlounge} onChange={(event) => setItemDraftState({ ...itemDraftState, showOnQlounge: event.target.checked, online: event.target.checked && itemDraftState.online })} /> Show on Q Lounge</label>
                           <label className="v2-live-manager-check"><input type="checkbox" disabled={!itemDraftState.showOnQlounge} checked={itemDraftState.online} onChange={(event) => setItemDraftState({ ...itemDraftState, online: event.target.checked })} /> Allow online ordering</label>
+                          {!itemDraftState.id ? <label className="v2-live-manager-check"><input type="checkbox" checked={itemDraftState.trackInventory} onChange={(event) => setItemDraftState({ ...itemDraftState, trackInventory: event.target.checked })} /> Track stock in Ledger</label> : null}
+                          {!itemDraftState.id && itemDraftState.trackInventory ? <>
+                            <label>Opening stock<input type="number" min="0" step="1" value={itemDraftState.openingStock} onChange={(event) => setItemDraftState({ ...itemDraftState, openingStock: event.target.value })} /></label>
+                            <label>Low-stock warning at<input type="number" min="0" step="1" value={itemDraftState.lowStockThreshold} onChange={(event) => setItemDraftState({ ...itemDraftState, lowStockThreshold: event.target.value })} /></label>
+                          </> : null}
                           <div className="v2-live-manager-actions wide"><button className="v2-live-button" type="button" onClick={() => setItemDraftState(null)}>Cancel</button><button className="v2-live-button v2-live-primary" type="submit" disabled={saving}>{saving ? "Saving…" : itemDraftState.id ? "Save changes" : "Save item"}</button></div>
                         </form>
                       ) : null}
