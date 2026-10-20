@@ -2559,17 +2559,20 @@ function closePlayerModal() {
         mode: "production",
       });
 
-      cashfree.checkout({
+      await cashfree.checkout({
         paymentSessionId: data.payment_session_id,
         redirectTarget: "_self",
       });
+      return true;
     } else {
       alert("Unable to start payment. Please try again.");
       console.log(data);
+      return false;
     }
   } catch (err) {
     console.error(err);
     alert("Payment error. Please try again.");
+    return false;
   }
 }
 async function saveOperationalRecord(recordType, recordKey, payload = {}) {
@@ -8184,6 +8187,8 @@ function buildBookingWhatsappText({
     .join("\n");
 }
 function BookTable({ data, admin, commit, startPayment }) {
+  const [paymentBusy,setPaymentBusy]=useState(false);
+  const paymentInFlight=useRef(false);
   const [bookingType, setBookingType] = useState("nonmember");
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
@@ -8300,8 +8305,8 @@ if (bookingType === "member") {
   }
 }
 
-  if (!mobile.trim()) {
-    alert("Please enter mobile number");
+  if (!/^(?:91)?[6-9]\d{9}$/.test(mobile.replace(/\D/g,""))) {
+    alert("Please enter a valid 10-digit WhatsApp number");
     return false;
   }
 
@@ -8373,22 +8378,8 @@ if (!requestedEndTime || !Number.isFinite(requestedEndMinutes) || requestedEndMi
     return false;
   }
 
-  fetch("/api/snooker/v1/website/state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "booking", payload: req }),
-  }).catch((error) => console.warn("Secure booking inbox save failed:", error));
-saveBookingRequestOperationalRecord(req).catch((error) => {
-  console.warn("Booking request operational dual-write failed:", error);
-});
-  setSubmittedId(req.id);
-  setName("");
-  setMobile("");
-  setTimeSlot("");
-  setDurationHours(1);
-  
-  setNote("");
-  alert("Booking request submitted. Please complete payment / verification.");
+  // The verified Cashfree fulfillment creates the booking on the server.
+  // Do not save an unpaid booking or call App-scoped browser dual writes here.
   return req;
 }
 function addBookingTable() {
@@ -8955,52 +8946,39 @@ if (updatedReq) {
 
               <button
   className="btn primary"
-  onClick={() => {
-  if (!name || name.trim() === "") {
-    alert("Please enter your name");
-    return;
-  }
-
-  if (!mobile || mobile.trim().length < 10) {
-    alert("Please enter a valid mobile number");
-    return;
-  }
-
-    localStorage.setItem("qclub_payment_context", "booking");
-  localStorage.setItem("qclub_payment_name", name.trim());
-  localStorage.setItem("qclub_payment_mobile", mobile.trim());
-  localStorage.setItem("qclub_booking_table", selectedTable?.label || "");
-  localStorage.setItem("qclub_booking_date", bookingDate || "");
-  localStorage.setItem(
-  "qclub_booking_slot",
-  timeSlot ? bookingSlotLabel(timeSlot, durationHours) : ""
-);
-  localStorage.setItem("qclub_booking_amount", String(amount || ""));
-  const bookingRequest = submitBooking();
-  if (!bookingRequest) return;
-
-  startPayment(
-  amount,
-  mobile.trim(),
-  name.trim(),
-  {
-    context: "booking",
-    customer_name: name.trim(),
-    mobile: mobile.trim(),
-    table_label: selectedTable?.label || "",
-    booking_request_id: bookingRequest.id || "",
-    booking_item_id: bookingRequest.itemId || selectedTable?.id || "",
-    booking_date: bookingDate || "",
-    booking_time_slot: bookingRequest.timeSlot || timeSlot || "",
-    booking_duration_hours: String(bookingRequest.durationHours || durationHours || 1),
-    booking_slot: bookingRequest.slotLabel || (timeSlot ? bookingSlotLabel(timeSlot, durationHours) : ""),
-    booking_amount: String(amount || ""),
-  }
-);
-}}
+  disabled={paymentBusy}
+  onClick={async () => {
+    if(paymentInFlight.current)return;
+    paymentInFlight.current=true;setPaymentBusy(true);
+    try{
+      const bookingRequest=submitBooking();
+      if(!bookingRequest)return;
+      const opened=await startPayment(
+        bookingRequest.amount,bookingRequest.mobile,bookingRequest.name,
+        {
+          context:"booking",
+          customer_name:bookingRequest.name,
+          mobile:bookingRequest.mobile,
+          table_label:bookingRequest.itemLabel,
+          booking_request_id:bookingRequest.id,
+          booking_item_id:bookingRequest.itemId,
+          booking_type:bookingRequest.bookingType,
+          booking_note:bookingRequest.note,
+          booking_date:bookingRequest.bookingDate,
+          booking_time_slot:bookingRequest.timeSlot,
+          booking_duration_hours:String(bookingRequest.durationHours),
+          booking_slot:bookingRequest.slotLabel,
+          booking_amount:String(bookingRequest.amount),
+        }
+      );
+      if(opened)setSubmittedId(bookingRequest.id);
+    }finally{
+      paymentInFlight.current=false;setPaymentBusy(false);
+    }
+  }}
   type="button"
 >
-  Submit Booking
+  {paymentBusy?"Opening Cashfree…":"Submit & Pay with Cashfree"}
 </button>
             </div>
 
@@ -9008,7 +8986,7 @@ if (updatedReq) {
               <div style={{ marginTop: 14 }}>
                 <span className="badge">
                   <span className="dot warn" />
-                  Request submitted. Reference: {submittedId}
+                  Payment initiated. Booking is confirmed after payment verification. Reference: {submittedId}
                 </span>
               </div>
             ) : null}
