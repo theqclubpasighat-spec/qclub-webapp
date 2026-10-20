@@ -361,6 +361,8 @@ export default function QclubLedgerPage() {
   const orderAlertAudioRef = useRef(null);
   const seenOrderIdsRef = useRef(new Set());
   const pendingOrderSoundRef = useRef(false);
+  const knownPoolSessionIdsRef = useRef(null);
+  const pendingPoolSoundRef = useRef(false);
   const paidReceiptRecoveryDoneRef = useRef(false);
   const staleVersionRef = useRef(null);
   const [staleVersion, setStaleVersion] = useState(null);
@@ -1041,7 +1043,7 @@ export default function QclubLedgerPage() {
 
   useEffect(function() {
     if (!token) return undefined;
-    const timer = window.setInterval(refreshLiveState, 10000);
+    const timer = window.setInterval(refreshLiveState, 5000);
     return function() { window.clearInterval(timer); };
   }, [token, refreshLiveState]);
 
@@ -1088,6 +1090,28 @@ export default function QclubLedgerPage() {
     if (!orderAlertsReady || !pendingOrderSoundRef.current || !orderAlertQueue.length) return;
     if (playOrderAlertSound()) pendingOrderSoundRef.current = false;
   }, [orderAlertsReady, orderAlertQueue.length, playOrderAlertSound]);
+
+  useEffect(function() {
+    if (!token) return;
+    const current = new Set((sessions || []).filter(function(row) { return row.game_type === "NORMAL_POOL"; }).map(function(row) { return row.session_id; }));
+    if (knownPoolSessionIdsRef.current === null) {
+      knownPoolSessionIdsRef.current = current;
+      return;
+    }
+    const added = (sessions || []).filter(function(row) {
+      return row.game_type === "NORMAL_POOL" && !knownPoolSessionIdsRef.current.has(row.session_id);
+    });
+    knownPoolSessionIdsRef.current = current;
+    if (!added.length) return;
+    if (!playOrderAlertSound()) pendingPoolSoundRef.current = true;
+    const latest = added[0];
+    flash("Pool table started from QR: " + (latest.customer_name || "player") + " • " + String(latest.table_id || "").replace("table_", "T"));
+  }, [sessions, token, playOrderAlertSound, flash]);
+
+  useEffect(function() {
+    if (!orderAlertsReady || !pendingPoolSoundRef.current) return;
+    if (playOrderAlertSound()) pendingPoolSoundRef.current = false;
+  }, [orderAlertsReady, playOrderAlertSound]);
 
   useEffect(function() {
     if (!token) return undefined;
@@ -3997,6 +4021,16 @@ export default function QclubLedgerPage() {
                             </button>
                           </div>
                         ) : null}
+                        {session.game_type === "NORMAL_POOL" ? (
+                          <button
+                            className="ql-btn danger"
+                            style={{ width: "100%", marginTop: 10 }}
+                            disabled={busy}
+                            onClick={function(event) { event.stopPropagation(); patchSession(session.session_id, "END"); }}
+                          >
+                            Finish Game • Stop Pool Timer
+                          </button>
+                        ) : null}
                         <div className="ql-table-open-hint">Tap table to open players & controls →</div>
                       </>
                     )}
@@ -5513,7 +5547,7 @@ export default function QclubLedgerPage() {
                     {tableViewSession.status === "PAUSED" ? <button className="ql-btn" onClick={function() { patchSession(tableViewSession.session_id, "RESUME"); }}>Resume</button> : null}
                     <button className="ql-btn" onClick={function() { openSessionCorrection(tableViewSession); }}>Admin Correction</button>
                     <button className="ql-btn danger" onClick={function() { patchSession(tableViewSession.session_id, "END"); }}>
-                      {["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Session • Free Table"}
+                      {tableViewSession.game_type === "NORMAL_POOL" ? "Finish Game • Free Table" : ["HOURLY","HOURLY_SHARED"].includes(tableViewSession.payment_rule) ? "End Table • Free Table" : "End Session • Free Table"}
                     </button>
                     <button className="ql-btn ghost" onClick={function() { setTableViewSessionId(""); }}>Close Popup</button>
                   </div>

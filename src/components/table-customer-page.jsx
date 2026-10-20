@@ -161,8 +161,9 @@ export default function TableCustomerPage(){
           <div style={{color:"#a9b9af"}}>Your phone may be closed or switched off. The club server keeps the session running.</div>
         </div>:null}
         {own?<div style={{marginTop:14,padding:14,borderRadius:14,background:"#10271b"}}>
-          <div style={{fontSize:12,color:"#9fb3a6"}}>YOUR CLUB TAB</div>
+          <div style={{fontSize:12,color:"#9fb3a6"}}>{requestState?.session?.game_type==="NORMAL_POOL"?"LIVE TABLE CHARGE + YOUR CLUB TAB":"YOUR CLUB TAB"}</div>
           <strong style={{fontSize:34,color:"#79e7aa"}}>{money(own.current_due_inr)}</strong>
+          {requestState?.session?.game_type==="NORMAL_POOL"?<div style={{color:"#a9b9af"}}>Current Pool time charge {money(own.live_table_charge_inr) } • updates automatically</div>:null}
           <div style={{color:"#a9b9af"}}>Games/Table {money(own.player_unbilled_inr)} • F&B {money(own.fnb_unbilled_inr)} • Earlier due {money(own.billed_due_inr)}</div>
         </div>:null}
         {rejected?<button onClick={clearRequest} style={buttonStyle("ghost")}>Make a new request</button>:null}
@@ -202,10 +203,10 @@ export default function TableCustomerPage(){
         <div style={{marginTop:6,color:"#91a69a",fontSize:12}}>Required for WhatsApp order updates, bills and payment links.</div>
         {state?.state==="AVAILABLE"?<>
           {hourlyPoolTable
-            ? <div style={{marginTop:12,color:"#a9b9af"}}>Pool is charged by time. The Game Marshall will start the hourly timer.</div>
+            ? <div style={{marginTop:12,color:"#a9b9af"}}>Pool time starts when you submit your details. The timer includes a 3-minute setup allowance and your live charge will appear here.</div>
             : <><label style={labelStyle}>What do you want to play?</label><select value={gameType} onChange={e=>setGameType(e.target.value)} style={inputStyle}>{choices.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select></>}
-          <button disabled={busy} onClick={()=>submit("START")} style={buttonStyle("primary")}>{busy?"Sending…":"Request Table Start"}</button>
-          <div style={{marginTop:8,color:"#91a69a",fontSize:12}}>The timer starts only after the Game Marshall starts/approves the table in QclubLedger.</div>
+          <button disabled={busy} onClick={()=>submit("START")} style={buttonStyle("primary")}>{busy?"Starting…":hourlyPoolTable?"Start Pool Table":"Request Table Start"}</button>
+          <div style={{marginTop:8,color:"#91a69a",fontSize:12}}>{hourlyPoolTable?"QclubLedger will be notified automatically. The table keeps running if you close this page.":"The timer starts after the Game Marshall starts/approves the table in QclubLedger."}</div>
         </>:<>
           {session?.game_type==="QCHASE_RUMMY"?<>
             <button disabled={busy||session.player_count>=session.max_players} onClick={()=>submit("JOIN_CURRENT")} style={buttonStyle("primary")}>{busy?"Sending…":"Join Current Game • ₹100"}</button>
