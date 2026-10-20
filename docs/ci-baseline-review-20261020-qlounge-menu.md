@@ -14,13 +14,13 @@ Reviewed Git blob SHA-1: `182f8b59198352b911b8a3d1ba7ed4ca3d0b60cb`.
 
 - `/food` exposes a Manage menu button. Editing requires the canonical Main Admin PIN login and reuses the existing website session token.
 - The modal edits category title, image URL and display order; it can add categories and safely remove unused categories.
-- The shared item editor adds, edits or deactivates F&B items, including price, description, image, Ledger category, Q Lounge visibility, online ordering and category assignment.
+- The shared item editor adds, edits or deactivates F&B items, including selling/cost price, unit, description, image, Ledger category, Q Lounge visibility, online ordering and category assignment. New items can start stock tracking with an opening quantity and low-stock warning.
 - Successful saves refresh the public catalogue so ordering immediately reflects the shared values. Existing Cashfree checkout remains unchanged.
 
 ## Verification
 
-- `node --test`: 198 passing, 37 skipped database-gated tests; one baseline hash assertion required this separately reviewed update.
+- `node --test`: 199 passing, 37 skipped database-gated tests; one baseline hash assertion required this separately reviewed update.
 - `npm run build`: passed; existing chunk-size and stale Browserslist notices only.
 - `tests/q-lounge-menu-manager.test.mjs`: confirms the shared Admin session, protected route registration, admin guards, and safe category deletion policy.
 
-No database migration, payment handling, stock system or existing order records are changed.
+No database migration, payment handling, existing stock records or existing order records are changed. New items can be set up with Ledger stock tracking through the existing catalogue API.
