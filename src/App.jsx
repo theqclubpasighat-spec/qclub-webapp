@@ -8963,6 +8963,7 @@ if (updatedReq) {
           booking_request_id:bookingRequest.id,
           booking_item_id:bookingRequest.itemId,
           booking_type:bookingRequest.bookingType,
+          booking_note:bookingRequest.note,
           booking_date:bookingRequest.bookingDate,
           booking_time_slot:bookingRequest.timeSlot,
           booking_duration_hours:String(bookingRequest.durationHours),
