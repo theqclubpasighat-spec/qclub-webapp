@@ -31,3 +31,14 @@ The merged Ledger UI change adds active shared Q Lounge category names to the ex
 
 Reviewed production commit: `771918c899df8125513aa10aa4d35c0e43b5bf55`.
 Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `633b7ae88bdd534099947552f5e9596f0459ca43`.
+
+## Reviewed Pool QR hourly start — PR #120
+
+Table 4 is the only Pool table. Its QR start now creates an active `NORMAL_POOL` individual hourly session after the player submits their name and WhatsApp number. The server starts the session timer three minutes before submission, links the player to the session, and approves that player's QR access request. The existing end-session billing path calculates and posts the exact time charge when the Marshall finishes the game. This uses the existing `snooker_sessions`, `snooker_session_people`, and player-charge records; no schema or payment flow changes are introduced.
+
+The player's request-status response includes the live Pool time estimate, calculated from their server timer and member/walk-in hourly rate, and refreshes on the existing 2.5-second customer poll. QclubLedger detects a newly started Pool session during its five-second live refresh, uses the existing alert sound, and exposes Finish Game on the active table card. The baseline hash below reflects this reviewed UI change; payment handlers and catalogue behavior remain unchanged.
+
+Reviewed Git blob SHA-1 for `src/components/qclub-ledger-page.jsx`: `095616bac6d2f233749e3268452a7ea59b547e5a`.
+
+Verification for PR #120: local production build and server syntax check pass. CI initially failed only because this production baseline hash had not yet been updated; rerun the full suite after the reviewed hash update.
+Reviewed Git blob SHA-1 for `src/server/snooker-v1.js`: `c4424ab007ba6aea0e3a2b4d7ada9bd4909a6ca5`.
