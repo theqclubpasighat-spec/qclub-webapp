@@ -17,7 +17,8 @@ test("CraXam bridge preserves OAuth query and hash payload exactly", () => {
   assert.ok(!/console\.(log|debug|info|warn|error)/.test(bridge), "bridge must not log OAuth payloads");
 });
 
-test("CraXam privacy and deletion compliance routes remain present", () => {
+test("CraXam privacy, terms and deletion compliance routes remain present", () => {
   assert.match(app, /path="\/craxam\/privacy"/);
+  assert.match(app, /path="\/craxam\/terms"/);
   assert.match(app, /path="\/craxam\/delete-account"/);
 });

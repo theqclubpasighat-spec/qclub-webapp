@@ -99,6 +99,7 @@ This file records the original V2 integration decisions. The V2 public shell, pr
 | `/Craxam` | Craxam Auth Bridge | public | No | **Restored 2026-10-03:** required shared-domain OAuth bridge; preserves callback query/hash and forwards to `craxam://callback` |
 | `/craxam` | Craxam Auth Bridge | public | No | **Restored 2026-10-03:** lowercase compatibility alias for `/Craxam` bridge |
 | `/craxam/privacy` | CraXam Privacy Policy | public | Yes | Preserve production legal route; independent of the retired OAuth bridge |
+| `/craxam/terms` | CraXam Terms of Service | public | No | Added as a CraXam-specific legal route for the Android app; do not substitute the club-wide `/terms` page |
 | `/terms` | Terms of Use | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/refund` | Refund Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
 | `/privacy` | Privacy Policy | public | Yes | Port presentation; retain current data/actions until feature-specific regression passes |
@@ -119,6 +120,7 @@ This file records the original V2 integration decisions. The V2 public shell, pr
 - `/QclubQr`
 - `/Craxam`
 - `/craxam`
+- `/craxam/terms`
 - `/craxam/delete-account`
 - `/qclubledger`
 - `/qclubpay`

@@ -7,6 +7,7 @@ import { uploadProtectedFile, deleteProtectedFile } from './lib/storage-client.j
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, Navigate, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import CraXamPrivacyPage from "./components/CraXamPrivacyPage";
+import CraXamTermsPage from "./components/CraXamTermsPage";
 import CraXamAuthBridgePage from "./components/CraXamAuthBridgePage";
 import CraXamDeleteAccountPage from "./components/CraXamDeleteAccountPage";
 import V2Home from "./v2-live/V2Home.jsx";
@@ -3967,6 +3968,7 @@ latestDataRef.current = fresh;
         <Route path="/Craxam" element={<CraXamAuthBridgePage />} />
         <Route path="/craxam" element={<CraXamAuthBridgePage />} />
         <Route path="/craxam/privacy" element={<CraXamPrivacyPage />} />
+        <Route path="/craxam/terms" element={<CraXamTermsPage />} />
         <Route path="/craxam/delete-account" element={<CraXamDeleteAccountPage />} />
                 <Route path="/air-hockey-info" element={<StaticPage title={data.club?.airHockeyInfoTitle || "Air Hockey at The Q Club"}><AirHockeyInfoContent
   data={data}
