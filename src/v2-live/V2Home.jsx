@@ -24,6 +24,7 @@ function AnnouncementTicker({ notices, speed }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [manual, setManual] = useState(false);
+  const [motionEnabled, setMotionEnabled] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -47,10 +48,10 @@ function AnnouncementTicker({ notices, speed }) {
       <div className="v2-live-ticker-inner">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m3 10 18-6v16L3 14v-4Zm4 5 2 6h4l-2-5" /></svg>
         <div className="v2-live-ticker-text" aria-live="off"
-          onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+          onPointerEnter={(event) => { if (event.pointerType === "mouse") setHovered(true); }} onPointerLeave={() => setHovered(false)}
           onFocus={() => setFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-          {reducedMotion || manual ? <div className="v2-live-ticker-static">{renderNotice(current)}</div> :
-            <div className="v2-live-ticker-track" style={{ "--ticker-duration": `${duration}s`, animationPlayState: paused || hovered || focused ? "paused" : "running" }}>
+          {(reducedMotion && !motionEnabled) || manual ? <div className="v2-live-ticker-static">{renderNotice(current)}</div> :
+            <div className={`v2-live-ticker-track${motionEnabled ? " is-motion-enabled" : ""}`} style={{ "--ticker-duration": `${duration}s`, animationPlayState: paused || hovered || focused ? "paused" : "running" }}>
               {[false, true].map((duplicate) => <div className="v2-live-ticker-group" key={String(duplicate)} aria-hidden={duplicate || undefined}>
                 {notices.map((notice, itemIndex) => <div className="v2-live-ticker-item" key={notice.id || itemIndex}>{renderNotice(notice, duplicate)}</div>)}
               </div>)}
@@ -61,11 +62,11 @@ function AnnouncementTicker({ notices, speed }) {
             <button type="button" aria-label="Previous announcement" onClick={() => select(-1)}>‹</button>
             <button type="button" aria-label="Next announcement" onClick={() => select(1)}>›</button>
           </> : null}
-          {!reducedMotion ? <button type="button" aria-label={paused || manual ? "Resume announcements" : "Pause announcements"}
-            onClick={() => { if (manual) { setManual(false); setPaused(false); } else setPaused((value) => !value); }}>
-            {paused || manual ? <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="m4 2 10 6-10 6Z"/></svg> :
+          {<button type="button" aria-label={paused || manual || (reducedMotion && !motionEnabled) ? "Resume announcements" : "Pause announcements"}
+            onClick={() => { if (manual || (reducedMotion && !motionEnabled)) { setMotionEnabled(true); setManual(false); setPaused(false); } else setPaused((value) => !value); }}>
+            {paused || manual || (reducedMotion && !motionEnabled) ? <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="m4 2 10 6-10 6Z"/></svg> :
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2h3v12H3zM10 2h3v12h-3z"/></svg>}
-          </button> : null}
+          </button>}
         </div>
       </div>
     </section>
