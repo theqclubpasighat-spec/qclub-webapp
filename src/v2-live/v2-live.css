@@ -1096,3 +1096,6 @@ body.qclub-v2-live .shopDetailExternal{display:inline-block;margin-top:22px;font
   .v2-live-manager-row .v2-live-manager-actions { width: 100%; }
   .v2-live-manager-row .v2-live-manager-actions .v2-live-button { flex: 1; }
 }
+
+/* Explicit Play overrides the default reduced-motion ticker fallback only. */
+.qclub-v2-home .v2-live-ticker-track.is-motion-enabled { animation: qclub-announcements-scroll var(--ticker-duration, 28s) linear infinite !important; }
