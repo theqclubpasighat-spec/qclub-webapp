@@ -24,7 +24,7 @@ function AnnouncementTicker({ notices, speed }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [manual, setManual] = useState(false);
-  const [motionEnabled, setMotionEnabled] = useState(false);
+  const [motionEnabled, setMotionEnabled] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
