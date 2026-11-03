@@ -132,6 +132,7 @@ Purpose: authoritative map of every named client-side Q Club route after the V2 
 | `/Craxam` | CraXam | Public | Hidden | Canonical | OAuth web-to-app bridge → `craxam://callback`; preserves query/hash payload |
 | `/craxam` | CraXam | Public | Hidden | Alias | → /Craxam |
 | `/craxam/privacy` | CraXam | Public | Hidden | Canonical | CraXam privacy |
+| `/craxam/terms` | CraXam | Public | Hidden | Canonical | CraXam Terms of Service |
 | `/craxam/delete-account` | CraXam | Public | Hidden | Canonical | CraXam deletion request |
 | `/payment-status` | Payment | Public | Hidden | Canonical | Cashfree return/status |
 | `/T1` | Table Display | Display | Hidden | Canonical | Table 1 display |
