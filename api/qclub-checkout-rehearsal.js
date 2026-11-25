@@ -9,6 +9,8 @@ import { createShopCheckout } from '../src/server/payments/shop.js';
 import { createTournamentCheckout } from '../src/server/payments/tournament.js';
 import { createMembershipCheckout } from '../src/server/payments/membership.js';
 
+import { subscriptionAction } from '../src/server/payments/membership-autopay.js';
+
 function actionOf(req){
   const direct=String(req.query?.action||'').trim();
   if(direct)return direct;
@@ -52,6 +54,18 @@ export default async function handler(req,res) {
     const config=rehearsalConfig(process.env);
     action=actionOf(req);
     const db=createClient(config.url,config.key,{auth:{persistSession:false,autoRefreshToken:false}});
+    if(action==='subscription-tiers'){
+      if(req.method!=='GET')throw new SecurityError(405,'METHOD_NOT_ALLOWED');
+      const result=await db.from('qclub_state').select('state').eq('key','main').single();
+      if(result.error)throw new SecurityError(503,'CATALOGUE_UNAVAILABLE');
+      return res.status(200).json({tiers:(result.data.state.memberships||[]).map(({id,tier,price})=>({id,tier,price}))});
+    }
+    if(action.startsWith('subscription-')){
+      if(req.method!=='POST')throw new SecurityError(405,'METHOD_NOT_ALLOWED');
+      if(req.headers?.['sec-fetch-site']==='cross-site')throw new SecurityError(403,'CROSS_SITE_REQUEST');
+      await reserveCheckoutAttempt(db,req);
+      return res.status(200).json(await subscriptionAction(db,process.env,action.slice(13),req.body||{}));
+    }
     if(action==='menu'){
       if(req.method!=='GET')throw new SecurityError(405,'METHOD_NOT_ALLOWED');
       return res.status(200).json(await menu(db));

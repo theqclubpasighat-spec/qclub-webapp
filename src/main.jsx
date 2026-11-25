@@ -4,6 +4,10 @@ const previewPath = window.location.pathname === "/__v2-preview" ||
   window.location.pathname.startsWith("/__v2-preview/");
 
 async function boot() {
+  if (__QCLUB_ADMIN_PREVIEW__ && window.location.pathname === "/membership") {
+    await import("./checkout-preview/membership-autopay.jsx");
+    return;
+  }
   if (__QCLUB_ADMIN_PREVIEW__ && window.location.pathname === "/__checkout-preview") {
     await import("./checkout-preview/entry.jsx");
     return;

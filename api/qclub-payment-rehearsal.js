@@ -6,6 +6,8 @@ import { reconcileStalePayments } from '../src/server/payments/reconcile.js';
 import { timingSafeEqual } from 'node:crypto';
 import { authorizeEffectWorker,effectWorkerCommand,dispatchWhatsappEffect } from '../src/server/payments/effects.js';
 
+import { subscriptionWebhook, sandboxSubscriptions, syncSubscription } from '../src/server/payments/membership-autopay.js';
+
 export const config={api:{bodyParser:false}};
 
 async function rawBody(req){
@@ -45,6 +47,23 @@ export default async function handler(req,res) {
     action=actionOf(req);
     const raw=await rawBody(req);
     const db=createClient(config.url,config.key,{auth:{persistSession:false,autoRefreshToken:false}});
+    if(action==='subscription-webhook'){
+      return res.status(200).json(await subscriptionWebhook(db,process.env,raw,req.headers));
+    }
+    if(action==='subscription-reconcile'){
+      if(!reconcileAuthorized(req,process.env))throw new SecurityError(401,'RECONCILE_AUTH_REQUIRED');
+      const {after}=parseJson(raw||'{}');
+      let query=db.from('qclub_autopay').select('*').order('id').limit(10);
+      if(after)query=query.gt('id',after);
+      const rows=await query;
+      if(rows.error)throw new SecurityError(503,'SUBSCRIPTION_STORAGE_UNAVAILABLE');
+      const exceptions=[];
+      for(const sub of rows.data){
+        try{await syncSubscription(db,sandboxSubscriptions(process.env),sub);}
+        catch{exceptions.push(sub.id);}
+      }
+      return res.status(200).json({exceptions,next:rows.data.length===10?rows.data.at(-1).id:null});
+    }
     if(action==='webhook'){
       return res.status(200).json(await processCashfreeWebhook({
         db,
